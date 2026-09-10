@@ -12133,7 +12133,7 @@ function destroyStation(station) {
     closePlanetMenu();
   }
   if (!isPlayerKillCreditSource(station.lastDamageSource)) {
-    checkSystemFeatUnlocks();
+    // World destruction still persists; feat/standing unlocks stay player-credited only.
     setLog(`${station.name} destroyed.`);
     updateStats();
     return;
