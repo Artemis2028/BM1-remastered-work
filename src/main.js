@@ -11128,6 +11128,10 @@ function applyPlayerDamage(damage, color = '#ff7777', options = {}) {
   return { shieldDamage, hullDamage };
 }
 
+function isPlayerKillCreditSource(source = '') {
+  return source === 'player' || source === 'playerEscort';
+}
+
 function damageNpcShip(npc, damage, source = 'player', color = '#74d6ff', impactPoint = null) {
   ensureNpcCombatStats(npc);
   const amount = Math.max(0, Math.round(finiteNumber(damage, 0)));
@@ -11135,6 +11139,7 @@ function damageNpcShip(npc, damage, source = 'player', color = '#74d6ff', impact
   const shieldDamage = Math.min(npc.combatShields, amount);
   const hullDamage = Math.max(0, amount - shieldDamage);
   npc.lastShieldHitAt = performance.now();
+  npc.lastDamageSource = source;
   if (shieldDamage > 0) {
     const visual = getShipVisualProfile(npc.shipId);
     npc.combatShields = Math.max(0, npc.combatShields - shieldDamage);
@@ -11156,7 +11161,7 @@ function damageNpcShip(npc, damage, source = 'player', color = '#74d6ff', impact
     });
   }
   playImpactSound({ shieldDamage, hullDamage }, { cooldownKey: hullDamage > 0 ? `impact:ship-hull:${npc.id}` : `impact:ship-shield:${npc.id}`, volume: 0.92 });
-  if (source === 'player') {
+  if (isPlayerKillCreditSource(source)) {
     const now = performance.now();
     npc.attitude = 'hostile';
     npc.hostile = true;
@@ -11232,7 +11237,8 @@ function damageStation(station, damage, source = 'player', color = '#74d6ff', im
     });
   }
   playImpactSound({ shieldDamage, hullDamage }, { cooldownKey: hullDamage > 0 ? `impact:station-hull:${station.id}` : `impact:station-shield:${station.id}`, volume: 1.05 });
-  if (source === 'player') {
+  station.lastDamageSource = source;
+  if (isPlayerKillCreditSource(source)) {
     const now = performance.now();
     station.attitude = 'hostile';
     station.hostile = true;
@@ -11883,7 +11889,7 @@ function fireNpcWeapon(npc, target = playerWorldPosition(), targetType = 'player
       };
     const impact = getWeaponImpactPoint(targetType === 'player' ? null : target, origin, targetType);
     if (targetType === 'player') applyPlayerDamage(damage, shotColor, { impactPoint: impact });
-    else damageCombatTarget(target, damage, 'npc', shotColor, impact);
+    else damageCombatTarget(target, damage, isPlayerEscortNpc(npc) ? 'playerEscort' : 'npc', shotColor, impact);
     if (isCuttingBeamWeapon(weapon)) {
       addCuttingBeamEffects({
         weapon,
@@ -11915,6 +11921,7 @@ function fireNpcWeapon(npc, target = playerWorldPosition(), targetType = 'player
     heading,
     speed: weapon.speed || 8.5,
     owner: 'npc',
+    creditSource: isPlayerEscortNpc(npc) ? 'playerEscort' : 'npc',
     damage,
     color: shotColor,
     targetId: targetType === 'player' ? null : target.id || null,
@@ -12054,6 +12061,12 @@ function destroyNpcShip(npc) {
     updateStats();
     return;
   }
+  const playerCredited = isPlayerKillCreditSource(npc.lastDamageSource);
+  if (!playerCredited) {
+    setLog(`${getShipDisplayName(npc)} destroyed.`);
+    updateStats();
+    return;
+  }
   const reward = 18 + Math.floor(seeded(npc.seed + 99) * 35);
   state.latinum += reward;
   if (npc.faction) {
@@ -12117,6 +12130,12 @@ function destroyStation(station) {
     state.dockedStationId = null;
     closePlanetMenu();
   }
+  if (!isPlayerKillCreditSource(station.lastDamageSource)) {
+    checkSystemFeatUnlocks();
+    setLog(`${station.name} destroyed.`);
+    updateStats();
+    return;
+  }
   const reward = Math.max(65, Math.round((station.maxCombatHull || 100) * 0.18));
   state.latinum += reward;
   applyKillStanding(station.faction || getSystemFaction(state.currentPlanet), -6);
@@ -12167,7 +12186,7 @@ function updateProjectiles(frameScale = 1) {
         const impact = getWeaponImpactPoint(target, { x: shot.x, y: shot.y }, shot.targetType);
         shot.x = impact.x;
         shot.y = impact.y;
-        damageCombatTarget(target, shot.damage, shot.owner, shot.color || '#74d6ff', impact);
+        damageCombatTarget(target, shot.damage, shot.creditSource || shot.owner, shot.color || '#74d6ff', impact);
         if (shot.kind === 'torpedo' || shot.kind === 'mine') {
           addWeaponEffect({
             kind: 'burst',
@@ -12777,10 +12796,13 @@ function updateNpcShips(frameScale = 1) {
       }
     } else if (targetPlayer && !playerCloaked) {
       const player = playerWorldPosition();
+      const weaponRange = getNpcWeaponRange(npc);
       npc.destination = getNpcCombatManeuverPoint(npc, player, 'player', now);
       npc.destinationName = 'player';
       combatActive = true;
-      fireNpcWeapon(npc, player, 'player', now);
+      if (playerDistance <= weaponRange) {
+        fireNpcWeapon(npc, player, 'player', now);
+      }
     } else if (npc.hostile && stationTarget) {
       npc.destination = getNpcCombatManeuverPoint(npc, stationTarget.station, 'station', now);
       npc.destinationName = stationTarget.station.name || 'station target';
