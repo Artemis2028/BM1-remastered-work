@@ -10914,6 +10914,7 @@ function addProjectile({
   turnRate = 0,
   hitRadius = null,
   targetType = 'ship',
+  creditSource = owner,
 }) {
   const radians = heading * Math.PI / 180;
   state.projectiles.push({
@@ -10922,6 +10923,7 @@ function addProjectile({
     vx: Math.sin(radians) * speed,
     vy: -Math.cos(radians) * speed,
     owner,
+    creditSource,
     damage,
     color,
     targetId,
