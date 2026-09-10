@@ -12788,10 +12788,11 @@ function updateNpcShips(frameScale = 1) {
       npc.destinationName = 'player escort';
     } else if (defenseTarget) {
       const targetDistance = Math.hypot(defenseTarget.x - npc.x, defenseTarget.y - npc.y);
+      const weaponRange = getNpcWeaponRange(npc);
       npc.destination = getNpcCombatManeuverPoint(npc, defenseTarget, 'ship', now);
       npc.destinationName = `defend: ${getShipStats(defenseTarget.shipId).name}`;
       combatActive = true;
-      if (targetDistance <= NPC_WEAPON_RANGE) {
+      if (targetDistance <= weaponRange) {
         fireNpcWeapon(npc, defenseTarget, 'ship', now);
       }
     } else if (targetPlayer && !playerCloaked) {
@@ -12804,10 +12805,11 @@ function updateNpcShips(frameScale = 1) {
         fireNpcWeapon(npc, player, 'player', now);
       }
     } else if (npc.hostile && stationTarget) {
+      const weaponRange = getNpcWeaponRange(npc);
       npc.destination = getNpcCombatManeuverPoint(npc, stationTarget.station, 'station', now);
       npc.destinationName = stationTarget.station.name || 'station target';
       combatActive = true;
-      if (stationTarget.distance <= NPC_WEAPON_RANGE) {
+      if (stationTarget.distance <= weaponRange) {
         fireNpcWeapon(npc, stationTarget.station, 'station', now);
       }
     } else if (playerCloaked && npc.destinationName === 'player') {

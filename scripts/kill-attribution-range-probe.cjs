@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 /**
  * Static probes for manhunt fire-range gating and kill attribution.
- * Does not run the browser game — checks that the invariants remain encoded in src/main.js.
+ * Prefer the Playwright headless behavioral probe once added; this file is a
+ * cheap invariant check that does not boot Chromium.
+ *
+ * Phase 0 combat credit rules (intentional):
+ * - Last damaging source wins: latinum/standing/witnesses/feats only if
+ *   lastDamageSource is `player` or `playerEscort`.
+ * - Escort fire credits and blames the player (chosen escort-credit rule).
+ * - All NPC fire gates (player, defense target, station) use getNpcWeaponRange.
  */
 const fs = require('fs');
 const path = require('path');
@@ -38,4 +45,19 @@ if (failures.length) {
   for (const f of failures) console.error(' -', f);
   process.exit(1);
 }
+
+const defenseBlock = src.match(/else if \(defenseTarget\) \{[\s\S]*?\} else if \(targetPlayer/);
+assert(defenseBlock, 'could not locate defense-targeting combat block');
+if (defenseBlock) {
+  assert(/getNpcWeaponRange\(npc\)/.test(defenseBlock[0]), 'defense fire must use getNpcWeaponRange');
+  assert(!/targetDistance\s*<=\s*NPC_WEAPON_RANGE/.test(defenseBlock[0]), 'defense fire must not use flat NPC_WEAPON_RANGE');
+}
+
+const stationBlock = src.match(/else if \(npc\.hostile && stationTarget\) \{[\s\S]*?\} else if \(playerCloaked/);
+assert(stationBlock, 'could not locate station-targeting combat block');
+if (stationBlock) {
+  assert(/getNpcWeaponRange\(npc\)/.test(stationBlock[0]), 'station fire must use getNpcWeaponRange');
+  assert(!/stationTarget\.distance\s*<=\s*NPC_WEAPON_RANGE/.test(stationBlock[0]), 'station fire must not use flat NPC_WEAPON_RANGE');
+}
+
 console.log('PASS: kill attribution + manhunt fire-range invariants present in src/main.js');
