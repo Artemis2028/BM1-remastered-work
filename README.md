@@ -60,3 +60,12 @@ The included `.nojekyll` file prevents GitHub Pages from applying Jekyll process
 ## Controls
 
 The game is mouse-driven with keyboard shortcuts (WASD/arrows fly, H hail, M map, Tab/Left-Ctrl targeting, Shift+1..8 fleet orders, Q/C/P panels). Use the in-game panels for navigation, inventory, power distribution, settings, docking, ship purchase, missions, and the interstellar map.
+
+## Behavioral Probes
+
+`scripts/behavior-probe.mjs` boots the real game in headless Chromium and checks handoff acceptance scenarios. Dev-only.
+
+```bash
+npm i -D playwright && npx playwright install chromium
+npm run probe
+```

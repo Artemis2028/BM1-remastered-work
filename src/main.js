@@ -12133,7 +12133,8 @@ function destroyStation(station) {
     closePlanetMenu();
   }
   if (!isPlayerKillCreditSource(station.lastDamageSource)) {
-    // World destruction still persists; feat/standing unlocks stay player-credited only.
+    // No feat check here: system feats (e.g. Bajora's defenses down) unlock only when a
+    // player-credited kill (the player or a player escort) clears the last station.
     setLog(`${station.name} destroyed.`);
     updateStats();
     return;
