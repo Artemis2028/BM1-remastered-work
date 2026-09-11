@@ -36,6 +36,12 @@
  *     h. control and station owners for every planet resolve to the expected values before and
  *        after save/reload and after re-entry
  *     i. enemy defenders select and engage a player escort that attacks their installation
+ *   S4 security policies (Phase 2, two-mode ROE)
+ *     1 default equals Phase 1; 2 two holdings with different ROEs; 3 independent player;
+ *     4 foreign-defense independence; 5 station retaliation; 6 explicit-order precedence;
+ *     7 stale/unrelated raid evidence; 8 aggression scoped to the system, standing orders
+ *     outside holdings; 9 partial-override inheritance; 10 flag change; 11 loss/reclaim;
+ *     12 save/reload and legacy save; 13 UI authority
  *   S2 pursuit vs. firing range
  *     a. a manhunt hunter (standing <= -50) keeps pursuing far beyond weapon range
  *     b. with its weapon ready, it never fires there (>2 cooldowns)
@@ -79,6 +85,9 @@ window.__bm1 = {
   transferSystemControlToPlayer, transferSystemControlToFaction, updateFleetAttacks, getFleetAttackDefenders,
   raisePlayerFlag, calmHomeSystem, saveGame, loadGame, getSystemFaction, getSaveSlotKey,
   claimCurrentSystem, sidesAligned, isSystemControlled, hasFactionAccessAt, getClaimSystemStatus,
+  getEffectiveSecurityPolicy, getSecurityPolicyDefault, getSecurityPolicyOverride, getPlayerRoeAt,
+  setSecurityPolicyDefault, setSecurityPolicyOverride, clearSecurityPolicyOverride, fireStationWeapon,
+  renderPlanetMenu, DEFAULT_SECURITY_POLICY, markPlayerEscortAttackOrder,
   // Resolves when the main loop's already-scheduled frame runs and tries to schedule the next one
   // (it calls requestAnimationFrame(loop) at the end of every frame). After that nothing is pending.
   freezeLoop(timeoutMs = 2000) {
@@ -427,7 +436,8 @@ async function scenarioRunner() {
   // Same-flag raid: Klingon raiders against a Klingon-flagged player; the escorts (also Klingon-flagged)
   // are player-side, so they count as defenders and treat the raiders as targets.
   enterHome();
-  const kRaiders = [9315, 9316].map((id, k) => { const n = mk(id, 'klingon', { attitude: 'hostile', hostile: false, role: 'fleetAttack' }, pAt(900 + k * 80)); n.attackId = 'raid-sameflag'; return n; });
+  const kRaiders = [9315, 9316].map((id, k) => { const n = mk(id, 'klingon', { attitude: 'neutral', hostile: false, role: 'fleetAttack' }, pAt(900 + k * 80)); n.attackId = 'raid-sameflag'; return n; });
+  s.activeFleetAttack = { id: 'raid-sameflag', faction: 'klingon', systemIndex: home };
   const kEscort = mk(9317, s.playerFaction, { shipId: 2, attitude: 'friendly', hostile: false, role: 'playerEscort', fleetId: 'probe-escort' }, pAt(80));
   const kDef = B.getFleetAttackDefenders('klingon', kRaiders, performance.now());
   out.sameFlagRaid = {
@@ -435,6 +445,7 @@ async function scenarioRunner() {
     escortCounted: kDef.ships.some((n) => n.id === kEscort.id), raiderIsTarget: B.isPlayerEscortShipTarget(kRaiders[0]),
     raiderAttacksEscort: B.isNpcSystemAttacker(kRaiders[0], kEscort),
   };
+  s.activeFleetAttack = null;
 
   // S3e: real raid capture through updateFleetAttacks, then reclaim.
   enterHome();
@@ -673,6 +684,7 @@ async function scenarioRunner() {
   klStation.playerEscortOrderUntil = performance.now() + 60000;
   s.combatTargetId = null;
   const beforeAttack = { attacker: B.isNpcSystemAttacker(escortK, defenderK), target: B.getNpcDefenseTarget(defenderK)?.id || null };
+  out.stage = 'S3i-run';
   const escortPool0 = (escortK.combatShields || 0) + (escortK.combatHull || 0);
   let defenderSelected = false;
   for (let i = 0; i < 120 && !(defenderK.lastShotAt > READY); i++) { B.tick(1); await sleep(30); if (!defenderSelected && B.getNpcDefenseTarget(defenderK)?.id === escortK.id) defenderSelected = true; }
@@ -682,6 +694,200 @@ async function scenarioRunner() {
     defenderFiredAt: defenderK.lastAggressionTargetSide, defenderFired: defenderK.lastShotAt > READY,
     escortDamagedBy: escortK.lastDamageSource, escortHullDropped: ((escortK.combatShields || 0) + (escortK.combatHull || 0)) < escortPool0 || !!escortK.destroyed,
   };
+
+  // ---------- S4: security policies ----------
+  out.stage = 'S4';
+  clearNpcs(); clearShots(); s.activeFleetAttack = null;
+  B.transferSystemControlToPlayer(home);
+  s.securityPolicies = { default: null, systems: {} };
+  s.playerFlags = ['ferengi', 'klingon', 'terran'];
+  s.playerFaction = 'terran'; // at war with Klingons
+  s.fleetStance = 'attack';
+  const enterFresh = (i) => { delete s.systemStates[i]; enterKeep(i); clearNpcs(); clearShots(); s.activeFleetAttack = null; };
+  // Earlier cases (S3e, S3f2) destroyed the start-system fixtures; restore them so S4 exercises live installations.
+  for (const id of [govId, 'probe-foreign-vulcan', 'probe-foreign-ferengi', 'probe-private-1']) delete s.destroyedStations[id];
+  const esc = (id, at) => mk(id, s.playerFaction, { shipId: 2, attitude: 'friendly', hostile: false, role: 'playerEscort', fleetId: 'probe-escort' }, at);
+  const answers = (npc) => ({ target: B.isPlayerEscortShipTarget(npc), attacker: B.isNpcSystemAttacker(npc, 'player') });
+  enterFresh(home);
+  const escort4 = esc(9401, pAt(80));
+  // 1. default equals Phase 1
+  const eff = B.getEffectiveSecurityPolicy(home);
+  const raider4 = mk(9402, 'romulan', { attitude: 'hostile', hostile: true, role: 'fleetAttack' }, pAt(600)); raider4.attackId = 'raid-4'; s.activeFleetAttack = { id: 'raid-4', faction: 'romulan', systemIndex: home };
+  const hostile4 = mk(9403, 'ferengi', { attitude: 'hostile', hostile: true }, pAt(650));
+  const warFlag4 = mk(9404, 'klingon', { attitude: 'neutral', hostile: false, role: 'patrol' }, pAt(700));
+  const calm4 = mk(9405, 'neutral', { attitude: 'friendly', role: 'traffic' }, pAt(750));
+  out.policyDefault = {
+    effective: eff, matchesDefault: JSON.stringify(eff) === JSON.stringify(B.DEFAULT_SECURITY_POLICY),
+    raider: answers(raider4), hostile: answers(hostile4), warFlag: answers(warFlag4), calm: answers(calm4),
+  };
+  s.activeFleetAttack = null;
+  // 2. two holdings, two ROEs
+  B.transferSystemControlToPlayer(vulcan);
+  B.setSecurityPolicyOverride(home, { roe: 'return-fire' });
+  clearNpcs(); const escortH = esc(9411, pAt(80));
+  const klH = mk(9412, 'klingon', { attitude: 'neutral', hostile: false, role: 'patrol' }, pAt(500));
+  const homeCalm = answers(klH);
+  klH.lastShotAt = READY; B.fireNpcWeapon(klH, escortH, 'ship', performance.now());
+  const homeAfterFire = answers(klH);
+  enterFresh(vulcan); esc(9413, pAt(80));
+  const klV = mk(9414, 'klingon', { attitude: 'neutral', hostile: false, role: 'patrol' }, pAt(500));
+  out.twoHoldings = { homeRoe: B.getPlayerRoeAt(home), vulcanRoe: B.getPlayerRoeAt(vulcan), homeCalm, homeAfterFire, vulcanCalm: answers(klV) };
+  // 3. independent player
+  s.playerFaction = 'neutral';
+  enterFresh(home); B.clearSecurityPolicyOverride(home); const escortN = esc(9421, pAt(80));
+  const klN = mk(9422, 'klingon', { attitude: 'neutral', hostile: false, role: 'patrol' }, pAt(500));
+  const hostileN = mk(9423, 'ferengi', { attitude: 'hostile', hostile: true }, pAt(550));
+  const indDefend = { klingon: answers(klN), hostile: answers(hostileN) };
+  B.setSecurityPolicyOverride(home, { roe: 'return-fire' });
+  const indReturnFire = { hostile: answers(hostileN) };
+  hostileN.lastShotAt = READY; B.fireNpcWeapon(hostileN, escortN, 'ship', performance.now());
+  out.independentPlayer = { flag: s.playerFaction, defend: indDefend, returnFire: indReturnFire, afterFire: answers(hostileN) };
+  // 4. foreign-defense independence (both ROEs)
+  const foreignDefense = {};
+  for (const roe of ['defend', 'return-fire']) {
+    enterFresh(home); B.setSecurityPolicyOverride(home, { roe }); esc(9431, pAt(80));
+    const concession = findStation('probe-foreign-vulcan');
+    const escort44 = s.npcShips.find((n) => n.id === 9431);
+    const patrolF4 = mk(9432, 'ferengi', { attitude: 'friendly', role: 'patrol' }, pAt(400));
+    const indRaider = mk(9433, 'neutral', { attitude: 'neutral', hostile: false }, { x: concession.x + 200, y: concession.y });
+    B.ensureStationCombatStats(concession); concession.lastShotAt = 0; escort44.lastShotAt = READY;
+    indRaider.lastShotAt = READY; B.fireNpcWeapon(indRaider, concession, 'station', performance.now());
+    for (let i = 0; i < 80 && !(indRaider.lastDamageSource === 'station'); i++) { B.tick(1); await sleep(30); }
+    foreignDefense[roe] = {
+      concessionAlive: !concession.destroyed, concessionFired: (concession.lastShotAt || 0) > 0 && concession.lastAggressionTargetSide === B.getNpcSideId(indRaider),
+      raiderHitBy: indRaider.lastDamageSource, escortFiredAtRaider: escort44.lastAggressionTargetSide === B.getNpcSideId(indRaider),
+      raider: answers(indRaider), concessionTurret: B.isNpcSystemAttacker(indRaider, concession),
+      concessionOwner: B.getStationOwner(concession, home), patrolSide: B.getNpcSideId(patrolF4), patrolCommanded: B.isPlayerSideNpc(patrolF4) || (s.playerFleet || []).some((f) => f.id === patrolF4.id),
+    };
+  }
+  out.foreignDefense = foreignDefense;
+  // 5. station retaliation, 6. explicit-order precedence
+  enterFresh(home);
+  const hub = findStation('probe-foreign-ferengi'); const govS = findStation(govId);
+  const escortS = esc(9441, { x: hub.x + 150, y: hub.y });
+  hub.hostile = true;
+  B.setSecurityPolicyOverride(home, { roe: 'return-fire' });
+  const hubHostileReturnFire = B.isPlayerEscortStationTarget(hub);
+  B.ensureStationCombatStats(hub); hub.lastShotAt = READY; B.fireStationWeapon(hub, escortS, performance.now());
+  const hubAfterFire = B.isPlayerEscortStationTarget(hub);
+  B.setSecurityPolicyOverride(home, { roe: 'defend' });
+  const hubHostileDefend = B.isPlayerEscortStationTarget(hub);
+  hub.hostile = false; hub.lastAggressionAt = 0; hub.attitude = 'neutral';
+  B.setSecurityPolicyOverride(home, { roe: 'return-fire' });
+  const calmHubNoOrder = B.isPlayerEscortStationTarget(hub);
+  // Ordering escorts onto the player's own government station through the real order path: the
+  // order is refused (no timestamp, no hostility), it is never a target, and the escort never fires on it.
+  B.ensureStationCombatStats(govS); govS.lastDamageSource = null;
+  s.combatTargetId = govS.id; s.combatTargetType = 'station';
+  B.markPlayerEscortAttackOrder(govS);
+  const ownOrderRefused = !(govS.playerEscortOrderUntil > performance.now()) && govS.hostile === false && govS.attitude === 'friendly';
+  const ownOrdered = B.isPlayerEscortStationTarget(govS);
+  escortS.lastShotAt = READY; escortS.lastAggressionTargetSide = null;
+  for (let i = 0; i < 40; i++) { B.tick(1); await sleep(30); }
+  const ownNeverFiredOn = govS.lastDamageSource !== 'playerEscort' && escortS.lastAggressionTargetSide !== 'player';
+  s.combatTargetId = null; s.combatTargetType = 'ship';
+  // Ordered onto the calm foreign hub: a target under return-fire, and the escort does fire on it.
+  hub.playerEscortOrderUntil = performance.now() + 60000;
+  const calmHubOrdered = B.isPlayerEscortStationTarget(hub);
+  escortS.lastShotAt = READY;
+  for (let i = 0; i < 80 && hub.lastDamageSource !== 'playerEscort'; i++) { B.tick(1); await sleep(30); }
+  const hubFiredOn = hub.lastDamageSource === 'playerEscort';
+  hub.playerEscortOrderUntil = 0;
+  out.stationRoe = { hubAlive: !hub.destroyed, govAlive: !govS.destroyed, hubOwner: B.getStationOwner(hub, home), hubFiredAt: hub.lastAggressionTargetSide, hubHostileReturnFire, hubAfterFire, hubHostileDefend, calmHubNoOrder, calmHubOrdered, hubFiredOn, ownOrderRefused, ownOrdered, ownNeverFiredOn };
+  // 14. own defenses never turn on the player: escort attacks a same-flag foreign concession
+  enterFresh(home); s.playerFaction = 'ferengi'; B.setSecurityPolicyOverride(home, { roe: 'defend' });
+  const hubOwn = findStation('probe-foreign-ferengi'); const govOwn = findStation(govId);
+  const escortOwn = esc(9471, { x: hubOwn.x + 150, y: hubOwn.y });
+  const garrison = B.createNpcShip({ id: 9472, shipId: 1, faction: 'ferengi', attitude: 'friendly', hostile: false, seed: 9472, from: { x: govOwn.x + 120, y: govOwn.y }, role: 'playerFleet', fleetId: 'probe-garrison' });
+  B.ensureNpcCombatStats(garrison); s.npcShips.push(garrison);
+  const foreignPatrolF = mk(9473, 'ferengi', { attitude: 'friendly', role: 'patrol' }, pAt(450));
+  B.ensureStationCombatStats(hubOwn); B.ensureStationCombatStats(govOwn);
+  s.combatTargetId = hubOwn.id; s.combatTargetType = 'station'; // the player's selected target, as in the real flow
+  B.markPlayerEscortAttackOrder(hubOwn); // then "escorts, attack this station"
+  escortOwn.lastShotAt = READY;
+  for (let i = 0; i < 80 && hubOwn.lastDamageSource !== 'playerEscort'; i++) { B.tick(1); await sleep(30); }
+  const cachedGovOwn = (s.systemStates[home]?.stations || []).find((st) => st.id === govId);
+  out.ownDefenses = {
+    flag: s.playerFaction, hubOwner: B.getStationOwner(hubOwn, home), hubFlag: hubOwn.faction, hubAlive: !hubOwn.destroyed, hubHitByEscort: hubOwn.lastDamageSource === 'playerEscort',
+    hubTurnedHostile: hubOwn.hostile === true,
+    gov: { owner: B.getStationOwner(govOwn, home), hostile: govOwn.hostile, attitude: govOwn.attitude, firedAtPlayer: govOwn.lastAggressionTargetSide === 'player' },
+    cachedGov: { hostile: !!cachedGovOwn?.hostile, attitude: cachedGovOwn?.attitude },
+    garrison: { side: B.getNpcSideId(garrison), hostile: garrison.hostile, attitude: garrison.attitude, aggro: Boolean(garrison.playerAggroUntil) && garrison.playerAggroUntil > performance.now() },
+    foreignPatrolAlerted: foreignPatrolF.hostile === true,
+  };
+  s.playerFaction = 'neutral'; s.combatTargetId = null; s.combatTargetType = 'ship';
+  B.setSecurityPolicyOverride(home, { roe: 'return-fire' });
+  // 7. stale / unrelated raid evidence
+  clearNpcs(); const escortR = esc(9451, pAt(80));
+  const stale = mk(9452, 'ferengi', { attitude: 'neutral', hostile: false, role: 'fleetAttack' }, pAt(600)); stale.attackId = 'raid-elsewhere';
+  const staleNoAttack = answers(stale);
+  s.activeFleetAttack = { id: 'raid-elsewhere', faction: 'ferengi', systemIndex: vulcan };
+  const staleOtherSystem = answers(stale);
+  s.activeFleetAttack = { id: 'raid-elsewhere', faction: 'ferengi', systemIndex: home };
+  const raidHere = answers(stale);
+  s.activeFleetAttack = null;
+  out.raidEvidence = { roe: B.getPlayerRoeAt(home), staleNoAttack, staleOtherSystem, raidHere };
+  // 8. aggression scoped to this system; standing orders outside holdings
+  const remote = mk(9453, 'ferengi', { attitude: 'neutral', hostile: false }, pAt(650));
+  remote.lastAggressionAt = performance.now(); remote.lastAggressionSystemIndex = vulcan; remote.lastAggressionTargetSide = 'player';
+  const elsewhereAggression = answers(remote);
+  remote.lastAggressionSystemIndex = home;
+  const hereAggression = answers(remote);
+  B.setSecurityPolicyDefault({ roe: 'return-fire' });
+  B.transferSystemControlToFaction(vulcan, 'vulcan'); delete s.factionSystemOverrides[vulcan];
+  enterFresh(qonos); const escortQ = esc(9461, pAt(80));
+  const klQ = mk(9462, 'klingon', { attitude: 'neutral', hostile: false, role: 'patrol' }, pAt(500));
+  s.playerFaction = 'terran';
+  const abroadCalm = { roe: B.getPlayerRoeAt(qonos), held: B.isSystemControlled(qonos), ...answers(klQ) };
+  klQ.lastShotAt = READY; B.fireNpcWeapon(klQ, escortQ, 'ship', performance.now());
+  const abroadAfterFire = answers(klQ);
+  B.setSecurityPolicyDefault({ roe: 'defend' });
+  const abroadDefendCalm = answers(mk(9463, 'klingon', { attitude: 'neutral', hostile: false, role: 'patrol' }, pAt(700)));
+  out.aggressionScope = { elsewhereAggression, hereAggression, abroadCalm, abroadAfterFire, abroadDefendCalm };
+  // 9. partial-override inheritance
+  s.securityPolicies = { default: null, systems: {} };
+  B.setSecurityPolicyDefault({ roe: 'defend', access: { warFlag: 'challenge' } });
+  B.setSecurityPolicyOverride(home, { access: { independent: 'closed' } });
+  const partial1 = B.getEffectiveSecurityPolicy(home);
+  B.setSecurityPolicyOverride(home, { roe: 'return-fire' });
+  const partial2 = B.getEffectiveSecurityPolicy(home);
+  out.partialOverride = { partial1, partial2, storedOverride: B.getSecurityPolicyOverride(home) };
+  // 10. flag change
+  const policiesBeforeFlag = JSON.stringify(s.securityPolicies);
+  B.raisePlayerFlag('klingon');
+  out.flagPolicy = { same: JSON.stringify(s.securityPolicies) === policiesBeforeFlag, roeHome: B.getPlayerRoeAt(home), flag: s.playerFaction };
+  // 11. loss and reclamation
+  enterFresh(home);
+  B.transferSystemControlToFaction(home, 'romulan');
+  const lostPolicy = { effective: B.getEffectiveSecurityPolicy(home), retained: !!B.getSecurityPolicyOverride(home), roeApplied: B.getPlayerRoeAt(home), defaultRoe: B.getSecurityPolicyDefault().roe };
+  B.transferSystemControlToPlayer(home);
+  out.lossReclaim = { ...lostPolicy, reclaimedRoe: B.getEffectiveSecurityPolicy(home)?.roe };
+  // 12. save / reload, legacy
+  const beforeSave = JSON.stringify(s.securityPolicies);
+  const effBefore = JSON.stringify(B.getEffectiveSecurityPolicy(home));
+  B.saveGame(7); B.loadGame(7);
+  const afterLoad = { same: JSON.stringify(s.securityPolicies) === beforeSave, effSame: JSON.stringify(B.getEffectiveSecurityPolicy(home)) === effBefore };
+  const key7 = B.getSaveSlotKey(7); const raw7 = JSON.parse(localStorage.getItem(key7)); delete raw7.securityPolicies; localStorage.setItem(key7, JSON.stringify(raw7));
+  B.loadGame(7);
+  out.persistPolicy = { ...afterLoad, legacyDefault: JSON.stringify(B.getSecurityPolicyDefault()) === JSON.stringify(B.DEFAULT_SECURITY_POLICY), legacyNoOverride: !B.getSecurityPolicyOverride(home) };
+  // 13. UI authority
+  enterFresh(home);
+  s.docked = true; s.planetMenuOpen = true; s.dockMenuTab = 'security';
+  B.renderPlanetMenu();
+  const menu = document.getElementById('planet-menu');
+  const tabPresent = !!menu?.querySelector('[data-dock-tab="security"]');
+  menu?.querySelector('[data-security-roe="return-fire"]')?.click();
+  const uiOverride = B.getSecurityPolicyOverride(home)?.roe;
+  menu?.querySelector('[data-security-action="set-default"]')?.click();
+  const uiDefault = B.getSecurityPolicyDefault().roe;
+  menu?.querySelector('[data-security-action="use-default"]')?.click();
+  const uiCleared = !B.getSecurityPolicyOverride(home);
+  s.docked = false; s.planetMenuOpen = false;
+  B.transferSystemControlToFaction(qonos, 'klingon'); delete s.factionSystemOverrides[qonos];
+  enterFresh(qonos); s.docked = true; s.planetMenuOpen = true; s.dockMenuTab = 'services'; B.renderPlanetMenu();
+  const foreignTab = !!menu?.querySelector('[data-dock-tab="security"]');
+  s.docked = false; s.planetMenuOpen = false;
+  out.securityUi = { flag: s.playerFaction, tabPresent, uiOverride, uiDefault, uiCleared, foreignHeldByFlagFaction: B.getSystemControl(qonos).controller, foreignTab };
   B.render();
   }
   try {
@@ -760,6 +966,20 @@ try {
     ['S3j an alliance does not excuse a witnessed attack (Vulcan fires on Terran station)', g(r.alliedAggression).aligned && r.alliedAggression.attacker === false && r.alliedAggression.turretTarget === false && r.alliedAggression.firedAt === 'terran' && r.alliedAggression.attackerAfter && r.alliedAggression.turretTargetAfter && r.alliedAggression.patrolSelects],
     ['S3j fleet accounting follows the same rule: allied patrol and station count only after the attack', g(r.alliedAggression).fleet?.patrol === false && r.alliedAggression.fleet.station === false && r.alliedAggression.fleetAfter?.patrol === true && r.alliedAggression.fleetAfter.station === true],
     ['S3f2 a custom government\'s own stations block conquest; its concessions do not', g(r.customConquest).controller === 'Zzyx-Council' && r.customConquest.councilStations > 0 && r.customConquest.blockers.length === r.customConquest.councilStations && !r.customConquest.blockers.some((b) => b.includes('Concession') || b.includes('Private Dock')) && r.customConquest.blockedCanClaim === false && r.customConquest.clearedCanClaim === true && r.customConquest.concessionOwner === 'ferengi' && r.customConquest.privateOwner === 'private:probe-council-private'],
+    ['S4.1 with no policy set the effective policy is the default and answers match Phase 1', g(r.policyDefault).matchesDefault && r.policyDefault.raider?.target && r.policyDefault.raider.attacker && r.policyDefault.hostile?.target && r.policyDefault.warFlag?.target && r.policyDefault.warFlag.attacker && r.policyDefault.calm?.target === false && r.policyDefault.calm.attacker === false],
+    ['S4.2 two holdings: return-fire at home ignores a calm war-flag patrol until it fires; defend at Vulcan engages it', g(r.twoHoldings).homeRoe === 'return-fire' && r.twoHoldings.vulcanRoe === 'defend' && r.twoHoldings.homeCalm?.target === false && r.twoHoldings.homeCalm.attacker === false && r.twoHoldings.homeAfterFire?.target === true && r.twoHoldings.homeAfterFire.attacker === true && r.twoHoldings.vulcanCalm?.target === true],
+    ['S4.3 independent player: defend engages the hostile ship but not a visiting Klingon; return-fire waits for fire', g(r.independentPlayer).flag === 'neutral' && r.independentPlayer.defend?.klingon?.target === false && r.independentPlayer.defend.hostile?.target === true && r.independentPlayer.returnFire?.hostile?.target === false && r.independentPlayer.afterFire?.target === true],
+    ['S4.4 foreign-defense independence: the live Vulcan concession fires on its attacker under both ROEs; the player escort does not; sides and ownership unchanged', ['defend', 'return-fire'].every((k) => g(r.foreignDefense)[k]?.concessionAlive === true && r.foreignDefense[k].concessionFired === true && r.foreignDefense[k].raiderHitBy === 'station' && r.foreignDefense[k].escortFiredAtRaider === false && r.foreignDefense[k].raider?.target === false && r.foreignDefense[k].raider.attacker === false && r.foreignDefense[k].concessionTurret === true && r.foreignDefense[k].concessionOwner === 'vulcan' && r.foreignDefense[k].patrolSide === 'ferengi' && r.foreignDefense[k].patrolCommanded === false)],
+    ['S4.5 station retaliation: return-fire ignores a merely hostile station until it fires; defend does not', g(r.stationRoe).hubOwner === 'ferengi' && r.stationRoe.hubHostileReturnFire === false && r.stationRoe.hubFiredAt === 'player' && r.stationRoe.hubAfterFire === true && r.stationRoe.hubHostileDefend === true],
+    ['S4.6 explicit orders override ROE (escort fires on the ordered live foreign hub); an order on a live player-owned installation is refused, leaves it friendly, and it is never fired on', g(r.stationRoe).hubAlive && r.stationRoe.govAlive && r.stationRoe.calmHubNoOrder === false && r.stationRoe.calmHubOrdered === true && r.stationRoe.hubFiredOn === true && r.stationRoe.ownOrderRefused === true && r.stationRoe.ownOrdered === false && r.stationRoe.ownNeverFiredOn === true],
+    ['S4.14 attacking a same-flag foreign concession never turns player-owned stations, cached copies or the garrison against the player', g(r.ownDefenses).flag === 'ferengi' && r.ownDefenses.hubOwner === 'ferengi' && r.ownDefenses.hubFlag === 'ferengi' && r.ownDefenses.hubAlive && r.ownDefenses.hubHitByEscort && r.ownDefenses.hubTurnedHostile && r.ownDefenses.gov?.owner === 'player' && r.ownDefenses.gov.hostile === false && r.ownDefenses.gov.attitude === 'friendly' && r.ownDefenses.gov.firedAtPlayer === false && r.ownDefenses.cachedGov?.hostile === false && r.ownDefenses.garrison?.side === 'player' && r.ownDefenses.garrison.hostile === false && r.ownDefenses.garrison.attitude === 'friendly' && r.ownDefenses.garrison.aggro === false && r.ownDefenses.foreignPatrolAlerted === true],
+    ['S4.7 an attackId alone is not raid evidence; only a raid on this holding counts', g(r.raidEvidence).roe === 'return-fire' && r.raidEvidence.staleNoAttack?.target === false && r.raidEvidence.staleNoAttack.attacker === false && r.raidEvidence.staleOtherSystem?.target === false && r.raidEvidence.raidHere?.target === true && r.raidEvidence.raidHere.attacker === true],
+    ['S4.8 aggression counts only where it was seen; standing orders apply outside holdings', g(r.aggressionScope).elsewhereAggression?.target === false && r.aggressionScope.hereAggression?.target === true && r.aggressionScope.abroadCalm?.roe === 'return-fire' && r.aggressionScope.abroadCalm.held === false && r.aggressionScope.abroadCalm.target === false && r.aggressionScope.abroadAfterFire?.target === true && r.aggressionScope.abroadDefendCalm?.target === true],
+    ['S4.9 partial overrides merge by dimension without erasing other defaults', g(r.partialOverride).partial1?.roe === 'defend' && r.partialOverride.partial1.access?.warFlag === 'challenge' && r.partialOverride.partial1.access.independent === 'closed' && r.partialOverride.partial1.access.unknown === 'open' && r.partialOverride.partial1.access.other === 'open' && r.partialOverride.partial2?.roe === 'return-fire' && r.partialOverride.partial2.access?.independent === 'closed' && r.partialOverride.partial2.access.warFlag === 'challenge' && r.partialOverride.storedOverride?.access?.warFlag === undefined],
+    ['S4.10 raising another flag leaves policies untouched', g(r.flagPolicy).same === true && r.flagPolicy.flag === 'klingon' && r.flagPolicy.roeHome === 'return-fire'],
+    ['S4.11 a lost holding has no effective policy, keeps its override, uses standing orders; reclaim restores it', g(r.lossReclaim).effective === null && r.lossReclaim.retained === true && r.lossReclaim.roeApplied === r.lossReclaim.defaultRoe && r.lossReclaim.reclaimedRoe === 'return-fire'],
+    ['S4.12 policies survive save/reload; a legacy save loads with the default and no overrides', g(r.persistPolicy).same && r.persistPolicy.effSame && r.persistPolicy.legacyDefault && r.persistPolicy.legacyNoOverride],
+    ['S4.13 Security tab only where the side has authority; its buttons set, promote and clear policy', g(r.securityUi).tabPresent === true && r.securityUi.uiOverride === 'return-fire' && r.securityUi.uiDefault === 'return-fire' && r.securityUi.uiCleared === true && r.securityUi.foreignHeldByFlagFaction === 'klingon' && r.securityUi.flag === 'klingon' && r.securityUi.foreignTab === false],
     ['S3i enemy defenders select and engage a player escort attacking their installation', g(r.enemyDefense).beforeAttack?.attacker === false && r.enemyDefense.escortFiredAt === 'klingon' && r.enemyDefense.escortIsAttacker && r.enemyDefense.defenderSelectsEscort && r.enemyDefense.defenderFired && r.enemyDefense.defenderFiredAt === 'player' && r.enemyDefense.escortHullDropped],
   ];
   console.log(`behavior-probe: ${ROOT}`);
