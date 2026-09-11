@@ -118,6 +118,7 @@ const NPC_COMBAT_MANEUVER_MAX_MS = 3600;
 const NPC_COMBAT_MIN_STANDOFF = 170;
 const NPC_COMBAT_MAX_STANDOFF = 520;
 const NPC_SYSTEM_DEFENSE_RANGE = 980;
+const NPC_AGGRESSION_MEMORY_MS = 15000; // how long an observed attack keeps a ship classified as an attacker of that side
 const PLAYER_ESCORT_DEFENSE_RANGE = 980;
 const PLAYER_ESCORT_ORDER_MS = 18000;
 const MAX_PLAYER_ESCORT_SHIPS = 6;
@@ -495,6 +496,7 @@ const state = {
   stationPlans: [],
   playerFleet: [],
   controlledSystems: [],
+  stationOwners: {},
   visitedSystems: [],
   factionSystemOverrides: {},
   factionStanding: {},
@@ -1365,6 +1367,7 @@ function createNpcShip({
   fleetId = null,
   attackId = null,
   name = null,
+  sideId = null,
 } = {}) {
   const spawn = from || {
     x: state.systemStar.x + (seeded(seed + 1) - 0.5) * 1400,
@@ -1405,6 +1408,8 @@ function createNpcShip({
     role,
     fleetId,
     attackId,
+    sideId: sideId || deriveNpcSideId(faction, id),
+    identityLocked: true, // an explicitly constructed ship is never re-fitted on restoration
   };
 }
 
@@ -2258,7 +2263,11 @@ function ensureSystemState(systemIndex) {
     const typedStation = { ...station, stationTypeId };
     const visual = getStationVisualProfile(typedStation);
     const defenseProfile = getStationDefenseProfile(typedStation);
-    const stationFaction = station.faction || getSystemFaction(systemIndex);
+    // Owner comes from records/data, never from who controls the system; the flag follows the owner.
+    typedStation.dataFaction = station.dataFaction !== undefined ? station.dataFaction : (station.builtByPlayer ? undefined : station.faction);
+    const ownerId = getStationOwner(typedStation, systemIndex);
+    const owned = ownerId === PLAYER_SIDE;
+    const stationFaction = getStationFlagForOwner(ownerId);
     const destroyed = Boolean(state.destroyedStations[typedStation.id]);
     const stationPoint = getStationDefinitionWorldPoint(typedStation, star, planet);
     const runtimeStation = {
@@ -2266,7 +2275,9 @@ function ensureSystemState(systemIndex) {
       x: stationPoint.x,
       y: stationPoint.y,
       faction: stationFaction,
-      attitude: destroyed ? 'destroyed' : station.builtByPlayer ? 'friendly' : getFactionAttitude(stationFaction),
+      ownerId,
+      ownedByPlayer: owned,
+      attitude: destroyed ? 'destroyed' : owned ? 'friendly' : getFactionAttitude(stationFaction),
       hostile: false,
       destroyed,
       combatHull: null,
@@ -2367,18 +2378,31 @@ function applySystemState(systemIndex) {
   state.asteroids = s.asteroids;
   state.wormhole = s.wormhole ? { ...s.wormhole } : null;
   state.station = s.station ? { ...s.station } : null;
-  state.stations = (s.stations || []).map((station) => ({
-    ...station,
-    faction: station.faction || state.systemFaction,
-    attitude: station.attitude || state.systemAttitude,
-    hostile: Boolean(station.hostile),
-    destroyed: Boolean(station.destroyed),
-  }));
+  state.stations = (s.stations || []).map((station) => {
+    // Owner, flag and attitude are re-derived from current records on every entry, so a snapshot
+    // built under an earlier flag or holder cannot carry stale allegiance into the scene.
+    const ownerId = getStationOwner(station, systemIndex);
+    const destroyed = Boolean(station.destroyed);
+    const faction = getStationFlagForOwner(ownerId);
+    const attitude = destroyed ? 'destroyed' : ownerId === PLAYER_SIDE ? 'friendly' : getFactionAttitude(faction);
+    return { ...station, ownerId, ownedByPlayer: ownerId === PLAYER_SIDE, faction, attitude, hostile: Boolean(station.hostile), destroyed };
+  });
+  const control = getSystemControl(systemIndex);
   const trafficShips = s.npcShips.map((ship, index) => {
-    const patrolShipId = state.systemFaction !== 'neutral' && ship.role === 'patrol' && !ship.destroyed
+    // A ship that already has an identity keeps it (hull, faction, side) whoever holds the system
+    // now. Only a ship restored for the first time is fitted out for the current holder, and that
+    // identity is then written back to the snapshot so later entries cannot change it.
+    const locked = Boolean(ship.identityLocked) || (typeof ship.sideId === 'string' && ship.sideId.length > 0);
+    const patrolShipId = !locked && state.systemFaction !== 'neutral' && ship.role === 'patrol' && !ship.destroyed
       ? getNpcShipIdForFaction(state.systemFaction, ship.seed + 10)
       : ship.shipId;
-    const faction = getShipFaction(patrolShipId);
+    const faction = locked ? ship.faction : getShipFaction(patrolShipId);
+    const sideId = locked && ship.sideId
+      ? ship.sideId
+      : (isRecognizedFactionKey(control.controller) || control.controller === PLAYER_SIDE || control.controller === 'neutral' || !control.controller
+        ? deriveNpcSideId(faction, ship.id)
+        : (ship.role === 'patrol' ? control.polityId : deriveNpcSideId(faction, ship.id)));
+    if (!locked) Object.assign(ship, { shipId: patrolShipId, faction, sideId, identityLocked: true });
     const attitude = getFactionAttitude(faction);
     return {
       ...ship,
@@ -2390,6 +2414,7 @@ function applySystemState(systemIndex) {
         ? ship.name
         : generateShipName({ shipId: patrolShipId, faction, seed: ship.seed, role: ship.role || (index < 2 ? 'patrol' : 'traffic'), id: ship.id }),
       faction,
+      sideId,
       attitude,
       hostile: state.systemAttitude === 'hostile' && attitude !== 'friendly',
       scale: getShipVisualScale(patrolShipId) * getTrafficScaleMultiplier(ship.seed + 11),
@@ -3922,8 +3947,8 @@ const factionRelations = {
   romulan: { friendly: ['klingon'], hostile: ['dominion', 'cardassian', 'terran', 'vulcan', 'andorian', 'borg'] },
   cardassian: { friendly: ['dominion'], hostile: ['terran', 'romulan', 'klingon', 'vulcan', 'andorian', 'bajoran', 'borg'] },
   klingon: { friendly: ['romulan'], hostile: ['dominion', 'cardassian', 'terran', 'vulcan', 'andorian', 'gorn', 'borg'] },
-  dominion: { friendly: ['cardassian', 'breen'], hostile: ['terran', 'romulan', 'klingon', 'vulcan', 'ferengi', 'andorian', 'bajoran', 'hirogen', 'borg'] },
-  breen: { friendly: ['dominion'], hostile: ['terran', 'romulan', 'klingon', 'vulcan', 'ferengi', 'andorian', 'borg'] },
+  dominion: { friendly: ['cardassian'], hostile: ['terran', 'romulan', 'klingon', 'vulcan', 'ferengi', 'andorian', 'bajoran', 'hirogen', 'borg'] },
+  breen: { friendly: [], hostile: ['terran', 'romulan', 'klingon', 'vulcan', 'ferengi', 'andorian', 'borg'] },
   tholian: { friendly: [], hostile: ['dominion', 'cardassian', 'klingon', 'terran', 'pirate', 'gorn', 'suliban', 'borg'] },
   bajoran: { friendly: ['terran', 'vulcan', 'andorian'], hostile: ['dominion', 'cardassian', 'pirate', 'borg'] },
   ferengi: { friendly: [], hostile: ['dominion'] },
@@ -3933,7 +3958,29 @@ const factionRelations = {
   suliban: { friendly: [], hostile: ['terran', 'tholian', 'borg'] },
   pirate: { friendly: [], hostile: ['terran', 'ferengi', 'vulcan', 'romulan', 'cardassian', 'klingon', 'dominion', 'tholian', 'andorian', 'gorn', 'hirogen', 'suliban'] },
   borg: { friendly: [], hostile: ['terran', 'ferengi', 'vulcan', 'romulan', 'cardassian', 'klingon', 'dominion', 'tholian', 'bajoran', 'breen', 'sona', 'delpin', 'tarellian', 'promelli', 'andorian', 'gorn', 'hirogen', 'suliban', 'neutral', 'pirate'] },
+  // Phase 1 relationship contract: explicit empty lists mean "no declared alliance or enmity",
+  // not immunity, a ceasefire, or shared organization (neutral is a status, not a faction).
+  delpin: { friendly: [], hostile: [] },
+  promelli: { friendly: [], hostile: [] },
+  sona: { friendly: [], hostile: [] },
+  tarellian: { friendly: [], hostile: [] },
+  neutral: { friendly: [], hostile: [] },
 };
+
+const EMPTY_FACTION_RELATIONS = Object.freeze({ friendly: Object.freeze([]), hostile: Object.freeze([]) });
+const warnedRelationKeys = new Set();
+// Single accessor for the relation table. Unknown keys resolve to no declared relationship and
+// warn once, so a new faction key cannot silently inherit or lose behavior.
+function getFactionRelations(faction) {
+  const raw = String(faction || '').trim().toLowerCase();
+  if (!raw) return EMPTY_FACTION_RELATIONS;
+  if (Object.prototype.hasOwnProperty.call(factionRelations, raw)) return factionRelations[raw];
+  if (!warnedRelationKeys.has(raw)) {
+    warnedRelationKeys.add(raw);
+    console.warn(`[relations] no factionRelations entry for "${raw}"; treating as no declared relationships.`);
+  }
+  return EMPTY_FACTION_RELATIONS;
+}
 
 const shipHailLines = {
   friendly: [
@@ -3997,7 +4044,7 @@ function getFactionAttitude(faction = 'neutral') {
   if (faction === 'borg') return state.playerFaction === 'borg' ? 'friendly' : 'hostile';
   if (faction === 'pirate') return 'hostile';
   if (faction === state.playerFaction) return 'friendly';
-  const relation = factionRelations[state.playerFaction] || {};
+  const relation = getFactionRelations(state.playerFaction);
   if (relation.friendly?.includes(faction)) return 'friendly';
   if (relation.hostile?.includes(faction)) return 'hostile';
   return 'neutral';
@@ -4056,7 +4103,7 @@ function applyKillStanding(victimFaction, baseDelta) {
   adjustFactionStanding(victim, baseDelta);
   for (const key of Object.keys(factionRelations)) {
     if (key === victim) continue;
-    const rel = factionRelations[key] || {};
+    const rel = getFactionRelations(key);
     if ((rel.hostile || []).includes(victim)) adjustFactionStanding(key, Math.ceil(Math.abs(baseDelta) / 2), { silent: true });
     else if ((rel.friendly || []).includes(victim)) adjustFactionStanding(key, -1, { silent: true });
   }
@@ -4108,8 +4155,7 @@ function plantFlagForEmpire(faction) {
     return;
   }
   state.playerFlags = normalizePlayerFlags().filter((f) => f !== key);
-  if (!state.factionSystemOverrides || typeof state.factionSystemOverrides !== 'object') state.factionSystemOverrides = {};
-  state.factionSystemOverrides[state.currentPlanet] = key;
+  transferSystemControlToFaction(state.currentPlanet, key);
   if (sovereign !== 'neutral') adjustFactionStanding(sovereign, -8);
   adjustFactionStanding(key, 12);
   applySystemState(state.currentPlanet);
@@ -4432,10 +4478,14 @@ const BM1_GOVERNMENT_FACTIONS = {
   10: 'neutral', 11: 'tholian', 12: 'neutral', 13: 'neutral', 14: 'borg', 15: 'pirate', 16: 'dominion',
 };
 function getBaseSystemFaction(index = state.currentPlanet) {
+  return getBaseSystemOrigin(index).faction ?? 'neutral';
+}
+
+// Name/description heuristics for worlds without a mapped government ID. Returns null, never
+// a default, so an unrecognized world stays unknown instead of quietly becoming independent.
+function matchSystemFactionByName(index = state.currentPlanet) {
   const planet = state.planets[index] || {};
   const row = state.systemData[index] || [];
-  const gov = Number(planet.governmentId ?? row[1]);
-  if (Number.isFinite(gov) && BM1_GOVERNMENT_FACTIONS[gov] !== undefined) return BM1_GOVERNMENT_FACTIONS[gov];
   const name = String(planet.name || row[0] || '').toLowerCase();
   const desc = String(row[7] || '').toLowerCase();
   const text = `${name} ${desc}`;
@@ -4460,19 +4510,238 @@ function getBaseSystemFaction(index = state.currentPlanet) {
   if (name.includes('delpi')) return 'delpin';
   if (name.includes('tarellia')) return 'tarellian';
   if (name.includes('promel')) return 'promelli';
+  return null;
+}
+
+// The player's side is a stable political identity. The raised flag (state.playerFaction) is
+// the side's current broadcast allegiance and can change; the side does not.
+const PLAYER_SIDE = 'player';
+function getPlayerSide() { return PLAYER_SIDE; }
+function getPlayerFlag() { return normalizeFactionKey(state.playerFaction || 'neutral'); }
+
+// Original political identity of a system: a mapped government ID (an explicit 'neutral' there is
+// independence recorded in the data), else a name match, else unknown (null). Nothing here
+// invents ownership; gameplay fallbacks to 'neutral' happen only in getSystemFaction.
+function getBaseSystemOrigin(index = state.currentPlanet) {
+  const planet = state.planets[index] || {};
+  const row = state.systemData[index] || [];
+  const gov = Number(planet.governmentId ?? row[1]);
+  if (Number.isFinite(gov) && BM1_GOVERNMENT_FACTIONS[gov] !== undefined) {
+    return { faction: BM1_GOVERNMENT_FACTIONS[gov], source: 'government' };
+  }
+  const named = matchSystemFactionByName(index);
+  if (named) return { faction: named, source: 'name' };
+  return { faction: null, source: 'unknown' };
+}
+
+function isRecognizedFactionKey(key) {
+  return typeof key === 'string' && key !== 'neutral' && Boolean(factionNames[key]);
+}
+// Canonical polity identity: recognized faction keys and 'neutral' are lowercase; any other
+// (custom) ID is kept exactly as written, apart from surrounding whitespace.
+function canonicalPolityId(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+  if (lower === 'neutral' || isRecognizedFactionKey(lower) || lower === 'pirate' || lower === 'borg') return lower;
+  return raw;
+}
+
+// Resolves who holds a system, keeping the questions apart:
+//   origin      original political identity from data, or null when unknown
+//   controller  who holds it now: PLAYER_SIDE, a recognized faction key, 'neutral' for explicit
+//               independence, or a custom polity ID in canonical form (canonicalPolityId: kept
+//               exactly as written apart from surrounding whitespace; never folded to 'neutral')
+//   polityId    the distinct identity of the holding organization: the faction key, 'player', the
+//               custom ID, or polity:<index> so two independent worlds are never one owner
+//   allegiance  the flag flown there for gameplay: the player's flag when player-held, the faction
+//               key when a faction holds it, otherwise 'neutral'
+// Asset ownership is NOT derived here; see getStationOwner.
+function getSystemControl(index = state.currentPlanet) {
+  const i = Number(index);
+  const origin = getBaseSystemOrigin(i);
+  const playerControlled = (state.controlledSystems || []).some((entry) => Number(entry) === i);
+  const overrides = state.factionSystemOverrides || {};
+  const rawOverride = Object.prototype.hasOwnProperty.call(overrides, i) ? overrides[i] : undefined;
+  const hasOverride = rawOverride !== undefined && rawOverride !== null && String(rawOverride).trim() !== '';
+  let controller;
+  let controlSource;
+  if (playerControlled) {
+    controller = PLAYER_SIDE;
+    controlSource = 'player';
+  } else if (hasOverride) {
+    controller = canonicalPolityId(rawOverride);
+    controlSource = 'override';
+  } else {
+    controller = origin.faction;
+    controlSource = origin.source;
+  }
+  let polityId;
+  if (controller === PLAYER_SIDE) polityId = PLAYER_SIDE;
+  else if (isRecognizedFactionKey(controller)) polityId = controller;
+  else if (controller === 'neutral') polityId = `polity:${i}`;
+  else if (controller) polityId = controller;
+  else polityId = null;
+  let allegiance;
+  if (controller === PLAYER_SIDE) allegiance = getPlayerFlag();
+  else if (isRecognizedFactionKey(controller)) allegiance = controller;
+  else allegiance = 'neutral';
+  return { index: i, origin: origin.faction, originSource: origin.source, controller, controlSource, polityId, allegiance, playerControlled };
+}
+
+function isPlayerSideNpc(npc) {
+  return Boolean(npc && !npc.destroyed && (isPlayerEscortNpc(npc) || npc.role === 'playerFleet'));
+}
+
+// ---- Sides: who owns or commands a thing. 'neutral' is a status, never a side. ----
+// Ships: the player's side, else an explicit side/command identity carried by the ship (sideId,
+// set at construction and preserved through snapshots), else derived: a recognized faction, or a
+// per-ship identity for an independent ship.
+function deriveNpcSideId(faction, id) {
+  const key = canonicalPolityId(faction);
+  if (isRecognizedFactionKey(key) || key === 'pirate' || key === 'borg') return key;
+  return `ship:${id}`;
+}
+function getNpcSideId(npc) {
+  if (!npc) return null;
+  if (isPlayerSideNpc(npc)) return PLAYER_SIDE;
+  if (typeof npc.sideId === 'string' && npc.sideId) return npc.sideId;
+  return deriveNpcSideId(npc.faction, npc.id);
+}
+function sameSide(a, b) { return Boolean(a) && Boolean(b) && a === b; }
+function sidesAligned(a, b) {
+  if (sameSide(a, b)) return true;
+  return isRecognizedFactionKey(a) && isRecognizedFactionKey(b) && areFactionsAligned(a, b);
+}
+function sidesOpposed(a, b) {
+  return isRecognizedFactionKey(a) && isRecognizedFactionKey(b) && areFactionsOpposed(a, b);
+}
+
+// Owner identity of a station. Explicit records (capture, claim, construction) win; otherwise a
+// station with an explicit owner in the data keeps it (a 'neutral' data owner is a private
+// concession with its own identity); otherwise it is a government installation of the system's
+// original polity. Controlling a system does NOT make its installations yours; conquest transfers
+// eligible government installations explicitly (see transferSystemInstallations).
+function getStationDataOwner(station) {
+  if (!station) return null;
+  // Runtime stations carry dataFaction (captured at build); a bare definition carries its data
+  // faction in `faction`; a legacy runtime station without dataFaction is looked up by id.
+  const definition = station.dataFaction !== undefined
+    ? station
+    : ((state.stationDefinitions || []).find((entry) => entry.id === station.id) || station);
+  const dataFaction = definition.dataFaction !== undefined ? definition.dataFaction : definition.faction;
+  if (station.builtByPlayer) return null;
+  if (dataFaction === undefined || dataFaction === null || dataFaction === '') return null;
+  const key = canonicalPolityId(dataFaction);
+  if (isRecognizedFactionKey(key)) return key;
+  if (key === 'neutral') return `private:${station.id}`;
+  return key; // custom owner id, canonical form (kept exactly as written)
+}
+function getSystemGovernmentOwnerId(systemIndex) {
+  const origin = getBaseSystemOrigin(systemIndex);
+  if (isRecognizedFactionKey(origin.faction)) return origin.faction;
+  if (origin.faction === 'neutral') return `polity:${Number(systemIndex)}`;
+  return null; // unknown origin: unowned, nobody's side
+}
+function getStationOwner(station, systemIndex = station?.systemIndex ?? state.currentPlanet) {
+  if (!station) return null;
+  const recorded = state.stationOwners?.[station.id];
+  if (recorded !== undefined && recorded !== null) return recorded;
+  if (station.builtByPlayer) return PLAYER_SIDE;
+  const dataOwner = getStationDataOwner(station);
+  if (dataOwner) return dataOwner;
+  return getSystemGovernmentOwnerId(systemIndex);
+}
+function isPlayerOwnedStation(station, systemIndex = station?.systemIndex ?? state.currentPlanet) {
+  return getStationOwner(station, systemIndex) === PLAYER_SIDE;
+}
+function getStationFlagForOwner(ownerId) {
+  if (ownerId === PLAYER_SIDE) return getPlayerFlag();
+  if (isRecognizedFactionKey(ownerId)) return ownerId;
   return 'neutral';
+}
+// Re-derives owner, flag and attitude of a station from current records.
+function deriveStationOwnership(station, systemIndex) {
+  const ownerId = getStationOwner(station, systemIndex);
+  const owned = ownerId === PLAYER_SIDE;
+  const faction = getStationFlagForOwner(ownerId);
+  const attitude = station.destroyed ? 'destroyed' : owned ? 'friendly' : getFactionAttitude(faction);
+  return { ...station, ownerId, ownedByPlayer: owned, faction, attitude, hostile: owned ? false : Boolean(station.hostile) };
+}
+function refreshStationOwnership(systemIndex = state.currentPlanet) {
+  state.stations = (state.stations || []).map((station) => (station ? deriveStationOwnership(station, systemIndex) : station));
+}
+function refreshCachedStationOwnership(systemIndex = state.currentPlanet) {
+  const cached = state.systemStates?.[Number(systemIndex)];
+  if (!cached?.stations) return;
+  cached.stations = cached.stations.map((station) => (station ? deriveStationOwnership(station, systemIndex) : station));
+}
+// The side that defends a system: the player when the player holds it, else the holding polity.
+function getDefendingSideId(systemIndex = state.currentPlanet) {
+  const control = getSystemControl(systemIndex);
+  return control.playerControlled ? PLAYER_SIDE : control.polityId;
+}
+// Conquest transfers installations owned by one side to another; everything else keeps its owner.
+function transferSystemInstallations(systemIndex, fromOwnerId, toOwnerId) {
+  if (!fromOwnerId || !toOwnerId) return [];
+  if (!state.stationOwners || typeof state.stationOwners !== 'object') state.stationOwners = {};
+  const transferred = [];
+  for (const station of state.stationDefinitions || []) {
+    if (Number(station.systemIndex) !== Number(systemIndex)) continue;
+    if (getStationOwner(station, systemIndex) !== fromOwnerId) continue;
+    state.stationOwners[station.id] = toOwnerId;
+    transferred.push(station.id);
+  }
+  return transferred;
+}
+function transferSystemControlToPlayer(systemIndex = state.currentPlanet) {
+  const i = Number(systemIndex);
+  const before = getSystemControl(i);
+  const fromOwner = before.playerControlled ? null : before.polityId;
+  if (!state.controlledSystems.some((entry) => Number(entry) === i)) state.controlledSystems.push(i);
+  if (state.factionSystemOverrides) delete state.factionSystemOverrides[i];
+  const transferred = fromOwner ? transferSystemInstallations(i, fromOwner, PLAYER_SIDE) : [];
+  refreshCachedStationOwnership(i);
+  if (i === Number(state.currentPlanet)) refreshStationOwnership(i);
+  return transferred;
+}
+function transferSystemControlToFaction(systemIndex, faction) {
+  const i = Number(systemIndex);
+  const key = canonicalPolityId(faction);
+  if (!key) return [];
+  const before = getSystemControl(i);
+  const fromOwner = before.playerControlled ? PLAYER_SIDE : before.polityId;
+  state.controlledSystems = (state.controlledSystems || []).filter((entry) => Number(entry) !== i);
+  if (!state.factionSystemOverrides || typeof state.factionSystemOverrides !== 'object') state.factionSystemOverrides = {};
+  state.factionSystemOverrides[i] = key;
+  const toOwner = getSystemControl(i).polityId;
+  const transferred = (fromOwner && toOwner && fromOwner !== toOwner) ? transferSystemInstallations(i, fromOwner, toOwner) : [];
+  refreshCachedStationOwnership(i);
+  if (i === Number(state.currentPlanet)) refreshStationOwnership(i);
+  return transferred;
+}
+// Saves written before station ownership was recorded: installations of held systems were treated
+// as the holder's. Record that once so old saves keep the same answers.
+function migrateStationOwners() {
+  const owners = {};
+  const overrides = state.factionSystemOverrides || {};
+  for (const station of state.stationDefinitions || []) {
+    const i = Number(station.systemIndex);
+    if (station.builtByPlayer || getStationDataOwner(station)) continue;
+    if ((state.controlledSystems || []).some((entry) => Number(entry) === i)) owners[station.id] = PLAYER_SIDE;
+    else if (isRecognizedFactionKey(String(overrides[i] || '').toLowerCase())) owners[station.id] = String(overrides[i]).toLowerCase();
+  }
+  return owners;
 }
 
 function getSystemFaction(index = state.currentPlanet) {
-  if (state.controlledSystems.includes(Number(index))) return state.playerFaction || 'ferengi';
-  const override = state.factionSystemOverrides?.[Number(index)];
-  if (override && override !== 'neutral') return override;
-  return getBaseSystemFaction(index);
+  return getSystemControl(index).allegiance || 'neutral';
 }
 
 function getSystemAttitude(index = state.currentPlanet) {
-  if (state.controlledSystems.includes(Number(index))) return 'friendly';
-  return getFactionAttitude(getSystemFaction(index));
+  const control = getSystemControl(index);
+  if (control.playerControlled) return 'friendly';
+  return getFactionAttitude(control.allegiance || 'neutral');
 }
 
 const factionDefs = {
@@ -6415,7 +6684,7 @@ function isFactionShipStockEligible(shipFaction, localFaction) {
   if (!shipFaction || shipFaction === 'neutral') return true;
   if (!localFaction || localFaction === 'neutral') return true;
   if (shipFaction === localFaction) return true;
-  const relation = factionRelations[localFaction] || {};
+  const relation = getFactionRelations(localFaction);
   return Boolean(relation.friendly?.includes(shipFaction));
 }
 
@@ -6461,9 +6730,19 @@ function getShipyardStock(station = getCurrentDockedStation()) {
     .sort((a, b) => getShipPrice(a) - getShipPrice(b));
 }
 
+// Authority: does the player's side hold this system? Flying the same flag as the holder is not
+// control (see hasFactionAccessAt for the privileges a shared flag does grant).
 function isSystemControlled(systemIndex = state.currentPlanet) {
-  return state.controlledSystems.includes(Number(systemIndex))
-    || (state.playerFaction !== 'neutral' && getSystemFaction(systemIndex) === state.playerFaction);
+  return getSystemControl(systemIndex).playerControlled;
+}
+// Faction privileges: a world held by the faction whose flag the player currently flies extends
+// commercial/construction access (buying fleet ships, building private stations). It does not
+// make the world, its installations or its forces the player's.
+function hasFactionAccessAt(systemIndex = state.currentPlanet) {
+  const control = getSystemControl(systemIndex);
+  if (control.playerControlled) return true;
+  const flag = getPlayerFlag();
+  return isRecognizedFactionKey(flag) && control.controller === flag;
 }
 
 function markSystemVisited(systemIndex = state.currentPlanet) {
@@ -7143,7 +7422,7 @@ function getFleetShipCost(ship) {
 function canBuyFleetShip(shipId, systemIndex = state.currentPlanet) {
   const ship = state.shipStatsById[Number(shipId)];
   if (!ship || ship.assetType !== 'ship') return { ok: false, reason: 'Unavailable' };
-  if (!isSystemControlled(systemIndex)) return { ok: false, reason: 'Control system' };
+  if (!hasFactionAccessAt(systemIndex)) return { ok: false, reason: 'Control system' };
   if (getPlayerFleetShips(systemIndex).length >= MAX_PLAYER_FLEET_SHIPS_PER_SYSTEM) return { ok: false, reason: 'Fleet full' };
   const cost = getFleetShipCost(ship);
   if (state.latinum < cost) return { ok: false, reason: 'Need latinum' };
@@ -7377,7 +7656,7 @@ function addBuiltStationToCurrentSystem(builtStation) {
 function canBuildStationsHere() {
   return state.gameStarted
     && state.docked
-    && isSystemControlled(state.currentPlanet)
+    && hasFactionAccessAt(state.currentPlanet)
     && state.systemAttitude !== 'hostile';
 }
 
@@ -7414,18 +7693,10 @@ function getRebuildSystemStationsStatus(systemIndex = state.currentPlanet) {
   return { ok: true, reason: `Restore ${targets.length} ruined station${targets.length === 1 ? '' : 's'} under your control.`, targets, cost };
 }
 
-function assignSystemStationDefinitionsToPlayer(systemIndex = state.currentPlanet) {
-  for (const station of state.stationDefinitions) {
-    if (Number(station.systemIndex) === Number(systemIndex)) {
-      station.faction = state.playerFaction;
-      station.attitude = 'friendly';
-    }
-  }
-  for (const station of state.playerBuiltStations) {
-    if (Number(station.systemIndex) === Number(systemIndex)) {
-      station.faction = state.playerFaction;
-    }
-  }
+// Records the player as owner of specific installations (rebuilt or built by the player).
+function assignStationsToPlayer(stationIds = []) {
+  if (!state.stationOwners || typeof state.stationOwners !== 'object') state.stationOwners = {};
+  for (const id of stationIds) state.stationOwners[id] = PLAYER_SIDE;
 }
 
 function rebuildSystemStations() {
@@ -7440,7 +7711,7 @@ function rebuildSystemStations() {
   const cameraBeforeRebuild = { x: state.camera.x, y: state.camera.y };
   const rebuiltIds = new Set(status.targets.map((station) => station.id));
   for (const id of rebuiltIds) delete state.destroyedStations[id];
-  assignSystemStationDefinitionsToPlayer(state.currentPlanet);
+  assignStationsToPlayer([...rebuiltIds]);
   state.latinum -= status.cost.latinum;
   state.mylatinum = state.latinum;
   state.duranium -= status.cost.duranium;
@@ -7474,29 +7745,34 @@ function getSystemClaimCost(systemIndex = state.currentPlanet) {
   };
 }
 
-function isSystemClaimDefenseFaction(faction = 'neutral', systemIndex = state.currentPlanet) {
-  const sovereign = getSystemFaction(systemIndex);
-  if (!faction || faction === 'neutral' || faction === state.playerFaction) return false;
-  if (sovereign === 'neutral') return faction !== 'neutral' && faction !== state.playerFaction;
-  return faction === sovereign || areFactionsAligned(faction, sovereign);
-}
 
+const HOLDER_FORCE_ROLES = new Set(['patrol', 'occupationFleet', 'fleetAttack']);
+// What stands between the player and a claim: the holder's surviving military forces (by side and
+// role, so an occupation fleet counts and a visiting freighter does not) and installations owned
+// by the holder or its allies. Foreign concessions and private posts are not blockers; installations
+// hostile to the player are, whoever holds the system.
 function getSystemControlBlockers(systemIndex = state.currentPlanet) {
+  const control = getSystemControl(systemIndex);
+  const holderSide = control.playerControlled ? null : control.polityId;
+  // A world held by an organization (a recognized faction or a custom government): its own and
+  // allied installations stand in the way; a third party's concession does not, even if that third
+  // party dislikes the player. An independent or unknown world: whatever is hostile to the player.
+  const organizationHeld = Boolean(holderSide) && control.controller !== 'neutral' && control.controller !== null;
   const stationBlockers = state.stations.filter((station) => {
-    if (station.destroyed || station.builtByPlayer) return false;
-    const faction = station.faction || getSystemFaction(systemIndex);
-    if (isFactionSystemClaimTarget(systemIndex)) return isSystemClaimDefenseFaction(faction, systemIndex);
-    return faction !== state.playerFaction && getFactionAttitude(faction) === 'hostile';
+    if (station.destroyed) return false;
+    const owner = getStationOwner(station, systemIndex);
+    if (owner === PLAYER_SIDE) return false;
+    if (organizationHeld) return sidesAligned(owner, holderSide);
+    return Boolean(station.hostile) || station.attitude === 'hostile';
   }).map((station) => ({ type: 'station', name: station.name, faction: station.faction || getSystemFaction(systemIndex) }));
 
-  const patrolBlockers = state.npcShips.filter((npc) => {
-    if (npc.destroyed) return false;
-    if (!isFactionSystemClaimTarget(systemIndex)) return false;
-    if (npc.role !== 'patrol') return false;
-    return isSystemClaimDefenseFaction(npc.faction, systemIndex);
+  const forceBlockers = state.npcShips.filter((npc) => {
+    if (!npc || npc.destroyed || isPlayerSideNpc(npc)) return false;
+    if (!holderSide || !HOLDER_FORCE_ROLES.has(npc.role)) return false;
+    return sidesAligned(getNpcSideId(npc), holderSide);
   }).map((npc) => ({ type: 'patrol ship', name: getShipDisplayName(npc), faction: npc.faction }));
 
-  return [...stationBlockers, ...patrolBlockers];
+  return [...stationBlockers, ...forceBlockers];
 }
 
 function getClaimSystemStatus(systemIndex = state.currentPlanet) {
@@ -7601,31 +7877,17 @@ function claimCurrentSystem() {
     setLog(status.message);
     return;
   }
-  if (!state.controlledSystems.includes(state.currentPlanet)) {
-    state.controlledSystems.push(state.currentPlanet);
-  }
-  if (state.factionSystemOverrides) delete state.factionSystemOverrides[state.currentPlanet];
-  assignSystemStationDefinitionsToPlayer(state.currentPlanet);
+  // Claiming takes control and explicitly transfers the previous holder's government installations;
+  // foreign and private stations keep their owners.
+  transferSystemControlToPlayer(state.currentPlanet);
   const claimCost = getSystemClaimCost(state.currentPlanet);
   state.latinum = Math.max(0, state.latinum - claimCost.latinum);
   state.mylatinum = state.latinum;
   state.duranium = Math.max(0, state.duranium - claimCost.duranium);
   state.myduranium = state.duranium;
-  const systemState = state.systemStates[state.currentPlanet];
-  for (const station of state.stations) {
-    if (station.destroyed) continue;
-    station.faction = state.playerFaction;
-    station.attitude = 'friendly';
-    station.hostile = false;
-  }
-  if (systemState?.stations) {
-    for (const station of systemState.stations) {
-      if (station.destroyed) continue;
-      station.faction = state.playerFaction;
-      station.attitude = 'friendly';
-      station.hostile = false;
-    }
-  }
+  // Stations (runtime and cached) follow their recorded owners; nothing is re-flagged wholesale.
+  refreshStationOwnership(state.currentPlanet);
+  refreshCachedStationOwnership(state.currentPlanet);
   state.systemFaction = state.playerFaction;
   state.systemAttitude = 'friendly';
   playGameSound('uiConfirm', { cooldownKey: `claim:${state.currentPlanet}` });
@@ -7869,9 +8131,13 @@ function realignPlayerAssetsToFaction(faction = state.playerFaction) {
 
   state.systemFaction = getSystemFaction(state.currentPlanet);
   state.systemAttitude = getSystemAttitude(state.currentPlanet);
+  // Player-owned installations everywhere fly the new flag on entry (derived from records); the
+  // current scene is refreshed here. Foreign-owned stations are untouched.
   state.stations = (state.stations || []).map((station) => {
-    const stationFaction = station.builtByPlayer ? key : (station.faction || state.systemFaction);
-    const attitude = station.destroyed ? 'destroyed' : station.builtByPlayer ? 'friendly' : getFactionAttitude(stationFaction);
+    const ownerId = getStationOwner(station, state.currentPlanet);
+    const owned = ownerId === PLAYER_SIDE;
+    const stationFaction = getStationFlagForOwner(ownerId);
+    const attitude = station.destroyed ? 'destroyed' : owned ? 'friendly' : getFactionAttitude(stationFaction);
     return {
       ...station,
       faction: stationFaction,
@@ -8855,6 +9121,7 @@ function saveGame(slot = state.currentSaveSlot || 1) {
     playerWormholes: state.playerWormholes,
     playerFleet: state.playerFleet,
     controlledSystems: state.controlledSystems,
+    stationOwners: state.stationOwners || {},
     visitedSystems: state.visitedSystems,
     factionSystemOverrides: state.factionSystemOverrides,
     destroyedStations: state.destroyedStations,
@@ -8957,6 +9224,7 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   state.factionSystemOverrides = s.factionSystemOverrides && typeof s.factionSystemOverrides === 'object' ? s.factionSystemOverrides : {};
   state.destroyedStations = s.destroyedStations && typeof s.destroyedStations === 'object' ? s.destroyedStations : {};
   state.depletedAsteroids = s.depletedAsteroids && typeof s.depletedAsteroids === 'object' ? s.depletedAsteroids : {};
+  state.stationOwners = s.stationOwners && typeof s.stationOwners === 'object' ? { ...s.stationOwners } : null;
   state.controlledSystems = Array.isArray(s.controlledSystems)
     ? s.controlledSystems.map((index) => Number(index)).filter(Number.isFinite)
     : [state.currentPlanet];
@@ -8983,6 +9251,9 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   state.currentPlanet = Math.max(0, state.myplanet - 1);
   markSystemVisited(state.currentPlanet);
   syncPlayerBuiltStationDefinitions();
+  // Saves from before ownership records existed: derive them once from held systems, so the
+  // answers an old save gave keep holding, then record everything explicitly from here on.
+  if (!state.stationOwners) state.stationOwners = migrateStationOwners();
   applySystemState(state.currentPlanet);
   scheduleNextFleetAttack(performance.now() + 20000);
   if (!s.camera) setCameraNearPlanet();
@@ -11873,6 +12144,12 @@ function fireNpcWeapon(npc, target = playerWorldPosition(), targetType = 'player
   const cooldown = getScaledWeaponCooldown(npc.shipId, weapon, NPC_WEAPON_COOLDOWN_SCALE, NPC_WEAPON_FLOOR_SCALE);
   if (now - (npc.lastShotAt || 0) < cooldown) return;
   npc.lastShotAt = now;
+  // Observed aggression: firing on someone makes this ship an attacker of that side for a while,
+  // whatever flag it flies. Defenders classify relative to themselves (isNpcSystemAttacker).
+  npc.lastAggressionAt = now;
+  npc.lastAggressionTargetSide = targetType === 'player'
+    ? PLAYER_SIDE
+    : targetType === 'station' ? getStationOwner(target, state.currentPlanet) : getNpcSideId(target);
   const shotColor = getWeaponShotColor(npc.faction, weapon);
   const targetHeading = (Math.atan2(target.x - npc.x, -(target.y - npc.y)) * 180 / Math.PI + 360) % 360;
   const visualKind = getWeaponVisualKind(weapon);
@@ -12036,7 +12313,7 @@ function updateStationDefenses() {
       fireStationWeapon(station, playerWorldPosition(), now);
       continue;
     }
-    const hostiles = getLivingNpcShips().filter((npc) => isNpcSystemAttacker(npc));
+    const hostiles = getLivingNpcShips().filter((npc) => isNpcSystemAttacker(npc, station)); // relative to the station's own owner
     if (!hostiles.length) continue;
     const target = hostiles
       .map((npc) => ({ npc, distance: Math.hypot(npc.x - station.x, npc.y - station.y) }))
@@ -12234,17 +12511,17 @@ function updateProjectiles(frameScale = 1) {
 }
 
 function isNpcStationTarget(npc, station) {
-  if (!station || station.destroyed) return false;
-  if ((station.faction || 'neutral') === (npc.faction || 'neutral')) return false;
-  if (areFactionsAligned(station.faction || 'neutral', npc.faction || 'neutral')) return false;
-  return station.attitude !== 'destroyed';
+  if (!station || station.destroyed || station.attitude === 'destroyed') return false;
+  // Own or allied installations are never targets; two unrelated independents are not "the same".
+  const owner = getStationOwner(station, state.currentPlanet);
+  return !sidesAligned(getNpcSideId(npc), owner);
 }
 
 function areFactionsAligned(a = 'neutral', b = 'neutral') {
   if (!a || !b || a === 'neutral' || b === 'neutral') return false;
   if (a === b) return true;
-  const aRelations = factionRelations[a] || {};
-  const bRelations = factionRelations[b] || {};
+  const aRelations = getFactionRelations(a);
+  const bRelations = getFactionRelations(b);
   return Boolean(aRelations.friendly?.includes(b) || bRelations.friendly?.includes(a));
 }
 
@@ -12253,29 +12530,48 @@ function areFactionsOpposed(a = 'neutral', b = 'neutral') {
   if (a === b) return false;
   if (a === 'borg' || b === 'borg') return true;
   if (a === 'pirate' || b === 'pirate') return true;
-  const aRelations = factionRelations[a] || {};
-  const bRelations = factionRelations[b] || {};
+  const aRelations = getFactionRelations(a);
+  const bRelations = getFactionRelations(b);
   return Boolean(aRelations.hostile?.includes(b) || bRelations.hostile?.includes(a));
 }
 
+// Whether a ship may act as a defender in this system. Ownership and command are not changed by
+// this: a visiting foreign patrol that assists stays foreign-owned and outside the player's orders.
+// Whether it actually engages a given attacker is decided per attacker, relative to this ship
+// (isNpcSystemAttacker), from its own relationships and observed aggression, not the local flag.
 function isNpcSystemDefender(npc) {
-  if (!npc || npc.destroyed || !npc.faction || npc.faction === 'neutral' || npc.faction === 'pirate') return false;
-  if (isPlayerEscortNpc(npc)) return true;
-  const localFaction = state.systemFaction || getSystemFaction(state.currentPlanet);
-  if (npc.faction === localFaction || areFactionsAligned(npc.faction, localFaction)) return true;
-  if (state.controlledSystems.includes(Number(state.currentPlanet)) && (npc.faction === state.playerFaction || npc.attitude === 'friendly')) return true;
-  return areFactionsAligned(npc.faction, localFaction);
+  if (!npc || npc.destroyed) return false;
+  if (isPlayerSideNpc(npc)) return true;
+  const side = getNpcSideId(npc);
+  if (side === 'pirate') return false;
+  const defending = getDefendingSideId(state.currentPlanet);
+  if (defending && sidesAligned(side, defending)) return true; // the holder's own forces and allies
+  if (!isRecognizedFactionKey(side)) return false; // unrelated independents do not police other people's systems
+  return npc.role === 'patrol'; // military-role visitor: MAY assist; whether it engages is relative
 }
 
-function isNpcSystemAttacker(npc, defender = null) {
+// Attacker classification relative to a defender (or, with no defender, to the side holding the
+// system). Identity, relationships and observed aggression are separate inputs: own forces never
+// count as attackers of themselves; allies never do; anyone else counts if it was seen attacking
+// this side, is raiding the system, is at war with this side, or (for the player's side) is hostile.
+function isNpcSystemAttacker(npc, defender = null, now = performance.now()) {
   if (!npc || npc.destroyed) return false;
-  const localFaction = state.systemFaction || getSystemFaction(state.currentPlanet);
-  if (npc.faction === localFaction || areFactionsAligned(npc.faction, localFaction)) return false;
-  if (defender && ((npc.faction || 'neutral') === (defender.faction || 'neutral') || areFactionsAligned(npc.faction, defender.faction))) return false;
-  return npc.hostile
-    || npc.attitude === 'hostile'
-    || areFactionsOpposed(npc.faction, localFaction)
-    || (defender && areFactionsOpposed(npc.faction, defender.faction));
+  const attackerSide = getNpcSideId(npc);
+  const defenderSide = defender
+    ? (defender.stationTypeId ? getStationOwner(defender, state.currentPlanet) : getNpcSideId(defender))
+    : getDefendingSideId(state.currentPlanet);
+  if (!defenderSide) return false;
+  if (sameSide(attackerSide, defenderSide)) return false; // own forces are never attackers of themselves
+  const recentAggression = Boolean(npc.lastAggressionAt) && now - npc.lastAggressionAt < NPC_AGGRESSION_MEMORY_MS
+    && sidesAligned(npc.lastAggressionTargetSide, defenderSide);
+  if (recentAggression) return true; // a witnessed attack is not excused by an alliance
+  if (sidesAligned(attackerSide, defenderSide)) return false;
+  const systemSide = getDefendingSideId(state.currentPlanet);
+  const raidingThisSide = Boolean(npc.attackId) && systemSide && sidesAligned(systemSide, defenderSide);
+  const hostileToPlayer = defenderSide === PLAYER_SIDE && (Boolean(npc.hostile) || npc.attitude === 'hostile'
+    || (Boolean(npc.playerAggroUntil) && npc.playerAggroUntil > now));
+  return raidingThisSide || hostileToPlayer || sidesOpposed(attackerSide, defenderSide)
+    || (defenderSide === PLAYER_SIDE && sidesOpposed(attackerSide, getPlayerFlag()));
 }
 
 function getNpcDefenseTarget(defender) {
@@ -12307,21 +12603,23 @@ function isPlayerEscortNpc(npc) {
 }
 
 function isPlayerEscortShipTarget(npc, now = performance.now()) {
-  if (!npc || npc.destroyed || isPlayerEscortNpc(npc)) return false;
+  if (!npc || npc.destroyed || isPlayerSideNpc(npc)) return false;
   if (npc.playerEscortOrderUntil && npc.playerEscortOrderUntil > now) return true;
-  if (npc.faction === state.playerFaction || areFactionsAligned(npc.faction, state.playerFaction)) return false;
+  // No same-flag or same-status immunity: a hostile ship is a target whatever it flies.
   return Boolean(npc.hostile)
     || npc.attitude === 'hostile'
-    || npc.attackId
-    || (npc.playerAggroUntil && npc.playerAggroUntil > now)
-    || areFactionsOpposed(npc.faction, state.playerFaction)
-    || isNpcSystemAttacker(npc);
+    || Boolean(npc.attackId)
+    || (Boolean(npc.playerAggroUntil) && npc.playerAggroUntil > now)
+    || sidesOpposed(getNpcSideId(npc), getPlayerFlag())
+    || isNpcSystemAttacker(npc, null, now);
 }
 
 function isPlayerEscortStationTarget(station, now = performance.now()) {
   if (!station || station.destroyed) return false;
   if (station.playerEscortOrderUntil && station.playerEscortOrderUntil > now) return true;
-  if (station.faction === state.playerFaction || station.builtByPlayer || areFactionsAligned(station.faction, state.playerFaction)) return false;
+  // Only the player's own installations are protected; a hostile station is a target whatever flag
+  // it flies or whose ally owns it.
+  if (getStationOwner(station, state.currentPlanet) === PLAYER_SIDE) return false;
   return Boolean(station.hostile) || station.attitude === 'hostile';
 }
 
@@ -12527,19 +12825,36 @@ function spawnFleetAttack(systemIndex = state.currentPlanet, attackerFaction = c
 }
 
 function getFleetAttackDefenders(attackFaction = state.activeFleetAttack?.faction, attackers = [], now = performance.now()) {
-  const localFaction = state.systemFaction || getSystemFaction(state.currentPlanet);
-  const stationDefenders = state.stations.filter((station) => (
-    !station.destroyed
-    && station.faction !== attackFaction
-    && (station.faction === state.playerFaction || station.faction === localFaction || areFactionsAligned(station.faction, localFaction))
-  ));
+  const control = getSystemControl(state.currentPlanet);
+  const localFaction = control.allegiance || 'neutral';
+  const defendingSide = getDefendingSideId(state.currentPlanet);
+  const playerOwnsStationHere = state.stations.some((station) => !station.destroyed && getStationOwner(station, state.currentPlanet) === PLAYER_SIDE);
+  // Only the attacker's own side is excluded outright. An ally of the attacker is excluded by the
+  // relative rule unless the attackers were seen firing on it (isNpcSystemAttacker), so accounting
+  // agrees with what the ships and turrets actually do.
+  const opposesFleet = (defender) => attackers.length === 0 || attackers.some((attacker) => isNpcSystemAttacker(attacker, defender, now));
+  const stationDefenders = state.stations.filter((station) => {
+    if (station.destroyed) return false;
+    const owner = getStationOwner(station, state.currentPlanet);
+    if (!owner || sameSide(owner, attackFaction)) return false;
+    if (attackers.length > 0) return opposesFleet(station); // a station counts iff its turrets would engage these attackers
+    return !sidesAligned(owner, attackFaction)
+      && (sidesAligned(owner, defendingSide) || (owner === PLAYER_SIDE && (control.playerControlled || playerOwnsStationHere)));
+  });
+  // "May assist" is not "is defending against this attack": a ship counts only if it has a reason
+  // to oppose at least one of these attackers (relative classification), so a peaceful foreign
+  // patrol cannot hold a system against a fleet it has no quarrel with.
   const shipDefenders = state.npcShips.filter((npc) => (
     !npc.destroyed
-    && npc.faction !== attackFaction
+    && !sameSide(getNpcSideId(npc), attackFaction) // the raider's own side never defends against itself
+    && (attackers.length > 0 || !sidesAligned(getNpcSideId(npc), attackFaction))
     && isNpcSystemDefender(npc)
+    && opposesFleet(npc)
   ));
-  const playerDefending = state.controlledSystems.includes(Number(state.currentPlanet))
-    || state.playerFaction === localFaction
+  // The player counts as defending its own holdings, or a recognized ally's world; independence
+  // is a status, so an independent player is not automatically defending an independent world.
+  const playerDefending = control.playerControlled
+    || playerOwnsStationHere
     || areFactionsAligned(state.playerFaction, localFaction);
   const playerEngaged = attackers.some((npc) => distanceToPlayer(npc) <= NPC_PLAYER_INTERVENTION_RANGE * 1.8)
     || now - (state.lastPlayerShotAt || 0) < NPC_PLAYER_AGGRO_MS;
@@ -12577,8 +12892,7 @@ function updateFleetAttacks(now = performance.now()) {
     return;
   }
   if (now - state.fleetAttackControlSince < FLEET_ATTACK_CONTROL_DELAY_MS) return;
-  state.controlledSystems = state.controlledSystems.filter((index) => Number(index) !== Number(state.currentPlanet));
-  state.factionSystemOverrides[state.currentPlanet] = attack.faction;
+  transferSystemControlToFaction(state.currentPlanet, attack.faction);
   state.systemFaction = attack.faction;
   state.systemAttitude = getFactionAttitude(attack.faction);
   for (const npc of attackers) {
@@ -12628,6 +12942,9 @@ function syncAmbientTrafficVariant(npc) {
   systemShip.shipId = npc.shipId;
   systemShip.seed = npc.seed;
   systemShip.name = npc.name;
+  systemShip.faction = npc.faction;
+  systemShip.sideId = npc.sideId;
+  systemShip.identityLocked = true;
 }
 
 function beginAmbientTrafficArrival(npc, now = performance.now()) {
@@ -12658,6 +12975,7 @@ function beginAmbientTrafficArrival(npc, now = performance.now()) {
     shipId,
     scale: getShipVisualScale(shipId) * getTrafficScaleMultiplier(replacementSeed + 11),
     faction,
+    sideId: deriveNpcSideId(faction, npc.id),
     attitude,
     hostile: state.systemAttitude === 'hostile' && attitude !== 'friendly',
     name: generateShipName({ shipId, faction, seed: replacementSeed, role: npc.role, id: npc.id }),
@@ -16333,6 +16651,7 @@ function resetRunState() {
   state.playerWormholes = [];
   state.playerFleet = [];
   state.controlledSystems = [];
+  state.stationOwners = {};
   state.visitedSystems = [];
   state.factionSystemOverrides = {};
   state.destroyedStations = {};
@@ -16468,24 +16787,11 @@ function restartInEscapePod() {
 function isSpawnProtected(now = performance.now()) {
   return finiteNumber(state.spawnProtectionUntil, 0) > now;
 }
+// Arrival protection is personal: the player cannot be targeted for a short window (see
+// isSpawnProtected, honored by NPC targeting and station defenses). It does not delete hostile
+// fleets, erase their orders, change attitudes or ownership, or manufacture a ceasefire.
 function calmHomeSystem() {
-  const now = performance.now();
-  state.spawnProtectionUntil = now + 20000;
-  const local = getSystemFaction(state.currentPlanet);
-  state.npcShips = (state.npcShips || []).filter((npc) => {
-    if (!npc || npc.destroyed || isPlayerEscortNpc(npc)) return true;
-    if (areFactionsOpposed(npc.faction, local) || areFactionsOpposed(npc.faction, state.playerFaction)) return false;
-    npc.attitude = 'neutral';
-    npc.hostile = false;
-    npc.playerAggroUntil = 0;
-    npc.attackId = null;
-    return true;
-  });
-  for (const station of state.stations || []) {
-    if (!station || station.destroyed || station.builtByPlayer) continue;
-    station.attitude = 'neutral';
-    station.hostile = false;
-  }
+  state.spawnProtectionUntil = performance.now() + 20000;
 }
 function startWithFaction(key, options = {}) {
   const f = factionDefs[key];
@@ -16506,7 +16812,9 @@ function startWithFaction(key, options = {}) {
   state.myplanet = ((f.myplanet - 1) % state.planets.length) + 1;
   state.currentPlanet = Math.max(0, Math.min(state.planets.length - 1, state.myplanet - 1));
   markSystemVisited(state.currentPlanet);
-  state.controlledSystems = [state.currentPlanet];
+  state.controlledSystems = [];
+  state.stationOwners = {};
+  transferSystemControlToPlayer(state.currentPlanet); // the start system's government installations are the side's
   state.myantimatter = f.myantimatter;
   state.antimatter = f.myantimatter;
   state.mylatinum = f.mylatinum;

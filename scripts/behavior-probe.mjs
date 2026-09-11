@@ -17,6 +17,25 @@
  *        no feat and no Cardassian standing
  *     f. positive control for e: the player's own kill clearing the last Bajoran
  *        station still unlocks the feat and the +15 Cardassian standing
+ *   S3 political authority (Phase 1)
+ *     a. Breen and Dominion have no declared relationship either way; the five formerly missing
+ *        relation keys are present in the table as explicit empty lists; unknown keys warn once
+ *     b. independent player: escort and owned station engage a raider through ticks; a hostile
+ *        independent ship is a valid target and attacker; foreign-owned and private stations
+ *        inside the player's system keep their owners
+ *     c. visitors: a neutral trader never defends; a same-flag foreign patrol may assist a raid
+ *        defense while staying foreign-owned and outside the player's command; a same-flag
+ *        foreign vessel that fires on the player's station becomes an attacker and target
+ *     d. raising another flag: control stays the player's, owned installations take the new flag,
+ *        foreign-owned and private installations do not
+ *     e. real raid capture (updateFleetAttacks) transfers control and the player's installations
+ *        to the raider, not the foreign-owned station; reclaiming transfers them back
+ *     f. unknown origin stays unknown, a custom polity ID is preserved verbatim, explicit
+ *        independence is distinct per world and never the origin empire
+ *     g. arrival protection is personal: hostile fleet, orders, factions and control survive it
+ *     h. control and station owners for every planet resolve to the expected values before and
+ *        after save/reload and after re-entry
+ *     i. enemy defenders select and engage a player escort that attacks their installation
  *   S2 pursuit vs. firing range
  *     a. a manhunt hunter (standing <= -50) keeps pursuing far beyond weapon range
  *     b. with its weapon ready, it never fires there (>2 cooldowns)
@@ -54,6 +73,12 @@ window.__bm1 = {
   fireNpcWeapon, ensureStationCombatStats, ensureNpcCombatStats, getFactionStanding,
   playerWorldPosition, getNpcWeaponRange, getDefaultWeaponId, getWeapon,
   applySystemState, getSystemIndexByName,
+  getSystemControl, getSystemControlBlockers, getFactionRelations, areFactionsAligned, areFactionsOpposed, factionRelations,
+  isNpcSystemDefender, isNpcSystemAttacker, getPlayerEscortPriorityTarget, isPlayerEscortShipTarget, isPlayerEscortStationTarget,
+  isNpcStationTarget, getNpcDefenseTarget, getStationOwner, getNpcSideId, isPlayerSideNpc,
+  transferSystemControlToPlayer, transferSystemControlToFaction, updateFleetAttacks, getFleetAttackDefenders,
+  raisePlayerFlag, calmHomeSystem, saveGame, loadGame, getSystemFaction, getSaveSlotKey,
+  claimCurrentSystem, sidesAligned, isSystemControlled, hasFactionAccessAt, getClaimSystemStatus,
   // Resolves when the main loop's already-scheduled frame runs and tries to schedule the next one
   // (it calls requestAnimationFrame(loop) at the end of every frame). After that nothing is pending.
   freezeLoop(timeoutMs = 2000) {
@@ -123,9 +148,10 @@ async function loadPlaywright() {
 
 // Runs inside the page. Must stay self-contained (no closures over Node scope).
 async function scenarioRunner() {
+  const out = { setup: [] };
   const B = window.__bm1;
   const s = B.state;
-  const out = { setup: [] };
+  async function scenarioBody() {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const need = (cond, msg) => { if (!cond) out.setup.push(msg); return !!cond; };
   const READY = -1e9; // "weapon ready" that cannot depend on page uptime exceeding a scaled cooldown
@@ -142,6 +168,7 @@ async function scenarioRunner() {
   B.startWithFaction('ferengi');
   for (let i = 0; i < 50 && !(s.stations && s.stations.length); i++) await sleep(100);
   need(await B.freezeLoop(), 'animation loop did not acknowledge its final frame');
+  const startPlanet = s.currentPlanet;
   s.spawnProtectionUntil = 0;
   need(s.stations && s.stations.length > 0, 'start system has no stations');
 
@@ -156,6 +183,7 @@ async function scenarioRunner() {
     return npc;
   };
 
+  out.stage = 'S1a';
   // ---------- S1a: NPC-only ship kill ----------
   clearNpcs(); clearShots();
   const victimOfNpc = spawn(9001, 900);
@@ -185,6 +213,7 @@ async function scenarioRunner() {
     };
   }
 
+  out.stage = 'S1d';
   // ---------- S1d: player-escort projectile kill ----------
   clearNpcs(); clearShots();
   const target = spawn(9004, 320);
@@ -212,6 +241,7 @@ async function scenarioRunner() {
     destroyed: !!target.destroyed, latinumDelta: s.latinum - latinum, standingDelta: standing('klingon') - kl,
   };
 
+  out.stage = 'S1e';
   // ---------- S1e / S1f: Bajora feat ----------
   clearNpcs(); clearShots();
   const bajora = B.getSystemIndexByName('Bajora');
@@ -250,6 +280,7 @@ async function scenarioRunner() {
     }
   }
 
+  out.stage = 'S2';
   // ---------- S2: pursuit vs. firing range ----------
   clearNpcs(); clearShots();
   s.factionStanding = s.factionStanding || {};
@@ -284,7 +315,380 @@ async function scenarioRunner() {
   out.near = { distance: nearDistance, ...(await runPhase(nearDistance, 4000, true)) };
   s.stations = stationsAside;
   s.originalShipWeaponSlots[1] = savedSlots1;
+
+  out.stage = 'S3';
+  // ---------- S3: political authority ----------
+  clearNpcs(); clearShots();
+  s.factionStanding.klingon = 0;
+  const warnings = [];
+  const origWarn = console.warn;
+  console.warn = (...args) => { warnings.push(args.join(' ')); };
+  const rel = (k) => B.getFactionRelations(k);
+  rel('probe_unknown_key'); rel('probe_unknown_key');
+  const fiveKeys = ['delpin', 'promelli', 'sona', 'tarellian', 'neutral'];
+  out.relations = {
+    breenDominionAligned: B.areFactionsAligned('breen', 'dominion') || B.areFactionsAligned('dominion', 'breen'),
+    breenDominionOpposed: B.areFactionsOpposed('breen', 'dominion') || B.areFactionsOpposed('dominion', 'breen'),
+    breenFriendly: rel('breen').friendly.slice(), dominionFriendly: rel('dominion').friendly.slice(),
+    entriesPresent: fiveKeys.every((k) => Object.prototype.hasOwnProperty.call(B.factionRelations, k)),
+    explicitEmpty: fiveKeys.every((k) => B.factionRelations[k].friendly.length === 0 && B.factionRelations[k].hostile.length === 0),
+    unknownKeyWarnings: warnings.filter((w) => w.includes('probe_unknown_key')).length,
+  };
+  console.warn = origWarn;
+
+  // Fixtures in the start system: one foreign-owned (Vulcan) and one private (neutral) station,
+  // cloned from an existing definition so they render and fight like real ones.
+  const home = startPlanet;
+  const govDef = s.stationDefinitions.find((d) => Number(d.systemIndex) === home && !d.builtByPlayer && (d.faction === undefined || d.faction === null) && !s.destroyedStations[d.id]);
+  need(govDef, 'S3 fixture: no government station definition in start system');
+  const foreignDef = { ...govDef, id: 'probe-foreign-vulcan', name: 'Vulcan Science Concession', faction: 'vulcan', offset: { ...(govDef.offset || {}), x: (govDef.offset?.x || 0) + 260 } };
+  const privateDef = { ...govDef, id: 'probe-private-1', name: 'Independent Trade Post', faction: 'neutral', offset: { ...(govDef.offset || {}), x: (govDef.offset?.x || 0) - 260 } };
+  const ferengiDef = { ...govDef, id: 'probe-foreign-ferengi', name: 'Ferengi Commerce Hub', faction: 'ferengi', offset: { ...(govDef.offset || {}), y: (govDef.offset?.y || 0) + 260 } };
+  s.stationDefinitions.push(foreignDef, privateDef, ferengiDef);
+  const enterHome = () => { delete s.systemStates[home]; s.currentPlanet = home; s.myplanet = home + 1; s.selectedPlanet = home; B.applySystemState(home); s.spawnProtectionUntil = 0; clearNpcs(); clearShots(); };
+  const findStation = (id) => (s.stations || []).find((st) => st.id === id);
+  const govId = govDef.id;
+  const ownersNow = () => ({ gov: B.getStationOwner(findStation(govId), home), foreign: B.getStationOwner(findStation('probe-foreign-vulcan'), home), priv: B.getStationOwner(findStation('probe-private-1'), home) });
+  const pAt = (dx, dy = 0) => { const p = B.playerWorldPosition(); return { x: p.x + dx, y: p.y + dy }; };
+  const mk = (id, faction, opts, at) => { const n = B.createNpcShip({ id, shipId: 1, faction, attitude: 'neutral', hostile: false, seed: id, from: at, role: 'patrol', ...opts }); B.ensureNpcCombatStats(n); s.npcShips.push(n); return n; };
+
+  out.stage = 'S3b';
+  // S3b: independent player, owned station + escort vs a raider, driven through ticks.
+  s.playerFlags = ['ferengi', 'klingon'];
+  s.playerFaction = 'neutral';
+  s.fleetStance = 'attack';
+  enterHome();
+  const gov = findStation(govId);
+  const raider = mk(9301, 'klingon', { attitude: 'hostile', hostile: true }, { x: gov.x + 220, y: gov.y });
+  raider.lastShotAt = READY;
+  const escortI = mk(9302, s.playerFaction, { shipId: 2, attitude: 'friendly', hostile: false, role: 'playerEscort', fleetId: 'probe-escort' }, { x: gov.x + 120, y: gov.y + 60 });
+  escortI.lastShotAt = READY;
+  s.combatTargetId = null;
+  const pool = (n) => (n.combatShields || 0) + (n.combatHull || 0);
+  const prePool = pool(raider);
+  for (let i = 0; i < 80 && !(raider.lastDamageSource && (pool(raider) < prePool || raider.destroyed)); i++) { B.tick(1); await sleep(30); }
+  out.independent = {
+    control: B.getSystemControl(home), owners: ownersNow(), govFlag: gov.faction, govOwned: !!gov.ownedByPlayer,
+    foreignFlag: findStation('probe-foreign-vulcan').faction, foreignOwned: !!findStation('probe-foreign-vulcan').ownedByPlayer,
+    escortIsDefender: B.isNpcSystemDefender(escortI), raiderAttacksEscortSide: B.isNpcSystemAttacker(raider, escortI),
+    escortTargetsRaider: B.getPlayerEscortPriorityTarget(escortI)?.target?.id === raider.id,
+    raiderDamagedBy: raider.lastDamageSource, raiderHullDropped: pool(raider) < prePool || !!raider.destroyed,
+    escortFired: escortI.lastShotAt > READY, stationFired: (gov.lastShotAt || 0) > 0,
+  };
+  // hostile independent ship against independent player assets
+  clearNpcs(); clearShots();
+  const govLive = findStation(govId);
+  const hostileIndependent = mk(9303, 'neutral', { attitude: 'hostile', hostile: true }, { x: govLive.x + 200, y: govLive.y });
+  const escortI2 = mk(9304, s.playerFaction, { shipId: 2, attitude: 'friendly', hostile: false, role: 'playerEscort', fleetId: 'probe-escort' }, { x: govLive.x + 100, y: govLive.y });
+  out.hostileNeutral = {
+    escortTarget: B.isPlayerEscortShipTarget(hostileIndependent), attackerToEscort: B.isNpcSystemAttacker(hostileIndependent, escortI2),
+    canTargetStation: B.isNpcStationTarget(hostileIndependent, govLive), stationState: { destroyed: !!govLive.destroyed, attitude: govLive.attitude, owner: B.getStationOwner(govLive, home) },
+    sideId: B.getNpcSideId(hostileIndependent),
+  };
+
+  out.stage = 'S3c';
+  // S3c: visitors under the Ferengi flag.
+  s.playerFaction = 'ferengi'; enterHome();
+  const trader = mk(9305, 'neutral', { attitude: 'friendly', role: 'traffic' }, pAt(400));
+  const patrolF = mk(9306, 'ferengi', { attitude: 'friendly', role: 'patrol' }, pAt(500));
+  const pirate = mk(9307, 'pirate', { attitude: 'hostile', hostile: true, role: 'patrol' }, pAt(700));
+  pirate.attackId = 'raid-visitors';
+  const merchantF = mk(9308, 'ferengi', { attitude: 'friendly', role: 'traffic' }, pAt(450, 200));
+  const govNow = findStation(govId);
+  merchantF.lastShotAt = READY;
+  B.fireNpcWeapon(merchantF, govNow, 'station', performance.now());
+  const ferengiHub = findStation('probe-foreign-ferengi');
+  const hubCalm = B.isPlayerEscortStationTarget(ferengiHub);
+  ferengiHub.hostile = true;
+  const hubHostile = B.isPlayerEscortStationTarget(ferengiHub);
+  ferengiHub.hostile = false;
+  out.visitors = {
+    playerControlled: B.getSystemControl(home).playerControlled,
+    sameFlagStation: { owner: B.getStationOwner(ferengiHub, home), flag: ferengiHub.faction, targetWhenCalm: hubCalm, targetWhenHostile: hubHostile },
+    traderDefends: B.isNpcSystemDefender(trader),
+    patrolMayAssist: B.isNpcSystemDefender(patrolF), patrolEngagesPirate: B.getNpcDefenseTarget(patrolF)?.id === pirate.id,
+    patrolOwnerUnchanged: patrolF.faction === 'ferengi' && B.getNpcSideId(patrolF) === 'ferengi' && !B.isPlayerSideNpc(patrolF),
+    merchantAttacker: B.isNpcSystemAttacker(merchantF, null), merchantEscortTarget: B.isPlayerEscortShipTarget(merchantF),
+    merchantAggressionSide: merchantF.lastAggressionTargetSide,
+  };
+
+  out.stage = 'S3d';
+  // S3d: raise another flag; owners must not move, only the flag on owned installations.
+  B.raisePlayerFlag('klingon');
+  enterHome();
+  out.flagChange = {
+    playerFaction: s.playerFaction, control: B.getSystemControl(home), owners: ownersNow(),
+    govFlag: findStation(govId).faction, govOwned: !!findStation(govId).ownedByPlayer,
+    foreignFlag: findStation('probe-foreign-vulcan').faction, foreignOwned: !!findStation('probe-foreign-vulcan').ownedByPlayer,
+    privFlag: findStation('probe-private-1').faction, privOwned: !!findStation('probe-private-1').ownedByPlayer,
+  };
+
+  out.stage = 'S3e';
+  // Same-flag raid: Klingon raiders against a Klingon-flagged player; the escorts (also Klingon-flagged)
+  // are player-side, so they count as defenders and treat the raiders as targets.
+  enterHome();
+  const kRaiders = [9315, 9316].map((id, k) => { const n = mk(id, 'klingon', { attitude: 'hostile', hostile: false, role: 'fleetAttack' }, pAt(900 + k * 80)); n.attackId = 'raid-sameflag'; return n; });
+  const kEscort = mk(9317, s.playerFaction, { shipId: 2, attitude: 'friendly', hostile: false, role: 'playerEscort', fleetId: 'probe-escort' }, pAt(80));
+  const kDef = B.getFleetAttackDefenders('klingon', kRaiders, performance.now());
+  out.sameFlagRaid = {
+    playerFlag: s.playerFaction, raiderFlag: kRaiders[0].faction, escortFlag: kEscort.faction, escortSide: B.getNpcSideId(kEscort),
+    escortCounted: kDef.ships.some((n) => n.id === kEscort.id), raiderIsTarget: B.isPlayerEscortShipTarget(kRaiders[0]),
+    raiderAttacksEscort: B.isNpcSystemAttacker(kRaiders[0], kEscort),
+  };
+
+  // S3e: real raid capture through updateFleetAttacks, then reclaim.
+  enterHome();
+  for (const st of (s.stations || [])) { if (B.getStationOwner(st, home) === 'player' && !st.destroyed) { B.ensureStationCombatStats(st); B.damageCombatTarget(st, 999999, 'npc'); } }
+  const attackers = [9311, 9312].map((id, k) => { const n = mk(id, 'romulan', { attitude: 'hostile', hostile: true, role: 'fleetAttack' }, pAt(2000 + k * 100)); n.attackId = 'raid-real'; return n; });
+  // A peaceful Ferengi patrol (no quarrel with Romulans) is present the whole time; it must not
+  // count as a defender against this fleet, and must survive the capture unchanged.
+  const bystander = mk(9313, 'ferengi', { attitude: 'friendly', role: 'patrol' }, pAt(600, -300));
+  s.activeFleetAttack = { id: 'raid-real', faction: 'romulan', systemIndex: home };
+  s.nextFleetAttackAt = performance.now() + 1e9;
+  s.lastPlayerShotAt = READY;
+  s.fleetAttackControlSince = performance.now() - 30000;
+  const defendersWithConcession = B.getFleetAttackDefenders('romulan', attackers, performance.now());
+  const concessionHolds = { stations: defendersWithConcession.stations.map((st) => st.id), ships: defendersWithConcession.ships.length };
+  B.updateFleetAttacks(performance.now());
+  const stillPlayerWhileConcessionStands = B.getSystemControl(home).controller;
+  // The Romulans reduce the Vulcan concession too (it was shooting at them); now nothing engages the fleet.
+  const concessionStation = findStation('probe-foreign-vulcan');
+  B.ensureStationCombatStats(concessionStation); B.damageCombatTarget(concessionStation, 999999, 'npc');
+  s.fleetAttackControlSince = performance.now() - 30000;
+  const defendersAtCapture = B.getFleetAttackDefenders('romulan', attackers, performance.now());
+  B.updateFleetAttacks(performance.now());
+  const lost = B.getSystemControl(home);
+  const ownersLost = ownersNow();
+  const attackersAfter = attackers.map((n) => ({ faction: n.faction, role: n.role }));
+  const stationsLostRuntime = findStation(govId);
+  const bystanderAfterCapture = { faction: bystander.faction, side: B.getNpcSideId(bystander), alive: !bystander.destroyed, defends: B.isNpcSystemDefender(bystander), targetsFleet: B.getNpcDefenseTarget(bystander)?.id || null };
+  // The surviving occupation fleet must block reclamation; the Vulcan concession, private post and the
+  // Ferengi visitor must not. Then the occupation is destroyed and the real Claim button is used.
+  s.docked = true; s.latinum = 1e6; s.duranium = 1e6;
+  const blockedStatus = B.getClaimSystemStatus(home);
+  const blockedBy = B.getSystemControlBlockers(home);
+  B.claimCurrentSystem();
+  const stillLost = B.getSystemControl(home).controller;
+  for (const n of attackers) B.damageCombatTarget(n, 999999, 'npc');
+  const clearedStatus = B.getClaimSystemStatus(home);
+  B.claimCurrentSystem();
+  const reclaimed = B.getSystemControl(home);
+  const cachedGov = (s.systemStates[home]?.stations || []).find((st) => st.id === govId);
+  const cachedForeign = (s.systemStates[home]?.stations || []).find((st) => st.id === 'probe-foreign-vulcan');
+  const claimRuntime = { govFlag: findStation(govId)?.faction, govOwner: B.getStationOwner(findStation(govId), home), foreignFlag: findStation('probe-foreign-vulcan')?.faction, foreignOwner: B.getStationOwner(findStation('probe-foreign-vulcan'), home), foreignAttitude: findStation('probe-foreign-vulcan')?.attitude };
+  const claimCache = { govFlag: cachedGov?.faction, foreignFlag: cachedForeign?.faction, foreignOwned: !!cachedForeign?.ownedByPlayer };
+  out.reconquest = {
+    concessionHolds, stillPlayerWhileConcessionStands,
+    capturePreconditions: { stations: defendersAtCapture.stations.length, ships: defendersAtCapture.ships.length, player: defendersAtCapture.player },
+    lostController: lost.controller, ownersLost, govFlagLost: stationsLostRuntime?.faction, govOwnedLost: !!stationsLostRuntime?.ownedByPlayer,
+    attackersAfter, bystanderAfterCapture,
+    reclaimBlocked: { canClaim: blockedStatus.canClaim, blockers: blockedBy.map((b) => `${b.type}:${b.faction}`), stillLost, clearedCanClaim: clearedStatus.canClaim },
+    reclaimedController: reclaimed.controller, ownersReclaimed: ownersNow(), govFlagReclaimed: findStation(govId).faction, claimRuntime, claimCache,
+  };
+  s.docked = false;
+
+  out.stage = 'S3f';
+  // S3f: unknown origin, custom polity, distinct independence.
+  const earth = B.getSystemIndexByName('Earth');
+  const vulcan = B.getSystemIndexByName('Vulcan');
+  s.planets.push({ name: 'Zzyx Prime', governmentId: 99, x: 10, y: 10, index: s.planets.length + 1 });
+  const zz = s.planets.length - 1;
+  const unknown = B.getSystemControl(zz);
+  s.factionSystemOverrides[zz] = 'Zzyx-Council';
+  const custom = B.getSystemControl(zz);
+  const polityShipA = B.createNpcShip({ id: 9341, shipId: 1, faction: 'neutral', seed: 1, from: pAt(300), role: 'patrol', sideId: 'Zzyx-Council' });
+  const polityShipB = B.createNpcShip({ id: 9342, shipId: 3, faction: 'neutral', seed: 2, from: pAt(350), role: 'traffic', sideId: 'Zzyx-Council' });
+  const loneShip = B.createNpcShip({ id: 9343, shipId: 3, faction: 'neutral', seed: 3, from: pAt(400), role: 'traffic' });
+  const polityStationDef = { ...govDef, id: 'probe-zzyx-station', systemIndex: zz, faction: 'Zzyx-Council' };
+  out.customPolity = {
+    controller: custom.controller, polityId: custom.polityId,
+    shipSides: [B.getNpcSideId(polityShipA), B.getNpcSideId(polityShipB), B.getNpcSideId(loneShip)],
+    stationOwner: B.getStationOwner(polityStationDef, zz),
+    shipsAligned: B.sidesAligned(B.getNpcSideId(polityShipA), B.getNpcSideId(polityShipB)),
+    shipStationAligned: B.sidesAligned(B.getNpcSideId(polityShipA), B.getStationOwner(polityStationDef, zz)),
+    loneAligned: B.sidesAligned(B.getNpcSideId(loneShip), B.getNpcSideId(polityShipA)),
+    stationOwnedByPolity: B.getStationOwner(polityStationDef, zz) === custom.polityId,
+  };
+  s.factionSystemOverrides[earth] = 'neutral';
+  s.factionSystemOverrides[vulcan] = 'neutral';
+  const earthI = B.getSystemControl(earth); const vulcanI = B.getSystemControl(vulcan);
+  out.identity = {
+    unknown: { origin: unknown.origin, originSource: unknown.originSource, controller: unknown.controller, polityId: unknown.polityId },
+    custom: { controller: custom.controller, polityId: custom.polityId, allegiance: custom.allegiance },
+    earth: { origin: earthI.origin, controller: earthI.controller, polityId: earthI.polityId, allegiance: B.getSystemFaction(earth) },
+    distinctPolities: earthI.polityId !== vulcanI.polityId && vulcanI.controller === 'neutral',
+  };
+  delete s.factionSystemOverrides[zz]; delete s.factionSystemOverrides[vulcan]; s.planets.pop();
+
+  out.stage = 'S3g';
+  // S3g: arrival protection is personal.
+  enterHome();
+  const fleet = [9321, 9322].map((id, k) => { const n = mk(id, 'romulan', { attitude: 'hostile', hostile: true, role: 'fleetAttack' }, pAt(700 + k * 80)); n.attackId = 'raid-probe'; return n; });
+  const visitorBefore = mk(9323, 'vulcan', { attitude: 'neutral', role: 'traffic' }, pAt(900));
+  const controlBefore = JSON.stringify(B.getSystemControl(home));
+  const stationAttBefore = (s.stations || []).map((st) => st.attitude).join(',');
+  B.calmHomeSystem();
+  out.arrival = {
+    protectionSet: s.spawnProtectionUntil > performance.now(),
+    fleetSurvived: fleet.every((n) => s.npcShips.includes(n) && !n.destroyed),
+    ordersKept: fleet.every((n) => n.attackId === 'raid-probe' && n.hostile === true && n.attitude === 'hostile'),
+    factionsKept: fleet.every((n) => n.faction === 'romulan') && visitorBefore.faction === 'vulcan',
+    controlUnchanged: JSON.stringify(B.getSystemControl(home)) === controlBefore,
+    stationAttitudesUnchanged: (s.stations || []).map((st) => st.attitude).join(',') === stationAttBefore,
+  };
+
+  out.stage = 'S3h';
+  // S3h: expected control and owners for every planet, across save/reload and re-entry.
+  const qonos = B.getSystemIndexByName('Qonos');
+  s.controlledSystems = [home, vulcan, qonos];
+  s.factionSystemOverrides[bajora] = 'cardassian';
+  const sweep = () => s.planets.map((_, i) => B.getSystemControl(i));
+  const before = sweep();
+  const beforeFlag = s.playerFaction;
+  B.saveGame(9);
+  B.loadGame(9);
+  const after = sweep();
+  const diffs = before.map((b, i) => (JSON.stringify(b) === JSON.stringify(after[i]) ? null : i)).filter((i) => i !== null);
+  enterHome();
+  out.persistence = {
+    planets: after.length, diffs, flagKept: s.playerFaction === beforeFlag,
+    expected: {
+      home: after[home].controller === 'player' && after[home].allegiance === beforeFlag,
+      vulcanQonos: [vulcan, qonos].every((i) => after[i].controller === 'player'),
+      earth: after[earth].controller === 'neutral' && after[earth].polityId === `polity:${earth}` && after[earth].origin === 'terran',
+      bajora: after[bajora].controller === 'cardassian' && after[bajora].polityId === 'cardassian' && after[bajora].origin === 'bajoran',
+      untouchedOrigin: after.filter((c) => c.controlSource !== 'player' && c.controlSource !== 'override').every((c) => c.controller === c.origin),
+      unknownOrigins: after.filter((c) => c.origin === null).length,
+    },
+    ownersAfterReload: ownersNow(),
+    runtime: { govFlag: findStation(govId).faction, govOwned: !!findStation(govId).ownedByPlayer, foreignFlag: findStation('probe-foreign-vulcan').faction, foreignOwned: !!findStation('probe-foreign-vulcan').ownedByPlayer },
+  };
+  out.stage = 'Legacy save';
+  // Legacy save (no ownership records): load it and check the migration reconstructs the expected owners.
+  const slotKey = B.getSaveSlotKey(9);
+  const legacy = JSON.parse(localStorage.getItem(slotKey));
+  const hadRecords = legacy.stationOwners && Object.keys(legacy.stationOwners).length > 0;
+  delete legacy.stationOwners;
+  localStorage.setItem(slotKey, JSON.stringify(legacy));
+  B.loadGame(9);
+  const bajoraGovIds = s.stationDefinitions.filter((d) => Number(d.systemIndex) === bajora && !d.builtByPlayer && (d.faction === undefined || d.faction === null)).map((d) => d.id);
+  out.migration = {
+    hadRecords, recordsRebuilt: !!s.stationOwners && Object.keys(s.stationOwners).length > 0,
+    homeGov: s.stationOwners?.[govId], foreignRecorded: s.stationOwners?.['probe-foreign-vulcan'] ?? null, foreignResolved: B.getStationOwner(foreignDef, home),
+    privateResolved: B.getStationOwner(privateDef, home),
+    bajoraGov: bajoraGovIds.length > 0 && bajoraGovIds.every((id) => s.stationOwners?.[id] === 'cardassian'),
+  };
+  delete s.factionSystemOverrides[earth];
+
+  out.stage = 'Re-entry with the cached';
+  // Re-entry with the cached snapshot kept: existing ships keep id, hull, faction and side, across a
+  // leave/return and across a change of holder; only ownership-derived station fields move.
+  const enterKeep = (i) => { s.currentPlanet = i; s.myplanet = i + 1; s.selectedPlanet = i; B.applySystemState(i); s.spawnProtectionUntil = 0; clearShots(); };
+  enterKeep(home);
+  // An explicitly constructed Zzyx-Council patrol placed in the cached snapshot: restoration must not
+  // re-fit its hull, faction or side to the current holder.
+  const zzShip = B.createNpcShip({ id: 'probe-zz-patrol', shipId: 3, faction: 'neutral', seed: 77, from: pAt(500), role: 'patrol', sideId: 'Zzyx-Council' });
+  s.systemStates[home].npcShips.push({ ...zzShip, destination: { ...zzShip.destination }, waitUntil: 0 });
+  enterKeep(home); // restore once so the baseline includes the constructed ship
+  const identity = (list) => list.filter((n) => !n.destroyed && !B.isPlayerSideNpc(n)).map((n) => ({ id: n.id, shipId: n.shipId, faction: n.faction, side: B.getNpcSideId(n) }));
+  const shipsBefore = identity(s.npcShips);
+  enterKeep(vulcan); enterKeep(home);
+  const shipsAfterReturn = identity(s.npcShips);
+  B.transferSystemControlToFaction(home, 'romulan');
+  enterKeep(vulcan); enterKeep(home);
+  const shipsAfterCapture = identity(s.npcShips);
+  const holderNow = B.getSystemControl(home).controller;
+  B.transferSystemControlToPlayer(home);
+  const zzAfter = s.npcShips.find((n) => n.id === 'probe-zz-patrol');
+  out.cachedReentry = {
+    zz: zzAfter ? { shipId: zzAfter.shipId, faction: zzAfter.faction, side: B.getNpcSideId(zzAfter) } : null,
+    ships: shipsBefore.length, sameAfterReturn: JSON.stringify(shipsBefore) === JSON.stringify(shipsAfterReturn),
+    sameAfterCapture: JSON.stringify(shipsBefore) === JSON.stringify(shipsAfterCapture), holderDuring: holderNow,
+    govFlagUnderRomulans: null,
+  };
+
+  out.stage = 'Allied status';
+  // Allied status does not excuse a witnessed attack: at Earth a Vulcan ship fires on a Terran station.
+  delete s.systemStates[earth];
+  enterKeep(earth); clearNpcs();
+  const terranStation = (s.stations || []).find((st) => !st.destroyed && B.getStationOwner(st, earth) === 'terran');
+  need(terranStation, 'S3j fixture: no Terran-owned station at Earth');
+  const vulcanShip = mk(9351, 'vulcan', { attitude: 'friendly', role: 'traffic' }, { x: terranStation.x + 200, y: terranStation.y });
+  const terranPatrol = mk(9352, 'terran', { attitude: 'friendly', role: 'patrol' }, { x: terranStation.x + 350, y: terranStation.y });
+  const fleetCount = () => { const d = B.getFleetAttackDefenders('vulcan', [vulcanShip], performance.now()); return { patrol: d.ships.some((n) => n.id === terranPatrol.id), station: d.stations.some((st) => st.id === terranStation.id) }; };
+  const alliedBefore = { aligned: B.sidesAligned('vulcan', 'terran'), attacker: B.isNpcSystemAttacker(vulcanShip, terranPatrol), turretTarget: B.isNpcSystemAttacker(vulcanShip, terranStation), fleet: fleetCount() };
+  vulcanShip.lastShotAt = READY;
+  B.fireNpcWeapon(vulcanShip, terranStation, 'station', performance.now());
+  out.alliedAggression = {
+    ...alliedBefore, firedAt: vulcanShip.lastAggressionTargetSide,
+    attackerAfter: B.isNpcSystemAttacker(vulcanShip, terranPatrol), turretTargetAfter: B.isNpcSystemAttacker(vulcanShip, terranStation),
+    patrolSelects: B.getNpcDefenseTarget(terranPatrol)?.id === vulcanShip.id,
+    fleetAfter: fleetCount(),
+  };
+
+  out.stage = 'S3i';
+  // S3f2: Vulcan handed to the Zzyx-Council: the Council's own installations block conquest, a foreign
+  // concession and a private post there do not; once the Council stations are gone the claim is allowed.
+  B.transferSystemControlToFaction(vulcan, 'Zzyx-Council');
+  const vGov = s.stationDefinitions.find((d) => Number(d.systemIndex) === vulcan && !d.builtByPlayer && (d.faction === undefined || d.faction === null) && !s.destroyedStations[d.id]);
+  need(vGov, 'S3f2 fixture: no government station definition at Vulcan');
+  s.stationDefinitions.push(
+    { ...vGov, id: 'probe-council-concession', name: 'Ferengi Concession', faction: 'ferengi', offset: { ...(vGov.offset || {}), x: (vGov.offset?.x || 0) + 260 } },
+    { ...vGov, id: 'probe-council-private', name: 'Private Dock', faction: 'neutral', offset: { ...(vGov.offset || {}), x: (vGov.offset?.x || 0) - 260 } },
+  );
+  delete s.systemStates[vulcan];
+  enterKeep(vulcan); clearNpcs();
+  const councilOwned = (s.stations || []).filter((st) => !st.destroyed && B.getStationOwner(st, vulcan) === 'Zzyx-Council');
+  const councilBlockers = B.getSystemControlBlockers(vulcan).map((b) => `${b.type}:${b.name}`);
+  s.docked = true; s.latinum = 1e6; s.duranium = 1e6;
+  const councilStatus = B.getClaimSystemStatus(vulcan);
+  for (const st of councilOwned) { B.ensureStationCombatStats(st); B.damageCombatTarget(st, 999999, 'npc'); }
+  const councilCleared = B.getClaimSystemStatus(vulcan);
+  out.customConquest = {
+    controller: B.getSystemControl(vulcan).controller, councilStations: councilOwned.length,
+    blockers: councilBlockers, blockedCanClaim: councilStatus.canClaim, clearedCanClaim: councilCleared.canClaim,
+    concessionOwner: B.getStationOwner((s.stations || []).find((st) => st.id === 'probe-council-concession'), vulcan),
+    privateOwner: B.getStationOwner((s.stations || []).find((st) => st.id === 'probe-council-private'), vulcan),
+  };
+  s.docked = false;
+
+  // S3l: a Klingon-held world seen by a Klingon-flagged player is not the player's, but does grant access.
+  B.transferSystemControlToFaction(vulcan, 'vulcan'); delete s.factionSystemOverrides[vulcan];
+  B.transferSystemControlToFaction(qonos, 'klingon'); delete s.factionSystemOverrides[qonos];
+  delete s.systemStates[qonos];
+  enterKeep(qonos); clearNpcs();
+  out.sameFlagAuthority = {
+    playerFlag: s.playerFaction, controller: B.getSystemControl(qonos).controller,
+    controlled: B.isSystemControlled(qonos), claimLabel: B.getClaimSystemStatus(qonos).label, access: B.hasFactionAccessAt(qonos),
+  };
+
+  // S3i: an enemy world's defenders engage a player escort attacking their installation.
+  delete s.systemStates[qonos];
+  s.currentPlanet = qonos; s.myplanet = qonos + 1; s.selectedPlanet = qonos; B.applySystemState(qonos); s.spawnProtectionUntil = 0; clearNpcs(); clearShots();
+  const klStation = (s.stations || []).find((st) => !st.destroyed && B.getStationOwner(st, qonos) === 'klingon');
+  need(klStation, 'S3i fixture: no Klingon-owned station at Qonos');
+  const escortK = mk(9331, s.playerFaction, { shipId: 2, attitude: 'friendly', hostile: false, role: 'playerEscort', fleetId: 'probe-escort' }, { x: klStation.x + 150, y: klStation.y });
+  const defenderK = mk(9332, 'klingon', { attitude: 'friendly', role: 'patrol' }, { x: klStation.x + 300, y: klStation.y + 40 });
+  escortK.lastShotAt = READY; defenderK.lastShotAt = READY;
+  klStation.playerEscortOrderUntil = performance.now() + 60000;
+  s.combatTargetId = null;
+  const beforeAttack = { attacker: B.isNpcSystemAttacker(escortK, defenderK), target: B.getNpcDefenseTarget(defenderK)?.id || null };
+  const escortPool0 = (escortK.combatShields || 0) + (escortK.combatHull || 0);
+  let defenderSelected = false;
+  for (let i = 0; i < 120 && !(defenderK.lastShotAt > READY); i++) { B.tick(1); await sleep(30); if (!defenderSelected && B.getNpcDefenseTarget(defenderK)?.id === escortK.id) defenderSelected = true; }
+  out.enemyDefense = {
+    playerFlag: s.playerFaction, beforeAttack, escortFiredAt: escortK.lastAggressionTargetSide,
+    escortIsAttacker: B.isNpcSystemAttacker(escortK, defenderK), defenderSelectsEscort: defenderSelected,
+    defenderFiredAt: defenderK.lastAggressionTargetSide, defenderFired: defenderK.lastShotAt > READY,
+    escortDamagedBy: escortK.lastDamageSource, escortHullDropped: ((escortK.combatShields || 0) + (escortK.combatHull || 0)) < escortPool0 || !!escortK.destroyed,
+  };
   B.render();
+  }
+  try {
+    await scenarioBody();
+  } catch (error) {
+    out.setup.push(`runner error at stage "${out.stage || '?'}": ${error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : error}`);
+  }
   return out;
 }
 
@@ -324,6 +728,39 @@ try {
     ['S2a hunter keeps pursuing beyond weapon range', g(r.far).pursuing === true && r.far.alive],
     ['S2b hunter beyond weapon range never fires (weapon ready, >2 cooldowns)', g(r.far).fired === false],
     ['S2c hunter inside weapon range fires and lands (beam)', g(r.near).fired && r.near.playerHitAfter && r.near.maxDrop > 0],
+    ['S3a Breen and Dominion have no declared relationship either way', g(r.relations).breenDominionAligned === false && r.relations.breenDominionOpposed === false],
+    ['S3a five formerly missing keys are present in the table as empty lists', g(r.relations).entriesPresent === true && r.relations.explicitEmpty === true],
+    ['S3a unknown relation key warns exactly once', g(r.relations).unknownKeyWarnings === 1],
+    ['S3b foreign-owned and private stations in the player system keep their owners', g(r.independent).owners?.gov === 'player' && r.independent.owners.foreign === 'vulcan' && r.independent.owners.priv === 'private:probe-private-1' && r.independent.foreignFlag === 'vulcan' && !r.independent.foreignOwned],
+    ['S3b independent escort and owned station both fire on a raider (ticks)', g(r.independent).control?.allegiance === 'neutral' && r.independent.govOwned && r.independent.escortIsDefender && r.independent.raiderAttacksEscortSide && r.independent.escortTargetsRaider && r.independent.escortFired && r.independent.stationFired && r.independent.raiderHullDropped && ['playerEscort', 'station'].includes(r.independent.raiderDamagedBy)],
+    ['S3b hostile independent ship is a target and attacker; independence is no immunity', g(r.hostileNeutral).escortTarget && r.hostileNeutral.attackerToEscort && r.hostileNeutral.canTargetStation && String(r.hostileNeutral.sideId).startsWith('ship:')],
+    ['S3c neutral trader never defends', g(r.visitors).playerControlled && r.visitors.traderDefends === false],
+    ['S3c same-flag foreign patrol may assist a raid defense while staying foreign', g(r.visitors).patrolMayAssist && r.visitors.patrolEngagesPirate && r.visitors.patrolOwnerUnchanged],
+    ['S3c a hostile station flying the player flag is an escort target; a calm one is not', g(r.visitors).sameFlagStation?.owner === 'ferengi' && r.visitors.sameFlagStation.flag === 'ferengi' && r.visitors.sameFlagStation.targetWhenCalm === false && r.visitors.sameFlagStation.targetWhenHostile === true],
+    ['S3c same-flag foreign vessel that fires on the player station is an attacker and target', g(r.visitors).merchantAggressionSide === 'player' && r.visitors.merchantAttacker && r.visitors.merchantEscortTarget],
+    ['S3d raising a flag re-flags owned installations only; owners unchanged', g(r.flagChange).playerFaction === 'klingon' && r.flagChange.control.controller === 'player' && r.flagChange.control.allegiance === 'klingon' && r.flagChange.govFlag === 'klingon' && r.flagChange.govOwned && r.flagChange.foreignFlag === 'vulcan' && !r.flagChange.foreignOwned && r.flagChange.privFlag === 'neutral' && !r.flagChange.privOwned && r.flagChange.owners.foreign === 'vulcan'],
+    ['S3d same-flag raid: player escorts wearing the raider flag still count and engage', g(r.sameFlagRaid).playerFlag === 'klingon' && r.sameFlagRaid.raiderFlag === 'klingon' && r.sameFlagRaid.escortFlag === 'klingon' && r.sameFlagRaid.escortSide === 'player' && r.sameFlagRaid.escortCounted && r.sameFlagRaid.raiderIsTarget && r.sameFlagRaid.raiderAttacksEscort],
+    ['S3e peaceful foreign patrol is not a defender against a fleet it has no quarrel with', g(r.reconquest).capturePreconditions?.ships === 0 && r.reconquest.bystanderAfterCapture?.defends === true && r.reconquest.bystanderAfterCapture.targetsFleet === null && r.reconquest.bystanderAfterCapture.alive && r.reconquest.bystanderAfterCapture.faction === 'ferengi'],
+    ['S3e a foreign concession at war with the raiders counts as a defender until reduced', g(r.reconquest).concessionHolds?.stations?.length === 1 && r.reconquest.concessionHolds.stations[0] === 'probe-foreign-vulcan' && r.reconquest.concessionHolds.ships === 0 && r.reconquest.stillPlayerWhileConcessionStands === 'player'],
+    ['S3e real raid capture transfers control and player installations, not the foreign station', g(r.reconquest).capturePreconditions?.stations === 0 && r.reconquest.capturePreconditions.player === false && r.reconquest.lostController === 'romulan' && r.reconquest.ownersLost.gov === 'romulan' && r.reconquest.ownersLost.foreign === 'vulcan' && r.reconquest.govFlagLost === 'romulan' && !r.reconquest.govOwnedLost && r.reconquest.attackersAfter.every((a) => a.faction === 'romulan' && a.role === 'occupationFleet')],
+    ['S3e a surviving occupation fleet blocks reclamation; clearing it allows the claim', g(r.reconquest).reclaimBlocked?.canClaim === false && r.reconquest.reclaimBlocked.blockers.filter((b) => b === 'patrol ship:romulan').length === 2 && !r.reconquest.reclaimBlocked.blockers.some((b) => b.includes('vulcan') || b.includes('ferengi')) && r.reconquest.reclaimBlocked.stillLost === 'romulan' && r.reconquest.reclaimBlocked.clearedCanClaim === true],
+    ['S3e the real Claim button reclaims control and installations without re-flagging the foreign station (runtime and cache)', g(r.reconquest).reclaimedController === 'player' && r.reconquest.ownersReclaimed.gov === 'player' && r.reconquest.ownersReclaimed.foreign === 'vulcan' && r.reconquest.govFlagReclaimed === 'klingon' && r.reconquest.claimRuntime?.foreignFlag === 'vulcan' && r.reconquest.claimRuntime.foreignOwner === 'vulcan' && r.reconquest.claimCache?.govFlag === 'klingon' && r.reconquest.claimCache.foreignFlag === 'vulcan' && !r.reconquest.claimCache.foreignOwned],
+    ['S3f unknown origin stays unknown (no controller, no polity)', g(r.identity).unknown?.origin === null && r.identity.unknown.originSource === 'unknown' && r.identity.unknown.controller === null && r.identity.unknown.polityId === null],
+    ['S3f custom polity ID is preserved exactly (case included)', g(r.identity).custom?.controller === 'Zzyx-Council' && r.identity.custom.polityId === 'Zzyx-Council' && r.identity.custom.allegiance === 'neutral'],
+    ['S3f custom polity ships and station share one side; an unrelated independent does not', g(r.customPolity).shipSides?.[0] === 'Zzyx-Council' && r.customPolity.shipSides[1] === 'Zzyx-Council' && String(r.customPolity.shipSides[2]).startsWith('ship:') && r.customPolity.stationOwnedByPolity && r.customPolity.shipsAligned && r.customPolity.shipStationAligned && !r.customPolity.loneAligned],
+    ['S3f explicit independence is distinct per world and never the origin empire', g(r.identity).earth?.origin === 'terran' && r.identity.earth.controller === 'neutral' && r.identity.earth.polityId !== 'terran' && r.identity.earth.allegiance === 'neutral' && r.identity.distinctPolities],
+    ['S3g arrival protection is personal (fleet, orders, factions, control, stations untouched)', g(r.arrival).protectionSet && r.arrival.fleetSurvived && r.arrival.ordersKept && r.arrival.factionsKept && r.arrival.controlUnchanged && r.arrival.stationAttitudesUnchanged],
+    ['S3h control for every planet is identical across save/reload', g(r.persistence).planets > 10 && r.persistence.diffs.length === 0 && r.persistence.flagKept],
+    ['S3h expected holders after reload (player, independent Earth, Cardassian Bajora, untouched origins)', g(r.persistence).expected?.home && r.persistence.expected.vulcanQonos && r.persistence.expected.earth && r.persistence.expected.bajora && r.persistence.expected.untouchedOrigin && r.persistence.expected.unknownOrigins === 0],
+    ['S3h station owners and flags survive reload and re-entry', g(r.persistence).ownersAfterReload?.gov === 'player' && r.persistence.ownersAfterReload.foreign === 'vulcan' && r.persistence.ownersAfterReload.priv === 'private:probe-private-1' && r.persistence.runtime?.govOwned && r.persistence.runtime.govFlag === 'klingon' && r.persistence.runtime.foreignFlag === 'vulcan' && !r.persistence.runtime.foreignOwned],
+    ['S3h legacy save without ownership records migrates to the expected owners', g(r.migration).hadRecords && r.migration.recordsRebuilt && r.migration.homeGov === 'player' && r.migration.foreignRecorded === null && r.migration.foreignResolved === 'vulcan' && r.migration.privateResolved === 'private:probe-private-1' && r.migration.bajoraGov],
+    ['S3k cached re-entry keeps existing ship id, hull, faction and side across return and change of holder', g(r.cachedReentry).ships > 0 && r.cachedReentry.sameAfterReturn && r.cachedReentry.sameAfterCapture && r.cachedReentry.holderDuring === 'romulan'],
+    ['S3k a constructed custom-polity ship in the snapshot is not re-fitted on restoration', g(r.cachedReentry).zz?.shipId === 3 && r.cachedReentry.zz.faction === 'neutral' && r.cachedReentry.zz.side === 'Zzyx-Council'],
+    ['S3l flying the holder flag is not control, but grants faction access', g(r.sameFlagAuthority).playerFlag === 'klingon' && r.sameFlagAuthority.controller === 'klingon' && r.sameFlagAuthority.controlled === false && r.sameFlagAuthority.claimLabel !== 'Controlled' && r.sameFlagAuthority.access === true],
+    ['S3j an alliance does not excuse a witnessed attack (Vulcan fires on Terran station)', g(r.alliedAggression).aligned && r.alliedAggression.attacker === false && r.alliedAggression.turretTarget === false && r.alliedAggression.firedAt === 'terran' && r.alliedAggression.attackerAfter && r.alliedAggression.turretTargetAfter && r.alliedAggression.patrolSelects],
+    ['S3j fleet accounting follows the same rule: allied patrol and station count only after the attack', g(r.alliedAggression).fleet?.patrol === false && r.alliedAggression.fleet.station === false && r.alliedAggression.fleetAfter?.patrol === true && r.alliedAggression.fleetAfter.station === true],
+    ['S3f2 a custom government\'s own stations block conquest; its concessions do not', g(r.customConquest).controller === 'Zzyx-Council' && r.customConquest.councilStations > 0 && r.customConquest.blockers.length === r.customConquest.councilStations && !r.customConquest.blockers.some((b) => b.includes('Concession') || b.includes('Private Dock')) && r.customConquest.blockedCanClaim === false && r.customConquest.clearedCanClaim === true && r.customConquest.concessionOwner === 'ferengi' && r.customConquest.privateOwner === 'private:probe-council-private'],
+    ['S3i enemy defenders select and engage a player escort attacking their installation', g(r.enemyDefense).beforeAttack?.attacker === false && r.enemyDefense.escortFiredAt === 'klingon' && r.enemyDefense.escortIsAttacker && r.enemyDefense.defenderSelectsEscort && r.enemyDefense.defenderFired && r.enemyDefense.defenderFiredAt === 'player' && r.enemyDefense.escortHullDropped],
   ];
   console.log(`behavior-probe: ${ROOT}`);
   for (const [name, ok] of checks) console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}`);
