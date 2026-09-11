@@ -1,0 +1,6628 @@
+{
+  "$schema": "./bm1-faction-doctrine.schema.json",
+  "schema": "bm1-faction-doctrine",
+  "version": "0.2.1-draft",
+  "status": "DESIGN_ONLY_NOT_LOADED_BY_GAME",
+  "date": "2026-09-11",
+  "contract": {
+    "predicateGrammar": "Boolean literal, {fact: ID}, {all: [nonempty predicates]}, or {any: [nonempty predicates]}. No arbitrary expressions or negation. Unknown facts are validation errors; missing known facts evaluate false.",
+    "evaluationOrder": [
+      "select_explicit_profile_and_canonical_role",
+      "read_only_observer_evidence_and_received_orders",
+      "close_expired_or_satisfied_objectives",
+      "evaluate_event_interest",
+      "check_response_role_and_budget",
+      "choose_guarded_intent",
+      "evaluate_weapon_gate_independently"
+    ],
+    "intentSelection": "First eligible priority entry whose condition AND action guard pass. Wait is explicit fallback. Intent is recomputed only at scheduled decisions or interrupts; movement and firing may continue between decisions. Guarded sideActions are messages, deduplicated per incident/recipient, and do not block movement or delay evasion.",
+    "responseSelection": "First matching faction interest rule wins; if none matches, a local culture rule may match. If role or response prerequisites fail, defer the matched response rather than fall through to a different one. No match means record_only. An unknown event returns ignore_unknown.",
+    "cultureScope": "Use a culture only for actors belonging to that community or assigned to represent it. Occupying troops retain their own command doctrine. Culture cannot grant engagement modes or secret knowledge.",
+    "closurePrecedence": "Cancellation/abort/deadline takes precedence over success when both are true; record simultaneous reasons in runtime. Closing one incident does not delete independent offenses or war orders.",
+    "weaponGate": "Engagement authorization AND every physical firing requirement; objectives must be active. Civilian evasion can coexist with authorized return fire.",
+    "timing": "Strategic deadlines advance once per completed jump including eventual wormhole/POI travel, never on canceled travel. Tactical deadlines use active simulation seconds. Local lost-contact search always has a tactical child objective.",
+    "saveAndBudget": "Persist stable IDs, deadlines, received evidence and resolution markers. Deduplicate by incident/recipient and resolution ID. Configure finite queues and per-jump operation budgets; exact sizes require laptop measurement.",
+    "rewardsAndBlame": "Retain Phase 0 final-hit player/playerEscort reward credit. Future standing/crime attribution uses received evidence and jurisdiction separately; no double reward or global blame cascade from an unknown incident.",
+    "playerOrders": "Doctrine guides autonomous actors. Player orders may choose different objectives, while physical gates and attributed consequences still apply. No weapon/loadout changes are authorized by this draft."
+  },
+  "sources": {
+    "user_handoff": {
+      "kind": "user_supplied",
+      "title": "BM1-CLOUD-PROJECT-HANDOFF.md and subsequent corrections",
+      "locator": "BM1-CLOUD-PROJECT-HANDOFF.md",
+      "supports": "Offline rules, jump-based strategy, Blender remnant start, viable starts, persistent incidents, weapon review requirement; later user correction confirms armed Vulcans."
+    },
+    "bm1_worlds": {
+      "kind": "retained_port_data",
+      "title": "BM1 planet data",
+      "locator": "https://github.com/Artemis2028/BM1-remastered/blob/87bfe46f4aab84de435a3b1436670d7960da3d61/data/planetData.json",
+      "supports": "Local societies, Earth–Klingon war, Delpi exploration, Blender survivors, Gorn extinction; not an independent audit of the original Flash binary."
+    },
+    "bm2_intro": {
+      "kind": "retained_port_text",
+      "title": "BM2 opening crawl",
+      "locator": "https://github.com/Quangoz/Broken-Mirror-2-remastered/blob/50a2015879bae6946b73b3f6db5d0a40120bb59c/src/main.js#L279",
+      "supports": "Wormhole invasion, hidden Blender second front, collapse and refugee aftermath; proposed future trajectory for this BM1 campaign."
+    },
+    "bm2_biographies": {
+      "kind": "retained_port_text",
+      "title": "BM2 Cardassian, Klingon and Dominion biographies",
+      "locator": "https://github.com/Quangoz/Broken-Mirror-2-remastered/blob/50a2015879bae6946b73b3f6db5d0a40120bb59c/src/main.js#L4299",
+      "supports": "Cardassian manipulation and Bajoran corridor, Dominion–Breen pact, hidden shipyards; covert knowledge compartmentalization is new design."
+    },
+    "authored_design": {
+      "kind": "proposal",
+      "title": "Doctrine v0.2 design",
+      "locator": "this_package",
+      "supports": "All exact guards, priorities, termination contracts, proposed cultural responses and unestablished alliance timing. Not runtime implementation or original Flash parity certification."
+    }
+  },
+  "facts": {
+    "event_known": {
+      "domain": "observer_knowledge",
+      "meaning": "This observer received or directly observed this incident; faction membership alone is insufficient."
+    },
+    "credible_report": {
+      "domain": "observer_knowledge",
+      "meaning": "Observer has enough corroboration or a trusted source to investigate; this does not identify an offender."
+    },
+    "event_actionable": {
+      "domain": "observer_knowledge",
+      "meaning": "Report is still relevant to this decision; an old wreck can be worth investigating without providing a live track."
+    },
+    "own_asset_affected": {
+      "domain": "observer_knowledge",
+      "meaning": "Observer knows an asset of its organization was affected."
+    },
+    "protected_party_affected": {
+      "domain": "observer_knowledge",
+      "meaning": "Observer knows a party under its actual protection agreement was affected."
+    },
+    "own_route_affected": {
+      "domain": "observer_knowledge",
+      "meaning": "Known incident threatens this actor's assigned route."
+    },
+    "own_operations_affected": {
+      "domain": "observer_knowledge",
+      "meaning": "Known incident threatens this command's operations."
+    },
+    "linked_own_losses": {
+      "domain": "observer_knowledge",
+      "meaning": "Received evidence connects this incident with this organization's losses."
+    },
+    "evidence_available": {
+      "domain": "observer_knowledge",
+      "meaning": "Observer knows where relevant recoverable evidence may be found."
+    },
+    "unusual_technology": {
+      "domain": "observer_knowledge",
+      "meaning": "Observer has detected or received credible information about unusual technology."
+    },
+    "survivors_known": {
+      "domain": "observer_knowledge",
+      "meaning": "Observer has a usable report of survivors, not an omniscient casualty list."
+    },
+    "contract_affected": {
+      "domain": "observer_knowledge",
+      "meaning": "Observer knows a currently binding contract is affected."
+    },
+    "regional_threat_supported": {
+      "domain": "observer_knowledge",
+      "meaning": "Received corroborated evidence supports a threat beyond one isolated disappearance."
+    },
+    "pact_briefing_received": {
+      "domain": "observer_knowledge",
+      "meaning": "This actor actually received the compartmented pact briefing."
+    },
+    "pact_exposure_risk": {
+      "domain": "observer_knowledge",
+      "meaning": "This briefed actor can connect the known evidence to the concealed pact."
+    },
+    "central_contact_received": {
+      "domain": "observer_knowledge",
+      "meaning": "This remnant actor received an authenticated contact from wider Dominion authority."
+    },
+    "credible_cargo_intel": {
+      "domain": "observer_knowledge",
+      "meaning": "Cargo value or route was scanned, declared, observed, or credibly reported."
+    },
+    "valuable_target_known": {
+      "domain": "observer_knowledge",
+      "meaning": "Known information, not hidden inventory, makes this target worth taking."
+    },
+    "worthy_hunt_known": {
+      "domain": "observer_knowledge",
+      "meaning": "This hunter has a specific identified quarry meeting its hunt criteria."
+    },
+    "war_target_verified": {
+      "domain": "observer_knowledge",
+      "meaning": "Target is a reliably identified combatant or specifically verified military logistics target eligible under the war order; civilian hull or nationality alone is insufficient."
+    },
+    "attack_on_self_verified": {
+      "domain": "observer_knowledge",
+      "meaning": "Local observation or validated report links this target to an ongoing attack on self."
+    },
+    "attack_on_protected_verified": {
+      "domain": "observer_knowledge",
+      "meaning": "Local observation or validated report links this target to an ongoing attack on a protected party."
+    },
+    "serious_zone_breach_attributed": {
+      "domain": "observer_knowledge",
+      "meaning": "Continuing dangerous breach is attributed to this target after the required notice/opportunity."
+    },
+    "actor_attributed": {
+      "domain": "observer_knowledge",
+      "meaning": "An actor is credibly linked to this incident; proximity to wreckage alone is insufficient."
+    },
+    "witness_or_report_received": {
+      "domain": "observer_knowledge",
+      "meaning": "This decision maker witnessed the event or actually received its report."
+    },
+    "contact_detected": {
+      "domain": "observer_knowledge",
+      "meaning": "Local sensors currently detect a contact."
+    },
+    "identity_known": {
+      "domain": "observer_knowledge",
+      "meaning": "This contact's identity is established; separate from actor attribution."
+    },
+    "usable_search_area": {
+      "domain": "observer_knowledge",
+      "meaning": "A known last position or bounded reported area remains useful for a search."
+    },
+    "live_weapon_track": {
+      "domain": "observer_knowledge",
+      "meaning": "Current sensors provide the equipped weapon's required track; no hidden coordinate lookup."
+    },
+    "war_order_active": {
+      "domain": "authority_and_orders",
+      "meaning": "An actual command order designates this identified military target or target class in an active war."
+    },
+    "defense_obligation_active": {
+      "domain": "authority_and_orders",
+      "meaning": "Self, charge, or protected traffic is covered by this actor's current order/obligation."
+    },
+    "jurisdiction_valid": {
+      "domain": "authority_and_orders",
+      "meaning": "The issuing authority has jurisdiction here or an explicit enforcement agreement; disputed claims do not auto-validate."
+    },
+    "enforcement_order_active": {
+      "domain": "authority_and_orders",
+      "meaning": "Current order authorizes proportionate enforcement of this particular breach."
+    },
+    "pact_task_assigned": {
+      "domain": "authority_and_orders",
+      "meaning": "This actor has a specific pact task; briefing alone is not an order."
+    },
+    "predation_order_active": {
+      "domain": "authority_and_orders",
+      "meaning": "A pirate/privateer has an active, bounded predatory objective; this may be unlawful."
+    },
+    "predation_attack_phase": {
+      "domain": "authority_and_orders",
+      "meaning": "Specific assignment authorizes an ambush or an unsatisfied demand has reached its declared attack phase. A pending negotiation does not satisfy this fact."
+    },
+    "cargo_demand_due": {
+      "domain": "authority_and_orders",
+      "meaning": "This encounter calls for a demand that has not yet been delivered; deduplicate before the next decision."
+    },
+    "standing_policy_applies": {
+      "domain": "authority_and_orders",
+      "meaning": "This faction has a defined reputational reason to judge the attributed act. This can apply outside its legal jurisdiction; it grants no cross-border enforcement authority."
+    },
+    "hunt_order_active": {
+      "domain": "authority_and_orders",
+      "meaning": "A hunter has an active assignment to pursue this particular quarry."
+    },
+    "assimilation_order_active": {
+      "domain": "authority_and_orders",
+      "meaning": "A Borg actor has an active, bounded acquisition/assimilation assignment."
+    },
+    "territory_order_active": {
+      "domain": "authority_and_orders",
+      "meaning": "An active military order authorizes an occupation or counteroffensive objective."
+    },
+    "engagement_objective_active": {
+      "domain": "authority_and_orders",
+      "meaning": "This particular combat/enforcement objective is open and has passed deadline, compliance, surrender and other termination checks this decision."
+    },
+    "objective_target_known": {
+      "domain": "authority_and_orders",
+      "meaning": "The current objective identifies a reachable destination or target area."
+    },
+    "inspection_order_active": {
+      "domain": "authority_and_orders",
+      "meaning": "A lawful inspection is assigned in this jurisdiction."
+    },
+    "zone_warning_required": {
+      "domain": "authority_and_orders",
+      "meaning": "A detectable contact is in a known restricted area where a warning is due."
+    },
+    "mission_delivery_active": {
+      "domain": "authority_and_orders",
+      "meaning": "This ship has an active delivery/trade assignment."
+    },
+    "mission_survey_active": {
+      "domain": "authority_and_orders",
+      "meaning": "This ship has a current survey assignment."
+    },
+    "mission_rescue_active": {
+      "domain": "authority_and_orders",
+      "meaning": "This ship has a rescue assignment and known survivor location."
+    },
+    "mission_escort_active": {
+      "domain": "authority_and_orders",
+      "meaning": "This ship is assigned to protect a particular charge."
+    },
+    "mission_investigate_active": {
+      "domain": "authority_and_orders",
+      "meaning": "This ship has an investigation assignment concerning received evidence."
+    },
+    "mission_covert_active": {
+      "domain": "authority_and_orders",
+      "meaning": "An informed and authorized operative has a concrete covert assignment."
+    },
+    "mission_occupy_active": {
+      "domain": "authority_and_orders",
+      "meaning": "This force has an occupation assignment with a specific target and authority."
+    },
+    "report_due": {
+      "domain": "authority_and_orders",
+      "meaning": "A locally known report is queued for transmission."
+    },
+    "can_respond": {
+      "domain": "local_capability",
+      "meaning": "An appropriate existing asset, route, time and supply budget are available; no free spawning."
+    },
+    "can_investigate": {
+      "domain": "local_capability",
+      "meaning": "This ship has equipment and access to investigate the known area."
+    },
+    "can_rescue": {
+      "domain": "local_capability",
+      "meaning": "This ship has actual rescue capacity."
+    },
+    "can_transmit": {
+      "domain": "local_capability",
+      "meaning": "A report can reach its recipient through the present communication environment."
+    },
+    "can_withdraw": {
+      "domain": "local_capability",
+      "meaning": "An escape route or maneuver is currently available."
+    },
+    "local_danger": {
+      "domain": "local_capability",
+      "meaning": "Sensors, damage or received credible warning indicate immediate danger."
+    },
+    "force_ratio_poor": {
+      "domain": "local_capability",
+      "meaning": "Available knowledge suggests engagement losses are unacceptable for this objective."
+    },
+    "supply_inadequate": {
+      "domain": "local_capability",
+      "meaning": "This actor knows it cannot sustain the current objective with assigned resources."
+    },
+    "weapon_usable": {
+      "domain": "local_capability",
+      "meaning": "The chosen weapon is installed, functional, supplied and permitted by player/fleet weapon controls."
+    },
+    "weapon_ready": {
+      "domain": "local_capability",
+      "meaning": "The equipped weapon cooldown has elapsed."
+    },
+    "inside_equipped_range": {
+      "domain": "local_capability",
+      "meaning": "Distance/geometry satisfy the chosen weapon's reach at firing time, for any target kind."
+    },
+    "target_actionable": {
+      "domain": "local_capability",
+      "meaning": "Target exists, is not already destroyed, and has not had surrender accepted for this engagement."
+    },
+    "notice_complete": {
+      "domain": "local_capability",
+      "meaning": "Required warning, clear instruction, response opportunity and proportionality checks have completed."
+    },
+    "objective_complete": {
+      "domain": "objective_state",
+      "meaning": "The assigned objective has actually completed, not merely scored highly."
+    },
+    "objective_cancelled": {
+      "domain": "objective_state",
+      "meaning": "An authorized cancellation or superseding order has reached this actor."
+    },
+    "objective_deadline_reached": {
+      "domain": "objective_state",
+      "meaning": "The instance's deadline was reached on its declared clock."
+    },
+    "compliance_verified": {
+      "domain": "objective_state",
+      "meaning": "The specific demand of this encounter was satisfied and verified."
+    },
+    "surrender_accepted": {
+      "domain": "objective_state",
+      "meaning": "This actor accepted a surrender that applies to this engagement."
+    },
+    "charge_safe": {
+      "domain": "objective_state",
+      "meaning": "The protected ship reached the safety condition specified by its escort contract."
+    },
+    "target_left_jurisdiction": {
+      "domain": "objective_state",
+      "meaning": "Target left the enforcement jurisdiction and no cross-border mandate applies."
+    },
+    "search_budget_exhausted": {
+      "domain": "objective_state",
+      "meaning": "The bounded tactical search budget is exhausted, even if no jump occurred."
+    },
+    "target_destroyed": {
+      "domain": "objective_state",
+      "meaning": "Known objective target was destroyed."
+    },
+    "cargo_received": {
+      "domain": "objective_state",
+      "meaning": "Demanded cargo was actually transferred under this encounter's terms."
+    },
+    "evidence_recovered": {
+      "domain": "objective_state",
+      "meaning": "The assigned evidence was recovered or examined."
+    },
+    "threat_ended": {
+      "domain": "objective_state",
+      "meaning": "The particular ongoing threat ended or withdrew; unrelated historic suspicion is not an ongoing threat."
+    },
+    "operation_supported": {
+      "domain": "objective_state",
+      "meaning": "Command has assigned real logistics and available forces to this operation."
+    },
+    "control_established": {
+      "domain": "objective_state",
+      "meaning": "The specified control conditions were achieved; a random ship kill is not occupation."
+    },
+    "engagement_authorized": {
+      "domain": "policy_derived",
+      "meaning": "Computed only from this profile/role's engagementModes and mode predicates; never supplied by world state."
+    }
+  },
+  "engagementModes": {
+    "self_defense": {
+      "all": [
+        {
+          "fact": "attack_on_self_verified"
+        }
+      ]
+    },
+    "protect_charge": {
+      "all": [
+        {
+          "fact": "attack_on_protected_verified"
+        },
+        {
+          "fact": "defense_obligation_active"
+        }
+      ]
+    },
+    "war": {
+      "all": [
+        {
+          "fact": "war_target_verified"
+        },
+        {
+          "fact": "war_order_active"
+        }
+      ]
+    },
+    "enforcement": {
+      "all": [
+        {
+          "fact": "identity_known"
+        },
+        {
+          "fact": "serious_zone_breach_attributed"
+        },
+        {
+          "fact": "jurisdiction_valid"
+        },
+        {
+          "fact": "enforcement_order_active"
+        },
+        {
+          "fact": "notice_complete"
+        }
+      ]
+    },
+    "predation": {
+      "all": [
+        {
+          "fact": "identity_known"
+        },
+        {
+          "fact": "credible_cargo_intel"
+        },
+        {
+          "fact": "valuable_target_known"
+        },
+        {
+          "fact": "predation_order_active"
+        },
+        {
+          "fact": "predation_attack_phase"
+        }
+      ]
+    },
+    "hunt": {
+      "all": [
+        {
+          "fact": "identity_known"
+        },
+        {
+          "fact": "worthy_hunt_known"
+        },
+        {
+          "fact": "hunt_order_active"
+        }
+      ]
+    },
+    "assimilation": {
+      "all": [
+        {
+          "fact": "identity_known"
+        },
+        {
+          "fact": "unusual_technology"
+        },
+        {
+          "fact": "assimilation_order_active"
+        }
+      ]
+    }
+  },
+  "actions": {
+    "wait": true,
+    "observe": {
+      "fact": "contact_detected"
+    },
+    "warn": {
+      "all": [
+        {
+          "fact": "contact_detected"
+        },
+        {
+          "fact": "zone_warning_required"
+        },
+        {
+          "fact": "jurisdiction_valid"
+        },
+        {
+          "fact": "can_transmit"
+        }
+      ]
+    },
+    "inspect": {
+      "all": [
+        {
+          "fact": "identity_known"
+        },
+        {
+          "fact": "inspection_order_active"
+        },
+        {
+          "fact": "jurisdiction_valid"
+        }
+      ]
+    },
+    "intercept": {
+      "all": [
+        {
+          "fact": "objective_target_known"
+        },
+        {
+          "any": [
+            {
+              "fact": "engagement_authorized"
+            },
+            {
+              "fact": "inspection_order_active"
+            },
+            {
+              "fact": "zone_warning_required"
+            }
+          ]
+        }
+      ]
+    },
+    "attack": {
+      "fact": "engagement_authorized"
+    },
+    "evade": {
+      "fact": "local_danger"
+    },
+    "withdraw": {
+      "fact": "can_withdraw"
+    },
+    "report": {
+      "all": [
+        {
+          "fact": "event_known"
+        },
+        {
+          "fact": "report_due"
+        },
+        {
+          "fact": "can_transmit"
+        }
+      ]
+    },
+    "distress": {
+      "all": [
+        {
+          "fact": "local_danger"
+        },
+        {
+          "fact": "can_transmit"
+        }
+      ]
+    },
+    "investigate": {
+      "all": [
+        {
+          "fact": "event_known"
+        },
+        {
+          "fact": "credible_report"
+        },
+        {
+          "fact": "event_actionable"
+        },
+        {
+          "fact": "usable_search_area"
+        },
+        {
+          "fact": "can_investigate"
+        },
+        {
+          "fact": "mission_investigate_active"
+        }
+      ]
+    },
+    "deliver": {
+      "all": [
+        {
+          "fact": "mission_delivery_active"
+        },
+        {
+          "fact": "objective_target_known"
+        }
+      ]
+    },
+    "survey": {
+      "all": [
+        {
+          "fact": "mission_survey_active"
+        },
+        {
+          "fact": "objective_target_known"
+        }
+      ]
+    },
+    "rescue": {
+      "all": [
+        {
+          "fact": "mission_rescue_active"
+        },
+        {
+          "fact": "survivors_known"
+        },
+        {
+          "fact": "can_rescue"
+        }
+      ]
+    },
+    "escort": {
+      "all": [
+        {
+          "fact": "mission_escort_active"
+        },
+        {
+          "fact": "objective_target_known"
+        }
+      ]
+    },
+    "negotiate": {
+      "all": [
+        {
+          "fact": "contact_detected"
+        },
+        {
+          "fact": "can_transmit"
+        }
+      ]
+    },
+    "demand_cargo": {
+      "all": [
+        {
+          "fact": "identity_known"
+        },
+        {
+          "fact": "credible_cargo_intel"
+        },
+        {
+          "fact": "predation_order_active"
+        },
+        {
+          "fact": "cargo_demand_due"
+        },
+        {
+          "fact": "can_transmit"
+        }
+      ]
+    },
+    "covert_task": {
+      "all": [
+        {
+          "fact": "mission_covert_active"
+        },
+        {
+          "fact": "objective_target_known"
+        }
+      ]
+    },
+    "occupy": {
+      "all": [
+        {
+          "fact": "mission_occupy_active"
+        },
+        {
+          "fact": "territory_order_active"
+        },
+        {
+          "fact": "operation_supported"
+        },
+        {
+          "fact": "objective_target_known"
+        }
+      ]
+    }
+  },
+  "roleTemplates": {
+    "civilian": {
+      "description": "Deliver goods and preserve crew; can return fire while evading if actually armed.",
+      "intentPriority": [
+        {
+          "action": "evade",
+          "when": {
+            "fact": "local_danger"
+          }
+        },
+        {
+          "action": "withdraw",
+          "when": {
+            "any": [
+              {
+                "fact": "local_danger"
+              },
+              {
+                "fact": "force_ratio_poor"
+              },
+              {
+                "fact": "supply_inadequate"
+              }
+            ]
+          }
+        },
+        {
+          "action": "deliver",
+          "when": true
+        },
+        {
+          "action": "report",
+          "when": true
+        },
+        {
+          "action": "wait",
+          "when": true
+        }
+      ],
+      "defaultObjective": "assignment",
+      "sideActions": [
+        "distress",
+        "report"
+      ]
+    },
+    "patrol": {
+      "description": "Protect assigned area, warn and inspect with authority; investigate relevant reports.",
+      "intentPriority": [
+        {
+          "action": "withdraw",
+          "when": {
+            "any": [
+              {
+                "fact": "local_danger"
+              },
+              {
+                "fact": "force_ratio_poor"
+              },
+              {
+                "fact": "supply_inadequate"
+              }
+            ]
+          }
+        },
+        {
+          "action": "attack",
+          "when": true
+        },
+        {
+          "action": "intercept",
+          "when": true
+        },
+        {
+          "action": "warn",
+          "when": true
+        },
+        {
+          "action": "inspect",
+          "when": true
+        },
+        {
+          "action": "investigate",
+          "when": true
+        },
+        {
+          "action": "report",
+          "when": true
+        },
+        {
+          "action": "observe",
+          "when": true
+        },
+        {
+          "action": "wait",
+          "when": true
+        }
+      ],
+      "defaultObjective": "enforcement",
+      "sideActions": [
+        "distress",
+        "report"
+      ]
+    },
+    "defender": {
+      "description": "Concentrate on a protected installation or community; withdrawal depends on mission risk.",
+      "intentPriority": [
+        {
+          "action": "withdraw",
+          "when": {
+            "any": [
+              {
+                "fact": "local_danger"
+              },
+              {
+                "fact": "force_ratio_poor"
+              },
+              {
+                "fact": "supply_inadequate"
+              }
+            ]
+          }
+        },
+        {
+          "action": "attack",
+          "when": true
+        },
+        {
+          "action": "intercept",
+          "when": true
+        },
+        {
+          "action": "escort",
+          "when": true
+        },
+        {
+          "action": "warn",
+          "when": true
+        },
+        {
+          "action": "inspect",
+          "when": true
+        },
+        {
+          "action": "investigate",
+          "when": true
+        },
+        {
+          "action": "report",
+          "when": true
+        },
+        {
+          "action": "observe",
+          "when": true
+        },
+        {
+          "action": "wait",
+          "when": true
+        }
+      ],
+      "defaultObjective": "defense",
+      "sideActions": [
+        "distress",
+        "report"
+      ]
+    },
+    "escort": {
+      "description": "Keep the charge safe; do not chase an enemy away from the charge.",
+      "intentPriority": [
+        {
+          "action": "withdraw",
+          "when": {
+            "all": [
+              {
+                "fact": "charge_safe"
+              },
+              {
+                "fact": "can_withdraw"
+              }
+            ]
+          }
+        },
+        {
+          "action": "withdraw",
+          "when": {
+            "any": [
+              {
+                "fact": "local_danger"
+              },
+              {
+                "fact": "force_ratio_poor"
+              },
+              {
+                "fact": "supply_inadequate"
+              }
+            ]
+          }
+        },
+        {
+          "action": "attack",
+          "when": true
+        },
+        {
+          "action": "intercept",
+          "when": true
+        },
+        {
+          "action": "escort",
+          "when": true
+        },
+        {
+          "action": "report",
+          "when": true
+        },
+        {
+          "action": "wait",
+          "when": true
+        }
+      ],
+      "defaultObjective": "escort",
+      "sideActions": [
+        "distress",
+        "report"
+      ]
+    },
+    "explorer": {
+      "description": "Survey, investigate anomalies and recover observations; evade superior forces.",
+      "intentPriority": [
+        {
+          "action": "evade",
+          "when": {
+            "fact": "local_danger"
+          }
+        },
+        {
+          "action": "withdraw",
+          "when": {
+            "any": [
+              {
+                "fact": "local_danger"
+              },
+              {
+                "fact": "force_ratio_poor"
+              },
+              {
+                "fact": "supply_inadequate"
+              }
+            ]
+          }
+        },
+        {
+          "action": "rescue",
+          "when": true
+        },
+        {
+          "action": "investigate",
+          "when": true
+        },
+        {
+          "action": "survey",
+          "when": true
+        },
+        {
+          "action": "report",
+          "when": true
+        },
+        {
+          "action": "wait",
+          "when": true
+        }
+      ],
+      "defaultObjective": "investigation",
+      "sideActions": [
+        "distress",
+        "report"
+      ]
+    },
+    "relief": {
+      "description": "Rescue and deliver aid within available capacity; request protection instead of chasing.",
+      "intentPriority": [
+        {
+          "action": "evade",
+          "when": {
+            "fact": "local_danger"
+          }
+        },
+        {
+          "action": "withdraw",
+          "when": {
+            "any": [
+              {
+                "fact": "local_danger"
+              },
+              {
+                "fact": "force_ratio_poor"
+              },
+              {
+                "fact": "supply_inadequate"
+              }
+            ]
+          }
+        },
+        {
+          "action": "rescue",
+          "when": true
+        },
+        {
+          "action": "deliver",
+          "when": true
+        },
+        {
+          "action": "report",
+          "when": true
+        },
+        {
+          "action": "wait",
+          "when": true
+        }
+      ],
+      "defaultObjective": "rescue",
+      "sideActions": [
+        "distress",
+        "report"
+      ]
+    },
+    "envoy": {
+      "description": "Negotiate access and specific settlements; do not initiate combat.",
+      "intentPriority": [
+        {
+          "action": "evade",
+          "when": {
+            "fact": "local_danger"
+          }
+        },
+        {
+          "action": "withdraw",
+          "when": {
+            "any": [
+              {
+                "fact": "local_danger"
+              },
+              {
+                "fact": "force_ratio_poor"
+              },
+              {
+                "fact": "supply_inadequate"
+              }
+            ]
+          }
+        },
+        {
+          "action": "negotiate",
+          "when": true
+        },
+        {
+          "action": "report",
+          "when": true
+        },
+        {
+          "action": "wait",
+          "when": true
+        }
+      ],
+      "defaultObjective": "negotiation",
+      "sideActions": [
+        "distress",
+        "report"
+      ]
+    },
+    "scout": {
+      "description": "Gather usable information, keep a return route and transmit findings.",
+      "intentPriority": [
+        {
+          "action": "evade",
+          "when": {
+            "fact": "local_danger"
+          }
+        },
+        {
+          "action": "withdraw",
+          "when": {
+            "any": [
+              {
+                "fact": "local_danger"
+              },
+              {
+                "fact": "force_ratio_poor"
+              },
+              {
+                "fact": "supply_inadequate"
+              }
+            ]
+          }
+        },
+        {
+          "action": "investigate",
+          "when": true
+        },
+        {
+          "action": "survey",
+          "when": true
+        },
+        {
+          "action": "report",
+          "when": true
+        },
+        {
+          "action": "observe",
+          "when": true
+        },
+        {
+          "action": "wait",
+          "when": true
+        }
+      ],
+      "defaultObjective": "investigation",
+      "sideActions": [
+        "distress",
+        "report"
+      ]
+    },
+    "raider": {
+      "description": "A bounded strike on an assigned target, followed by withdrawal or regrouping.",
+      "intentPriority": [
+        {
+          "action": "withdraw",
+          "when": {
+            "any": [
+              {
+                "fact": "objective_complete"
+              },
+              {
+                "fact": "force_ratio_poor"
+              },
+              {
+                "fact": "supply_inadequate"
+              }
+            ]
+          }
+        },
+        {
+          "action": "demand_cargo",
+          "when": true
+        },
+        {
+          "action": "attack",
+          "when": true
+        },
+        {
+          "action": "intercept",
+          "when": true
+        },
+        {
+          "action": "report",
+          "when": true
+        },
+        {
+          "action": "wait",
+          "when": true
+        }
+      ],
+      "defaultObjective": "raid",
+      "sideActions": [
+        "distress",
+        "report"
+      ]
+    },
+    "occupier": {
+      "description": "Hold assigned infrastructure with supply support; occupation does not erase civilian culture.",
+      "intentPriority": [
+        {
+          "action": "withdraw",
+          "when": {
+            "any": [
+              {
+                "fact": "local_danger"
+              },
+              {
+                "fact": "force_ratio_poor"
+              },
+              {
+                "fact": "supply_inadequate"
+              }
+            ]
+          }
+        },
+        {
+          "action": "occupy",
+          "when": true
+        },
+        {
+          "action": "attack",
+          "when": true
+        },
+        {
+          "action": "intercept",
+          "when": true
+        },
+        {
+          "action": "warn",
+          "when": true
+        },
+        {
+          "action": "inspect",
+          "when": true
+        },
+        {
+          "action": "investigate",
+          "when": true
+        },
+        {
+          "action": "report",
+          "when": true
+        },
+        {
+          "action": "observe",
+          "when": true
+        },
+        {
+          "action": "wait",
+          "when": true
+        }
+      ],
+      "defaultObjective": "occupation",
+      "sideActions": [
+        "distress",
+        "report"
+      ]
+    },
+    "hunter": {
+      "description": "Pursue one qualified quarry with finite search effort; no faction-wide perpetual chase.",
+      "intentPriority": [
+        {
+          "action": "withdraw",
+          "when": {
+            "any": [
+              {
+                "fact": "local_danger"
+              },
+              {
+                "fact": "force_ratio_poor"
+              },
+              {
+                "fact": "supply_inadequate"
+              }
+            ]
+          }
+        },
+        {
+          "action": "attack",
+          "when": true
+        },
+        {
+          "action": "intercept",
+          "when": true
+        },
+        {
+          "action": "investigate",
+          "when": true
+        },
+        {
+          "action": "report",
+          "when": true
+        },
+        {
+          "action": "wait",
+          "when": true
+        }
+      ],
+      "defaultObjective": "hunt",
+      "sideActions": [
+        "distress",
+        "report"
+      ]
+    },
+    "covert": {
+      "description": "Infiltrate, gather, conceal or extract according to a specific order; protect secrecy.",
+      "intentPriority": [
+        {
+          "action": "evade",
+          "when": {
+            "fact": "local_danger"
+          }
+        },
+        {
+          "action": "withdraw",
+          "when": {
+            "any": [
+              {
+                "fact": "local_danger"
+              },
+              {
+                "fact": "force_ratio_poor"
+              },
+              {
+                "fact": "supply_inadequate"
+              }
+            ]
+          }
+        },
+        {
+          "action": "covert_task",
+          "when": true
+        },
+        {
+          "action": "investigate",
+          "when": true
+        },
+        {
+          "action": "report",
+          "when": true
+        },
+        {
+          "action": "wait",
+          "when": true
+        }
+      ],
+      "defaultObjective": "covert",
+      "sideActions": [
+        "distress",
+        "report"
+      ]
+    },
+    "commander": {
+      "description": "Assign finite assets to faction objectives; relay orders, defend command and withdraw when necessary.",
+      "intentPriority": [
+        {
+          "action": "withdraw",
+          "when": {
+            "any": [
+              {
+                "fact": "local_danger"
+              },
+              {
+                "fact": "force_ratio_poor"
+              },
+              {
+                "fact": "supply_inadequate"
+              }
+            ]
+          }
+        },
+        {
+          "action": "attack",
+          "when": true
+        },
+        {
+          "action": "intercept",
+          "when": true
+        },
+        {
+          "action": "report",
+          "when": true
+        },
+        {
+          "action": "observe",
+          "when": true
+        },
+        {
+          "action": "wait",
+          "when": true
+        }
+      ],
+      "defaultObjective": "operation",
+      "sideActions": [
+        "distress",
+        "report"
+      ]
+    }
+  },
+  "objectiveTemplates": {
+    "assignment": {
+      "clock": "strategic_jumps",
+      "deadlineRequired": true,
+      "successWhen": {
+        "any": [
+          {
+            "fact": "objective_complete"
+          }
+        ]
+      },
+      "abortWhen": {
+        "any": [
+          {
+            "fact": "objective_cancelled"
+          },
+          {
+            "fact": "objective_deadline_reached"
+          },
+          {
+            "fact": "supply_inadequate"
+          }
+        ]
+      },
+      "complianceAccepted": false,
+      "onSuccess": "close_and_record",
+      "onAbort": "close_and_record",
+      "afterClosure": "No new attack or pursuit under this objective. Existing shots keep their launch provenance; defense against a new attack needs a new objective."
+    },
+    "enforcement": {
+      "clock": "tactical_seconds",
+      "deadlineRequired": true,
+      "successWhen": {
+        "any": [
+          {
+            "fact": "compliance_verified"
+          },
+          {
+            "fact": "target_left_jurisdiction"
+          }
+        ]
+      },
+      "abortWhen": {
+        "any": [
+          {
+            "fact": "objective_cancelled"
+          },
+          {
+            "fact": "objective_deadline_reached"
+          },
+          {
+            "fact": "search_budget_exhausted"
+          }
+        ]
+      },
+      "complianceAccepted": true,
+      "onSuccess": "close_and_record",
+      "onAbort": "close_and_record",
+      "afterClosure": "No new attack or pursuit under this objective. Existing shots keep their launch provenance; defense against a new attack needs a new objective."
+    },
+    "defense": {
+      "clock": "tactical_seconds",
+      "deadlineRequired": true,
+      "successWhen": {
+        "any": [
+          {
+            "fact": "threat_ended"
+          },
+          {
+            "fact": "surrender_accepted"
+          }
+        ]
+      },
+      "abortWhen": {
+        "any": [
+          {
+            "fact": "objective_cancelled"
+          },
+          {
+            "fact": "objective_deadline_reached"
+          },
+          {
+            "fact": "supply_inadequate"
+          }
+        ]
+      },
+      "complianceAccepted": false,
+      "onSuccess": "close_and_record",
+      "onAbort": "close_and_record",
+      "afterClosure": "No new attack or pursuit under this objective. Existing shots keep their launch provenance; defense against a new attack needs a new objective."
+    },
+    "escort": {
+      "clock": "strategic_jumps",
+      "deadlineRequired": true,
+      "successWhen": {
+        "any": [
+          {
+            "fact": "charge_safe"
+          }
+        ]
+      },
+      "abortWhen": {
+        "any": [
+          {
+            "fact": "objective_cancelled"
+          },
+          {
+            "fact": "objective_deadline_reached"
+          },
+          {
+            "fact": "supply_inadequate"
+          }
+        ]
+      },
+      "complianceAccepted": false,
+      "onSuccess": "close_and_record",
+      "onAbort": "close_and_record",
+      "afterClosure": "No new attack or pursuit under this objective. Existing shots keep their launch provenance; defense against a new attack needs a new objective."
+    },
+    "investigation": {
+      "clock": "strategic_jumps",
+      "deadlineRequired": true,
+      "successWhen": {
+        "any": [
+          {
+            "fact": "evidence_recovered"
+          },
+          {
+            "fact": "objective_complete"
+          }
+        ]
+      },
+      "abortWhen": {
+        "any": [
+          {
+            "fact": "objective_cancelled"
+          },
+          {
+            "fact": "objective_deadline_reached"
+          },
+          {
+            "fact": "supply_inadequate"
+          }
+        ]
+      },
+      "complianceAccepted": false,
+      "onSuccess": "close_and_record",
+      "onAbort": "close_and_record",
+      "afterClosure": "No new attack or pursuit under this objective. Existing shots keep their launch provenance; defense against a new attack needs a new objective."
+    },
+    "search": {
+      "clock": "tactical_seconds",
+      "deadlineRequired": true,
+      "successWhen": {
+        "any": [
+          {
+            "fact": "objective_complete"
+          }
+        ]
+      },
+      "abortWhen": {
+        "any": [
+          {
+            "fact": "objective_cancelled"
+          },
+          {
+            "fact": "objective_deadline_reached"
+          },
+          {
+            "fact": "search_budget_exhausted"
+          }
+        ]
+      },
+      "complianceAccepted": false,
+      "onSuccess": "close_and_record",
+      "onAbort": "close_and_record",
+      "afterClosure": "No new attack or pursuit under this objective. Existing shots keep their launch provenance; defense against a new attack needs a new objective."
+    },
+    "rescue": {
+      "clock": "strategic_jumps",
+      "deadlineRequired": true,
+      "successWhen": {
+        "any": [
+          {
+            "fact": "objective_complete"
+          }
+        ]
+      },
+      "abortWhen": {
+        "any": [
+          {
+            "fact": "objective_cancelled"
+          },
+          {
+            "fact": "objective_deadline_reached"
+          },
+          {
+            "fact": "supply_inadequate"
+          }
+        ]
+      },
+      "complianceAccepted": false,
+      "onSuccess": "close_and_record",
+      "onAbort": "close_and_record",
+      "afterClosure": "No new attack or pursuit under this objective. Existing shots keep their launch provenance; defense against a new attack needs a new objective."
+    },
+    "negotiation": {
+      "clock": "tactical_seconds",
+      "deadlineRequired": true,
+      "successWhen": {
+        "any": [
+          {
+            "fact": "compliance_verified"
+          },
+          {
+            "fact": "objective_complete"
+          }
+        ]
+      },
+      "abortWhen": {
+        "any": [
+          {
+            "fact": "objective_cancelled"
+          },
+          {
+            "fact": "objective_deadline_reached"
+          },
+          {
+            "fact": "threat_ended"
+          }
+        ]
+      },
+      "complianceAccepted": true,
+      "onSuccess": "close_and_record",
+      "onAbort": "close_and_record",
+      "afterClosure": "No new attack or pursuit under this objective. Existing shots keep their launch provenance; defense against a new attack needs a new objective."
+    },
+    "raid": {
+      "clock": "tactical_seconds",
+      "deadlineRequired": true,
+      "successWhen": {
+        "any": [
+          {
+            "fact": "objective_complete"
+          },
+          {
+            "fact": "cargo_received"
+          },
+          {
+            "fact": "surrender_accepted"
+          }
+        ]
+      },
+      "abortWhen": {
+        "any": [
+          {
+            "fact": "objective_cancelled"
+          },
+          {
+            "fact": "objective_deadline_reached"
+          },
+          {
+            "fact": "force_ratio_poor"
+          },
+          {
+            "fact": "supply_inadequate"
+          }
+        ]
+      },
+      "complianceAccepted": false,
+      "onSuccess": "close_and_record",
+      "onAbort": "close_and_record",
+      "afterClosure": "No new attack or pursuit under this objective. Existing shots keep their launch provenance; defense against a new attack needs a new objective."
+    },
+    "occupation": {
+      "clock": "strategic_jumps",
+      "deadlineRequired": true,
+      "successWhen": {
+        "any": [
+          {
+            "fact": "control_established"
+          }
+        ]
+      },
+      "abortWhen": {
+        "any": [
+          {
+            "fact": "objective_cancelled"
+          },
+          {
+            "fact": "objective_deadline_reached"
+          },
+          {
+            "fact": "supply_inadequate"
+          }
+        ]
+      },
+      "complianceAccepted": false,
+      "onSuccess": "close_and_record",
+      "onAbort": "close_and_record",
+      "afterClosure": "No new attack or pursuit under this objective. Existing shots keep their launch provenance; defense against a new attack needs a new objective."
+    },
+    "hunt": {
+      "clock": "tactical_seconds",
+      "deadlineRequired": true,
+      "successWhen": {
+        "any": [
+          {
+            "fact": "target_destroyed"
+          },
+          {
+            "fact": "objective_complete"
+          },
+          {
+            "fact": "surrender_accepted"
+          }
+        ]
+      },
+      "abortWhen": {
+        "any": [
+          {
+            "fact": "objective_cancelled"
+          },
+          {
+            "fact": "objective_deadline_reached"
+          },
+          {
+            "fact": "search_budget_exhausted"
+          },
+          {
+            "fact": "force_ratio_poor"
+          }
+        ]
+      },
+      "complianceAccepted": false,
+      "onSuccess": "close_and_record",
+      "onAbort": "close_and_record",
+      "afterClosure": "No new attack or pursuit under this objective. Existing shots keep their launch provenance; defense against a new attack needs a new objective."
+    },
+    "covert": {
+      "clock": "strategic_jumps",
+      "deadlineRequired": true,
+      "successWhen": {
+        "any": [
+          {
+            "fact": "objective_complete"
+          }
+        ]
+      },
+      "abortWhen": {
+        "any": [
+          {
+            "fact": "objective_cancelled"
+          },
+          {
+            "fact": "objective_deadline_reached"
+          },
+          {
+            "fact": "supply_inadequate"
+          }
+        ]
+      },
+      "complianceAccepted": false,
+      "onSuccess": "close_and_record",
+      "onAbort": "close_and_record",
+      "afterClosure": "No new attack or pursuit under this objective. Existing shots keep their launch provenance; defense against a new attack needs a new objective."
+    },
+    "operation": {
+      "clock": "strategic_jumps",
+      "deadlineRequired": true,
+      "successWhen": {
+        "any": [
+          {
+            "fact": "objective_complete"
+          }
+        ]
+      },
+      "abortWhen": {
+        "any": [
+          {
+            "fact": "objective_cancelled"
+          },
+          {
+            "fact": "objective_deadline_reached"
+          },
+          {
+            "fact": "supply_inadequate"
+          }
+        ]
+      },
+      "complianceAccepted": false,
+      "onSuccess": "close_and_record",
+      "onAbort": "close_and_record",
+      "afterClosure": "No new attack or pursuit under this objective. Existing shots keep their launch provenance; defense against a new attack needs a new objective."
+    }
+  },
+  "responseCatalog": {
+    "investigate": {
+      "objective": "investigation",
+      "eligibleRoles": [
+        "patrol",
+        "defender",
+        "explorer",
+        "scout",
+        "covert",
+        "commander"
+      ],
+      "requires": {
+        "all": [
+          {
+            "fact": "event_known"
+          },
+          {
+            "fact": "credible_report"
+          },
+          {
+            "fact": "event_actionable"
+          },
+          {
+            "fact": "can_respond"
+          },
+          {
+            "fact": "evidence_available"
+          }
+        ]
+      }
+    },
+    "protect": {
+      "objective": "defense",
+      "eligibleRoles": [
+        "patrol",
+        "defender",
+        "escort",
+        "raider",
+        "occupier",
+        "commander"
+      ],
+      "requires": {
+        "all": [
+          {
+            "fact": "event_known"
+          },
+          {
+            "fact": "credible_report"
+          },
+          {
+            "fact": "event_actionable"
+          },
+          {
+            "fact": "can_respond"
+          }
+        ]
+      }
+    },
+    "rescue": {
+      "objective": "rescue",
+      "eligibleRoles": [
+        "relief",
+        "explorer",
+        "civilian",
+        "patrol",
+        "escort",
+        "commander"
+      ],
+      "requires": {
+        "all": [
+          {
+            "fact": "event_known"
+          },
+          {
+            "fact": "credible_report"
+          },
+          {
+            "fact": "event_actionable"
+          },
+          {
+            "fact": "can_respond"
+          },
+          {
+            "fact": "survivors_known"
+          }
+        ]
+      }
+    },
+    "reroute": {
+      "objective": "assignment",
+      "eligibleRoles": [
+        "civilian",
+        "escort",
+        "relief",
+        "explorer",
+        "scout",
+        "commander"
+      ],
+      "requires": {
+        "all": [
+          {
+            "fact": "event_known"
+          },
+          {
+            "fact": "credible_report"
+          },
+          {
+            "fact": "event_actionable"
+          },
+          {
+            "fact": "can_respond"
+          }
+        ]
+      }
+    },
+    "negotiate": {
+      "objective": "negotiation",
+      "eligibleRoles": [
+        "envoy",
+        "civilian",
+        "commander"
+      ],
+      "requires": {
+        "all": [
+          {
+            "fact": "event_known"
+          },
+          {
+            "fact": "credible_report"
+          },
+          {
+            "fact": "event_actionable"
+          },
+          {
+            "fact": "can_respond"
+          }
+        ]
+      }
+    },
+    "conceal": {
+      "objective": "covert",
+      "eligibleRoles": [
+        "covert",
+        "commander"
+      ],
+      "requires": {
+        "all": [
+          {
+            "fact": "event_known"
+          },
+          {
+            "fact": "credible_report"
+          },
+          {
+            "fact": "event_actionable"
+          },
+          {
+            "fact": "can_respond"
+          },
+          {
+            "fact": "pact_briefing_received"
+          },
+          {
+            "fact": "pact_exposure_risk"
+          },
+          {
+            "fact": "pact_task_assigned"
+          }
+        ]
+      }
+    },
+    "support_pact": {
+      "objective": "operation",
+      "eligibleRoles": [
+        "commander",
+        "covert",
+        "escort",
+        "civilian"
+      ],
+      "requires": {
+        "all": [
+          {
+            "fact": "event_known"
+          },
+          {
+            "fact": "credible_report"
+          },
+          {
+            "fact": "event_actionable"
+          },
+          {
+            "fact": "can_respond"
+          },
+          {
+            "fact": "pact_briefing_received"
+          },
+          {
+            "fact": "pact_task_assigned"
+          }
+        ]
+      }
+    },
+    "prepare_operation": {
+      "objective": "operation",
+      "eligibleRoles": [
+        "commander"
+      ],
+      "requires": {
+        "all": [
+          {
+            "fact": "event_known"
+          },
+          {
+            "fact": "credible_report"
+          },
+          {
+            "fact": "event_actionable"
+          },
+          {
+            "fact": "can_respond"
+          },
+          {
+            "fact": "operation_supported"
+          }
+        ]
+      }
+    },
+    "exploit_cargo": {
+      "objective": "raid",
+      "eligibleRoles": [
+        "raider",
+        "commander"
+      ],
+      "requires": {
+        "all": [
+          {
+            "fact": "event_known"
+          },
+          {
+            "fact": "credible_report"
+          },
+          {
+            "fact": "event_actionable"
+          },
+          {
+            "fact": "can_respond"
+          },
+          {
+            "fact": "credible_cargo_intel"
+          },
+          {
+            "fact": "valuable_target_known"
+          }
+        ]
+      }
+    },
+    "pursue_quarry": {
+      "objective": "hunt",
+      "eligibleRoles": [
+        "hunter",
+        "commander"
+      ],
+      "requires": {
+        "all": [
+          {
+            "fact": "event_known"
+          },
+          {
+            "fact": "credible_report"
+          },
+          {
+            "fact": "event_actionable"
+          },
+          {
+            "fact": "can_respond"
+          },
+          {
+            "fact": "worthy_hunt_known"
+          }
+        ]
+      }
+    },
+    "assess_technology": {
+      "objective": "investigation",
+      "eligibleRoles": [
+        "scout",
+        "explorer",
+        "commander"
+      ],
+      "requires": {
+        "all": [
+          {
+            "fact": "event_known"
+          },
+          {
+            "fact": "credible_report"
+          },
+          {
+            "fact": "event_actionable"
+          },
+          {
+            "fact": "can_respond"
+          },
+          {
+            "fact": "unusual_technology"
+          },
+          {
+            "fact": "evidence_available"
+          }
+        ]
+      }
+    }
+  },
+  "eventTypes": [
+    "asset_overdue",
+    "distress",
+    "route_disruption",
+    "military_buildup",
+    "covert_evidence",
+    "technology_discovery",
+    "border_breach",
+    "asset_attack",
+    "occupation_threat",
+    "trade_opportunity",
+    "central_contact",
+    "prey_sighting"
+  ],
+  "eventContracts": {
+    "asset_overdue": {
+      "description": "An expected ship, convoy or fleet missed a known arrival or check-in after its declared grace period. Patrols are one asset role among many.",
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "incidentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "eventType": {
+            "const": "asset_overdue"
+          },
+          "locationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "jurisdictionAtOccurrence": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "asset": {
+            "type": "object",
+            "properties": {
+              "assetId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "ship",
+                  "convoy",
+                  "fleet"
+                ]
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "patrol",
+                  "freighter",
+                  "explorer",
+                  "refugee_transport",
+                  "construction_tender",
+                  "other",
+                  "unknown"
+                ]
+              },
+              "ownerId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "factionId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "assetId",
+              "kind",
+              "role",
+              "ownerId",
+              "factionId"
+            ],
+            "additionalProperties": false
+          },
+          "assignment": {
+            "type": "object",
+            "properties": {
+              "assignmentId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "patrol",
+                  "delivery",
+                  "exploration",
+                  "evacuation",
+                  "construction",
+                  "other",
+                  "unknown"
+                ]
+              },
+              "originLocationId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "destinationLocationId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "contractId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "assignmentId",
+              "kind",
+              "originLocationId",
+              "destinationLocationId",
+              "contractId"
+            ],
+            "additionalProperties": false
+          },
+          "cargo": {
+            "type": "object",
+            "properties": {
+              "knowledge": {
+                "type": "string",
+                "enum": [
+                  "unknown",
+                  "reported",
+                  "observed",
+                  "verified"
+                ]
+              },
+              "manifest": {
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "cargoId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "quantity": {
+                          "oneOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "cargoId",
+                        "quantity"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "knowledge",
+              "manifest"
+            ],
+            "additionalProperties": false
+          },
+          "missedMilestone": {
+            "type": "object",
+            "properties": {
+              "milestoneId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "arrival",
+                  "check_in"
+                ]
+              },
+              "dueAt": {
+                "type": "object",
+                "properties": {
+                  "clock": {
+                    "type": "string",
+                    "enum": [
+                      "strategic_jumps",
+                      "tactical_seconds"
+                    ]
+                  },
+                  "value": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "clock",
+                  "value"
+                ],
+                "additionalProperties": false
+              },
+              "grace": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "milestoneId",
+              "kind",
+              "dueAt",
+              "grace"
+            ],
+            "additionalProperties": false
+          },
+          "detectedAt": {
+            "type": "object",
+            "properties": {
+              "clock": {
+                "type": "string",
+                "enum": [
+                  "strategic_jumps",
+                  "tactical_seconds"
+                ]
+              },
+              "value": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "clock",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "lastKnown": {
+            "type": "object",
+            "properties": {
+              "locationId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "position": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "number"
+                      },
+                      "y": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "observedAt": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "clock": {
+                        "type": "string",
+                        "enum": [
+                          "strategic_jumps",
+                          "tactical_seconds"
+                        ]
+                      },
+                      "value": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "clock",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "locationId",
+              "position",
+              "observedAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "incidentId",
+          "eventType",
+          "locationId",
+          "jurisdictionAtOccurrence",
+          "asset",
+          "assignment",
+          "cargo",
+          "missedMilestone",
+          "detectedAt",
+          "lastKnown"
+        ],
+        "additionalProperties": false
+      },
+      "trigger": "An observer that knows the assignment and expected milestone detects a missed arrival/check-in strictly after dueAt + grace on the same declared clock. Merely unloading an NPC from the current scene is not evidence.",
+      "deduplicationKey": [
+        "asset.assetId",
+        "assignment.assignmentId",
+        "missedMilestone.milestoneId"
+      ],
+      "notes": [
+        "These are observer-known details. Unknown owner, affiliation, cargo or position stays null/unknown; never copy hidden world values into the report.",
+        "Cargo knowledge unknown requires manifest null. For other knowledge states, provide an array; an empty array means known empty, not unknown.",
+        "Position requires a last-known location and observation timestamp. Last known is historical and does not grant live tracking.",
+        "locationId is the known site of the missed milestone/report, not proof of where the asset was lost. jurisdictionAtOccurrence refers to that site; new evidence may locate a separate incident elsewhere.",
+        "An overdue report does not establish destruction, desertion, attack, an offender or a Dominion connection. Those require additional evidence.",
+        "Update one persistent incident per missed milestone instead of spawning a fresh mission every tick or jump. Restore contact/delivery or resolve the search using the existing objective rules.",
+        "The legacy draft label missing_patrol is retired. No runtime save migration is required by this design-only rename; integration must accept the new canonical event type."
+      ]
+    }
+  },
+  "globalRules": {
+    "fireRequires": {
+      "all": [
+        {
+          "fact": "engagement_objective_active"
+        },
+        {
+          "fact": "live_weapon_track"
+        },
+        {
+          "fact": "weapon_usable"
+        },
+        {
+          "fact": "weapon_ready"
+        },
+        {
+          "fact": "inside_equipped_range"
+        },
+        {
+          "fact": "target_actionable"
+        }
+      ]
+    },
+    "standingLossRequires": {
+      "all": [
+        {
+          "fact": "event_known"
+        },
+        {
+          "fact": "witness_or_report_received"
+        },
+        {
+          "fact": "actor_attributed"
+        },
+        {
+          "fact": "standing_policy_applies"
+        }
+      ]
+    },
+    "legalEnforcementRequires": {
+      "all": [
+        {
+          "fact": "event_known"
+        },
+        {
+          "fact": "witness_or_report_received"
+        },
+        {
+          "fact": "actor_attributed"
+        },
+        {
+          "fact": "jurisdiction_valid"
+        },
+        {
+          "fact": "enforcement_order_active"
+        }
+      ]
+    },
+    "standingPolicyNote": "Necessary evidence gate, not sufficient reason or amount. Validate offense, victim, actor and faction policy separately; proximity-only suspicion never reduces standing."
+  },
+  "knowledgeRecord": {
+    "requiredFields": [
+      "incidentId",
+      "observerId",
+      "locationId",
+      "jurisdictionAtOccurrence",
+      "observedAt",
+      "receivedAt",
+      "provenance",
+      "claims",
+      "confidence",
+      "lastKnownArea"
+    ],
+    "provenance": [
+      "direct_sensor",
+      "direct_witness",
+      "received_report",
+      "recovered_record",
+      "inference"
+    ],
+    "confidence": [
+      "unassessed",
+      "tentative",
+      "corroborated"
+    ],
+    "contactQuality": [
+      "none",
+      "detected",
+      "identified",
+      "tracked",
+      "firing_solution"
+    ],
+    "notes": [
+      "Confidence, source and contact quality are separate dimensions, not one ladder.",
+      "Each claim identifies subject/predicate/value and whether identity is attributed. A trusted disappearance report need not name an attacker.",
+      "Recipients and compartment authorization belong to transmission/access records; joining a faction does not create retroactive receipt.",
+      "Freshness depends on claim: old wreck evidence can remain actionable while old coordinates cannot aim a weapon.",
+      "Event relevance is evaluated from observer-known relationships/routes, not hidden world truth."
+    ]
+  },
+  "identityContract": {
+    "locationFields": [
+      "locationId",
+      "kind",
+      "cultureId",
+      "sovereignId",
+      "controllerId",
+      "jurisdictionId",
+      "legacyGovernmentId",
+      "map"
+    ],
+    "kinds": [
+      "system",
+      "deep_space"
+    ],
+    "unknownAuthority": null,
+    "notes": [
+      "Use stable IDs; governmentId and currentPlanet index are adapters only.",
+      "Sovereign is the recognized/legal claim, controller is effective present control; store disputed claims separately.",
+      "A deep-space POI has its own identity and jurisdiction; nearest planet does not own it by proximity.",
+      "Adding JSON entries does not implement deep-space rendering, scene loading, travel or save migration."
+    ],
+    "examples": [
+      {
+        "locationId": "system:blender",
+        "kind": "system",
+        "cultureId": "blender_remnant",
+        "sovereignId": null,
+        "controllerId": "dominion_remnant",
+        "jurisdictionId": "authority:blender_remnant",
+        "legacyGovernmentId": 13,
+        "note": "Proposed explicit identity. Legal claim unresolved; no fake government ID."
+      },
+      {
+        "locationId": "poi:delpin-frontier-wreck",
+        "kind": "deep_space",
+        "cultureId": null,
+        "sovereignId": null,
+        "controllerId": null,
+        "jurisdictionId": null,
+        "legacyGovernmentId": null,
+        "note": "Proposed outside-border mission site. Coordinates must be authored against actual borders; do not load Romulus."
+      }
+    ]
+  },
+  "runtimeAdapter": {
+    "preserveNativeRole": true,
+    "roleMap": {
+      "patrol": "patrol",
+      "traffic": "civilian",
+      "localTraffic": "civilian",
+      "playerEscort": "escort",
+      "playerFleet": "escort",
+      "fleetAttack": "raider"
+    },
+    "jobOverride": "Use explicit doctrineRole when present and valid. roleMap is legacy fallback only; unsupported profile-role combinations deny assignment, never inherit attack permission.",
+    "dominionDefaultProfile": "dominion_remnant",
+    "centralProfileRequires": [
+      "explicit central command authority",
+      "scenario activation",
+      "received applicable orders"
+    ],
+    "notes": [
+      "Keep native playerEscort + fleetId intact for current credit logic.",
+      "Player fleet hull origin does not choose allegiance, profile or doctrineRole.",
+      "Runtime faction gorn alone must never enable a generator."
+    ]
+  },
+  "scenarioTreaties": [
+    {
+      "id": "dominion_breen_pact",
+      "parties": [
+        "dominion_central",
+        "breen"
+      ],
+      "visibility": "compartmented",
+      "initialState": "disabled_in_phase1",
+      "activationRequires": [
+        "authored agreement event",
+        "named authorized signatories"
+      ],
+      "effects": [
+        "specific transit/supply or operation agreements only after actor receives order"
+      ],
+      "sourceRefs": [
+        "bm2_biographies"
+      ],
+      "note": "Guarded public behavior is compatible with a hidden pact; an order can reach a cargo captain without disclosing the invasion plan."
+    },
+    {
+      "id": "dominion_cardassian_pact",
+      "parties": [
+        "dominion_central",
+        "cardassian"
+      ],
+      "visibility": "compartmented",
+      "initialState": "disabled_in_phase1",
+      "activationRequires": [
+        "authored agreement event",
+        "named authorized signatories"
+      ],
+      "effects": [
+        "proxy supply, corridor preparation and coordinated attacks under assigned orders"
+      ],
+      "sourceRefs": [
+        "bm2_biographies"
+      ],
+      "note": "Public alignment, true agreement and per-actor knowledge are stored separately."
+    }
+  ],
+  "campaignOutline": {
+    "sourceRefs": [
+      "bm2_intro",
+      "bm2_biographies"
+    ],
+    "outcome": "contingent",
+    "stages": [
+      "reconnect_and_assess",
+      "secure_compartmented_partners",
+      "fund_hidden_preparation",
+      "establish_access_and_supply",
+      "coordinate_fronts",
+      "consolidate_or_withdraw"
+    ],
+    "transitionRequirements": [
+      "actor knows enough to plan",
+      "real assets and supplies assigned",
+      "route/access conditions met",
+      "previous stage results persisted",
+      "readiness sustained for scenario-defined interval"
+    ],
+    "failureResponses": [
+      "delay",
+      "reroute",
+      "negotiate",
+      "abandon_one_front",
+      "withdraw",
+      "lose_alliance"
+    ],
+    "playerInterventions": [
+      "expose_evidence",
+      "interdict_deliveries",
+      "deny_corridor",
+      "evacuate",
+      "assist_preparation",
+      "negotiate_remnant_autonomy"
+    ]
+  },
+  "profiles": {
+    "terran": {
+      "name": "Earth Empire",
+      "runtimeFaction": "terran",
+      "status": "active",
+      "sourceRefs": [
+        "bm1_worlds",
+        "authored_design"
+      ],
+      "summary": "An imperial power fighting for survival and control, able to counterattack when logistics permit.",
+      "priorities": [
+        "preserve_population_and_infrastructure",
+        "sustain_war_supply",
+        "hold_and_reclaim_territory",
+        "maintain_control"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "patrol": {
+          "template": "patrol",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war",
+            "enforcement"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        },
+        "relief": {
+          "template": "relief",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "raider": {
+          "template": "raider",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        },
+        "occupier": {
+          "template": "occupier",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war",
+            "enforcement"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "requires_assignment_and_budget",
+        "raid": "requires_assignment_and_budget",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "requires_assignment_and_budget"
+      },
+      "interestRules": [
+        {
+          "id": "regional_danger",
+          "eventTypes": [
+            "asset_overdue",
+            "covert_evidence",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "regional_threat_supported"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "A credible wider threat could defeat Earth even while Klingon war dominates planning."
+        },
+        {
+          "id": "war_supply",
+          "eventTypes": [
+            "asset_overdue",
+            "route_disruption"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_operations_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Protect actual military supply and recovery routes."
+        },
+        {
+          "id": "refugees",
+          "eventTypes": [
+            "distress",
+            "occupation_threat"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "survivors_known"
+              }
+            ]
+          },
+          "response": "rescue",
+          "reason": "Preserve people and future capacity, within available resources."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "Initially prioritizes Klingon pressure. Corroborated Dominion buildup leads to intelligence recovery, protected supply corridors and contingency defense; successful player action can change the outcome.",
+      "notes": [],
+      "activation": "campaign_roster"
+    },
+    "klingon": {
+      "name": "Klingon forces",
+      "runtimeFaction": "klingon",
+      "status": "active",
+      "sourceRefs": [
+        "bm1_worlds",
+        "authored_design"
+      ],
+      "summary": "Organized conquerors and rebels whose raids serve military objectives.",
+      "priorities": [
+        "win_imperial_war",
+        "disrupt_earth_logistics",
+        "preserve_combat_strength",
+        "earn_military_prestige"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "patrol": {
+          "template": "patrol",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war",
+            "enforcement"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        },
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "raider": {
+          "template": "raider",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        },
+        "occupier": {
+          "template": "occupier",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war",
+            "enforcement"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "requires_assignment_and_budget",
+        "raid": "requires_assignment_and_budget",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "requires_assignment_and_budget"
+      },
+      "interestRules": [
+        {
+          "id": "shared_losses",
+          "eventTypes": [
+            "asset_overdue",
+            "covert_evidence"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "linked_own_losses"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "A link to Klingon losses makes a foreign disappearance our problem."
+        },
+        {
+          "id": "own_missing",
+          "eventTypes": [
+            "asset_overdue"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "Recover our overdue ships or deliveries and protect the offensive."
+        },
+        {
+          "id": "regional_danger",
+          "eventTypes": [
+            "military_buildup",
+            "covert_evidence"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "regional_threat_supported"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "Corroborated threats to victory justify diversion."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "An isolated missing Romulan patrol is recorded with no automatic rescue or war diversion. Connections to Klingon losses, supply or a supported invasion threat change priorities.",
+      "notes": [
+        "Compliance can close a border demand. It does not cancel an independent military order.",
+        "War logistics attacks require target-specific orders and verified military use; civilian hull identity alone is insufficient."
+      ],
+      "activation": "campaign_roster"
+    },
+    "romulan": {
+      "name": "Romulan Empire",
+      "runtimeFaction": "romulan",
+      "status": "active",
+      "sourceRefs": [
+        "bm1_worlds",
+        "authored_design"
+      ],
+      "summary": "Protect borders, intelligence and freedom of action through surveillance and selective force.",
+      "priorities": [
+        "preserve_secrecy",
+        "protect_frontier",
+        "recover_intelligence",
+        "avoid_strategic_surprise"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "patrol": {
+          "template": "patrol",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war",
+            "enforcement"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        },
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "covert": {
+          "template": "covert",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "raider": {
+          "template": "raider",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        },
+        "occupier": {
+          "template": "occupier",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war",
+            "enforcement"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "requires_assignment_and_budget",
+        "raid": "requires_assignment_and_budget",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "requires_assignment_and_budget"
+      },
+      "interestRules": [
+        {
+          "id": "overdue_our_asset",
+          "eventTypes": [
+            "asset_overdue"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "An overdue ship or delivery can expose a border gap, supply problem or hidden operation."
+        },
+        {
+          "id": "recover_trace",
+          "eventTypes": [
+            "covert_evidence"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "evidence_available"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "Recover evidence before sharing it selectively."
+        },
+        {
+          "id": "frontier_threat",
+          "eventTypes": [
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_operations_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A known buildup near our routes threatens strategic independence."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "Investigates missing frontier patrols early. A credible Blender connection prompts surveillance, evidence recovery and preparations against the hidden second front.",
+      "notes": [],
+      "activation": "campaign_roster"
+    },
+    "cardassian": {
+      "name": "Cardassian Union",
+      "runtimeFaction": "cardassian",
+      "status": "active",
+      "sourceRefs": [
+        "bm2_biographies",
+        "authored_design"
+      ],
+      "summary": "Seek political and industrial leverage; compartmented command can support the hidden Dominion strategy.",
+      "priorities": [
+        "increase_influence",
+        "build_industrial_strength",
+        "control_corridors",
+        "protect_secret_commitments"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "patrol": {
+          "template": "patrol",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war",
+            "enforcement"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        },
+        "covert": {
+          "template": "covert",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        },
+        "raider": {
+          "template": "raider",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        },
+        "occupier": {
+          "template": "occupier",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war",
+            "enforcement"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "requires_assignment_and_budget",
+        "raid": "requires_assignment_and_budget",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "requires_assignment_and_budget"
+      },
+      "interestRules": [
+        {
+          "id": "conceal_pact",
+          "eventTypes": [
+            "covert_evidence",
+            "asset_overdue"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "pact_briefing_received"
+              },
+              {
+                "fact": "pact_exposure_risk"
+              },
+              {
+                "fact": "pact_task_assigned"
+              }
+            ]
+          },
+          "response": "conceal",
+          "reason": "Only a briefed, assigned actor knows what this evidence would expose."
+        },
+        {
+          "id": "fulfill_pact",
+          "eventTypes": [
+            "military_buildup",
+            "route_disruption"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "pact_briefing_received"
+              },
+              {
+                "fact": "pact_task_assigned"
+              }
+            ]
+          },
+          "response": "support_pact",
+          "reason": "Execute a specific received pact order with available assets."
+        },
+        {
+          "id": "own_missing",
+          "eventTypes": [
+            "asset_overdue"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "Ordinary losses still matter outside the conspiracy compartment."
+        },
+        {
+          "id": "corridor",
+          "eventTypes": [
+            "occupation_threat",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_operations_affected"
+              }
+            ]
+          },
+          "response": "prepare_operation",
+          "reason": "Secure a concrete corridor when actual forces and supplies support the plan."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "In the BM2-derived scenario, informed command builds forces secretly and prepares the Bajoran corridor while misleading Klingon partners. Ordinary freighters act on their cargo orders, not full invasion knowledge.",
+      "notes": [],
+      "activation": "campaign_roster"
+    },
+    "dominion_remnant": {
+      "name": "Dominion Remnant — Blender",
+      "runtimeFaction": "dominion",
+      "status": "active",
+      "sourceRefs": [
+        "user_handoff",
+        "authored_design"
+      ],
+      "summary": "An isolated Vorta/Jem'Hadar foothold preserving Blender and deciding its future.",
+      "priorities": [
+        "survive",
+        "secure_supplies",
+        "protect_blender",
+        "assess_contact_with_wider_dominion"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "patrol": {
+          "template": "patrol",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "enforcement"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "relief": {
+          "template": "relief",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "requires_assignment_and_budget",
+        "raid": "disabled",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "disabled"
+      },
+      "interestRules": [
+        {
+          "id": "central_contact",
+          "eventTypes": [
+            "central_contact"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "central_contact_received"
+              }
+            ]
+          },
+          "response": "negotiate",
+          "reason": "Verify an actual contact and negotiate the remnant's position."
+        },
+        {
+          "id": "our_losses",
+          "eventTypes": [
+            "asset_overdue"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "Scarce ships and crews cannot be casually replaced."
+        },
+        {
+          "id": "scarce_supplies",
+          "eventTypes": [
+            "trade_opportunity",
+            "route_disruption"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "contract_affected"
+              }
+            ]
+          },
+          "response": "negotiate",
+          "reason": "Keep the outpost supplied without wasting its limited strength."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "The playable start remains Blender. Reunion, cooperation, autonomy and resistance are possible authored branches; species and hull do not grant central command authority.",
+      "notes": [
+        "No automatic distant-map discovery, reinforcements, covert-pact knowledge or fleet access.",
+        "Changing command allegiance requires an explicit event/order and can change policy selection; it does not rewrite culture."
+      ],
+      "activation": "campaign_roster"
+    },
+    "dominion_central": {
+      "name": "Wider Dominion",
+      "runtimeFaction": "dominion",
+      "status": "active",
+      "sourceRefs": [
+        "bm2_biographies",
+        "authored_design"
+      ],
+      "summary": "A patient expansionist command using proxies, secret preparation and coordinated invasions.",
+      "priorities": [
+        "preserve_secrecy",
+        "secure_supply_and_access",
+        "divide_opponents",
+        "prepare_coordinated_fronts",
+        "hold_conquests"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "patrol": {
+          "template": "patrol",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war",
+            "enforcement"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        },
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "covert": {
+          "template": "covert",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        },
+        "raider": {
+          "template": "raider",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        },
+        "occupier": {
+          "template": "occupier",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war",
+            "enforcement"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "war"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "requires_assignment_and_budget",
+        "raid": "requires_assignment_and_budget",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "requires_assignment_and_budget"
+      },
+      "interestRules": [
+        {
+          "id": "conceal_pact",
+          "eventTypes": [
+            "covert_evidence",
+            "asset_overdue"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "pact_briefing_received"
+              },
+              {
+                "fact": "pact_exposure_risk"
+              },
+              {
+                "fact": "pact_task_assigned"
+              }
+            ]
+          },
+          "response": "conceal",
+          "reason": "Only a briefed, assigned actor knows what this evidence would expose."
+        },
+        {
+          "id": "fulfill_pact",
+          "eventTypes": [
+            "military_buildup",
+            "route_disruption"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "pact_briefing_received"
+              },
+              {
+                "fact": "pact_task_assigned"
+              }
+            ]
+          },
+          "response": "support_pact",
+          "reason": "Execute a specific received pact order with available assets."
+        },
+        {
+          "id": "coordinate_fronts",
+          "eventTypes": [
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_operations_affected"
+              },
+              {
+                "fact": "operation_supported"
+              }
+            ]
+          },
+          "response": "prepare_operation",
+          "reason": "Commit only when known readiness, routes and supplies sustain both fronts."
+        },
+        {
+          "id": "lost_assets",
+          "eventTypes": [
+            "asset_overdue"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "Protect the operational secret and replace actual losses through logistics."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "Prepare wormhole access and the hidden Blender force, exploit Earth–Klingon exhaustion, then coordinate fronts and consolidate. Exposure, sabotage, lost allies or inadequate readiness can delay or cancel operations.",
+      "notes": [
+        "Inactive until scenario activation and explicit central command authority.",
+        "Covert action does not bypass the same sensor, communications, travel, resource or firing gates.",
+        "The BM2 outcome is a possible trajectory, not an unavoidable cutscene or permission to spawn a thousand tactical ships."
+      ],
+      "activation": "scenario_activation"
+    },
+    "breen": {
+      "name": "Breen",
+      "runtimeFaction": "breen",
+      "status": "active",
+      "sourceRefs": [
+        "bm2_biographies",
+        "authored_design"
+      ],
+      "summary": "Guarded intermediaries and asset protectors; covert treaties are possible without public openness.",
+      "priorities": [
+        "protect_assets",
+        "preserve_secrecy",
+        "honor_specific_contracts",
+        "limit_exposure"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "patrol": {
+          "template": "patrol",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "enforcement"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "covert": {
+          "template": "covert",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "requires_assignment_and_budget",
+        "raid": "disabled",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "disabled"
+      },
+      "interestRules": [
+        {
+          "id": "conceal_pact",
+          "eventTypes": [
+            "covert_evidence",
+            "asset_overdue"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "pact_briefing_received"
+              },
+              {
+                "fact": "pact_exposure_risk"
+              },
+              {
+                "fact": "pact_task_assigned"
+              }
+            ]
+          },
+          "response": "conceal",
+          "reason": "Only a briefed, assigned actor knows what this evidence would expose."
+        },
+        {
+          "id": "fulfill_pact",
+          "eventTypes": [
+            "military_buildup",
+            "route_disruption"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "pact_briefing_received"
+              },
+              {
+                "fact": "pact_task_assigned"
+              }
+            ]
+          },
+          "response": "support_pact",
+          "reason": "Execute a specific received pact order with available assets."
+        },
+        {
+          "id": "contract",
+          "eventTypes": [
+            "trade_opportunity",
+            "route_disruption"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "contract_affected"
+              }
+            ]
+          },
+          "response": "negotiate",
+          "reason": "Act on the actual bargain and its risks."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "A guarded ordinary posture coexists with a scenario-specific covert Dominion pact. Only briefed actors with orders aid or conceal it.",
+      "notes": [
+        "Phase 1: independent from Dominion; remove blanket friendship in both directions without adding hostility.",
+        "BM2-derived covert pact is later scenario content, disabled in Phase 1 until relationship consumers support scope and received orders.",
+        "The earlier instruction to retain the runtime friendship is superseded by phase1Integration."
+      ],
+      "activation": "campaign_roster"
+    },
+    "ferengi": {
+      "name": "Ferengi",
+      "runtimeFaction": "ferengi",
+      "status": "active",
+      "sourceRefs": [
+        "bm1_worlds",
+        "authored_design"
+      ],
+      "summary": "Commercial networks pursue profit, reliable contracts and survival; merchants are not automatically pirates.",
+      "priorities": [
+        "protect_profit",
+        "complete_contracts",
+        "preserve_ships",
+        "trade_information"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "patrol": {
+          "template": "patrol",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "enforcement"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "explorer": {
+          "template": "explorer",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "requires_assignment_and_budget",
+        "raid": "disabled",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "disabled"
+      },
+      "interestRules": [
+        {
+          "id": "contract_risk",
+          "eventTypes": [
+            "asset_overdue",
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "contract_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Loss risk to this contract matters more than the victim's nationality."
+        },
+        {
+          "id": "deal",
+          "eventTypes": [
+            "trade_opportunity",
+            "covert_evidence"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "contract_affected"
+              }
+            ]
+          },
+          "response": "negotiate",
+          "reason": "Sell verified information or arrange delivery under a specific contract."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "Responds when disappearance patterns disrupt insured cargo, prices or profitable routes. Information brokers may sell evidence, while ordinary traders flee danger.",
+      "notes": [],
+      "activation": "campaign_roster"
+    },
+    "vulcan": {
+      "name": "Vulcan",
+      "runtimeFaction": "vulcan",
+      "status": "active",
+      "sourceRefs": [
+        "bm1_worlds",
+        "authored_design"
+      ],
+      "summary": "Armed restraint: preserve life and knowledge, investigate carefully, defend Vulcan and protected traffic decisively.",
+      "priorities": [
+        "preserve_life",
+        "defend_home_and_protected_traffic",
+        "investigate",
+        "mediate"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "patrol": {
+          "template": "patrol",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "explorer": {
+          "template": "explorer",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "relief": {
+          "template": "relief",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "requires_assignment_and_budget",
+        "raid": "disabled",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "disabled"
+      },
+      "interestRules": [
+        {
+          "id": "survivors",
+          "eventTypes": [
+            "distress",
+            "asset_overdue",
+            "occupation_threat"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "survivors_known"
+              }
+            ]
+          },
+          "response": "rescue",
+          "reason": "A credible opportunity to save lives merits a capable response."
+        },
+        {
+          "id": "evidence",
+          "eventTypes": [
+            "covert_evidence",
+            "asset_overdue",
+            "technology_discovery"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "evidence_available"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "Establish what happened before diplomatic or defensive escalation."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "Can investigate foreign losses without taking a side in every war. Corroborated invasion evidence leads to mediation, warning, evacuation and organized defense.",
+      "notes": [
+        "USER CORRECTION: Original Flash BM1 Vulcan ships have weapons. Preserve the armed start; verify Flash-to-port loadout mapping separately.",
+        "No war-only or suspicion-only attack authority. Defensive fire can protect others under an actual obligation.",
+        "Access restrictions resolve by the specific offense, clearance or reviewed settlement; no universal eight-jump expiry."
+      ],
+      "activation": "campaign_roster"
+    },
+    "tholian": {
+      "name": "Tholian",
+      "runtimeFaction": "tholian",
+      "status": "active",
+      "sourceRefs": [
+        "bm1_worlds",
+        "authored_design"
+      ],
+      "summary": "Protect industrial space, construction and contracts with explicit perimeters and coordinated defense.",
+      "priorities": [
+        "protect_industry",
+        "complete_construction",
+        "secure_contracts",
+        "control_restricted_space"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "patrol": {
+          "template": "patrol",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "enforcement"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "requires_assignment_and_budget",
+        "raid": "disabled",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "disabled"
+      },
+      "interestRules": [
+        {
+          "id": "industrial_risk",
+          "eventTypes": [
+            "asset_overdue",
+            "military_buildup",
+            "route_disruption"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "contract_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "An overdue tender or threatened delivery matters when our construction contract or installation is exposed."
+        },
+        {
+          "id": "design_theft",
+          "eventTypes": [
+            "covert_evidence",
+            "technology_discovery"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "Track theft and unusual procurement tied to our designs."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "May notice unusual construction and demand patterns before recognizing a Dominion strategy. Enforces its own perimeters and protects industry without automatic coalition membership.",
+      "notes": [],
+      "activation": "campaign_roster"
+    },
+    "bajoran": {
+      "name": "Bajoran / Bajora",
+      "runtimeFaction": "bajoran",
+      "status": "active",
+      "sourceRefs": [
+        "bm1_worlds",
+        "authored_design"
+      ],
+      "summary": "Preserve communities and autonomy; guard access around the wormhole and resist coercive occupation.",
+      "priorities": [
+        "protect_communities",
+        "preserve_autonomy",
+        "watch_wormhole_access",
+        "evacuate_endangered_people"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "patrol": {
+          "template": "patrol",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "enforcement"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "relief": {
+          "template": "relief",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "explorer": {
+          "template": "explorer",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "requires_assignment_and_budget",
+        "raid": "disabled",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "disabled"
+      },
+      "interestRules": [
+        {
+          "id": "corridor_threat",
+          "eventTypes": [
+            "military_buildup",
+            "occupation_threat"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_operations_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Preparations on the Bajoran corridor threaten our home directly."
+        },
+        {
+          "id": "rescue",
+          "eventTypes": [
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "survivors_known"
+              }
+            ]
+          },
+          "response": "rescue",
+          "reason": "Aid known endangered people when transport and protection exist."
+        },
+        {
+          "id": "wormhole_clues",
+          "eventTypes": [
+            "covert_evidence",
+            "asset_overdue"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "Missing traffic near access routes may be preparation for something larger."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "Among the earliest to care about Cardassian buildup near the wormhole. Seeks scouts, defensive supplies, evacuation and outside guarantees; success can deny or delay the corridor.",
+      "notes": [],
+      "activation": "campaign_roster"
+    },
+    "delpin": {
+      "name": "Delpin — Delpi",
+      "runtimeFaction": "delpin",
+      "status": "active",
+      "sourceRefs": [
+        "bm1_worlds",
+        "authored_design"
+      ],
+      "summary": "Independent aquatic explorers with advanced science, fast ships and comparatively weak weapons.",
+      "priorities": [
+        "explore",
+        "protect_crew",
+        "recover_observations",
+        "preserve_independence"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "explorer": {
+          "template": "explorer",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "relief": {
+          "template": "relief",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "disabled",
+        "raid": "disabled",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "disabled"
+      },
+      "interestRules": [
+        {
+          "id": "recover_science",
+          "eventTypes": [
+            "asset_overdue",
+            "covert_evidence",
+            "technology_discovery"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "evidence_available"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "Scientific traces and missing exploration contacts matter beyond political borders."
+        },
+        {
+          "id": "rescue",
+          "eventTypes": [
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "survivors_known"
+              }
+            ]
+          },
+          "response": "rescue",
+          "reason": "Use speed and exploration reach to rescue, then withdraw from superior force."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "Can discover traces near a separate deep-space POI outside Romulan jurisdiction. They report observations and recover crews; discovering a clue does not commit them to a fleet war.",
+      "notes": [],
+      "activation": "campaign_roster"
+    },
+    "andorian": {
+      "name": "Andorian",
+      "runtimeFaction": "andorian",
+      "status": "active",
+      "sourceRefs": [
+        "bm1_worlds",
+        "authored_design"
+      ],
+      "summary": "Shipbuilders serving competing customers while protecting yards, routes and independence.",
+      "priorities": [
+        "protect_shipyards",
+        "fulfill_sales",
+        "preserve_trade_access",
+        "avoid_client_capture"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "patrol": {
+          "template": "patrol",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "enforcement"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "requires_assignment_and_budget",
+        "raid": "disabled",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "disabled"
+      },
+      "interestRules": [
+        {
+          "id": "procurement",
+          "eventTypes": [
+            "military_buildup",
+            "covert_evidence"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "contract_affected"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "Unusual orders, vanished deliveries and concealed buyers can reveal preparation."
+        },
+        {
+          "id": "sales",
+          "eventTypes": [
+            "trade_opportunity"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "contract_affected"
+              }
+            ]
+          },
+          "response": "negotiate",
+          "reason": "Evaluate the customer and delivery risk rather than automatically choosing a war side."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "Procurement discrepancies can reveal a hidden fleet. Response changes when customers endanger the yards or key markets; trading with a side does not imply mutual defense.",
+      "notes": [],
+      "activation": "campaign_roster"
+    },
+    "sona": {
+      "name": "Son'a — Sonata",
+      "runtimeFaction": "sona",
+      "status": "active",
+      "sourceRefs": [
+        "bm1_worlds",
+        "authored_design"
+      ],
+      "summary": "Powerful but courteous neighbors guarding Sonata and the Briar Patch.",
+      "priorities": [
+        "preserve_home",
+        "control_sensitive_access",
+        "maintain_courteous_trade",
+        "avoid_unnecessary_war"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "patrol": {
+          "template": "patrol",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "enforcement"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "relief": {
+          "template": "relief",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "requires_assignment_and_budget",
+        "raid": "disabled",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "disabled"
+      },
+      "interestRules": [
+        {
+          "id": "intrusion",
+          "eventTypes": [
+            "military_buildup",
+            "occupation_threat"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_operations_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "External fleets matter when they threaten Sonata or its approaches."
+        },
+        {
+          "id": "displacement",
+          "eventTypes": [
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "survivors_known"
+              }
+            ]
+          },
+          "response": "rescue",
+          "reason": "Offer bounded assistance while controlling access to home space."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "Remains outside the main war until intrusion, displacement or threatened resources creates a concrete interest. Polite, compliant visitors can leave peacefully.",
+      "notes": [],
+      "activation": "campaign_roster"
+    },
+    "tarellian": {
+      "name": "Tarellian",
+      "runtimeFaction": "tarellian",
+      "status": "active",
+      "sourceRefs": [
+        "bm1_worlds",
+        "authored_design"
+      ],
+      "summary": "Long-range adventurers interested in knowledge, routes and unusual drive phenomena.",
+      "priorities": [
+        "explore",
+        "understand_anomalies",
+        "protect_expeditions",
+        "preserve_routes"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "explorer": {
+          "template": "explorer",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "relief": {
+          "template": "relief",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "disabled",
+        "raid": "disabled",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "disabled"
+      },
+      "interestRules": [
+        {
+          "id": "anomaly",
+          "eventTypes": [
+            "technology_discovery",
+            "covert_evidence"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "unusual_technology"
+              },
+              {
+                "fact": "evidence_available"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "A new drive signature or route anomaly has scientific value."
+        },
+        {
+          "id": "missing_expedition",
+          "eventTypes": [
+            "asset_overdue"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "Trace an expedition disappearance affecting our exploration network."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "Can identify unusual travel signatures and help explore remote connections. Shared findings depend on delivered reports, not automatic access to the distant Dominion.",
+      "notes": [],
+      "activation": "campaign_roster"
+    },
+    "promelli": {
+      "name": "Promelli",
+      "runtimeFaction": "promelli",
+      "status": "active",
+      "sourceRefs": [
+        "bm1_worlds",
+        "authored_design"
+      ],
+      "summary": "A secretive biotechnology society that protects research and examines unfamiliar biological technology.",
+      "priorities": [
+        "protect_research",
+        "preserve_secrecy",
+        "contain_known_hazards",
+        "investigate_biotechnology"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "patrol": {
+          "template": "patrol",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "enforcement"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "explorer": {
+          "template": "explorer",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "requires_assignment_and_budget",
+        "raid": "disabled",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "disabled"
+      },
+      "interestRules": [
+        {
+          "id": "biotech",
+          "eventTypes": [
+            "technology_discovery",
+            "covert_evidence"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "unusual_technology"
+              },
+              {
+                "fact": "evidence_available"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "Study recoverable evidence without assuming its origin or inventing a threat."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "May care about recovered biotech, stolen research or verified contamination. This draft does not add new weapon effects or assert knowledge of Dominion secrets.",
+      "notes": [],
+      "activation": "campaign_roster"
+    },
+    "hirogen": {
+      "name": "Hirogen",
+      "runtimeFaction": "hirogen",
+      "status": "active",
+      "sourceRefs": [
+        "authored_design"
+      ],
+      "summary": "Organized hunters pursuing noteworthy identified quarry rather than indiscriminate weak victims.",
+      "priorities": [
+        "find_worthy_quarry",
+        "complete_specific_hunts",
+        "preserve_hunting_capacity"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "hunter": {
+          "template": "hunter",
+          "engagementModes": [
+            "self_defense",
+            "hunt"
+          ]
+        },
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "disabled",
+        "raid": "disabled",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "disabled"
+      },
+      "interestRules": [
+        {
+          "id": "quarry",
+          "eventTypes": [
+            "prey_sighting",
+            "asset_overdue"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "worthy_hunt_known"
+              }
+            ]
+          },
+          "response": "pursue_quarry",
+          "reason": "A known formidable quarry interests a hunting group."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "Foreign disappearances matter if credible evidence points to a worthy quarry. Hunts have named objectives, finite search and withdrawal conditions.",
+      "notes": [],
+      "activation": "campaign_roster"
+    },
+    "suliban": {
+      "name": "Suliban",
+      "runtimeFaction": "suliban",
+      "status": "active",
+      "sourceRefs": [
+        "authored_design"
+      ],
+      "summary": "Compartmented cells favor information, infiltration and extraction over open fleet engagements.",
+      "priorities": [
+        "complete_cell_assignment",
+        "protect_cell_identity",
+        "obtain_information",
+        "extract_operatives"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "covert": {
+          "template": "covert",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "disabled",
+        "raid": "disabled",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "disabled"
+      },
+      "interestRules": [
+        {
+          "id": "assignment_evidence",
+          "eventTypes": [
+            "covert_evidence",
+            "asset_overdue"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "contract_affected"
+              },
+              {
+                "fact": "evidence_available"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "Only a cell's actual task makes the evidence operationally relevant."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "Cells can sell intelligence, plant evidence or extract people in authored assignments. They are not assumed to serve the Dominion or know the whole plot.",
+      "notes": [],
+      "activation": "campaign_roster"
+    },
+    "borg": {
+      "name": "Borg",
+      "runtimeFaction": "borg",
+      "status": "active",
+      "sourceRefs": [
+        "authored_design"
+      ],
+      "summary": "An organized assimilating power with assigned technological and territorial objectives.",
+      "priorities": [
+        "assess_valuable_technology",
+        "secure_assigned_targets",
+        "maintain_operation"
+      ],
+      "rolePolicies": {
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "patrol": {
+          "template": "patrol",
+          "engagementModes": [
+            "self_defense",
+            "assimilation"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "raider": {
+          "template": "raider",
+          "engagementModes": [
+            "self_defense",
+            "assimilation"
+          ]
+        },
+        "occupier": {
+          "template": "occupier",
+          "engagementModes": [
+            "self_defense",
+            "assimilation"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "assimilation"
+          ]
+        }
+      },
+      "unknownRole": "deny_assignment",
+      "generators": {
+        "traffic": "disabled",
+        "patrol": "requires_assignment_and_budget",
+        "raid": "requires_assignment_and_budget",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "requires_assignment_and_budget"
+      },
+      "interestRules": [
+        {
+          "id": "technology",
+          "eventTypes": [
+            "technology_discovery",
+            "covert_evidence"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "unusual_technology"
+              },
+              {
+                "fact": "evidence_available"
+              }
+            ]
+          },
+          "response": "assess_technology",
+          "reason": "Evaluate a technologically relevant report before committing an acquisition force."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "No automatic anti-Dominion alliance. A missing patrol is relevant only to Borg operations or a specific technological target; actual assimilation mechanics remain separate work.",
+      "notes": [],
+      "activation": "campaign_roster"
+    },
+    "pirate": {
+      "name": "Pirate groups",
+      "runtimeFaction": "pirate",
+      "status": "active",
+      "sourceRefs": [
+        "authored_design"
+      ],
+      "summary": "Independent predatory crews choose profitable, survivable attacks and leave once paid or repelled.",
+      "priorities": [
+        "take_valuable_cargo",
+        "avoid_expensive_losses",
+        "escape_pursuit"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "raider": {
+          "template": "raider",
+          "engagementModes": [
+            "self_defense",
+            "predation"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "disabled",
+        "raid": "requires_assignment_and_budget",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "disabled"
+      },
+      "interestRules": [
+        {
+          "id": "profitable_prey",
+          "eventTypes": [
+            "prey_sighting",
+            "trade_opportunity"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "credible_cargo_intel"
+              },
+              {
+                "fact": "valuable_target_known"
+              }
+            ]
+          },
+          "response": "exploit_cargo",
+          "reason": "Known cargo and acceptable risk justify a particular predatory objective."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "Exploits disrupted routes, refugee traffic and weak escorts when profitable. Cargo payment closes the demand; further attacks require a new cause, not an endless old timer.",
+      "notes": [],
+      "activation": "campaign_roster"
+    },
+    "neutral": {
+      "name": "Independent societies",
+      "runtimeFaction": "neutral",
+      "status": "active",
+      "sourceRefs": [
+        "bm1_worlds",
+        "authored_design"
+      ],
+      "summary": "Independence is political status; local culture, contracts and ship jobs supply behavior.",
+      "priorities": [
+        "preserve_local_autonomy",
+        "protect_livelihood",
+        "maintain_access"
+      ],
+      "rolePolicies": {
+        "civilian": {
+          "template": "civilian",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "patrol": {
+          "template": "patrol",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge",
+            "enforcement"
+          ]
+        },
+        "defender": {
+          "template": "defender",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "escort": {
+          "template": "escort",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        },
+        "explorer": {
+          "template": "explorer",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "relief": {
+          "template": "relief",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "envoy": {
+          "template": "envoy",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "scout": {
+          "template": "scout",
+          "engagementModes": [
+            "self_defense"
+          ]
+        },
+        "commander": {
+          "template": "commander",
+          "engagementModes": [
+            "self_defense",
+            "protect_charge"
+          ]
+        }
+      },
+      "unknownRole": "civilian",
+      "generators": {
+        "traffic": "requires_assignment_and_budget",
+        "patrol": "requires_assignment_and_budget",
+        "raid": "disabled",
+        "reinforcement": "requires_assignment_and_budget",
+        "occupation": "disabled"
+      },
+      "interestRules": [
+        {
+          "id": "contract",
+          "eventTypes": [
+            "route_disruption",
+            "trade_opportunity"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "contract_affected"
+              }
+            ]
+          },
+          "response": "negotiate",
+          "reason": "The actual contract, not a shared neutral faction key, creates obligations."
+        },
+        {
+          "id": "defend_assets",
+          "eventTypes": [
+            "asset_attack",
+            "border_breach"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "Known threat to our assets warrants a response by an available protective role."
+        },
+        {
+          "id": "honor_protection",
+          "eventTypes": [
+            "asset_attack",
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "protected_party_affected"
+              }
+            ]
+          },
+          "response": "protect",
+          "reason": "A real protection commitment is at stake."
+        },
+        {
+          "id": "assigned_route",
+          "eventTypes": [
+            "route_disruption",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_route_affected"
+              }
+            ]
+          },
+          "response": "reroute",
+          "reason": "Keep this assigned journey and its cargo viable."
+        }
+      ],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "Different communities react to conscription, refugees, procurement, access and threats to autonomy. Shared neutral standing creates neither shared intelligence nor an alliance.",
+      "notes": [],
+      "activation": "campaign_roster"
+    },
+    "gorn": {
+      "name": "Gorn — historical absence",
+      "runtimeFaction": "gorn",
+      "status": "dormant",
+      "sourceRefs": [
+        "bm1_worlds",
+        "authored_design"
+      ],
+      "summary": "Extinct in the retained BM1 history; no normal campaign empire or traffic.",
+      "priorities": [
+        "preserve_authored_history"
+      ],
+      "rolePolicies": {},
+      "unknownRole": "deny_assignment",
+      "generators": {
+        "traffic": "disabled",
+        "patrol": "disabled",
+        "raid": "disabled",
+        "reinforcement": "disabled",
+        "occupation": "disabled"
+      },
+      "interestRules": [],
+      "unmatchedKnownEvent": "record_only",
+      "dominionStory": "Ruins and recovered technology are available story material. A survivor encounter would require an explicit authored exception, not routine faction generation.",
+      "notes": [],
+      "activation": "disabled"
+    }
+  },
+  "cultures": {
+    "lysian": {
+      "name": "Lysian",
+      "locationNames": [
+        "Lysia"
+      ],
+      "priorities": [
+        "preserve_freedom",
+        "avoid_enslavement"
+      ],
+      "interestRules": [
+        {
+          "id": "autonomy",
+          "eventTypes": [
+            "occupation_threat"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "negotiate",
+          "reason": "Seek guarantees and outside protection against renewed enslavement."
+        }
+      ],
+      "notes": "Proposed behavior based on the retained world description.",
+      "mayGrantCombatAuthority": false
+    },
+    "flashian": {
+      "name": "Flashian",
+      "locationNames": [
+        "Flash"
+      ],
+      "priorities": [
+        "protect_software_contracts",
+        "preserve_client_trust"
+      ],
+      "interestRules": [
+        {
+          "id": "software_trace",
+          "eventTypes": [
+            "covert_evidence",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "contract_affected"
+              },
+              {
+                "fact": "evidence_available"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "Software orders and client records can connect secret procurement."
+        }
+      ],
+      "notes": "Proposed behavior based on the retained world description.",
+      "mayGrantCombatAuthority": false
+    },
+    "swiss": {
+      "name": "New Swiss",
+      "locationNames": [
+        "New Switzerland"
+      ],
+      "priorities": [
+        "protect_refugees",
+        "preserve_commerce"
+      ],
+      "interestRules": [
+        {
+          "id": "refugees",
+          "eventTypes": [
+            "distress",
+            "occupation_threat"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "survivors_known"
+              }
+            ]
+          },
+          "response": "rescue",
+          "reason": "Provide refuge and transport within real capacity."
+        }
+      ],
+      "notes": "Proposed behavior based on the retained world description.",
+      "mayGrantCombatAuthority": false
+    },
+    "dyson": {
+      "name": "Dyson",
+      "locationNames": [
+        "Dyson"
+      ],
+      "priorities": [
+        "preserve_advanced_society",
+        "control_technology_access"
+      ],
+      "interestRules": [
+        {
+          "id": "technology",
+          "eventTypes": [
+            "technology_discovery",
+            "covert_evidence"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              },
+              {
+                "fact": "evidence_available"
+              }
+            ]
+          },
+          "response": "investigate",
+          "reason": "Protect access to local advanced technology."
+        }
+      ],
+      "notes": "Proposed behavior based on the retained world description.",
+      "mayGrantCombatAuthority": false
+    },
+    "opusab": {
+      "name": "Opusab",
+      "locationNames": [
+        "Opusab"
+      ],
+      "priorities": [
+        "preserve_shared_peace",
+        "mediate_disputes"
+      ],
+      "interestRules": [
+        {
+          "id": "mediation",
+          "eventTypes": [
+            "occupation_threat",
+            "asset_attack"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "negotiate",
+          "reason": "Protect the community's cross-faction coexistence."
+        }
+      ],
+      "notes": "Proposed behavior based on the retained world description.",
+      "mayGrantCombatAuthority": false
+    },
+    "teposian": {
+      "name": "Teposian",
+      "locationNames": [
+        "Tepos"
+      ],
+      "priorities": [
+        "sustain_weapons_trade",
+        "protect_deliveries"
+      ],
+      "interestRules": [
+        {
+          "id": "arms_contract",
+          "eventTypes": [
+            "trade_opportunity",
+            "military_buildup"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "contract_affected"
+              }
+            ]
+          },
+          "response": "negotiate",
+          "reason": "Evaluate arms orders and delivery exposure."
+        }
+      ],
+      "notes": "Proposed behavior based on the retained world description.",
+      "mayGrantCombatAuthority": false
+    },
+    "reman": {
+      "name": "Reman",
+      "locationNames": [
+        "Remus"
+      ],
+      "priorities": [
+        "preserve_community",
+        "resist_forced_labor"
+      ],
+      "interestRules": [
+        {
+          "id": "occupation",
+          "eventTypes": [
+            "occupation_threat"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "own_asset_affected"
+              }
+            ]
+          },
+          "response": "negotiate",
+          "reason": "Seek local protection or a specific resistance opportunity."
+        }
+      ],
+      "notes": "Local resistance behavior is newly authored; do not equate culture with an independent Reman empire or assume all Romulan vessels share it.",
+      "mayGrantCombatAuthority": false
+    },
+    "trill": {
+      "name": "Trill",
+      "locationNames": [
+        "Trill"
+      ],
+      "priorities": [
+        "preserve_community",
+        "protect_civilian_mobility"
+      ],
+      "interestRules": [
+        {
+          "id": "civilian_aid",
+          "eventTypes": [
+            "distress"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "survivors_known"
+              }
+            ]
+          },
+          "response": "rescue",
+          "reason": "Provide a civilian aid path if a capable asset exists."
+        }
+      ],
+      "notes": "Newly authored community/aid proposal. The retained world blurb does not establish a useful strategic doctrine; this is not claimed as recovered Flash lore.",
+      "mayGrantCombatAuthority": false
+    },
+    "blender_remnant": {
+      "name": "Blender remnant",
+      "locationNames": [
+        "Blender"
+      ],
+      "priorities": [
+        "preserve_outpost",
+        "secure_scant_supplies"
+      ],
+      "interestRules": [
+        {
+          "id": "supplies",
+          "eventTypes": [
+            "trade_opportunity"
+          ],
+          "when": {
+            "all": [
+              {
+                "fact": "contract_affected"
+              }
+            ]
+          },
+          "response": "negotiate",
+          "reason": "Preserve the outpost through specific supply agreements."
+        }
+      ],
+      "notes": "Proposed behavior based on the retained world description.",
+      "mayGrantCombatAuthority": false
+    }
+  },
+  "openTuning": [
+    "Exact tactical search and warning durations and strategic deadlines.",
+    "Force-ratio/risk thresholds, ship budgets and event memory caps.",
+    "Initial covert-pact activation and who begins briefed.",
+    "Which retained minor factions belong in the default campaign versus authored encounters.",
+    "Precise Flash ship/weapon mapping; preserve armed Vulcan start in the meantime.",
+    "Specific legal claim at Blender and authored border coordinates."
+  ],
+  "phase1Integration": {
+    "status": "Implementation contract only; engine not patched by this package.",
+    "breenDominion": "Independent: remove the static friendship in both directions; do not replace it with hostility.",
+    "enableScenarioTreaties": false,
+    "futurePactGate": "Pact interest rules remain future-phase content. Phase 1 adapters must not supply pact briefing/task facts. Enable only after spawn attitudes, defense targeting and calming use a common scoped relationship resolver.",
+    "requiredRelationEntries": {
+      "delpin": {
+        "friendly": [],
+        "hostile": []
+      },
+      "promelli": {
+        "friendly": [],
+        "hostile": []
+      },
+      "sona": {
+        "friendly": [],
+        "hostile": []
+      },
+      "tarellian": {
+        "friendly": [],
+        "hostile": []
+      },
+      "neutral": {
+        "friendly": [],
+        "hostile": []
+      }
+    },
+    "missingRelationDefault": {
+      "friendly": [],
+      "hostile": []
+    },
+    "fallbackMeaning": "No declared alliance or enmity in this direction. Not immunity to another faction, immediate aggression or defense of an attacked charge. Unknown keys should also produce a development warning.",
+    "neutralIdentity": "Shared neutral status is not a shared organization; unrelated independent ships must not receive automatic same-faction mutual defense.",
+    "scope": "Other existing relations remain unchanged pending separate review. Guarded Breen public behavior beyond removal of this alliance is not claimed implemented."
+  }
+}

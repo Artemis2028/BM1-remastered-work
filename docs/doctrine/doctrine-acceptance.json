@@ -1,0 +1,1149 @@
+{
+  "scope": "Offline authoring contract examples; not tests of game runtime, travel, combat attribution or save/load.",
+  "cases": [
+    {
+      "id": "romulan-investigates-own-missing-patrol",
+      "operation": "react",
+      "profile": "romulan",
+      "role": "commander",
+      "eventType": "asset_overdue",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true,
+        "own_asset_affected": true
+      },
+      "expected": "investigate"
+    },
+    {
+      "id": "klingon-records-unrelated-romulan-loss",
+      "operation": "react",
+      "profile": "klingon",
+      "role": "commander",
+      "eventType": "asset_overdue",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true
+      },
+      "expected": "record_only"
+    },
+    {
+      "id": "klingon-reconsiders-after-linked-losses",
+      "operation": "react",
+      "profile": "klingon",
+      "role": "commander",
+      "eventType": "asset_overdue",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true,
+        "linked_own_losses": true
+      },
+      "expected": "investigate"
+    },
+    {
+      "id": "unreceived-event-cannot-trigger-response",
+      "operation": "react",
+      "profile": "romulan",
+      "role": "commander",
+      "eventType": "asset_overdue",
+      "facts": {
+        "event_known": false,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true,
+        "own_asset_affected": true
+      },
+      "expected": "ignore_unknown"
+    },
+    {
+      "id": "unreliable-report-does-not-launch-response",
+      "operation": "react",
+      "profile": "romulan",
+      "role": "commander",
+      "eventType": "asset_overdue",
+      "facts": {
+        "event_known": true,
+        "credible_report": false,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true,
+        "own_asset_affected": true
+      },
+      "expected": "defer:investigate"
+    },
+    {
+      "id": "missing-resources-defer-investigation",
+      "operation": "react",
+      "profile": "romulan",
+      "role": "commander",
+      "eventType": "asset_overdue",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": false,
+        "evidence_available": true,
+        "own_asset_affected": true
+      },
+      "expected": "defer:investigate"
+    },
+    {
+      "id": "romulan-freighter-is-not-an-investigation-wing",
+      "operation": "react",
+      "profile": "romulan",
+      "role": "civilian",
+      "eventType": "asset_overdue",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true,
+        "own_asset_affected": true
+      },
+      "expected": "defer:investigate"
+    },
+    {
+      "id": "uninformed-cardassian-does-not-know-coverup",
+      "operation": "react",
+      "profile": "cardassian",
+      "role": "commander",
+      "eventType": "covert_evidence",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true
+      },
+      "expected": "record_only"
+    },
+    {
+      "id": "briefed-cardassian-without-task-does-not-conceal",
+      "operation": "react",
+      "profile": "cardassian",
+      "role": "commander",
+      "eventType": "covert_evidence",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true,
+        "pact_briefing_received": true,
+        "pact_exposure_risk": true
+      },
+      "expected": "record_only"
+    },
+    {
+      "id": "informed-assigned-cardassian-conceals",
+      "operation": "react",
+      "profile": "cardassian",
+      "role": "commander",
+      "eventType": "covert_evidence",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true,
+        "pact_briefing_received": true,
+        "pact_exposure_risk": true,
+        "pact_task_assigned": true
+      },
+      "expected": "conceal"
+    },
+    {
+      "id": "breen-merchant-has-no-automatic-secret",
+      "operation": "react",
+      "profile": "breen",
+      "role": "civilian",
+      "eventType": "covert_evidence",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true
+      },
+      "expected": "record_only"
+    },
+    {
+      "id": "breen-briefing-does-not-turn-freighter-into-covert-wing",
+      "operation": "react",
+      "profile": "breen",
+      "role": "civilian",
+      "eventType": "covert_evidence",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true,
+        "pact_briefing_received": true,
+        "pact_exposure_risk": true,
+        "pact_task_assigned": true
+      },
+      "expected": "defer:conceal"
+    },
+    {
+      "id": "delpin-investigates-recoverable-frontier-evidence",
+      "operation": "react",
+      "profile": "delpin",
+      "role": "explorer",
+      "eventType": "covert_evidence",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true
+      },
+      "expected": "investigate"
+    },
+    {
+      "id": "vulcan-rescues-known-foreign-survivors",
+      "operation": "react",
+      "profile": "vulcan",
+      "role": "relief",
+      "eventType": "distress",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true,
+        "survivors_known": true
+      },
+      "expected": "rescue"
+    },
+    {
+      "id": "lysian-autonomy-matters",
+      "operation": "react",
+      "profile": "neutral",
+      "role": "envoy",
+      "eventType": "occupation_threat",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true,
+        "own_asset_affected": true
+      },
+      "culture": "lysian",
+      "expected": "negotiate"
+    },
+    {
+      "id": "flash-does-not-inherit-lysian-autonomy-response",
+      "operation": "react",
+      "profile": "neutral",
+      "role": "envoy",
+      "eventType": "occupation_threat",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true,
+        "own_asset_affected": true
+      },
+      "culture": "flashian",
+      "expected": "record_only"
+    },
+    {
+      "id": "flash-contract-trace-matters",
+      "operation": "react",
+      "profile": "neutral",
+      "role": "commander",
+      "eventType": "covert_evidence",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true,
+        "contract_affected": true
+      },
+      "culture": "flashian",
+      "expected": "investigate"
+    },
+    {
+      "id": "ferengi-overdue-freighter-threatens-contract",
+      "operation": "react",
+      "profile": "ferengi",
+      "role": "civilian",
+      "eventType": "asset_overdue",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true,
+        "contract_affected": true
+      },
+      "expected": "reroute",
+      "event": {
+        "incidentId": "example:overdue:freighter",
+        "eventType": "asset_overdue",
+        "locationId": "poi:frontier-checkpoint",
+        "jurisdictionAtOccurrence": null,
+        "asset": {
+          "assetId": "ship:example:freighter",
+          "kind": "ship",
+          "role": "freighter",
+          "ownerId": "operator:ferengi",
+          "factionId": "ferengi"
+        },
+        "assignment": {
+          "assignmentId": "assignment:example:freighter",
+          "kind": "delivery",
+          "originLocationId": "system:departure",
+          "destinationLocationId": "poi:frontier-checkpoint",
+          "contractId": "contract:example:freighter"
+        },
+        "cargo": {
+          "knowledge": "unknown",
+          "manifest": null
+        },
+        "missedMilestone": {
+          "milestoneId": "milestone:example:freighter",
+          "kind": "arrival",
+          "dueAt": {
+            "clock": "strategic_jumps",
+            "value": 10
+          },
+          "grace": 2
+        },
+        "detectedAt": {
+          "clock": "strategic_jumps",
+          "value": 13
+        },
+        "lastKnown": {
+          "locationId": "poi:outer-transit",
+          "position": null,
+          "observedAt": {
+            "clock": "strategic_jumps",
+            "value": 9
+          }
+        }
+      }
+    },
+    {
+      "id": "delpin-overdue-explorer-prompts-investigation",
+      "operation": "react",
+      "profile": "delpin",
+      "role": "explorer",
+      "eventType": "asset_overdue",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true
+      },
+      "expected": "investigate",
+      "event": {
+        "incidentId": "example:overdue:explorer",
+        "eventType": "asset_overdue",
+        "locationId": "poi:frontier-checkpoint",
+        "jurisdictionAtOccurrence": null,
+        "asset": {
+          "assetId": "ship:example:explorer",
+          "kind": "ship",
+          "role": "explorer",
+          "ownerId": "operator:delpin",
+          "factionId": "delpin"
+        },
+        "assignment": {
+          "assignmentId": "assignment:example:explorer",
+          "kind": "exploration",
+          "originLocationId": "system:departure",
+          "destinationLocationId": "poi:frontier-checkpoint",
+          "contractId": "contract:example:explorer"
+        },
+        "cargo": {
+          "knowledge": "unknown",
+          "manifest": null
+        },
+        "missedMilestone": {
+          "milestoneId": "milestone:example:explorer",
+          "kind": "arrival",
+          "dueAt": {
+            "clock": "strategic_jumps",
+            "value": 10
+          },
+          "grace": 2
+        },
+        "detectedAt": {
+          "clock": "strategic_jumps",
+          "value": 13
+        },
+        "lastKnown": {
+          "locationId": "poi:outer-transit",
+          "position": null,
+          "observedAt": {
+            "clock": "strategic_jumps",
+            "value": 9
+          }
+        }
+      }
+    },
+    {
+      "id": "overdue-refugee-transport-with-survivors-prompts-rescue",
+      "operation": "react",
+      "profile": "vulcan",
+      "role": "relief",
+      "eventType": "asset_overdue",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true,
+        "survivors_known": true
+      },
+      "expected": "rescue",
+      "event": {
+        "incidentId": "example:overdue:refugee_transport",
+        "eventType": "asset_overdue",
+        "locationId": "poi:frontier-checkpoint",
+        "jurisdictionAtOccurrence": null,
+        "asset": {
+          "assetId": "ship:example:refugee_transport",
+          "kind": "ship",
+          "role": "refugee_transport",
+          "ownerId": "operator:vulcan",
+          "factionId": "vulcan"
+        },
+        "assignment": {
+          "assignmentId": "assignment:example:refugee_transport",
+          "kind": "evacuation",
+          "originLocationId": "system:departure",
+          "destinationLocationId": "poi:frontier-checkpoint",
+          "contractId": "contract:example:refugee_transport"
+        },
+        "cargo": {
+          "knowledge": "unknown",
+          "manifest": null
+        },
+        "missedMilestone": {
+          "milestoneId": "milestone:example:refugee_transport",
+          "kind": "arrival",
+          "dueAt": {
+            "clock": "strategic_jumps",
+            "value": 10
+          },
+          "grace": 2
+        },
+        "detectedAt": {
+          "clock": "strategic_jumps",
+          "value": 13
+        },
+        "lastKnown": {
+          "locationId": "poi:outer-transit",
+          "position": null,
+          "observedAt": {
+            "clock": "strategic_jumps",
+            "value": 9
+          }
+        }
+      }
+    },
+    {
+      "id": "tholian-overdue-construction-tender-threatens-contract",
+      "operation": "react",
+      "profile": "tholian",
+      "role": "commander",
+      "eventType": "asset_overdue",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": true,
+        "contract_affected": true
+      },
+      "expected": "protect",
+      "event": {
+        "incidentId": "example:overdue:construction_tender",
+        "eventType": "asset_overdue",
+        "locationId": "poi:frontier-checkpoint",
+        "jurisdictionAtOccurrence": null,
+        "asset": {
+          "assetId": "ship:example:construction_tender",
+          "kind": "ship",
+          "role": "construction_tender",
+          "ownerId": "operator:tholian",
+          "factionId": "tholian"
+        },
+        "assignment": {
+          "assignmentId": "assignment:example:construction_tender",
+          "kind": "construction",
+          "originLocationId": "system:departure",
+          "destinationLocationId": "poi:frontier-checkpoint",
+          "contractId": "contract:example:construction_tender"
+        },
+        "cargo": {
+          "knowledge": "unknown",
+          "manifest": null
+        },
+        "missedMilestone": {
+          "milestoneId": "milestone:example:construction_tender",
+          "kind": "arrival",
+          "dueAt": {
+            "clock": "strategic_jumps",
+            "value": 10
+          },
+          "grace": 2
+        },
+        "detectedAt": {
+          "clock": "strategic_jumps",
+          "value": 13
+        },
+        "lastKnown": {
+          "locationId": "poi:outer-transit",
+          "position": null,
+          "observedAt": {
+            "clock": "strategic_jumps",
+            "value": 9
+          }
+        }
+      }
+    },
+    {
+      "id": "overdue-transport-alone-does-not-prove-survivors",
+      "operation": "react",
+      "profile": "vulcan",
+      "role": "relief",
+      "eventType": "asset_overdue",
+      "facts": {
+        "event_known": true,
+        "credible_report": true,
+        "event_actionable": true,
+        "can_respond": true,
+        "evidence_available": false
+      },
+      "expected": "record_only",
+      "event": {
+        "incidentId": "example:overdue:refugee_transport",
+        "eventType": "asset_overdue",
+        "locationId": "poi:frontier-checkpoint",
+        "jurisdictionAtOccurrence": null,
+        "asset": {
+          "assetId": "ship:example:refugee_transport",
+          "kind": "ship",
+          "role": "refugee_transport",
+          "ownerId": "operator:neutral",
+          "factionId": "neutral"
+        },
+        "assignment": {
+          "assignmentId": "assignment:example:refugee_transport",
+          "kind": "evacuation",
+          "originLocationId": "system:departure",
+          "destinationLocationId": "poi:frontier-checkpoint",
+          "contractId": "contract:example:refugee_transport"
+        },
+        "cargo": {
+          "knowledge": "unknown",
+          "manifest": null
+        },
+        "missedMilestone": {
+          "milestoneId": "milestone:example:refugee_transport",
+          "kind": "arrival",
+          "dueAt": {
+            "clock": "strategic_jumps",
+            "value": 10
+          },
+          "grace": 2
+        },
+        "detectedAt": {
+          "clock": "strategic_jumps",
+          "value": 13
+        },
+        "lastKnown": {
+          "locationId": "poi:outer-transit",
+          "position": null,
+          "observedAt": {
+            "clock": "strategic_jumps",
+            "value": 9
+          }
+        }
+      }
+    },
+    {
+      "id": "unknown-cargo-cannot-reveal-hidden-manifest",
+      "operation": "validate_event",
+      "event": {
+        "incidentId": "example:overdue:refugee_transport",
+        "eventType": "asset_overdue",
+        "locationId": "poi:frontier-checkpoint",
+        "jurisdictionAtOccurrence": null,
+        "asset": {
+          "assetId": "ship:example:refugee_transport",
+          "kind": "ship",
+          "role": "refugee_transport",
+          "ownerId": "operator:neutral",
+          "factionId": "neutral"
+        },
+        "assignment": {
+          "assignmentId": "assignment:example:refugee_transport",
+          "kind": "evacuation",
+          "originLocationId": "system:departure",
+          "destinationLocationId": "poi:frontier-checkpoint",
+          "contractId": "contract:example:refugee_transport"
+        },
+        "cargo": {
+          "knowledge": "unknown",
+          "manifest": [
+            {
+              "cargoId": "hidden:weapons",
+              "quantity": 10
+            }
+          ]
+        },
+        "missedMilestone": {
+          "milestoneId": "milestone:example:refugee_transport",
+          "kind": "arrival",
+          "dueAt": {
+            "clock": "strategic_jumps",
+            "value": 10
+          },
+          "grace": 2
+        },
+        "detectedAt": {
+          "clock": "strategic_jumps",
+          "value": 13
+        },
+        "lastKnown": {
+          "locationId": "poi:outer-transit",
+          "position": null,
+          "observedAt": {
+            "clock": "strategic_jumps",
+            "value": 9
+          }
+        }
+      },
+      "expected": false
+    },
+    {
+      "id": "within-grace-period-is-not-overdue",
+      "operation": "validate_event",
+      "event": {
+        "incidentId": "example:overdue:refugee_transport",
+        "eventType": "asset_overdue",
+        "locationId": "poi:frontier-checkpoint",
+        "jurisdictionAtOccurrence": null,
+        "asset": {
+          "assetId": "ship:example:refugee_transport",
+          "kind": "ship",
+          "role": "refugee_transport",
+          "ownerId": "operator:neutral",
+          "factionId": "neutral"
+        },
+        "assignment": {
+          "assignmentId": "assignment:example:refugee_transport",
+          "kind": "evacuation",
+          "originLocationId": "system:departure",
+          "destinationLocationId": "poi:frontier-checkpoint",
+          "contractId": "contract:example:refugee_transport"
+        },
+        "cargo": {
+          "knowledge": "unknown",
+          "manifest": null
+        },
+        "missedMilestone": {
+          "milestoneId": "milestone:example:refugee_transport",
+          "kind": "arrival",
+          "dueAt": {
+            "clock": "strategic_jumps",
+            "value": 10
+          },
+          "grace": 2
+        },
+        "detectedAt": {
+          "clock": "strategic_jumps",
+          "value": 12
+        },
+        "lastKnown": {
+          "locationId": "poi:outer-transit",
+          "position": null,
+          "observedAt": {
+            "clock": "strategic_jumps",
+            "value": 9
+          }
+        }
+      },
+      "expected": false
+    },
+    {
+      "id": "armed-vulcan-can-defend-self",
+      "operation": "fire",
+      "profile": "vulcan",
+      "role": "patrol",
+      "facts": {
+        "engagement_objective_active": true,
+        "live_weapon_track": true,
+        "weapon_usable": true,
+        "weapon_ready": true,
+        "inside_equipped_range": true,
+        "target_actionable": true,
+        "attack_on_self_verified": true
+      },
+      "expected": true
+    },
+    {
+      "id": "vulcan-defends-protected-traffic",
+      "operation": "fire",
+      "profile": "vulcan",
+      "role": "defender",
+      "facts": {
+        "engagement_objective_active": true,
+        "live_weapon_track": true,
+        "weapon_usable": true,
+        "weapon_ready": true,
+        "inside_equipped_range": true,
+        "target_actionable": true,
+        "attack_on_protected_verified": true,
+        "defense_obligation_active": true
+      },
+      "expected": true
+    },
+    {
+      "id": "vulcan-does-not-initiate-war-only-attack",
+      "operation": "fire",
+      "profile": "vulcan",
+      "role": "patrol",
+      "facts": {
+        "engagement_objective_active": true,
+        "live_weapon_track": true,
+        "weapon_usable": true,
+        "weapon_ready": true,
+        "inside_equipped_range": true,
+        "target_actionable": true,
+        "war_target_verified": true,
+        "war_order_active": true
+      },
+      "expected": false
+    },
+    {
+      "id": "klingon-authorized-war-target",
+      "operation": "fire",
+      "profile": "klingon",
+      "role": "raider",
+      "facts": {
+        "engagement_objective_active": true,
+        "live_weapon_track": true,
+        "weapon_usable": true,
+        "weapon_ready": true,
+        "inside_equipped_range": true,
+        "target_actionable": true,
+        "war_target_verified": true,
+        "war_order_active": true
+      },
+      "expected": true
+    },
+    {
+      "id": "identified-civilian-is-not-a-war-target",
+      "operation": "fire",
+      "profile": "klingon",
+      "role": "raider",
+      "facts": {
+        "engagement_objective_active": true,
+        "live_weapon_track": true,
+        "weapon_usable": true,
+        "weapon_ready": true,
+        "inside_equipped_range": true,
+        "target_actionable": true,
+        "identity_known": true,
+        "war_order_active": true
+      },
+      "expected": false
+    },
+    {
+      "id": "suspicion-is-not-attribution",
+      "operation": "fire",
+      "profile": "breen",
+      "role": "patrol",
+      "facts": {
+        "engagement_objective_active": true,
+        "live_weapon_track": true,
+        "weapon_usable": true,
+        "weapon_ready": true,
+        "inside_equipped_range": true,
+        "target_actionable": true,
+        "identity_known": true,
+        "enforcement_order_active": true,
+        "jurisdiction_valid": true,
+        "notice_complete": true
+      },
+      "expected": false
+    },
+    {
+      "id": "no-fire-outside-equipped-range",
+      "operation": "fire",
+      "profile": "klingon",
+      "role": "raider",
+      "facts": {
+        "engagement_objective_active": true,
+        "live_weapon_track": true,
+        "weapon_usable": true,
+        "weapon_ready": true,
+        "inside_equipped_range": false,
+        "target_actionable": true,
+        "war_target_verified": true,
+        "war_order_active": true
+      },
+      "expected": false
+    },
+    {
+      "id": "no-fire-lost-live-track",
+      "operation": "fire",
+      "profile": "klingon",
+      "role": "raider",
+      "facts": {
+        "engagement_objective_active": true,
+        "live_weapon_track": false,
+        "weapon_usable": true,
+        "weapon_ready": true,
+        "inside_equipped_range": true,
+        "target_actionable": true,
+        "war_target_verified": true,
+        "war_order_active": true
+      },
+      "expected": false
+    },
+    {
+      "id": "no-fire-cooldown-not-ready",
+      "operation": "fire",
+      "profile": "klingon",
+      "role": "raider",
+      "facts": {
+        "engagement_objective_active": true,
+        "live_weapon_track": true,
+        "weapon_usable": true,
+        "weapon_ready": false,
+        "inside_equipped_range": true,
+        "target_actionable": true,
+        "war_target_verified": true,
+        "war_order_active": true
+      },
+      "expected": false
+    },
+    {
+      "id": "no-fire-surrender-already-accepted",
+      "operation": "fire",
+      "profile": "klingon",
+      "role": "raider",
+      "facts": {
+        "engagement_objective_active": true,
+        "live_weapon_track": true,
+        "weapon_usable": true,
+        "weapon_ready": true,
+        "inside_equipped_range": true,
+        "target_actionable": false,
+        "war_target_verified": true,
+        "war_order_active": true
+      },
+      "expected": false
+    },
+    {
+      "id": "no-fire-objective-closed",
+      "operation": "fire",
+      "profile": "klingon",
+      "role": "raider",
+      "facts": {
+        "engagement_objective_active": false,
+        "live_weapon_track": true,
+        "weapon_usable": true,
+        "weapon_ready": true,
+        "inside_equipped_range": true,
+        "target_actionable": true,
+        "war_target_verified": true,
+        "war_order_active": true
+      },
+      "expected": false
+    },
+    {
+      "id": "civilian-return-fire-remains-possible",
+      "operation": "fire",
+      "profile": "vulcan",
+      "role": "civilian",
+      "facts": {
+        "engagement_objective_active": true,
+        "live_weapon_track": true,
+        "weapon_usable": true,
+        "weapon_ready": true,
+        "inside_equipped_range": true,
+        "target_actionable": true,
+        "attack_on_self_verified": true
+      },
+      "expected": true
+    },
+    {
+      "id": "civilian-still-evades-while-returning-fire",
+      "operation": "intent",
+      "profile": "vulcan",
+      "role": "civilian",
+      "facts": {
+        "engagement_objective_active": true,
+        "live_weapon_track": true,
+        "weapon_usable": true,
+        "weapon_ready": true,
+        "inside_equipped_range": true,
+        "target_actionable": true,
+        "attack_on_self_verified": true,
+        "local_danger": true
+      },
+      "expected": "evade"
+    },
+    {
+      "id": "unknown-native-role-falls-back-without-war-authority",
+      "operation": "fire",
+      "profile": "terran",
+      "role": "unrecognized_role",
+      "facts": {
+        "engagement_objective_active": true,
+        "live_weapon_track": true,
+        "weapon_usable": true,
+        "weapon_ready": true,
+        "inside_equipped_range": true,
+        "target_actionable": true,
+        "war_target_verified": true,
+        "war_order_active": true
+      },
+      "expected": false
+    },
+    {
+      "id": "unsupported-role-does-not-acquire-permission",
+      "operation": "fire",
+      "profile": "vulcan",
+      "role": "raider",
+      "facts": {
+        "engagement_objective_active": true,
+        "live_weapon_track": true,
+        "weapon_usable": true,
+        "weapon_ready": true,
+        "inside_equipped_range": true,
+        "target_actionable": true,
+        "war_target_verified": true,
+        "war_order_active": true
+      },
+      "expected": false
+    },
+    {
+      "id": "pirate-demand-still-pending",
+      "operation": "fire",
+      "profile": "pirate",
+      "role": "raider",
+      "facts": {
+        "engagement_objective_active": true,
+        "live_weapon_track": true,
+        "weapon_usable": true,
+        "weapon_ready": true,
+        "inside_equipped_range": true,
+        "target_actionable": true,
+        "identity_known": true,
+        "credible_cargo_intel": true,
+        "valuable_target_known": true,
+        "predation_order_active": true
+      },
+      "expected": false
+    },
+    {
+      "id": "pirate-assigned-ambush-uses-physical-gates",
+      "operation": "fire",
+      "profile": "pirate",
+      "role": "raider",
+      "facts": {
+        "engagement_objective_active": true,
+        "live_weapon_track": true,
+        "weapon_usable": true,
+        "weapon_ready": true,
+        "inside_equipped_range": true,
+        "target_actionable": true,
+        "identity_known": true,
+        "credible_cargo_intel": true,
+        "valuable_target_known": true,
+        "predation_order_active": true,
+        "predation_attack_phase": true
+      },
+      "expected": true
+    },
+    {
+      "id": "klingon-border-compliance-ends-that-encounter",
+      "operation": "end",
+      "objective": "enforcement",
+      "facts": {
+        "compliance_verified": true
+      },
+      "expected": "completed"
+    },
+    {
+      "id": "border-compliance-does-not-end-independent-war-raid",
+      "operation": "end",
+      "objective": "raid",
+      "facts": {
+        "compliance_verified": true
+      },
+      "expected": "open"
+    },
+    {
+      "id": "pirate-demand-ends-on-cargo-transfer",
+      "operation": "end",
+      "objective": "raid",
+      "facts": {
+        "cargo_received": true
+      },
+      "expected": "completed"
+    },
+    {
+      "id": "defense-ends-on-accepted-surrender",
+      "operation": "end",
+      "objective": "defense",
+      "facts": {
+        "surrender_accepted": true
+      },
+      "expected": "completed"
+    },
+    {
+      "id": "lost-contact-search-expires-without-a-jump",
+      "operation": "end",
+      "objective": "search",
+      "facts": {
+        "search_budget_exhausted": true
+      },
+      "expected": "aborted"
+    },
+    {
+      "id": "strategic-investigation-keeps-its-own-deadline",
+      "operation": "end",
+      "objective": "investigation",
+      "facts": {},
+      "expected": "open"
+    },
+    {
+      "id": "deadline-does-not-reward-a-late-objective",
+      "operation": "end",
+      "objective": "investigation",
+      "facts": {
+        "objective_complete": true,
+        "objective_deadline_reached": true
+      },
+      "expected": "aborted"
+    },
+    {
+      "id": "dominion-hull-defaults-to-remnant",
+      "operation": "resolve_profile",
+      "runtimeFaction": "dominion",
+      "expected": "dominion_remnant"
+    },
+    {
+      "id": "central-command-selection-requires-all-three",
+      "operation": "resolve_profile",
+      "runtimeFaction": "dominion",
+      "centralAuthority": true,
+      "scenarioActivated": true,
+      "ordersReceived": true,
+      "expected": "dominion_central"
+    },
+    {
+      "id": "briefing-alone-does-not-change-command",
+      "operation": "resolve_profile",
+      "runtimeFaction": "dominion",
+      "centralAuthority": false,
+      "scenarioActivated": true,
+      "ordersReceived": true,
+      "expected": "dominion_remnant"
+    },
+    {
+      "id": "gorn-traffic-stays-disabled",
+      "operation": "generate",
+      "profile": "gorn",
+      "generator": "traffic",
+      "rosterEnabled": true,
+      "assignmentExists": true,
+      "budgetExists": true,
+      "expected": false
+    },
+    {
+      "id": "gorn-patrol-stays-disabled",
+      "operation": "generate",
+      "profile": "gorn",
+      "generator": "patrol",
+      "rosterEnabled": true,
+      "assignmentExists": true,
+      "budgetExists": true,
+      "expected": false
+    },
+    {
+      "id": "gorn-raid-stays-disabled",
+      "operation": "generate",
+      "profile": "gorn",
+      "generator": "raid",
+      "rosterEnabled": true,
+      "assignmentExists": true,
+      "budgetExists": true,
+      "expected": false
+    },
+    {
+      "id": "gorn-reinforcement-stays-disabled",
+      "operation": "generate",
+      "profile": "gorn",
+      "generator": "reinforcement",
+      "rosterEnabled": true,
+      "assignmentExists": true,
+      "budgetExists": true,
+      "expected": false
+    },
+    {
+      "id": "gorn-occupation-stays-disabled",
+      "operation": "generate",
+      "profile": "gorn",
+      "generator": "occupation",
+      "rosterEnabled": true,
+      "assignmentExists": true,
+      "budgetExists": true,
+      "expected": false
+    },
+    {
+      "id": "central-force-requires-scenario-activation",
+      "operation": "generate",
+      "profile": "dominion_central",
+      "generator": "raid",
+      "rosterEnabled": true,
+      "assignmentExists": true,
+      "budgetExists": true,
+      "expected": false
+    },
+    {
+      "id": "finite-terran-counteroffensive-allowed",
+      "operation": "generate",
+      "profile": "terran",
+      "generator": "raid",
+      "rosterEnabled": true,
+      "assignmentExists": true,
+      "budgetExists": true,
+      "expected": true
+    },
+    {
+      "id": "counteroffensive-cannot-spawn-without-budget",
+      "operation": "generate",
+      "profile": "terran",
+      "generator": "raid",
+      "rosterEnabled": true,
+      "assignmentExists": true,
+      "budgetExists": false,
+      "expected": false
+    }
+  ]
+}
