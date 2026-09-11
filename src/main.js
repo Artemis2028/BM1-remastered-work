@@ -118,7 +118,17 @@ const NPC_COMBAT_MANEUVER_MAX_MS = 3600;
 const NPC_COMBAT_MIN_STANDOFF = 170;
 const NPC_COMBAT_MAX_STANDOFF = 520;
 const NPC_SYSTEM_DEFENSE_RANGE = 980;
-const NPC_AGGRESSION_MEMORY_MS = 15000; // how long an observed attack keeps a ship classified as an attacker of that side
+const NPC_AGGRESSION_MEMORY_MS = 15000;
+// Player security policy (Phase 2). Only `roe` changes behavior in this phase; `access` and
+// `alerts` are reserved fields for the holding-zone and alert patches and have no UI yet.
+const SECURITY_ROE_VALUES = Object.freeze(['return-fire', 'defend']);
+const SECURITY_ACCESS_VALUES = Object.freeze(['open', 'challenge', 'closed']);
+const SECURITY_ALERT_VALUES = Object.freeze(['all', 'incidents', 'silent']);
+const DEFAULT_SECURITY_POLICY = Object.freeze({
+  roe: 'defend',
+  access: Object.freeze({ warFlag: 'open', independent: 'open', unknown: 'open', other: 'open' }),
+  alerts: 'incidents',
+}); // how long an observed attack keeps a ship classified as an attacker of that side
 const PLAYER_ESCORT_DEFENSE_RANGE = 980;
 const PLAYER_ESCORT_ORDER_MS = 18000;
 const MAX_PLAYER_ESCORT_SHIPS = 6;
@@ -497,6 +507,7 @@ const state = {
   playerFleet: [],
   controlledSystems: [],
   stationOwners: {},
+  securityPolicies: { default: null, systems: {} },
   visitedSystems: [],
   factionSystemOverrides: {},
   factionStanding: {},
@@ -4676,6 +4687,74 @@ function refreshCachedStationOwnership(systemIndex = state.currentPlanet) {
   if (!cached?.stations) return;
   cached.stations = cached.stations.map((station) => (station ? deriveStationOwnership(station, systemIndex) : station));
 }
+// ---- Security policies: how the player's holdings respond. Side-bound, not flag-bound. ----
+function sanitizeSecurityPolicy(partial) {
+  const out = {};
+  if (!partial || typeof partial !== 'object') return out;
+  if (SECURITY_ROE_VALUES.includes(partial.roe)) out.roe = partial.roe;
+  if (partial.access && typeof partial.access === 'object') {
+    const access = {};
+    for (const key of Object.keys(DEFAULT_SECURITY_POLICY.access)) {
+      if (SECURITY_ACCESS_VALUES.includes(partial.access[key])) access[key] = partial.access[key];
+    }
+    if (Object.keys(access).length) out.access = access;
+  }
+  if (SECURITY_ALERT_VALUES.includes(partial.alerts)) out.alerts = partial.alerts;
+  return out;
+}
+// Overlay by dimension: a partial override of access.warFlag leaves every other access default intact.
+function mergeSecurityPolicy(base, override) {
+  const b = base || DEFAULT_SECURITY_POLICY;
+  const o = override || {};
+  return {
+    roe: o.roe || b.roe,
+    access: { ...DEFAULT_SECURITY_POLICY.access, ...(b.access || {}), ...(o.access || {}) },
+    alerts: o.alerts || b.alerts,
+  };
+}
+function ensureSecurityPolicies() {
+  if (!state.securityPolicies || typeof state.securityPolicies !== 'object') state.securityPolicies = { default: null, systems: {} };
+  if (!state.securityPolicies.systems || typeof state.securityPolicies.systems !== 'object') state.securityPolicies.systems = {};
+  return state.securityPolicies;
+}
+function getSecurityPolicyDefault() {
+  return mergeSecurityPolicy(DEFAULT_SECURITY_POLICY, ensureSecurityPolicies().default);
+}
+function getSecurityPolicyOverride(systemIndex = state.currentPlanet) {
+  const override = ensureSecurityPolicies().systems[Number(systemIndex)];
+  return override && Object.keys(override).length ? override : null;
+}
+// The policy in force where the player's side has authority; null elsewhere. A local override is
+// kept while the holding is lost (inactive) and applies again on reclamation.
+function getEffectiveSecurityPolicy(systemIndex = state.currentPlanet) {
+  if (!getSystemControl(systemIndex).playerControlled) return null;
+  return mergeSecurityPolicy(getSecurityPolicyDefault(), getSecurityPolicyOverride(systemIndex));
+}
+// Rules of engagement for the player's forces at a system: the effective policy in a holding, the
+// empire default as standing orders anywhere else.
+function getPlayerRoeAt(systemIndex = state.currentPlanet) {
+  return (getEffectiveSecurityPolicy(systemIndex) || getSecurityPolicyDefault()).roe;
+}
+function setSecurityPolicyDefault(partial) {
+  const policies = ensureSecurityPolicies();
+  policies.default = mergeSecurityPolicy(getSecurityPolicyDefault(), sanitizeSecurityPolicy(partial));
+  return getSecurityPolicyDefault();
+}
+function setSecurityPolicyOverride(systemIndex, partial) {
+  if (!getSystemControl(systemIndex).playerControlled) return null; // no authority, no override
+  const policies = ensureSecurityPolicies();
+  const key = Number(systemIndex);
+  const current = policies.systems[key] || {};
+  const next = sanitizeSecurityPolicy(partial);
+  const merged = { ...current, ...next };
+  if (current.access || next.access) merged.access = { ...(current.access || {}), ...(next.access || {}) };
+  policies.systems[key] = sanitizeSecurityPolicy(merged); // canonical shape, so saved and live forms agree
+  return getEffectiveSecurityPolicy(key);
+}
+function clearSecurityPolicyOverride(systemIndex) {
+  delete ensureSecurityPolicies().systems[Number(systemIndex)];
+}
+
 // The side that defends a system: the player when the player holds it, else the holding polity.
 function getDefendingSideId(systemIndex = state.currentPlanet) {
   const control = getSystemControl(systemIndex);
@@ -8377,6 +8456,7 @@ function renderPlanetMenu() {
     { id: 'market', label: 'Market' },
     ...(!station ? [{ id: 'ships', label: 'Shipyard' }] : []),
     ...(!station ? [{ id: 'construction', label: 'Build' }] : []),
+    ...(!station && isSystemControlled(state.currentPlanet) ? [{ id: 'security', label: 'Security' }] : []),
   ];
   if (station) state.dockMenuTab = 'market';
   if (state.dockMenuTab === 'flags' || state.dockMenuTab === 'weapons') state.dockMenuTab = 'market';
@@ -8408,7 +8488,9 @@ function renderPlanetMenu() {
   const marketFlags = !station
     ? `<div class="market-section">${renderFlagMarket()}</div>`
     : '';
+  const securityMarkup = renderSecurityPanelMarkup(state.currentPlanet);
   const panels = {
+    security: securityMarkup,
     services: `${serviceDescription}<div class="service-grid">
       <button data-planet-action="refuel">Antimatter</button>
       <button data-planet-action="repair">Repair</button>
@@ -9122,6 +9204,7 @@ function saveGame(slot = state.currentSaveSlot || 1) {
     playerFleet: state.playerFleet,
     controlledSystems: state.controlledSystems,
     stationOwners: state.stationOwners || {},
+    securityPolicies: ensureSecurityPolicies(),
     visitedSystems: state.visitedSystems,
     factionSystemOverrides: state.factionSystemOverrides,
     destroyedStations: state.destroyedStations,
@@ -9225,6 +9308,14 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   state.destroyedStations = s.destroyedStations && typeof s.destroyedStations === 'object' ? s.destroyedStations : {};
   state.depletedAsteroids = s.depletedAsteroids && typeof s.depletedAsteroids === 'object' ? s.depletedAsteroids : {};
   state.stationOwners = s.stationOwners && typeof s.stationOwners === 'object' ? { ...s.stationOwners } : null;
+  state.securityPolicies = { default: null, systems: {} };
+  if (s.securityPolicies && typeof s.securityPolicies === 'object') {
+    state.securityPolicies.default = sanitizeSecurityPolicy(s.securityPolicies.default);
+    for (const [key, override] of Object.entries(s.securityPolicies.systems || {})) {
+      const clean = sanitizeSecurityPolicy(override);
+      if (Object.keys(clean).length && Number.isFinite(Number(key))) state.securityPolicies.systems[Number(key)] = clean;
+    }
+  }
   state.controlledSystems = Array.isArray(s.controlledSystems)
     ? s.controlledSystems.map((index) => Number(index)).filter(Number.isFinite)
     : [state.currentPlanet];
@@ -10633,7 +10724,59 @@ panelEl?.addEventListener('click', (e) => {
   }
 });
 
+// Security tab (Phase 2): rules of engagement for this holding. Shown only where the player's side
+// has authority. Access and alert controls are deliberately absent until enforcement exists.
+function renderSecurityPanelMarkup(systemIndex = state.currentPlanet) {
+  if (!isSystemControlled(systemIndex)) return '<div class="meta">Security policy requires authority over this system.</div>';
+  const effective = getEffectiveSecurityPolicy(systemIndex);
+  const override = getSecurityPolicyOverride(systemIndex);
+  const empire = getSecurityPolicyDefault();
+  const name = state.planets[systemIndex]?.name || 'This system';
+  const roeButton = (value, label) => {
+    const selected = effective.roe === value;
+    return `<button data-security-roe="${value}" class="${selected ? 'active' : ''}" aria-pressed="${selected}">${selected ? '&#10004; ' : ''}${escapeHtml(label)}${selected ? ' (in force)' : ''}</button>`;
+  };
+  const roeLabel = (value) => (value === 'return-fire' ? 'Return fire only' : 'Defend');
+  return `<div class="market-section">
+    <div class="panel-head">${escapeHtml(name)} security</div>
+    <div class="meta">${override ? 'Local override in force.' : 'Using empire default.'} Empire default: ${escapeHtml(roeLabel(empire.roe))}. In force here: ${escapeHtml(roeLabel(effective.roe))}.</div>
+    <div class="panel-head">Rules of engagement</div>
+    <div class="service-grid">
+      ${roeButton('return-fire', 'Return fire only')}
+      ${roeButton('defend', 'Defend')}
+    </div>
+    <div class="meta"><strong>Return fire only:</strong> your ships and stations here engage only ships or stations seen attacking your side in this system, and fleets raiding this holding.</div>
+    <div class="meta"><strong>Defend:</strong> as above, plus ships hostile to you and ships at war with your current flag, on sight. This is the default behavior.</div>
+    <div class="meta">Explicit attack orders always apply. Foreign ships and stations keep their own owners and commanders whatever you set here.</div>
+    <div class="service-grid">
+      <button data-security-action="use-default" ${override ? '' : 'disabled'}>Use empire default here</button>
+      <button data-security-action="set-default">Set as empire default</button>
+    </div>
+  </div>`;
+}
+
 planetMenuEl?.addEventListener('click', (e) => {
+  const securityRoe = e.target.closest('[data-security-roe]');
+  if (securityRoe) {
+    if (setSecurityPolicyOverride(state.currentPlanet, { roe: securityRoe.dataset.securityRoe })) {
+      setLog(`${state.planets[state.currentPlanet]?.name || 'System'} rules of engagement: ${securityRoe.dataset.securityRoe === 'return-fire' ? 'return fire only' : 'defend'}.`);
+    }
+    renderPlanetMenu();
+    return;
+  }
+  const securityAction = e.target.closest('[data-security-action]');
+  if (securityAction) {
+    if (!isSystemControlled(state.currentPlanet)) return;
+    if (securityAction.dataset.securityAction === 'use-default') {
+      clearSecurityPolicyOverride(state.currentPlanet);
+      setLog(`${state.planets[state.currentPlanet]?.name || 'System'} now uses the empire default security policy.`);
+    } else if (securityAction.dataset.securityAction === 'set-default') {
+      setSecurityPolicyDefault(getEffectiveSecurityPolicy(state.currentPlanet));
+      setLog('Empire default security policy updated.');
+    }
+    renderPlanetMenu();
+    return;
+  }
   const tab = e.target.closest('.dock-tabs [data-dock-tab]');
   if (tab) {
     const panel = planetMenuEl.querySelector('.dock-panel');
@@ -11445,35 +11588,35 @@ function damageNpcShip(npc, damage, source = 'player', color = '#74d6ff', impact
   return { shieldDamage, hullDamage };
 }
 
-function alertLocalDefenseAgainstPlayer(faction = state.systemFaction, attackedStation = null) {
+// The player's side attacked something: the victim's side and its allies here turn hostile to the
+// player. Decided by side, never by flag: the player's own installations (recorded owners, cached
+// copies included) and all player-side ships are never alerted against the player, whatever flag
+// the victim flies.
+function alertLocalDefenseAgainstPlayer(victimSide, attackedStation = null) {
   const now = performance.now();
-  const targetFaction = faction || state.systemFaction || 'neutral';
-  const shouldAlert = (defenderFaction = 'neutral') => (
-    defenderFaction === targetFaction
-    || areFactionsAligned(defenderFaction, targetFaction)
-  );
-  let alertedStations = 0;
+  const target = typeof victimSide === 'string' && victimSide ? victimSide : getDefendingSideId(state.currentPlanet);
+  if (!target || target === PLAYER_SIDE) return;
+  const shouldAlert = (side) => sidesAligned(side, target);
   for (const station of state.stations || []) {
-    if (!station || station.destroyed || station.builtByPlayer) continue;
-    const stationFaction = station.faction || state.systemFaction || 'neutral';
-    if (!shouldAlert(stationFaction)) continue;
-    if (!station.hostile) alertedStations += 1;
+    if (!station || station.destroyed) continue;
+    const owner = getStationOwner(station, state.currentPlanet);
+    if (owner === PLAYER_SIDE || !shouldAlert(owner)) continue;
     station.attitude = 'hostile';
     station.hostile = true;
     station.playerAggroUntil = now + NPC_PLAYER_AGGRO_MS;
   }
   const systemStations = state.systemStates[state.currentPlanet]?.stations || [];
   for (const station of systemStations) {
-    if (!station || station.destroyed || station.builtByPlayer) continue;
-    const stationFaction = station.faction || state.systemFaction || 'neutral';
-    if (!shouldAlert(stationFaction)) continue;
+    if (!station || station.destroyed) continue;
+    const owner = getStationOwner(station, state.currentPlanet);
+    if (owner === PLAYER_SIDE || !shouldAlert(owner)) continue;
     station.attitude = 'hostile';
     station.hostile = true;
     station.playerAggroUntil = now + NPC_PLAYER_AGGRO_MS;
   }
   for (const npc of state.npcShips || []) {
-    if (!npc || npc.destroyed || isPlayerEscortNpc(npc)) continue;
-    if (!shouldAlert(npc.faction || 'neutral')) continue;
+    if (!npc || npc.destroyed || isPlayerSideNpc(npc)) continue;
+    if (!shouldAlert(getNpcSideId(npc))) continue;
     npc.attitude = 'hostile';
     npc.hostile = true;
     npc.playerAggroUntil = now + NPC_PLAYER_AGGRO_MS;
@@ -11511,12 +11654,12 @@ function damageStation(station, damage, source = 'player', color = '#74d6ff', im
   }
   playImpactSound({ shieldDamage, hullDamage }, { cooldownKey: hullDamage > 0 ? `impact:station-hull:${station.id}` : `impact:station-shield:${station.id}`, volume: 1.05 });
   station.lastDamageSource = source;
-  if (isPlayerKillCreditSource(source)) {
+  if (isPlayerKillCreditSource(source) && getStationOwner(station, state.currentPlanet) !== PLAYER_SIDE) {
     const now = performance.now();
     station.attitude = 'hostile';
     station.hostile = true;
     station.playerEscortOrderUntil = now + PLAYER_ESCORT_ORDER_MS;
-    alertLocalDefenseAgainstPlayer(station.faction || state.systemFaction, station);
+    alertLocalDefenseAgainstPlayer(getStationOwner(station, state.currentPlanet), station);
   }
   if (station.combatHull <= 0) destroyStation(station);
   return { shieldDamage, hullDamage };
@@ -11800,11 +11943,13 @@ function fleetOrder(slot) {
 }
 function markPlayerEscortAttackOrder(target, now = performance.now()) {
   if (!target || target.destroyed) return;
+  // No orders against the player's own installations or ships: refuse before touching the target.
+  if (target.stationTypeId ? getStationOwner(target, state.currentPlanet) === PLAYER_SIDE : isPlayerSideNpc(target)) return;
   target.playerEscortOrderUntil = now + PLAYER_ESCORT_ORDER_MS;
   target.attitude = 'hostile';
   target.hostile = true;
   if (target.stationTypeId) {
-    alertLocalDefenseAgainstPlayer(target.faction || state.systemFaction, null);
+    alertLocalDefenseAgainstPlayer(getStationOwner(target, state.currentPlanet), null);
   } else {
     target.playerAggroUntil = now + NPC_PLAYER_AGGRO_MS;
   }
@@ -12147,6 +12292,7 @@ function fireNpcWeapon(npc, target = playerWorldPosition(), targetType = 'player
   // Observed aggression: firing on someone makes this ship an attacker of that side for a while,
   // whatever flag it flies. Defenders classify relative to themselves (isNpcSystemAttacker).
   npc.lastAggressionAt = now;
+  npc.lastAggressionSystemIndex = Number(state.currentPlanet);
   npc.lastAggressionTargetSide = targetType === 'player'
     ? PLAYER_SIDE
     : targetType === 'station' ? getStationOwner(target, state.currentPlanet) : getNpcSideId(target);
@@ -12222,6 +12368,13 @@ function fireStationWeapon(station, target, now = performance.now()) {
     : baseCooldown;
   if (now - (station.lastShotAt || 0) < cooldown) return;
   station.lastShotAt = now;
+  // Station fire is observed aggression too, so retaliation against a station needs the same
+  // attributable evidence as retaliation against a ship.
+  station.lastAggressionAt = now;
+  station.lastAggressionSystemIndex = Number(state.currentPlanet);
+  station.lastAggressionTargetSide = targetType === 'player'
+    ? PLAYER_SIDE
+    : targetType === 'station' ? getStationOwner(target, state.currentPlanet) : getNpcSideId(target);
   const weaponIds = (station.stationWeaponIds?.length ? station.stationWeaponIds : getStationWeaponIds(station))
     .filter((weaponId) => isCombatWeapon(getWeapon(weaponId)));
   const weapon = getWeapon(weaponIds.length ? weaponIds[(station.shotIndex || 0) % weaponIds.length] : DEFAULT_WEAPON_ID);
@@ -12309,7 +12462,9 @@ function updateStationDefenses() {
   for (const station of state.stations) {
     if (station.destroyed || station.underConstruction) continue;
     const range = station.defenseRange || STATION_DEFENSE_RANGE;
-    if (!playerCloaked && !isSpawnProtected(now) && station.hostile && distanceToPlayer(station) <= range) {
+    // A player-owned installation never fires on the player, whatever flags were set on it.
+    if (!playerCloaked && !isSpawnProtected(now) && station.hostile && distanceToPlayer(station) <= range
+      && getStationOwner(station, state.currentPlanet) !== PLAYER_SIDE) {
       fireStationWeapon(station, playerWorldPosition(), now);
       continue;
     }
@@ -12554,24 +12709,45 @@ function isNpcSystemDefender(npc) {
 // system). Identity, relationships and observed aggression are separate inputs: own forces never
 // count as attackers of themselves; allies never do; anyone else counts if it was seen attacking
 // this side, is raiding the system, is at war with this side, or (for the player's side) is hostile.
+// Evidence helpers. A raid counts only against the system it is actually raiding (a stale or
+// unrelated attackId proves nothing here); an attack counts only where it was seen.
+function isRaidingHere(entity, systemIndex = state.currentPlanet) {
+  const attack = state.activeFleetAttack;
+  return Boolean(entity?.attackId) && Boolean(attack) && attack.id === entity.attackId
+    && Number(attack.systemIndex) === Number(systemIndex);
+}
+function hasRecentAggressionAgainst(entity, side, now = performance.now(), systemIndex = state.currentPlanet) {
+  return Boolean(entity?.lastAggressionAt) && now - entity.lastAggressionAt < NPC_AGGRESSION_MEMORY_MS
+    && Number(entity.lastAggressionSystemIndex) === Number(systemIndex)
+    && sidesAligned(entity.lastAggressionTargetSide, side);
+}
+function resolveDefenderSide(defender) {
+  if (typeof defender === 'string') return defender;
+  if (!defender) return getDefendingSideId(state.currentPlanet);
+  return defender.stationTypeId ? getStationOwner(defender, state.currentPlanet) : getNpcSideId(defender);
+}
+// Attacker classification relative to a defender (a ship, a station via its owner, a side ID, or
+// with no defender the side holding the system). Identity, relationships, observed aggression and
+// the player's rules of engagement are separate inputs: own forces are never attackers of
+// themselves; a witnessed attack on this side, here, always counts (alliances do not excuse it);
+// otherwise allies never count; a fleet raiding this system counts against its holder; and, for
+// the player's side only under `defend`, ships hostile to the player or at war with the player's
+// flag count on sight. Under `return-fire` nothing counts without evidence.
 function isNpcSystemAttacker(npc, defender = null, now = performance.now()) {
   if (!npc || npc.destroyed) return false;
   const attackerSide = getNpcSideId(npc);
-  const defenderSide = defender
-    ? (defender.stationTypeId ? getStationOwner(defender, state.currentPlanet) : getNpcSideId(defender))
-    : getDefendingSideId(state.currentPlanet);
+  const defenderSide = resolveDefenderSide(defender);
   if (!defenderSide) return false;
-  if (sameSide(attackerSide, defenderSide)) return false; // own forces are never attackers of themselves
-  const recentAggression = Boolean(npc.lastAggressionAt) && now - npc.lastAggressionAt < NPC_AGGRESSION_MEMORY_MS
-    && sidesAligned(npc.lastAggressionTargetSide, defenderSide);
-  if (recentAggression) return true; // a witnessed attack is not excused by an alliance
+  if (sameSide(attackerSide, defenderSide)) return false;
+  if (hasRecentAggressionAgainst(npc, defenderSide, now)) return true;
   if (sidesAligned(attackerSide, defenderSide)) return false;
   const systemSide = getDefendingSideId(state.currentPlanet);
-  const raidingThisSide = Boolean(npc.attackId) && systemSide && sidesAligned(systemSide, defenderSide);
-  const hostileToPlayer = defenderSide === PLAYER_SIDE && (Boolean(npc.hostile) || npc.attitude === 'hostile'
-    || (Boolean(npc.playerAggroUntil) && npc.playerAggroUntil > now));
-  return raidingThisSide || hostileToPlayer || sidesOpposed(attackerSide, defenderSide)
-    || (defenderSide === PLAYER_SIDE && sidesOpposed(attackerSide, getPlayerFlag()));
+  if (isRaidingHere(npc) && systemSide && sidesAligned(systemSide, defenderSide)) return true;
+  if (defenderSide !== PLAYER_SIDE) return sidesOpposed(attackerSide, defenderSide);
+  if (getPlayerRoeAt(state.currentPlanet) !== 'defend') return false;
+  const hostileToPlayer = Boolean(npc.hostile) || npc.attitude === 'hostile'
+    || (Boolean(npc.playerAggroUntil) && npc.playerAggroUntil > now);
+  return hostileToPlayer || sidesOpposed(attackerSide, getPlayerFlag());
 }
 
 function getNpcDefenseTarget(defender) {
@@ -12604,23 +12780,24 @@ function isPlayerEscortNpc(npc) {
 
 function isPlayerEscortShipTarget(npc, now = performance.now()) {
   if (!npc || npc.destroyed || isPlayerSideNpc(npc)) return false;
-  if (npc.playerEscortOrderUntil && npc.playerEscortOrderUntil > now) return true;
-  // No same-flag or same-status immunity: a hostile ship is a target whatever it flies.
-  return Boolean(npc.hostile)
-    || npc.attitude === 'hostile'
-    || Boolean(npc.attackId)
-    || (Boolean(npc.playerAggroUntil) && npc.playerAggroUntil > now)
-    || sidesOpposed(getNpcSideId(npc), getPlayerFlag())
-    || isNpcSystemAttacker(npc, null, now);
+  if (npc.playerEscortOrderUntil && npc.playerEscortOrderUntil > now) return true; // explicit orders override ROE
+  // Evidence always suffices: attacks on the player's side seen here, or a raid on this holding.
+  if (isNpcSystemAttacker(npc, PLAYER_SIDE, now)) return true;
+  // Under `defend` (the default) escorts also engage on sight what the system's holder would engage;
+  // under `return-fire` nothing more without evidence. No same-flag or same-status immunity either way.
+  return getPlayerRoeAt(state.currentPlanet) === 'defend' && isNpcSystemAttacker(npc, null, now);
 }
 
 function isPlayerEscortStationTarget(station, now = performance.now()) {
   if (!station || station.destroyed) return false;
-  if (station.playerEscortOrderUntil && station.playerEscortOrderUntil > now) return true;
-  // Only the player's own installations are protected; a hostile station is a target whatever flag
-  // it flies or whose ally owns it.
+  // The player's own installations are never targets, not even under explicit orders.
   if (getStationOwner(station, state.currentPlanet) === PLAYER_SIDE) return false;
-  return Boolean(station.hostile) || station.attitude === 'hostile';
+  if (station.playerEscortOrderUntil && station.playerEscortOrderUntil > now) return true; // explicit orders override ROE
+  // A station that fired on the player's side here is a target under any ROE.
+  if (hasRecentAggressionAgainst(station, PLAYER_SIDE, now)) return true;
+  // Under `defend`, a hostile station is a target whatever flag it flies; under `return-fire` it is
+  // not until it shoots. No alliance immunity either way.
+  return getPlayerRoeAt(state.currentPlanet) === 'defend' && (Boolean(station.hostile) || station.attitude === 'hostile');
 }
 
 function getPlayerEscortPriorityTarget(escort, now = performance.now()) {
@@ -16652,6 +16829,7 @@ function resetRunState() {
   state.playerFleet = [];
   state.controlledSystems = [];
   state.stationOwners = {};
+  state.securityPolicies = { default: null, systems: {} };
   state.visitedSystems = [];
   state.factionSystemOverrides = {};
   state.destroyedStations = {};
@@ -16814,6 +16992,7 @@ function startWithFaction(key, options = {}) {
   markSystemVisited(state.currentPlanet);
   state.controlledSystems = [];
   state.stationOwners = {};
+  state.securityPolicies = { default: null, systems: {} };
   transferSystemControlToPlayer(state.currentPlanet); // the start system's government installations are the side's
   state.myantimatter = f.myantimatter;
   state.antimatter = f.myantimatter;
