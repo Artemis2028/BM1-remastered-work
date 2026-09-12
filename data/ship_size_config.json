@@ -1,11 +1,11 @@
 {
   "classScales": {
     "shuttle": 0.5,
-    "escort": 0.72,
-    "lightCruiser": 1.15,
-    "cruiser": 1.85,
-    "capital": 3,
-    "battleship": 4
+    "escort": 0.68,
+    "lightCruiser": 0.9,
+    "cruiser": 1.2,
+    "capital": 1.55,
+    "battleship": 1.9
   },
   "classTurnRates": {
     "shuttle": 24,

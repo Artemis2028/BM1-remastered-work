@@ -42,6 +42,8 @@
  *     7 stale/unrelated raid evidence; 8 aggression scoped to the system, standing orders
  *     outside holdings; 9 partial-override inheritance; 10 flag change; 11 loss/reclaim;
  *     12 save/reload and legacy save; 13 UI authority
+ *   S5.17 integration regressions: a policy tightened during an open visit takes effect,
+ *        player aggression revokes clearance, and declared broadcast identity survives reload
  *   S2 pursuit vs. firing range
  *     a. a manhunt hunter (standing <= -50) keeps pursuing far beyond weapon range
  *     b. with its weapon ready, it never fires there (>2 cooldowns)
@@ -70,6 +72,7 @@ const argValue = (flag) => {
 };
 const ROOT = path.resolve(argValue('--root') || path.join(path.dirname(fileURLToPath(import.meta.url)), '..'));
 const SCREENSHOT = argValue('--screenshot');
+const SHOTS_DIR = argValue('--shots'); // stage the Phase 3 operator panel and the incoming player order, then capture both
 const TIMEOUT_MS = Number(argValue('--timeout') || 45000);
 
 const SHIM = `
@@ -87,7 +90,11 @@ window.__bm1 = {
   claimCurrentSystem, sidesAligned, isSystemControlled, hasFactionAccessAt, getClaimSystemStatus,
   getEffectiveSecurityPolicy, getSecurityPolicyDefault, getSecurityPolicyOverride, getPlayerRoeAt,
   setSecurityPolicyDefault, setSecurityPolicyOverride, clearSecurityPolicyOverride, fireStationWeapon,
-  renderPlanetMenu, DEFAULT_SECURITY_POLICY, markPlayerEscortAttackOrder,
+  renderPlanetMenu, DEFAULT_SECURITY_POLICY, markPlayerEscortAttackOrder, beginAmbientTrafficArrival,
+  getSecurityZone, getSecurityLedger, getPlayerSecurityOrder, setPlayerCheckpoint, getPlayerCheckpointConfig, getSecurityAnchorCandidates,
+  getVisitorAccessDecision, getSecurityContact, respondToSecurityOrder, operateSecurityOrder, getSecurityDockingBlock, tryDockAtPlanetIndex,
+  tryDockAtStation, getFlightPlanetMarker, setCamera, setCameraNearPlanet, placePlayerAtSecurityApproach, resetSecurityRecords, resolveSecurityPoint,
+  getSecurityAuthorityEpoch, closePlayerSecurityOrders, completeWarpTravel, updateSecurityEncounters,
   // Resolves when the main loop's already-scheduled frame runs and tries to schedule the next one
   // (it calls requestAnimationFrame(loop) at the end of every frame). After that nothing is pending.
   freezeLoop(timeoutMs = 2000) {
@@ -817,6 +824,18 @@ async function scenarioRunner() {
   };
   s.playerFaction = 'neutral'; s.combatTargetId = null; s.combatTargetType = 'ship';
   B.setSecurityPolicyOverride(home, { roe: 'return-fire' });
+  // 15. an ambient replacement is a different vessel: it inherits no evidence, aggro, orders or raid
+  // membership from the previous occupant of its slot (which kept the same npc.id).
+  clearNpcs(); esc(9481, pAt(80));
+  const slot = mk(9482, 'ferengi', { attitude: 'neutral', hostile: false, role: 'traffic' }, pAt(600));
+  const nowR = performance.now();
+  Object.assign(slot, { lastAggressionAt: nowR, lastAggressionTargetSide: 'player', lastAggressionSystemIndex: home, playerEscortOrderUntil: nowR + 60000, playerAggroUntil: nowR + 60000, attackId: 'raid-old', lastDamageSource: 'playerEscort' });
+  const beforeReplacement = answers(slot);
+  B.beginAmbientTrafficArrival(slot, nowR);
+  out.replacementEvidence = {
+    sameId: slot.id === 9482, before: beforeReplacement, after: answers(slot),
+    fields: { aggressionAt: slot.lastAggressionAt, aggressionSide: slot.lastAggressionTargetSide, aggro: slot.playerAggroUntil, order: slot.playerEscortOrderUntil, attackId: slot.attackId, damage: slot.lastDamageSource },
+  };
   // 7. stale / unrelated raid evidence
   clearNpcs(); const escortR = esc(9451, pAt(80));
   const stale = mk(9452, 'ferengi', { attitude: 'neutral', hostile: false, role: 'fleetAttack' }, pAt(600)); stale.attackId = 'raid-elsewhere';
@@ -888,6 +907,460 @@ async function scenarioRunner() {
   const foreignTab = !!menu?.querySelector('[data-dock-tab="security"]');
   s.docked = false; s.planetMenuOpen = false;
   out.securityUi = { flag: s.playerFaction, tabPresent, uiOverride, uiDefault, uiCleared, foreignHeldByFlagFaction: B.getSystemControl(qonos).controller, foreignTab };
+
+  // ---------- S5: holding zones and compliance (Phase 3) ----------
+  out.stage = 'S5';
+  const fast = async (n, each = null) => { for (let i = 0; i < n; i++) { if (each) each(i); B.tick(2.5); await sleep(4); } };
+  const tickUntil = async (cond, max = 900, scale = 2.5) => { for (let i = 0; i < max; i++) { if (cond()) return true; B.tick(scale); await sleep(4); } return cond(); };
+  const ledgerOf = (i) => B.getSecurityLedger(i);
+  const ordersFor = (i, instanceId) => Object.values(ledgerOf(i)?.orders || {}).filter((o) => o.visitorInstanceId === instanceId);
+  const activeOrderOf = (i, npc) => Object.values(ledgerOf(i)?.orders || {}).find((o) => !o.outcome && o.visitorInstanceId === npc.securityInstanceId) || null;
+  const zoneAt = (i) => B.getSecurityZone(i);
+  const polar = (zone, distance, angle = 0) => ({ x: zone.centre.x + Math.cos(angle) * distance, y: zone.centre.y + Math.sin(angle) * distance });
+  const traffic = (id, faction, zone, distance, angle = 0, opts = {}) => {
+    const n = mk(id, faction, { shipId: 1, attitude: 'neutral', hostile: false, role: 'traffic', ...opts }, polar(zone, distance, angle));
+    n.destination = polar(zone, Math.max(40, zone.holdDistance * 0.4), angle); // ordinary lane: heading inward
+    n.destinationName = 'inner beacon'; n.speed = 1.2; n.identityLocked = true; n.sideId = B.getNpcSideId(n);
+    return n;
+  };
+  const restoreHome = () => { for (const d of s.stationDefinitions) if (Number(d.systemIndex) === home) delete s.destroyedStations[d.id]; };
+  // Real ambient slots (ids from the system snapshot) for the persistence cases: only these survive a
+  // cache wipe or reload the way the game's own traffic does. Other slots are parked far outside.
+  const usedSlots = new Set();
+  const clearProbeNpcs = () => { for (let i = s.npcShips.length - 1; i >= 0; i--) if (Number(s.npcShips[i].id) >= 9000) s.npcShips.splice(i, 1); };
+  const parkOthers = (zone, except) => {
+    for (const n of s.npcShips) {
+      if (!n || except.includes(n) || n.role === 'playerEscort' || n.role === 'playerFleet') continue;
+      const far = { x: zone.centre.x + 3200, y: zone.centre.y + 200 };
+      Object.assign(n, { x: far.x, y: far.y, destination: { ...far }, waitUntil: performance.now() + 1e9, ambientWarpAt: performance.now() + 1e9, trafficWarp: null, securityObjective: null });
+    }
+  };
+  const slotTraffic = (zone, distance, angle, faction = 'ferengi') => {
+    const n = s.npcShips.find((x) => x && !x.destroyed && (x.role === 'traffic' || x.role === 'localTraffic') && !usedSlots.has(x.id));
+    if (!n) return null;
+    usedSlots.add(n.id);
+    const p = polar(zone, distance, angle);
+    Object.assign(n, { x: p.x, y: p.y, destination: polar(zone, Math.max(40, zone.holdDistance * 0.4), angle), destinationName: 'inner beacon', speed: 1.2, trafficWarp: null, ambientWarpAt: performance.now() + 120000, hostile: false, attitude: 'neutral', waitUntil: 0, securityObjective: null, faction, sideId: faction, identityLocked: true });
+    const snap = (s.systemStates[home]?.npcShips || []).find((e) => e.id === n.id);
+    if (snap) Object.assign(snap, { faction, sideId: faction, identityLocked: true, shipId: n.shipId, seed: n.seed, name: n.name });
+    return n;
+  };
+  s.playerFlags = ['ferengi', 'klingon', 'terran'];
+  s.playerFaction = 'terran';
+  s.securityPolicies = { default: null, systems: {} };
+  B.resetSecurityRecords();
+  B.transferSystemControlToPlayer(home);
+  restoreHome();
+  enterFresh(home);
+  const standingsBefore5 = snapStandings();
+  const candidates5 = B.getSecurityAnchorCandidates(home, 'player');
+  const anchor5 = candidates5[0] || null;
+  need(anchor5, `S5 fixture: no planet-anchored player-owned station at home (${(s.stations || []).map((st) => `${st.name}:${st.orbitAnchor}:${st.ownerId}:${st.destroyed ? 'X' : ''}`).join(', ')})`);
+  const foreignCandidate = (s.stations || []).find((st) => st.id === 'probe-foreign-vulcan');
+  out.zoneAuthority = {
+    foreignExcluded: !candidates5.some((st) => st.id === 'probe-foreign-vulcan' || st.id === 'probe-private-1'),
+    foreignPresent: !!foreignCandidate && !foreignCandidate.destroyed,
+    disabledByDefault: zoneAt(home) === null,
+    setAtForeign: B.setPlayerCheckpoint(qonos, { enabled: true }) === null,
+  };
+  B.setPlayerCheckpoint(home, { enabled: true, anchorStationId: anchor5?.id });
+  const zoneHome = zoneAt(home);
+  need(zoneHome, 'S5 fixture: home checkpoint did not activate');
+  out.zoneAuthority.enabled = !!zoneHome && zoneHome.authority === 'player' && zoneHome.anchorStationId === anchor5?.id;
+  out.zoneAuthority.radius = zoneHome?.radius; out.zoneAuthority.hold = zoneHome?.holdDistance;
+  // 1. open access: a visitor crosses in; no order, no fact, no offence, no standing change, no shot
+  clearNpcs(); clearShots();
+  const escort5 = esc(9501, polar(zoneHome, 40, Math.PI / 2)); escort5.lastShotAt = READY; escort5.lastAggressionTargetSide = null;
+  const openVisitor = traffic(9502, 'ferengi', zoneHome, zoneHome.radius + 200);
+  await tickUntil(() => Math.hypot(openVisitor.x - zoneHome.centre.x, openVisitor.y - zoneHome.centre.y) < zoneHome.radius - 40, 400);
+  await fast(20);
+  const openRecord = ledgerOf(home)?.visitors?.[openVisitor.securityInstanceId];
+  out.openAccess = {
+    inside: openRecord?.inside === true, orders: ordersFor(home, openVisitor.securityInstanceId).length, objective: openVisitor.securityObjective,
+    hostile: openVisitor.hostile, attackId: openVisitor.attackId || null, standingsSame: snapStandings() === standingsBefore5, escortFired: escort5.lastAggressionTargetSide,
+    anchorShots: (s.stations.find((st) => st.id === anchor5?.id)?.lastAggressionTargetSide) || null, noncompliant: !!openRecord?.noncompliant,
+  };
+  const openEpisode = openRecord?.episode;
+  // An access rule tightened while a visitor is already inside must address that same visit.
+  B.setSecurityPolicyOverride(home, { access: { other: 'closed' } });
+  await fast(3);
+  const tightenedOrder = activeOrderOf(home, openVisitor);
+  out.policyTightening = {
+    sameEpisode: ledgerOf(home)?.visitors?.[openVisitor.securityInstanceId]?.episode === openEpisode,
+    issued: !!tightenedOrder, kind: tightenedOrder?.kind, decision: tightenedOrder?.decision,
+  };
+  if (tightenedOrder) B.operateSecurityOrder(tightenedOrder.id, 'cancel');
+  // 2. challenge: exactly one order, approach, hold, dwell, cleared, resume
+  clearNpcs(); clearShots(); esc(9503, polar(zoneHome, 40, Math.PI / 2));
+  B.setSecurityPolicyOverride(home, { access: { other: 'challenge' } });
+  const zoneC = zoneAt(home);
+  const chal = traffic(9504, 'ferengi', zoneC, zoneC.radius + 160);
+  const before2 = { role: chal.role, side: chal.sideId, fleet: chal.fleetId || null, faction: chal.faction };
+  await tickUntil(() => !!activeOrderOf(home, chal), 300);
+  const chalOrder = activeOrderOf(home, chal);
+  await fast(1);
+  const chalDest0 = chal.destinationName;
+  const reached = await tickUntil(() => chalOrder && (chalOrder.state === 'holding'), 900);
+  const dwellSeen = chalOrder?.dwellMs || 0;
+  const clearedC = await tickUntil(() => chalOrder && chalOrder.outcome === 'cleared', 400);
+  await fast(10);
+  const chalRecord = ledgerOf(home)?.visitors?.[chal.securityInstanceId];
+  out.challenge = {
+    issued: !!chalOrder, kind: chalOrder?.kind, cls: chalOrder?.accessClass, destWhileOrdered: chalDest0, reached, dwellSeen, cleared: clearedC, outcome: chalOrder?.outcome,
+    compliance: chalOrder?.compliance?.scope, orders: ordersFor(home, chal.securityInstanceId).length, clearance: chalRecord?.clearance?.provenance || null,
+    resumed: !chal.securityObjective && chal.destinationName !== 'checkpoint hold', identity: { role: chal.role, side: chal.sideId, fleet: chal.fleetId || null, faction: chal.faction }, identityBefore: before2,
+    stillOneOrderAfterDwell: ordersFor(home, chal.securityInstanceId).filter((o) => !o.outcome).length === 0,
+  };
+  // 3. closed: one withdrawal instruction; the ship leaves and takes a lane outside or departs
+  clearNpcs(); clearShots(); esc(9505, polar(zoneHome, 40, Math.PI / 2));
+  B.setSecurityPolicyOverride(home, { access: { other: 'closed' } });
+  const zoneW = zoneAt(home);
+  const closedV = traffic(9506, 'ferengi', zoneW, zoneW.radius - 60, 0.6);
+  await tickUntil(() => !!activeOrderOf(home, closedV), 100);
+  const wOrder = activeOrderOf(home, closedV);
+  const withdrawn = await tickUntil(() => wOrder && wOrder.outcome === 'withdrawn', 900);
+  await fast(5);
+  const destOut = closedV.destination ? Math.hypot(closedV.destination.x - zoneW.centre.x, closedV.destination.y - zoneW.centre.y) : 0;
+  out.closedAccess = {
+    issued: !!wOrder, kind: wOrder?.kind, withdrawn, outcome: wOrder?.outcome, compliance: wOrder?.compliance?.scope,
+    nextDestinationOutside: destOut > zoneW.reentryDistance || !!closedV.trafficWarp, objectiveCleared: !closedV.securityObjective, orders: ordersFor(home, closedV.securityInstanceId).length,
+    clearance: ledgerOf(home)?.visitors?.[closedV.securityInstanceId]?.clearance || null,
+  };
+  // 4. refusal / expiry under return-fire: a calm war-flag visitor times out; a record, not a target
+  clearNpcs(); clearShots();
+  B.setSecurityPolicyOverride(home, { roe: 'return-fire', access: { other: 'open', warFlag: 'challenge' } });
+  const zoneR = zoneAt(home);
+  const escortR5 = esc(9507, polar(zoneR, 40, Math.PI / 2)); escortR5.lastShotAt = READY; escortR5.lastAggressionTargetSide = null;
+  const anchorStation = s.stations.find((st) => st.id === anchor5?.id); if (anchorStation) { B.ensureStationCombatStats(anchorStation); anchorStation.lastShotAt = READY; anchorStation.lastAggressionTargetSide = null; }
+  const kVisitor = traffic(9508, 'klingon', zoneR, zoneR.radius - 80, 2.2);
+  await tickUntil(() => !!activeOrderOf(home, kVisitor), 100);
+  const kOrder = activeOrderOf(home, kVisitor);
+  const stBefore4 = snapStandings();
+  if (kOrder) kOrder.remainingMs = 200;
+  kVisitor.speed = 0.01; // it dawdles: the allowance runs out
+  const expired = await tickUntil(() => kOrder && kOrder.outcome === 'expired', 100);
+  await fast(40);
+  const kRecord = ledgerOf(home)?.visitors?.[kVisitor.securityInstanceId];
+  out.refusal = {
+    issued: !!kOrder, cls: kOrder?.accessClass, expired, outcome: kOrder?.outcome, noncompliant: kRecord?.noncompliant === true,
+    hostile: kVisitor.hostile, attackId: kVisitor.attackId || null, aggro: !!kVisitor.playerAggroUntil, standingsSame: snapStandings() === stBefore4,
+    escortTarget: B.isPlayerEscortShipTarget(kVisitor), attacker: B.isNpcSystemAttacker(kVisitor, 'player'), escortFired: escortR5.lastAggressionTargetSide, anchorFired: anchorStation?.lastAggressionTargetSide || null,
+    secondOrderForSameVisit: ordersFor(home, kVisitor.securityInstanceId).length,
+  };
+  // 5. real aggression still permits defence under the same policy; expired evidence does not
+  kVisitor.speed = 1.0; kVisitor.lastShotAt = READY;
+  B.fireNpcWeapon(kVisitor, escortR5, 'ship', performance.now());
+  const afterShot = { target: B.isPlayerEscortShipTarget(kVisitor), attacker: B.isNpcSystemAttacker(kVisitor, 'player') };
+  kVisitor.lastAggressionAt = performance.now() - 60000;
+  out.realAggression = { afterShot, stale: { target: B.isPlayerEscortShipTarget(kVisitor), attacker: B.isNpcSystemAttacker(kVisitor, 'player') }, noClearance: !ledgerOf(home)?.visitors?.[kVisitor.securityInstanceId]?.clearance };
+  // 7. classification
+  clearNpcs();
+  const zoneK = zoneAt(home);
+  const own = esc(9511, polar(zoneK, 50, 1));
+  const sameFlag = mk(9512, 'terran', { role: 'traffic' }, polar(zoneK, 60, 1.2));
+  const indep = mk(9513, 'neutral', { role: 'traffic' }, polar(zoneK, 70, 1.4));
+  const warF = mk(9514, 'klingon', { role: 'traffic' }, polar(zoneK, 80, 1.6));
+  const customV = mk(9515, 'neutral', { role: 'traffic', sideId: 'Zzyx-Council' }, polar(zoneK, 90, 1.8)); customV.broadcastSource = 'declared'; customV.broadcastFaction = 'Zzyx-Council';
+  const unknownC = mk(9516, 'ferengi', { role: 'traffic' }, polar(zoneK, 100, 2.0)); unknownC.broadcastSource = 'none';
+  const decide = (n) => { const d = B.getVisitorAccessDecision(zoneK, B.getSecurityContact(n)); return d ? `${d.class}:${d.decision}:${d.enforceable}` : null; };
+  B.setSecurityPolicyOverride(home, { access: { warFlag: 'closed', independent: 'challenge', other: 'challenge' } });
+  const zoneK2 = zoneAt(home);
+  const decide2 = (n) => { const d = B.getVisitorAccessDecision(zoneK2, B.getSecurityContact(n)); return d ? `${d.class}:${d.decision}:${d.enforceable}` : null; };
+  await fast(30);
+  out.classification = {
+    own: decide2(own), sameFlag: decide2(sameFlag), independent: decide2(indep), warFlag: decide2(warF), custom: decide2(customV), unknown: decide2(unknownC),
+    player: (() => { const d = B.getVisitorAccessDecision(zoneK2, B.getSecurityContact('player')); return d ? `${d.class}:${d.decision}` : null; })(),
+    unknownNotOrdered: ordersFor(home, unknownC.securityInstanceId).length === 0, ownNotOrdered: ordersFor(home, own.securityInstanceId || 'none').length === 0,
+    customOrdered: ordersFor(home, customV.securityInstanceId).length === 1, customSide: customV.sideId,
+  };
+  // 10. time: the local clock follows the simulated delta, not the wall clock or unloaded time
+  clearNpcs();
+  B.setSecurityPolicyOverride(home, { access: { warFlag: 'open', independent: 'open', other: 'challenge' } });
+  const ledgerH = ledgerOf(home);
+  const t0 = ledgerH.localElapsedMs;
+  for (let i = 0; i < 10; i++) B.tick(0.25);
+  const slowDelta = ledgerH.localElapsedMs - t0;
+  const t1 = ledgerH.localElapsedMs;
+  await sleep(120); // wall time passes, nothing is simulated
+  const idleDelta = ledgerH.localElapsedMs - t1;
+  const zoneT = zoneAt(home);
+  const disabledV = traffic(9521, 'ferengi', zoneT, zoneT.radius - 50, 2.6);
+  await tickUntil(() => !!activeOrderOf(home, disabledV), 100);
+  const dOrder = activeOrderOf(home, disabledV);
+  disabledV.engineDisabledUntil = performance.now() + 60000;
+  await fast(3);
+  const combatV = traffic(9522, 'ferengi', zoneT, zoneT.radius - 50, 2.9);
+  await tickUntil(() => !!activeOrderOf(home, combatV), 100);
+  const cOrder = activeOrderOf(home, combatV);
+  combatV.hostile = true; combatV.attitude = 'hostile';
+  await fast(3);
+  clearProbeNpcs(); enterKeep(home);
+  const zoneT2 = zoneAt(home);
+  const awayV = slotTraffic(zoneT2, zoneT2.radius - 50, 3.2);
+  need(awayV, 'S5.10 fixture: no ambient traffic slot available');
+  parkOthers(zoneT2, [awayV]);
+  await tickUntil(() => !!activeOrderOf(home, awayV), 100);
+  const aOrder = activeOrderOf(home, awayV);
+  const t2 = ledgerH.localElapsedMs;
+  enterKeep(qonos); await fast(30); // unloaded: home's clock and orders stay where they were
+  const unloadedDelta = ledgerH.localElapsedMs - t2;
+  const remainingWhileAway = aOrder?.remainingMs;
+  enterKeep(home);
+  const homeNpcAfterReturn = s.npcShips.find((n) => n.securityInstanceId === awayV.securityInstanceId);
+  await fast(2);
+  out.timeAndInterruptions = {
+    slowDelta: Math.round(slowDelta), idleDelta, unloadedDelta, disabled: dOrder?.outcome, disabledFault: !!ledgerOf(home)?.visitors?.[disabledV.securityInstanceId]?.noncompliant,
+    combat: cOrder?.outcome, combatFault: !!ledgerOf(home)?.visitors?.[combatV.securityInstanceId]?.noncompliant,
+    awayOrderKeptRemaining: aOrder && Math.abs(aOrder.remainingMs - remainingWhileAway) < 200, awayRestoredSameSlot: !!homeNpcAfterReturn && homeNpcAfterReturn.id === awayV.id, awayOrderStillActive: aOrder && !aOrder.outcome,
+  };
+  // 11. save and reload during approach and during dwell
+  clearProbeNpcs(); enterKeep(home);
+  const zoneS = zoneAt(home);
+  const saveV = slotTraffic(zoneS, zoneS.radius - 40, 0.2);
+  need(saveV, 'S5.11 fixture: no ambient traffic slot available');
+  if (saveV) { saveV.broadcastSource = 'declared'; saveV.broadcastFaction = 'Zzyx-Council'; }
+  parkOthers(zoneS, [saveV]);
+  await tickUntil(() => !!activeOrderOf(home, saveV), 100);
+  const sOrder = activeOrderOf(home, saveV);
+  await fast(5);
+  const remBeforeSave = sOrder?.remainingMs;
+  const hullBefore = saveV.combatHull;
+  B.saveGame(8); B.loadGame(8);
+  const ledgerL = ledgerOf(home);
+  const lOrder = ledgerL?.orders?.[sOrder?.id];
+  const restoredNpc = s.npcShips.find((n) => n.securityInstanceId === sOrder?.visitorInstanceId);
+  const duplicates = s.npcShips.filter((n) => n.securityInstanceId === sOrder?.visitorInstanceId).length;
+  await fast(2);
+  const approachReload = {
+    orderKept: !!lOrder && !lOrder.outcome, remainingKept: lOrder && Math.abs(lOrder.remainingMs - remBeforeSave) < 300, restored: !!restoredNpc, sameSlot: restoredNpc?.id === saveV.id,
+    duplicates, hullKept: restoredNpc?.combatHull === hullBefore, objective: restoredNpc?.securityObjective?.orderId === sOrder?.id, ordersForVisitor: ordersFor(home, sOrder?.visitorInstanceId).length, cacheWiped: true,
+    broadcastKept: restoredNpc?.broadcastSource === 'declared' && restoredNpc?.broadcastFaction === 'Zzyx-Council',
+  };
+  // now hold and reload mid-dwell
+  const restoredV = restoredNpc;
+  let dwellReload = null;
+  if (restoredV && lOrder) {
+    await tickUntil(() => lOrder.state === 'holding' && lOrder.dwellMs > 1500, 900);
+    const dwellBefore = lOrder.dwellMs;
+    B.saveGame(8); B.loadGame(8);
+    const lOrder2 = ledgerOf(home)?.orders?.[lOrder.id];
+    const restored2 = s.npcShips.find((n) => n.securityInstanceId === lOrder.visitorInstanceId);
+    const clearedAfter = await tickUntil(() => lOrder2 && lOrder2.outcome === 'cleared', 400);
+    dwellReload = { dwellKept: lOrder2 && Math.abs(lOrder2.dwellMs - dwellBefore) < 300 || (lOrder2?.outcome === 'cleared'), restored: !!restored2, clearedAfter, ordersForVisitor: ordersFor(home, lOrder.visitorInstanceId).length, dwellBefore: Math.round(dwellBefore) };
+  }
+  out.saveReload = { approach: approachReload, dwell: dwellReload };
+  // 12. replacement and boundary identity
+  clearNpcs();
+  const zoneB = zoneAt(home);
+  const slotV = traffic(9541, 'ferengi', zoneB, zoneB.radius - 40, 1.0);
+  await tickUntil(() => !!activeOrderOf(home, slotV), 100);
+  const slotOrder = activeOrderOf(home, slotV);
+  const oldInstance = slotV.securityInstanceId;
+  B.beginAmbientTrafficArrival(slotV, performance.now());
+  slotV.trafficWarp = null; slotV.x = zoneB.centre.x + zoneB.radius + 400; slotV.y = zoneB.centre.y;
+  await fast(3);
+  const newInstance = slotV.securityInstanceId;
+  const jitterV = traffic(9542, 'ferengi', zoneB, zoneB.radius - 5, 2.0); jitterV.speed = 0; jitterV.destination = { x: jitterV.x, y: jitterV.y };
+  await fast(3);
+  const jOrder = activeOrderOf(home, jitterV); if (jOrder) jOrder.outcome = 'canceled'; // keep the boundary test about episodes, not orders
+  const recJ = () => ledgerOf(home)?.visitors?.[jitterV.securityInstanceId];
+  const ep0 = recJ()?.episode;
+  const place = (d) => { const p = polar(zoneB, d, 2.0); jitterV.x = p.x; jitterV.y = p.y; jitterV.destination = { ...p }; };
+  place(zoneB.radius + 10); await fast(2); place(zoneB.radius - 10); await fast(2);
+  const epJitter = recJ()?.episode;
+  place(zoneB.reentryDistance + 30); await fast(2); place(zoneB.radius - 10); await fast(2);
+  const epReturn = recJ()?.episode;
+  out.replacementIdentity = {
+    orderIssued: !!slotOrder, sameNpcId: slotV.id === 9541, instanceChanged: oldInstance !== newInstance, oldOrderClosed: slotOrder?.outcome, oldOutcome: slotOrder?.outcome,
+    newHasNoClearance: !ledgerOf(home)?.visitors?.[newInstance]?.clearance, newHasNoOrder: ordersFor(home, newInstance).length === 0,
+    ep0, epJitter, epReturn,
+  };
+  // 13. capture and reclaim (the conquest transfer path that fleet capture and the Claim button use)
+  clearNpcs();
+  const zoneCap = zoneAt(home);
+  const capV = traffic(9551, 'ferengi', zoneCap, zoneCap.radius - 40, 0.4);
+  await tickUntil(() => !!activeOrderOf(home, capV), 100);
+  const capOrder = activeOrderOf(home, capV);
+  const epochBefore = B.getSecurityAuthorityEpoch(home);
+  B.transferSystemControlToFaction(home, 'romulan');
+  await fast(2);
+  const lostZone = zoneAt(home);
+  const configKept = !!B.getPlayerCheckpointConfig(home)?.enabled;
+  const overrideKept = !!B.getSecurityPolicyOverride(home);
+  const capV2 = traffic(9552, 'ferengi', zoneCap, zoneCap.radius - 40, 0.8);
+  await fast(5);
+  const ordersUnderOccupier = ordersFor(home, capV2.securityInstanceId).length;
+  B.transferSystemControlToPlayer(home);
+  await fast(2);
+  const reclaimedZone = zoneAt(home);
+  out.captureReclaim = {
+    orderBefore: !!capOrder, outcome: capOrder?.outcome, epochBumped: B.getSecurityAuthorityEpoch(home) > epochBefore, lostZone: lostZone === null, configKept, overrideKept, ordersUnderOccupier,
+    reclaimedActive: !!reclaimedZone && reclaimedZone.authority === 'player', reclaimedEpoch: B.getSecurityAuthorityEpoch(home), oldOrderStillClosed: !!capOrder?.outcome,
+    activeAfterReclaim: Object.values(ledgerOf(home)?.orders || {}).filter((o) => !o.outcome && o.epoch < B.getSecurityAuthorityEpoch(home)).length,
+  };
+  // 14. operator UI through real clicks
+  clearNpcs();
+  s.docked = true; s.dockedPlanetIndex = home; s.dockedStationId = null; s.planetMenuOpen = true; s.dockMenuTab = 'security';
+  B.renderPlanetMenu();
+  const menu5 = document.getElementById('planet-menu');
+  const click = (sel) => { const el = menu5?.querySelector(sel); if (!el) return false; el.click(); return true; };
+  const clickedAccess = click('[data-security-access="other:challenge"]');
+  const accessAfter = B.getEffectiveSecurityPolicy(home).access;
+  const zoneUI = zoneAt(home);
+  const uiV = traffic(9561, 'ferengi', zoneUI, zoneUI.radius - 40, 0.3);
+  await tickUntil(() => !!activeOrderOf(home, uiV), 100);
+  const uiOrder = activeOrderOf(home, uiV);
+  B.render();
+  const rowShown = !!menu5?.querySelector(`[data-security-order-row="${uiOrder?.id}"]`);
+  const waived = click(`[data-security-order="${uiOrder?.id}"][data-security-op="waive"]`);
+  await fast(2);
+  const waiverProvenance = ledgerOf(home)?.visitors?.[uiV.securityInstanceId]?.clearance?.provenance || null; // a live record; later policy changes revoke it
+  const uiV2 = traffic(9562, 'ferengi', zoneUI, zoneUI.radius - 40, 0.9);
+  await tickUntil(() => !!activeOrderOf(home, uiV2), 100);
+  const uiOrder2 = activeOrderOf(home, uiV2);
+  B.render();
+  const requested = click(`[data-security-order="${uiOrder2?.id}"][data-security-op="withdraw"]`);
+  await fast(2);
+  const afterRequest = { kind: uiOrder2?.kind, revision: uiOrder2?.revision, outcome: uiOrder2?.outcome };
+  B.render();
+  const cancelled = click(`[data-security-order="${uiOrder2?.id}"][data-security-op="cancel"]`);
+  await fast(2);
+  const uiV3 = traffic(9563, 'ferengi', zoneUI, zoneUI.radius - 40, 1.5);
+  await tickUntil(() => !!activeOrderOf(home, uiV3), 100);
+  const uiOrder3 = activeOrderOf(home, uiV3);
+  B.renderPlanetMenu();
+  const stricter = click('[data-security-access="other:closed"]');
+  await fast(3);
+  const afterStricter = { id: activeOrderOf(home, uiV3)?.id, kind: uiOrder3?.kind, revision: uiOrder3?.revision, outcome: uiOrder3?.outcome, count: ordersFor(home, uiV3.securityInstanceId).length };
+  B.renderPlanetMenu();
+  const relaxed = click('[data-security-access="other:open"]');
+  await fast(3);
+  const afterRelax = { outcome: uiOrder3?.outcome, noncompliant: !!ledgerOf(home)?.visitors?.[uiV3.securityInstanceId]?.noncompliant };
+  B.renderPlanetMenu(); click('[data-security-access="other:challenge"]');
+  const uiV4 = traffic(9564, 'ferengi', zoneUI, zoneUI.radius - 40, 2.1);
+  await tickUntil(() => !!activeOrderOf(home, uiV4), 100);
+  const uiOrder4 = activeOrderOf(home, uiV4);
+  const otherAnchor = B.getSecurityAnchorCandidates(home, 'player').find((st) => st.id !== anchor5?.id);
+  B.renderPlanetMenu();
+  const reconfigured = otherAnchor ? click(`[data-security-anchor="${otherAnchor.id}"]`) : 'no second anchor';
+  await fast(3);
+  const afterReconfig = { outcome: uiOrder4?.outcome, noncompliant: !!ledgerOf(home)?.visitors?.[uiV4.securityInstanceId]?.noncompliant, zoneAnchor: zoneAt(home)?.anchorStationId };
+  s.docked = false; s.planetMenuOpen = false; B.renderPlanetMenu();
+  out.operatorUi = {
+    clickedAccess, accessOther: accessAfter.other, accessWarFlagUntouched: accessAfter.warFlag, rowShown, waived, waivedOutcome: uiOrder?.outcome, waiverProvenance, waiverNotVerified: !uiOrder?.compliance,
+    requested, afterRequest, cancelled, cancelledOutcome: uiOrder2?.outcome, stricter, afterStricter, relaxed, afterRelax, reconfigured, afterReconfig,
+  };
+  // 15. checkpoint loss and legacy / invalid saves
+  clearNpcs();
+  B.setPlayerCheckpoint(home, { anchorStationId: anchor5?.id });
+  const zoneL = zoneAt(home);
+  const lossV = traffic(9571, 'ferengi', zoneL, zoneL.radius - 40, 0.5);
+  await tickUntil(() => !!activeOrderOf(home, lossV), 100);
+  const lossOrder = activeOrderOf(home, lossV);
+  const anchorLive = s.stations.find((st) => st.id === zoneL.anchorStationId);
+  B.ensureStationCombatStats(anchorLive); B.damageCombatTarget(anchorLive, 999999, 'npc');
+  await fast(3);
+  const lossResult = { outcome: lossOrder?.outcome, zoneGone: zoneAt(home) === null, noFault: !ledgerOf(home)?.visitors?.[lossV.securityInstanceId]?.noncompliant, configKept: !!B.getPlayerCheckpointConfig(home)?.enabled };
+  delete s.destroyedStations[anchorLive.id];
+  B.saveGame(9);
+  const key9 = B.getSaveSlotKey(9);
+  const raw9 = JSON.parse(localStorage.getItem(key9));
+  delete raw9.securityZones; delete raw9.securityEncounters;
+  localStorage.setItem(key9, JSON.stringify(raw9));
+  B.loadGame(9);
+  const legacySave = { noZones: Object.keys(s.securityZones.systems).length === 0, noOrders: Object.values(s.securityEncounters.systems).every((l) => Object.values(l.orders).every((o) => o.outcome)), zoneNull: zoneAt(home) === null };
+  const raw9b = JSON.parse(localStorage.getItem(key9));
+  raw9b.securityZones = { systems: { [home]: { enabled: true, anchorStationId: 'nope' } }, epochs: { [home]: 'x' } };
+  raw9b.securityEncounters = { systems: { [home]: { orders: { o1: { visitorKind: 'npc', visitorInstanceId: 'v9999', hold: 'bad', accessClass: 'warFlag' }, bad: { hold: { angle: 0, distance: 1 } } }, visitors: { 'v1': { inside: 'yes' }, 'x': {} }, participants: { v9999: { npcId: 'zz', x: 'q' } } } } };
+  localStorage.setItem(key9, JSON.stringify(raw9b));
+  let invalidLoadOk = true;
+  try { B.loadGame(9); await fast(3); } catch (e) { invalidLoadOk = false; }
+  const invalid = { ok: invalidLoadOk, noOrders: Object.values(s.securityEncounters.systems).every((l) => Object.values(l.orders).every((o) => o.outcome)), noOrphanObjective: !s.npcShips.some((n) => n.securityObjective), zoneNull: zoneAt(home) === null };
+  out.checkpointLoss = { loss: lossResult, legacy: legacySave, invalid };
+  // 8 / 9. the player at the authored Vulcan checkpoint
+  s.playerFaction = 'neutral';
+  B.transferSystemControlToFaction(vulcan, 'vulcan'); delete s.factionSystemOverrides[vulcan];
+  for (const d of s.stationDefinitions) if (Number(d.systemIndex) === vulcan) delete s.destroyedStations[d.id];
+  enterFresh(vulcan);
+  B.setCameraNearPlanet();
+  const arrivalInsideBefore = (() => { const z = zoneAt(vulcan); const p = B.playerWorldPosition(); return z ? Math.hypot(p.x - z.centre.x, p.y - z.centre.y) < z.radius : null; })();
+  const placed = B.placePlayerAtSecurityApproach();
+  const zoneV = zoneAt(vulcan);
+  need(zoneV && zoneV.foreign && zoneV.authority === 'vulcan', 'S5 fixture: Vulcan checkpoint did not activate');
+  const pv = B.playerWorldPosition();
+  const arrival = { placed, inside: zoneV ? Math.hypot(pv.x - zoneV.centre.x, pv.y - zoneV.centre.y) < zoneV.radius : null, insideBefore: arrivalInsideBefore, anchor: zoneV?.anchorName, radius: zoneV?.radius };
+  await fast(2);
+  const noOrderOutside = !B.getPlayerSecurityOrder(vulcan);
+  const bearing = Math.atan2(pv.y - zoneV.centre.y, pv.x - zoneV.centre.x);
+  const goTo = (d) => { const p = polar(zoneV, d, bearing); B.setCamera(p.x, p.y); s.ship.velocity = 0; };
+  goTo(zoneV.radius - 30); await fast(2);
+  const pOrder = B.getPlayerSecurityOrder(vulcan);
+  const markerV = B.getFlightPlanetMarker();
+  const dockBlockedNear = (() => { const p = zoneV.centre; B.setCamera(p.x + 60, p.y); const ok = B.tryDockAtPlanetIndex(vulcan, B.getFlightPlanetMarker()); const log = s.log; goTo(zoneV.radius - 30); return { ok, log }; })();
+  const logBefore = s.log;
+  B.respondToSecurityOrder('request');
+  const requestRefused = s.log;
+  const rem0 = pOrder?.remainingMs;
+  B.render(); const panelEl = document.getElementById('security-order-panel');
+  const panelShown = panelEl && !panelEl.classList.contains('hidden');
+  panelEl?.querySelector('[data-security-response="repeat"]')?.click();
+  const repeatLog = s.log;
+  const remAfterRepeat = pOrder?.remainingMs;
+  panelEl?.querySelector('[data-security-response="acknowledge"]')?.click();
+  const acknowledged = pOrder?.acknowledged;
+  const holdPointV = B.resolveSecurityPoint(zoneV, pOrder.hold);
+  B.setCamera(holdPointV.x + 20, holdPointV.y); s.ship.velocity = 0;
+  const clearedP = await tickUntil(() => pOrder && pOrder.outcome === 'cleared', 400);
+  await fast(2);
+  const dockAfter = (() => { const p = zoneV.centre; B.setCamera(p.x + 60, p.y); const ok = B.tryDockAtPlanetIndex(vulcan, B.getFlightPlanetMarker()); s.docked = false; s.dockedPlanetIndex = null; s.planetMenuOpen = false; return ok; })();
+  // Clearance is conditional on continued peace. Player aggression against the authority in this
+  // system revokes it and produces a fresh instruction for the still-present visitor.
+  s.lastPlayerAggressionAt = performance.now(); s.lastPlayerAggressionSystemIndex = vulcan; s.lastPlayerAggressionTargetSide = 'vulcan';
+  await fast(2);
+  const orderAfterAggression = B.getPlayerSecurityOrder(vulcan);
+  const clearanceRevokedByAggression = !ledgerOf(vulcan)?.visitors?.player?.clearance && !!orderAfterAggression;
+  if (orderAfterAggression) B.operateSecurityOrder(orderAfterAggression.id, 'cancel');
+  s.lastPlayerAggressionAt = 0; s.lastPlayerAggressionSystemIndex = null; s.lastPlayerAggressionTargetSide = null;
+  const concession = s.stations.find((st) => st.id === 'probe-council-concession' && !st.destroyed) || null;
+  out.playerCompliance = {
+    arrival, noOrderOutside, ordered: !!pOrder, kind: pOrder?.kind, cls: pOrder?.accessClass, dockBlockedNear, requestRefused: /units from the holding point|full stop|hold position/i.test(requestRefused) && requestRefused !== logBefore,
+    panelShown, repeatKeepsTimer: remAfterRepeat === rem0 && /remaining/.test(repeatLog), acknowledged, clearedP, outcome: pOrder?.outcome, dockAfter, clearanceRevokedByAggression,
+    foreignEditRejected: B.setSecurityPolicyOverride(vulcan, { access: { other: 'open' } }) === null && B.setPlayerCheckpoint(vulcan, { enabled: false }) === null,
+  };
+  // 9. withdraw, then refuse, on fresh episodes
+  goTo(zoneV.reentryDistance + 40); await fast(3);
+  goTo(zoneV.radius - 30); await fast(2);
+  const wOrderP = B.getPlayerSecurityOrder(vulcan);
+  B.respondToSecurityOrder('withdraw');
+  const withdrawingP = wOrderP?.withdrawing;
+  const stillActiveBeforeMove = wOrderP && !wOrderP.outcome;
+  goTo(zoneV.exitDistance + 20); await fast(3);
+  const withdrawnP = wOrderP?.outcome;
+  goTo(zoneV.reentryDistance + 40); await fast(3);
+  goTo(zoneV.radius - 30); await fast(2);
+  const rOrderP = B.getPlayerSecurityOrder(vulcan);
+  const stAllV = snapStandings();
+  B.respondToSecurityOrder('refuse');
+  await fast(2);
+  const vrec = ledgerOf(vulcan)?.visitors?.player;
+  const dockRefused = (() => { const p = zoneV.centre; B.setCamera(p.x + 60, p.y); const ok = B.tryDockAtPlanetIndex(vulcan, B.getFlightPlanetMarker()); goTo(zoneV.radius - 30); return ok; })();
+  const anyHostile = s.npcShips.some((n) => n.hostile) || s.stations.some((st) => st.hostile);
+  out.playerWithdrawRefuse = {
+    newOrderAfterReentry: !!wOrderP && wOrderP.id !== pOrder?.id, withdrawingP, stillActiveBeforeMove, withdrawnP, clearanceAfterWithdraw: vrec?.clearance || null,
+    refuseOrder: !!rOrderP && rOrderP.id !== wOrderP?.id, refusedOutcome: rOrderP?.outcome, noncompliant: vrec?.noncompliant === true, dockRefused, standingsSame: snapStandings() === stAllV, anyHostile,
+    departureClears: (() => { s.warp = { active: true, from: vulcan, to: qonos, startedAt: 0, duration: 0, route: null, message: '' }; B.completeWarpTravel(); const rec = ledgerOf(vulcan)?.visitors?.player; return { outcome: rOrderP?.outcome, noncompliantAfterJump: !!rec?.noncompliant, inside: !!rec?.inside, now: s.currentPlanet === qonos }; })(),
+  };
+  // 16. end-state isolation: clearance touches nothing else
+  enterFresh(home); B.setSecurityPolicyOverride(home, { roe: 'defend', access: { other: 'challenge' } }); // defend: hostility alone is a target (Phase 2)
+  B.setPlayerCheckpoint(home, { enabled: true, anchorStationId: B.getSecurityAnchorCandidates(home, 'player')[0]?.id });
+  const zoneE = zoneAt(home);
+  const hostileE = mk(9581, 'klingon', { attitude: 'hostile', hostile: true, role: 'patrol' }, polar(zoneE, 80, 0.5));
+  const fleetBefore = JSON.stringify(s.playerFleet || []);
+  const clearedE = traffic(9582, 'ferengi', zoneE, zoneE.radius - 40, 1.0);
+  await tickUntil(() => !!activeOrderOf(home, clearedE), 100);
+  const eOrder = activeOrderOf(home, clearedE); if (eOrder) B.operateSecurityOrder(eOrder.id, 'waive');
+  await fast(2);
+  out.isolation = { hostileNotAddressed: ordersFor(home, hostileE.securityInstanceId || 'none').length === 0, hostileStillTarget: B.isPlayerEscortShipTarget(hostileE), fleetSame: JSON.stringify(s.playerFleet || []) === fleetBefore, waived: eOrder?.outcome === 'waived', hostileFlagKept: hostileE.hostile === true };
   B.render();
   }
   try {
@@ -895,6 +1368,68 @@ async function scenarioRunner() {
   } catch (error) {
     out.setup.push(`runner error at stage "${out.stage || '?'}": ${error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : error}`);
   }
+  return out;
+}
+
+// Stages three scenes for review screenshots; registers window.__bm1Shots[stage]() switchers.
+async function shotsRunner() {
+  const B = window.__bm1; const s = B.state;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const home = B.getSystemIndexByName('Ferenginar');
+  const vulcan = B.getSystemIndexByName('Vulcan');
+  const out = {};
+  const enter = (i) => { delete s.systemStates[i]; s.currentPlanet = i; s.myplanet = i + 1; s.selectedPlanet = i; B.applySystemState(i); s.spawnProtectionUntil = 0; s.worldPops = []; };
+  const stages = {};
+  stages.operator = () => {
+    s.playerFaction = 'terran';
+    B.transferSystemControlToPlayer(home);
+    for (const d of s.stationDefinitions) if (Number(d.systemIndex) === home) delete s.destroyedStations[d.id];
+    enter(home);
+    const anchor = B.getSecurityAnchorCandidates(home, 'player')[0];
+    B.setPlayerCheckpoint(home, { enabled: true, anchorStationId: anchor?.id });
+    B.setSecurityPolicyOverride(home, { roe: 'defend', access: { warFlag: 'closed', other: 'challenge' } });
+    const zone = B.getSecurityZone(home);
+    const at = (d, a) => ({ x: zone.centre.x + Math.cos(a) * d, y: zone.centre.y + Math.sin(a) * d });
+    for (const [id, faction, a] of [[9801, 'ferengi', 0.4], [9802, 'klingon', 2.1], [9803, 'vulcan', 4.0]]) {
+      const n = B.createNpcShip({ id, shipId: 1, faction, attitude: 'neutral', hostile: false, seed: id, from: at(zone.radius - 30, a), role: 'traffic' });
+      B.ensureNpcCombatStats(n); n.identityLocked = true; n.sideId = faction; n.destination = at(120, a); n.destinationName = 'inner beacon'; n.speed = 0.9;
+      s.npcShips.push(n);
+    }
+    for (let i = 0; i < 40; i++) B.tick(1);
+    s.docked = true; s.dockedPlanetIndex = home; s.dockedStationId = null; s.planetMenuOpen = true; s.dockMenuTab = 'security';
+    B.setCamera(zone.centre.x + 40, zone.centre.y + 30);
+    B.renderPlanetMenu(); B.render();
+    const panel = document.querySelector('#planet-menu .dock-panel'); if (panel) panel.scrollTop = panel.scrollHeight;
+    out.operator = { zone: !!zone, orders: Object.values(B.getSecurityLedger(home)?.orders || {}).filter((o) => !o.outcome).length };
+  };
+  stages['visitor-order'] = () => {
+    s.docked = false; s.planetMenuOpen = false; B.renderPlanetMenu();
+    s.playerFaction = 'neutral';
+    B.transferSystemControlToFaction(vulcan, 'vulcan'); delete s.factionSystemOverrides[vulcan];
+    for (const d of s.stationDefinitions) if (Number(d.systemIndex) === vulcan) delete s.destroyedStations[d.id];
+    enter(vulcan);
+    B.setCameraNearPlanet(); B.placePlayerAtSecurityApproach();
+    const zone = B.getSecurityZone(vulcan);
+    const p = B.playerWorldPosition();
+    const bearing = Math.atan2(p.y - zone.centre.y, p.x - zone.centre.x);
+    B.setCamera(zone.centre.x + Math.cos(bearing) * (zone.radius - 30), zone.centre.y + Math.sin(bearing) * (zone.radius - 30));
+    s.ship.velocity = 0;
+    for (let i = 0; i < 3; i++) B.tick(1);
+    B.respondToSecurityOrder('acknowledge');
+    B.render();
+    out.visitorOrder = { order: !!B.getPlayerSecurityOrder(vulcan) };
+  };
+  stages['visitor-holding'] = () => {
+    const zone = B.getSecurityZone(vulcan);
+    const order = B.getPlayerSecurityOrder(vulcan);
+    if (!zone || !order) return;
+    const hold = B.resolveSecurityPoint(zone, order.hold);
+    B.setCamera(hold.x + 10, hold.y); s.ship.velocity = 0;
+    for (let i = 0; i < 60; i++) B.tick(1); // about a second of holding
+    B.render();
+    out.visitorHolding = { state: order.state, dwell: Math.round(order.dwellMs) };
+  };
+  window.__bm1Shots = stages;
   return out;
 }
 
@@ -973,6 +1508,7 @@ try {
     ['S4.5 station retaliation: return-fire ignores a merely hostile station until it fires; defend does not', g(r.stationRoe).hubOwner === 'ferengi' && r.stationRoe.hubHostileReturnFire === false && r.stationRoe.hubFiredAt === 'player' && r.stationRoe.hubAfterFire === true && r.stationRoe.hubHostileDefend === true],
     ['S4.6 explicit orders override ROE (escort fires on the ordered live foreign hub); an order on a live player-owned installation is refused, leaves it friendly, and it is never fired on', g(r.stationRoe).hubAlive && r.stationRoe.govAlive && r.stationRoe.calmHubNoOrder === false && r.stationRoe.calmHubOrdered === true && r.stationRoe.hubFiredOn === true && r.stationRoe.ownOrderRefused === true && r.stationRoe.ownOrdered === false && r.stationRoe.ownNeverFiredOn === true],
     ['S4.14 attacking a same-flag foreign concession never turns player-owned stations, cached copies or the garrison against the player', g(r.ownDefenses).flag === 'ferengi' && r.ownDefenses.hubOwner === 'ferengi' && r.ownDefenses.hubFlag === 'ferengi' && r.ownDefenses.hubAlive && r.ownDefenses.hubHitByEscort && r.ownDefenses.hubTurnedHostile && r.ownDefenses.gov?.owner === 'player' && r.ownDefenses.gov.hostile === false && r.ownDefenses.gov.attitude === 'friendly' && r.ownDefenses.gov.firedAtPlayer === false && r.ownDefenses.cachedGov?.hostile === false && r.ownDefenses.garrison?.side === 'player' && r.ownDefenses.garrison.hostile === false && r.ownDefenses.garrison.attitude === 'friendly' && r.ownDefenses.garrison.aggro === false && r.ownDefenses.foreignPatrolAlerted === true],
+    ['S4.15 an ambient replacement on the same slot inherits no attack evidence, aggro, escort order or raid membership', g(r.replacementEvidence).sameId === true && r.replacementEvidence.before?.target === true && r.replacementEvidence.before.attacker === true && r.replacementEvidence.after?.target === false && r.replacementEvidence.after.attacker === false && r.replacementEvidence.fields?.aggressionAt === 0 && r.replacementEvidence.fields.aggressionSide === null && r.replacementEvidence.fields.aggro === 0 && r.replacementEvidence.fields.order === 0 && r.replacementEvidence.fields.attackId === null && r.replacementEvidence.fields.damage === null],
     ['S4.7 an attackId alone is not raid evidence; only a raid on this holding counts', g(r.raidEvidence).roe === 'return-fire' && r.raidEvidence.staleNoAttack?.target === false && r.raidEvidence.staleNoAttack.attacker === false && r.raidEvidence.staleOtherSystem?.target === false && r.raidEvidence.raidHere?.target === true && r.raidEvidence.raidHere.attacker === true],
     ['S4.8 aggression counts only where it was seen; standing orders apply outside holdings', g(r.aggressionScope).elsewhereAggression?.target === false && r.aggressionScope.hereAggression?.target === true && r.aggressionScope.abroadCalm?.roe === 'return-fire' && r.aggressionScope.abroadCalm.held === false && r.aggressionScope.abroadCalm.target === false && r.aggressionScope.abroadAfterFire?.target === true && r.aggressionScope.abroadDefendCalm?.target === true],
     ['S4.9 partial overrides merge by dimension without erasing other defaults', g(r.partialOverride).partial1?.roe === 'defend' && r.partialOverride.partial1.access?.warFlag === 'challenge' && r.partialOverride.partial1.access.independent === 'closed' && r.partialOverride.partial1.access.unknown === 'open' && r.partialOverride.partial1.access.other === 'open' && r.partialOverride.partial2?.roe === 'return-fire' && r.partialOverride.partial2.access?.independent === 'closed' && r.partialOverride.partial2.access.warFlag === 'challenge' && r.partialOverride.storedOverride?.access?.warFlag === undefined],
@@ -980,6 +1516,23 @@ try {
     ['S4.11 a lost holding has no effective policy, keeps its override, uses standing orders; reclaim restores it', g(r.lossReclaim).effective === null && r.lossReclaim.retained === true && r.lossReclaim.roeApplied === r.lossReclaim.defaultRoe && r.lossReclaim.reclaimedRoe === 'return-fire'],
     ['S4.12 policies survive save/reload; a legacy save loads with the default and no overrides', g(r.persistPolicy).same && r.persistPolicy.effSame && r.persistPolicy.legacyDefault && r.persistPolicy.legacyNoOverride],
     ['S4.13 Security tab only where the side has authority; its buttons set, promote and clear policy', g(r.securityUi).tabPresent === true && r.securityUi.uiOverride === 'return-fire' && r.securityUi.uiDefault === 'return-fire' && r.securityUi.uiCleared === true && r.securityUi.foreignHeldByFlagFaction === 'klingon' && r.securityUi.flag === 'klingon' && r.securityUi.foreignTab === false],
+    ['S5.0 checkpoint authority: foreign and private stations are not anchors; disabled by default; a same-flag foreign world rejects configuration; enabling activates the zone', g(r.zoneAuthority).foreignExcluded === true && r.zoneAuthority.foreignPresent === true && r.zoneAuthority.disabledByDefault === true && r.zoneAuthority.setAtForeign === true && r.zoneAuthority.enabled === true && r.zoneAuthority.radius >= 560 && r.zoneAuthority.radius <= 1100],
+    ['S5.1 open access: a visitor crosses an enabled open zone; no order, objective, offence, hostility, standing change or shot', g(r.openAccess).inside === true && r.openAccess.orders === 0 && !r.openAccess.objective && r.openAccess.hostile === false && r.openAccess.attackId === null && r.openAccess.standingsSame && r.openAccess.escortFired === null && r.openAccess.anchorShots === null && r.openAccess.noncompliant === false],
+    ['S5.17 tightening open access while a visitor is already inside issues a withdrawal in the same visit', g(r.policyTightening).sameEpisode && r.policyTightening.issued && r.policyTightening.kind === 'withdraw' && r.policyTightening.decision === 'closed'],
+    ['S5.2 challenge: one order, the civilian approaches, holds through the dwell, is cleared with scope movement_identity and resumes its route; identity untouched', g(r.challenge).issued && r.challenge.kind === 'challenge' && r.challenge.cls === 'other' && r.challenge.destWhileOrdered === 'checkpoint hold' && r.challenge.reached && r.challenge.cleared && r.challenge.outcome === 'cleared' && r.challenge.compliance === 'movement_identity' && r.challenge.orders === 1 && r.challenge.clearance === 'check' && r.challenge.resumed && JSON.stringify(r.challenge.identity) === JSON.stringify(r.challenge.identityBefore) && r.challenge.stillOneOrderAfterDwell],
+    ['S5.3 closed: one withdrawal instruction; the civilian leaves, is recorded withdrawn (scope withdrawal), takes an outside lane, and gets no clearance', g(r.closedAccess).issued && r.closedAccess.kind === 'withdraw' && r.closedAccess.withdrawn && r.closedAccess.outcome === 'withdrawn' && r.closedAccess.compliance === 'withdrawal' && r.closedAccess.nextDestinationOutside && r.closedAccess.objectiveCleared && r.closedAccess.orders === 1 && r.closedAccess.clearance === null],
+    ['S5.4 refusal/expiry under return-fire: a calm war-flag visitor expires; noncompliance recorded once; no hostility, raid flag, aggro or standing change; escorts and turrets do not fire', g(r.refusal).issued && r.refusal.cls === 'warFlag' && r.refusal.expired && r.refusal.outcome === 'expired' && r.refusal.noncompliant && r.refusal.hostile === false && r.refusal.attackId === null && r.refusal.aggro === false && r.refusal.standingsSame && r.refusal.escortTarget === false && r.refusal.attacker === false && r.refusal.escortFired === null && r.refusal.anchorFired === null && r.refusal.secondOrderForSameVisit === 1],
+    ['S5.5 real aggression under the same policy still permits defence; stale evidence does not; no clearance is implied', g(r.realAggression).afterShot?.target === true && r.realAggression.afterShot.attacker === true && r.realAggression.stale?.target === false && r.realAggression.stale.attacker === false && r.realAggression.noClearance],
+    ['S5.7 classification: own side exempt, same-flag foreigner other, unbranded hull independent, war flag, declared custom polity other, unidentified never enforced', g(r.classification).own === 'exempt:open:false' && r.classification.sameFlag === 'other:challenge:true' && r.classification.independent === 'independent:challenge:true' && r.classification.warFlag === 'warFlag:closed:true' && r.classification.custom === 'other:challenge:true' && r.classification.unknown === 'unknown:open:false' && r.classification.unknownNotOrdered && r.classification.ownNotOrdered && r.classification.customOrdered && r.classification.customSide === 'Zzyx-Council'],
+    ['S5.10 time: the local clock follows the simulated delta, not wall or unloaded time; engine loss and combat end orders without fault; an order in an unloaded system keeps its remaining time and resumes on the same slot', g(r.timeAndInterruptions).slowDelta === 42 && r.timeAndInterruptions.idleDelta === 0 && r.timeAndInterruptions.unloadedDelta === 0 && r.timeAndInterruptions.disabled === 'unable_to_comply' && r.timeAndInterruptions.disabledFault === false && r.timeAndInterruptions.combat === 'interrupted' && r.timeAndInterruptions.combatFault === false && r.timeAndInterruptions.awayOrderKeptRemaining && r.timeAndInterruptions.awayRestoredSameSlot && r.timeAndInterruptions.awayOrderStillActive],
+    ['S5.11 save/reload during approach and during dwell: same participant, order, remaining time, declared broadcast and dwell; no duplicate, refilled hull or repeated incident; the check then completes', g(r.saveReload).approach?.orderKept && r.saveReload.approach.remainingKept && r.saveReload.approach.restored && r.saveReload.approach.sameSlot && r.saveReload.approach.duplicates === 1 && r.saveReload.approach.hullKept && r.saveReload.approach.objective && r.saveReload.approach.ordersForVisitor === 1 && r.saveReload.approach.broadcastKept && g(r.saveReload).dwell?.dwellKept && r.saveReload.dwell.restored && r.saveReload.dwell.clearedAfter && r.saveReload.dwell.ordersForVisitor === 1],
+    ['S5.12 a replacement on the same slot is a new instance with no order or clearance; the old order closes; boundary jitter is not a new episode, a separated re-entry is', g(r.replacementIdentity).orderIssued && r.replacementIdentity.sameNpcId && r.replacementIdentity.instanceChanged && r.replacementIdentity.oldOrderClosed && r.replacementIdentity.newHasNoClearance && r.replacementIdentity.newHasNoOrder && r.replacementIdentity.ep0 === 1 && r.replacementIdentity.epJitter === 1 && r.replacementIdentity.epReturn === 2],
+    ['S5.13 capture ends orders as authority_changed and bumps the epoch; retained configuration and override command nothing under the occupier; reclaim restores the checkpoint but no old order', g(r.captureReclaim).orderBefore && r.captureReclaim.outcome === 'authority_changed' && r.captureReclaim.epochBumped && r.captureReclaim.lostZone && r.captureReclaim.configKept && r.captureReclaim.overrideKept && r.captureReclaim.ordersUnderOccupier === 0 && r.captureReclaim.reclaimedActive && r.captureReclaim.oldOrderStillClosed && r.captureReclaim.activeAfterReclaim === 0],
+    ['S5.14 operator UI: access click changes one dimension; waive (not verified), request withdrawal (revision), cancel; stricter access revises the same order, relaxation closes it without fault; reconfiguration closes without fault', g(r.operatorUi).clickedAccess && r.operatorUi.accessOther === 'challenge' && r.operatorUi.accessWarFlagUntouched === 'open' && r.operatorUi.rowShown && r.operatorUi.waived && r.operatorUi.waivedOutcome === 'waived' && r.operatorUi.waiverProvenance === 'waiver' && r.operatorUi.waiverNotVerified && r.operatorUi.requested && r.operatorUi.afterRequest?.kind === 'withdraw' && r.operatorUi.afterRequest.revision === 2 && r.operatorUi.cancelled && r.operatorUi.cancelledOutcome === 'canceled' && r.operatorUi.stricter && r.operatorUi.afterStricter?.kind === 'withdraw' && r.operatorUi.afterStricter.revision === 2 && r.operatorUi.afterStricter.count === 1 && r.operatorUi.relaxed && r.operatorUi.afterRelax?.outcome === 'policy_relaxed' && r.operatorUi.afterRelax.noncompliant === false && r.operatorUi.reconfigured === true && r.operatorUi.afterReconfig?.outcome === 'zone_reconfigured' && r.operatorUi.afterReconfig.noncompliant === false],
+    ['S5.15 anchor destroyed: the order ends as checkpoint_unavailable without blame and the configuration is kept; a legacy save loads with no zones or orders; invalid records recover without crashing or orphan objectives', g(r.checkpointLoss).loss?.outcome === 'checkpoint_unavailable' && r.checkpointLoss.loss.zoneGone && r.checkpointLoss.loss.noFault && r.checkpointLoss.loss.configKept && r.checkpointLoss.legacy?.noZones && r.checkpointLoss.legacy.noOrders && r.checkpointLoss.legacy.zoneNull && r.checkpointLoss.invalid?.ok && r.checkpointLoss.invalid.noOrders && r.checkpointLoss.invalid.noOrphanObjective],
+    ['S5.8 player at the Vulcan checkpoint: placed outside on arrival, ordered on crossing, refused docking while pending, clearance request refused off-marker, repeat keeps the timer, cleared after holding, then docks; aggression revokes clearance; foreign policy not editable', g(r.playerCompliance).arrival?.placed === true && r.playerCompliance.arrival.inside === false && r.playerCompliance.arrival.insideBefore === true && r.playerCompliance.noOrderOutside && r.playerCompliance.ordered && r.playerCompliance.kind === 'challenge' && r.playerCompliance.cls === 'independent' && r.playerCompliance.dockBlockedNear?.ok === false && /clearance/i.test(r.playerCompliance.dockBlockedNear.log) && r.playerCompliance.requestRefused && r.playerCompliance.panelShown && r.playerCompliance.repeatKeepsTimer && r.playerCompliance.acknowledged === true && r.playerCompliance.clearedP && r.playerCompliance.outcome === 'cleared' && r.playerCompliance.dockAfter === true && r.playerCompliance.clearanceRevokedByAggression && r.playerCompliance.foreignEditRejected],
+    ['S5.9 player withdraw resolves only on physical exit and grants no clearance; refusal closes the order, is recorded, blocks docking, creates no hostility or standing change; a completed jump ends the visit', g(r.playerWithdrawRefuse).newOrderAfterReentry && r.playerWithdrawRefuse.withdrawingP === true && r.playerWithdrawRefuse.stillActiveBeforeMove && r.playerWithdrawRefuse.withdrawnP === 'withdrawn' && r.playerWithdrawRefuse.clearanceAfterWithdraw === null && r.playerWithdrawRefuse.refuseOrder && r.playerWithdrawRefuse.refusedOutcome === 'refused' && r.playerWithdrawRefuse.noncompliant && r.playerWithdrawRefuse.dockRefused === false && r.playerWithdrawRefuse.standingsSame && r.playerWithdrawRefuse.anyHostile === false && r.playerWithdrawRefuse.departureClears?.outcome === 'refused' && r.playerWithdrawRefuse.departureClears.noncompliantAfterJump === false && r.playerWithdrawRefuse.departureClears.inside === false && r.playerWithdrawRefuse.departureClears.now],
+    ['S5.16 isolation: a hostile ship is never addressed and stays a target; a waiver changes no fleet orders or hostility', g(r.isolation).hostileNotAddressed && r.isolation.hostileStillTarget && r.isolation.fleetSame && r.isolation.waived && r.isolation.hostileFlagKept],
     ['S3i enemy defenders select and engage a player escort attacking their installation', g(r.enemyDefense).beforeAttack?.attacker === false && r.enemyDefense.escortFiredAt === 'klingon' && r.enemyDefense.escortIsAttacker && r.enemyDefense.defenderSelectsEscort && r.enemyDefense.defenderFired && r.enemyDefense.defenderFiredAt === 'player' && r.enemyDefense.escortHullDropped],
   ];
   console.log(`behavior-probe: ${ROOT}`);
@@ -987,6 +1540,16 @@ try {
   console.log(`  detail: ${JSON.stringify(r)}`);
   if (pageErrors.length) console.log(`  page errors: ${pageErrors.join(' | ')}`);
   if (SCREENSHOT) await page.screenshot({ path: SCREENSHOT });
+  if (SHOTS_DIR) {
+    fs.mkdirSync(SHOTS_DIR, { recursive: true });
+    const staged = await page.evaluate(shotsRunner);
+    console.log(`  shots: ${JSON.stringify(staged)}`);
+    for (const name of ['operator', 'visitor-order', 'visitor-holding']) {
+      await page.evaluate((stage) => window.__bm1Shots?.[stage]?.(), name);
+      await page.waitForTimeout(150);
+      await page.screenshot({ path: path.join(SHOTS_DIR, `phase3-${name}.png`) });
+    }
+  }
   exitCode = checks.every(([, ok]) => ok) && !pageErrors.length ? 0 : 1;
 } finally {
   await browser.close();

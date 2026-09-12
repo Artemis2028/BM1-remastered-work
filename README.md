@@ -68,4 +68,5 @@ The game is mouse-driven with keyboard shortcuts (WASD/arrows fly, H hail, M map
 ```bash
 npm i -D playwright && npx playwright install chromium
 npm run probe
+npm run probe -- --shots ./probe-shots   # also stage and capture the checkpoint operator panel and the incoming player order
 ```

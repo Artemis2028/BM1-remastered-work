@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'bm2-pwa-20260911-dominion-blender-v1';
+const CACHE_VERSION = 'bm2-pwa-20260911-phase3-holding-zones-v1';
 const APP_CACHE = `${CACHE_VERSION}-app`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_ASSET_MANIFEST = './offline-assets.json';

@@ -26,7 +26,7 @@ const SYSTEM_STAR_GLOW_RADIUS = 520;
 const PLANET_MODEL_ASSET_VERSION = '20260616-tholian-expansion';
 const ENTITY_SPRITE_ASSET_VERSION = '20260708-delivery-continues';
 const ENTITY_MANIFEST_DATA_VERSION = '20260713-station-visual-live-v2';
-const SHIP_SIZE_CONFIG_VERSION = '20260713-ship-sizing-v2';
+const SHIP_SIZE_CONFIG_VERSION = '20260911-ship-sizing-v3';
 const SOURCE_DATA_VERSION = '20260713-station-visual-live-v2';
 const AUDIO_ASSET_VERSION = '20260713-intro-audio-v1';
 const AUDIO_MANIFEST_SRC = `data/audio_manifest.json?v=${AUDIO_ASSET_VERSION}`;
@@ -128,7 +128,37 @@ const DEFAULT_SECURITY_POLICY = Object.freeze({
   roe: 'defend',
   access: Object.freeze({ warFlag: 'open', independent: 'open', unknown: 'open', other: 'open' }),
   alerts: 'incidents',
-}); // how long an observed attack keeps a ship classified as an attacker of that side
+});
+// Phase 3: holding zones and compliance. A zone is centred on the system's planet (planets orbit on
+// PLANET_ORBIT_BASE_MS, hours per revolution, so planet-relative markers are effectively stable);
+// its radius is derived from the authority's own planet-anchored installations. All durations are
+// on the local simulation clock (frameScale * 16.667 ms per tick), never on performance.now().
+const SECURITY_ZONE_MIN_RADIUS = 560;
+const SECURITY_ZONE_MAX_RADIUS = 1100;
+const SECURITY_ZONE_RADIUS_MARGIN = 260; // beyond the authority's farthest planet-anchored installation
+const SECURITY_HOLD_FRACTION = 0.8; // holding point sits at this fraction of the radius, on the visitor's approach bearing
+const SECURITY_HOLD_TOLERANCE = 60;
+const SECURITY_DWELL_MS = 5000;
+const SECURITY_MIN_ALLOWANCE_MS = 45000;
+const SECURITY_EXIT_MARGIN = 80; // withdrawal is complete beyond radius + this
+const SECURITY_REENTRY_MARGIN = 140; // a visitor must get beyond radius + this before a later inward crossing is a new episode
+const SECURITY_ARRIVAL_MARGIN = 220; // an arriving player is placed this far outside an active foreign zone
+const SECURITY_HISTORY_CAP = 32;
+const SECURITY_MAX_ACTIVE_ORDERS = 6;
+const SECURITY_OUTCOME_DISPLAY_MS = 9000;
+const SECURITY_ACCESS_ORDER = Object.freeze({ open: 0, challenge: 1, closed: 2 });
+const SECURITY_ACCESS_CLASSES = Object.freeze(['warFlag', 'independent', 'unknown', 'other']);
+// The one authored foreign checkpoint. Active only while the named authority holds the system and
+// owns a live, planet-anchored installation from the preference list. No dependency on the player.
+const SECURITY_AUTHORED_CHECKPOINTS = Object.freeze([
+  Object.freeze({
+    systemName: 'Vulcan',
+    authority: 'vulcan',
+    label: 'Vulcan Orbital Authority',
+    anchorNames: Object.freeze(["J'lin Center", 'U of Vulcan', "V'Pek Tar"]),
+    access: Object.freeze({ warFlag: 'closed', independent: 'challenge', other: 'challenge', unknown: 'open' }),
+  }),
+]);
 const PLAYER_ESCORT_DEFENSE_RANGE = 980;
 const PLAYER_ESCORT_ORDER_MS = 18000;
 const MAX_PLAYER_ESCORT_SHIPS = 6;
@@ -322,6 +352,9 @@ const FALLBACK_NPC_SHIP_IDS = [
 ];
 const LEGACY_SHIP_ID_REPLACEMENTS = {};
 const DEFAULT_SHIP_SIZE_CONFIG = {
+  // These class scales are the baseline the manifest's per-hull drawScale values were authored
+  // against (getShipVisualScale keeps each hull's proportion to its class). The ladder the game
+  // actually ships with is data/ship_size_config.json; change sizes there, not here.
   classScales: {
     shuttle: 0.5,
     escort: 0.72,
@@ -364,6 +397,7 @@ const topLeftPanelEl = document.getElementById('top-left-panel');
 const targetWindowEl = document.getElementById('target-window');
 const bottomDockEl = document.getElementById('bottom-dock');
 const planetMenuEl = document.getElementById('planet-menu');
+const securityOrderPanelEl = document.getElementById('security-order-panel');
 const contractModalEl = document.getElementById('contract-modal');
 const missionCompleteModalEl = document.getElementById('mission-complete-modal');
 const shipPurchaseModalEl = document.getElementById('ship-purchase-modal');
@@ -508,6 +542,10 @@ const state = {
   controlledSystems: [],
   stationOwners: {},
   securityPolicies: { default: null, systems: {} },
+  securityZones: { version: 1, nextVisitorInstance: 1, systems: {}, epochs: {} },
+  securityEncounters: { version: 1, systems: {} },
+  securityLiveSystemIndex: null, // which system's NPCs are live in state.npcShips (for participant capture)
+  securityOutcomeNotice: null, // last player-visitor outcome, shown briefly in the order panel
   visitedSystems: [],
   factionSystemOverrides: {},
   factionStanding: {},
@@ -652,6 +690,9 @@ const state = {
     duration: finiteNumber(getCloakItemSettings().durationMs, CLOAK_DURATION_MS),
   },
   lastPlayerShotAt: 0,
+  lastPlayerAggressionAt: 0,
+  lastPlayerAggressionSystemIndex: null,
+  lastPlayerAggressionTargetSide: null,
   npcShipIds: FALLBACK_NPC_SHIP_IDS,
   projectiles: [],
   weaponEffects: [],
@@ -2377,6 +2418,9 @@ function ensureSystemState(systemIndex) {
 }
 
 function applySystemState(systemIndex) {
+  // The NPCs currently live belong to securityLiveSystemIndex; snapshot the participants of that
+  // system's active orders before they are discarded (travel, reload, or a same-system regeneration).
+  captureSecurityParticipants(state.securityLiveSystemIndex);
   const s = ensureSystemState(systemIndex);
   const now = performance.now();
   state.systemStar = { ...s.star };
@@ -2451,6 +2495,8 @@ function applySystemState(systemIndex) {
   state.tractorBeams = [];
   state.combatTargetId = null;
   state.combatTargetType = 'ship';
+  state.securityLiveSystemIndex = Number(systemIndex);
+  reconcileSecurityParticipants(systemIndex);
 }
 
 function updateSystemOrbits(now = performance.now()) {
@@ -3338,6 +3384,7 @@ function completeWormholeTransit(targetIndex, wormhole = state.wormhole, options
   state.docked = false;
   state.dockedPlanetIndex = null;
   state.dockedStationId = null;
+  closePlayerSecurityOrders(state.currentPlanet, 'departed', 'left the system'); // a completed transit is an actual departure
   state.currentPlanet = targetIndex;
   state.myplanet = state.currentPlanet + 1;
   markSystemVisited(state.currentPlanet);
@@ -3356,6 +3403,7 @@ function completeWormholeTransit(targetIndex, wormhole = state.wormhole, options
     setCamera(state.wormhole.x + 90, state.wormhole.y + 60);
   } else {
     setCameraNearPlanet();
+    placePlayerAtSecurityApproach();
   }
   state.ship.velocity = 0;
   state.ship.turnVelocity = 0;
@@ -4755,6 +4803,857 @@ function clearSecurityPolicyOverride(systemIndex) {
   delete ensureSecurityPolicies().systems[Number(systemIndex)];
 }
 
+// ---- Phase 3: holding zones and compliance ----
+// Records. Zones: the player's checkpoint configuration per system plus an authority epoch per
+// system (bumped on every actual holder change, so old orders and clearances never reactivate).
+// Encounters: per system, a local clock, visitor boundary state by physical instance, orders, the
+// bounded participant snapshots needed to resume them, and a short event history. Saved with the
+// game, independently of the systemStates cache (which is wiped by loads, builds and rebuilds).
+function ensureSecurityZones() {
+  if (!state.securityZones || typeof state.securityZones !== 'object') state.securityZones = { version: 1, nextVisitorInstance: 1, systems: {}, epochs: {} };
+  const zones = state.securityZones;
+  if (!zones.systems || typeof zones.systems !== 'object') zones.systems = {};
+  if (!zones.epochs || typeof zones.epochs !== 'object') zones.epochs = {};
+  if (!Number.isFinite(zones.nextVisitorInstance) || zones.nextVisitorInstance < 1) zones.nextVisitorInstance = 1;
+  return zones;
+}
+function ensureSecurityEncounters() {
+  if (!state.securityEncounters || typeof state.securityEncounters !== 'object') state.securityEncounters = { version: 1, systems: {} };
+  if (!state.securityEncounters.systems || typeof state.securityEncounters.systems !== 'object') state.securityEncounters.systems = {};
+  return state.securityEncounters;
+}
+function getSecurityLedger(systemIndex = state.currentPlanet) {
+  return ensureSecurityEncounters().systems[Number(systemIndex)] || null;
+}
+function ensureSecurityLedger(systemIndex = state.currentPlanet) {
+  const systems = ensureSecurityEncounters().systems;
+  const key = Number(systemIndex);
+  if (!systems[key] || typeof systems[key] !== 'object') {
+    systems[key] = { localElapsedMs: 0, nextOrder: 1, visitors: {}, orders: {}, participants: {}, recentEvents: [] };
+  }
+  const ledger = systems[key];
+  if (!Number.isFinite(ledger.localElapsedMs)) ledger.localElapsedMs = 0;
+  if (!Number.isFinite(ledger.nextOrder) || ledger.nextOrder < 1) ledger.nextOrder = 1;
+  if (typeof ledger.accessSignature !== 'string') ledger.accessSignature = '';
+  for (const field of ['visitors', 'orders', 'participants']) if (!ledger[field] || typeof ledger[field] !== 'object') ledger[field] = {};
+  if (!Array.isArray(ledger.recentEvents)) ledger.recentEvents = [];
+  return ledger;
+}
+// A physical visitor instance. Distinct from npc.id (a spawn slot that ambient replacement reuses)
+// and from the political sideId. Assigned once per vessel and preserved through snapshots.
+function nextSecurityInstanceId() {
+  const zones = ensureSecurityZones();
+  const id = `v${zones.nextVisitorInstance}`;
+  zones.nextVisitorInstance += 1;
+  return id;
+}
+function ensureNpcSecurityInstance(npc) {
+  if (!npc) return null;
+  if (typeof npc.securityInstanceId !== 'string' || !npc.securityInstanceId) npc.securityInstanceId = nextSecurityInstanceId();
+  return npc.securityInstanceId;
+}
+function getSecurityAuthorityEpoch(systemIndex) {
+  return Math.max(0, Math.round(finiteNumber(ensureSecurityZones().epochs[Number(systemIndex)], 0)));
+}
+function bumpSecurityAuthorityEpoch(systemIndex) {
+  const zones = ensureSecurityZones();
+  zones.epochs[Number(systemIndex)] = getSecurityAuthorityEpoch(systemIndex) + 1;
+  return zones.epochs[Number(systemIndex)];
+}
+function pushSecurityEvent(ledger, text) {
+  if (!ledger) return;
+  ledger.recentEvents.push({ atMs: Math.round(ledger.localElapsedMs), text: String(text) });
+  while (ledger.recentEvents.length > SECURITY_HISTORY_CAP) ledger.recentEvents.shift();
+}
+
+// Player checkpoint configuration. Setting it requires authority; the stored record is validated
+// against current control and station ownership every time the zone is resolved.
+function getPlayerCheckpointConfig(systemIndex = state.currentPlanet) {
+  const config = ensureSecurityZones().systems[Number(systemIndex)];
+  return config && typeof config === 'object' ? config : null;
+}
+function setPlayerCheckpoint(systemIndex, { enabled, anchorStationId } = {}) {
+  const i = Number(systemIndex);
+  if (!isSystemControlled(i)) return null; // no authority, no checkpoint
+  const zones = ensureSecurityZones();
+  const current = zones.systems[i] || { enabled: false, anchorStationId: null };
+  const next = {
+    enabled: enabled === undefined ? Boolean(current.enabled) : Boolean(enabled),
+    anchorStationId: anchorStationId === undefined ? (current.anchorStationId || null) : (anchorStationId ? String(anchorStationId) : null),
+  };
+  if (next.anchorStationId && !getSecurityAnchorCandidates(i, PLAYER_SIDE).some((station) => station.id === next.anchorStationId)) next.anchorStationId = null;
+  zones.systems[i] = next;
+  return next;
+}
+// Installations that may issue orders for an authority in the current system: live, completed,
+// owned by that side (recorded owner, never the flag) and planet-anchored. Outer stations orbit
+// the star far outside every traffic lane and would see nothing.
+function getSecurityAnchorCandidates(systemIndex = state.currentPlanet, authority = PLAYER_SIDE) {
+  if (Number(systemIndex) !== Number(state.currentPlanet)) return [];
+  return (state.stations || []).filter((station) => station && !station.destroyed && !station.underConstruction
+    && station.orbitAnchor === 'planet' && getStationOwner(station, systemIndex) === authority);
+}
+function getSecurityZoneRadius(systemIndex, authority) {
+  const own = getSecurityAnchorCandidates(systemIndex, authority);
+  const farthest = own.reduce((max, station) => Math.max(max, finiteNumber(station.orbitDistance, 0)), 0);
+  return Math.round(clamp(farthest + SECURITY_ZONE_RADIUS_MARGIN, SECURITY_ZONE_MIN_RADIUS, SECURITY_ZONE_MAX_RADIUS));
+}
+// The active zone in the current system, or null. Player authority needs control plus an enabled
+// configuration with a valid anchor; foreign authority needs the authored checkpoint's faction to
+// hold the world and own a listed anchor. At most one zone is active per system.
+function getSecurityZone(systemIndex = state.currentPlanet) {
+  const i = Number(systemIndex);
+  if (i !== Number(state.currentPlanet) || !state.systemPlanet || !state.gameStarted) return null;
+  const control = getSystemControl(i);
+  let authority = null;
+  let label = '';
+  let access = null;
+  let anchor = null;
+  let foreign = false;
+  if (control.playerControlled) {
+    const config = getPlayerCheckpointConfig(i);
+    if (!config?.enabled) return null;
+    anchor = getSecurityAnchorCandidates(i, PLAYER_SIDE).find((station) => station.id === config.anchorStationId) || null;
+    if (!anchor) return null;
+    authority = PLAYER_SIDE;
+    label = `${state.planets[i]?.name || 'System'} Security`;
+    access = { ...getEffectiveSecurityPolicy(i).access };
+  } else {
+    const authored = SECURITY_AUTHORED_CHECKPOINTS.find((entry) => getSystemIndexByName(entry.systemName) === i);
+    if (!authored || control.controller !== authored.authority) return null;
+    const candidates = getSecurityAnchorCandidates(i, authored.authority);
+    anchor = authored.anchorNames.map((name) => candidates.find((station) => station.name === name)).find(Boolean) || null;
+    if (!anchor) return null;
+    authority = authored.authority;
+    label = authored.label;
+    access = { ...DEFAULT_SECURITY_POLICY.access, ...authored.access };
+    foreign = true;
+  }
+  const radius = getSecurityZoneRadius(i, authority);
+  return {
+    id: `zone:${i}:${authority}`,
+    systemIndex: i,
+    authority,
+    label,
+    foreign,
+    flag: authority === PLAYER_SIDE ? getPlayerFlag() : authority,
+    anchorStationId: anchor.id,
+    anchorName: anchor.name,
+    centre: { x: state.systemPlanet.x, y: state.systemPlanet.y },
+    radius,
+    holdDistance: Math.round(radius * SECURITY_HOLD_FRACTION),
+    exitDistance: radius + SECURITY_EXIT_MARGIN,
+    reentryDistance: radius + SECURITY_REENTRY_MARGIN,
+    access,
+    accessSignature: JSON.stringify(access),
+    geometryKey: `${anchor.id}:${radius}`,
+    epoch: getSecurityAuthorityEpoch(i),
+  };
+}
+function resolveSecurityPoint(zone, polar) {
+  if (!zone || !polar) return null;
+  return { x: zone.centre.x + Math.cos(polar.angle) * polar.distance, y: zone.centre.y + Math.sin(polar.angle) * polar.distance };
+}
+function distanceToSecurityCentre(zone, point) {
+  return Math.hypot(point.x - zone.centre.x, point.y - zone.centre.y);
+}
+
+// Contacts and classification. There is no transponder in the engine yet: an NPC's only identity
+// is the faction of its hull, so every NPC broadcast is source 'hull'; the player's raised flag is
+// 'declared'. 'none' is reserved for a future contact model and no current spawner produces it.
+function getSecurityContact(entity) {
+  if (entity === 'player' || entity?.kind === 'player') {
+    return { kind: 'player', instanceId: 'player', side: PLAYER_SIDE, role: 'player', name: 'your ship', broadcast: { faction: getPlayerFlag(), source: 'declared' } };
+  }
+  if (!entity) return null;
+  return {
+    kind: 'npc',
+    instanceId: ensureNpcSecurityInstance(entity),
+    npcId: entity.id,
+    side: getNpcSideId(entity),
+    role: entity.role || 'traffic',
+    name: getShipDisplayName(entity),
+    // An authored encounter may give a vessel an explicit declared identity (a custom polity, say);
+    // otherwise the hull is the broadcast. Neither reads the internal sideId.
+    broadcast: entity.broadcastSource === 'none'
+      ? { faction: null, source: 'none' }
+      : entity.broadcastSource === 'declared' && entity.broadcastFaction
+        ? { faction: String(entity.broadcastFaction).trim(), source: 'declared' }
+        : { faction: normalizeFactionKey(entity.faction || 'neutral'), source: 'hull' },
+  };
+}
+// Own side is exempt (by side, never by flag). Otherwise: no identified broadcast is `unknown` and
+// not enforceable this phase; a recognised faction at war with the authority's current flag is
+// `warFlag`; an unbranded hull is `independent` (the honest Phase 3 reading of the only data there
+// is); everything else, same-flag foreigners and allies included, is `other`.
+function getVisitorAccessDecision(zone, contact) {
+  if (!zone || !contact) return null;
+  if (sameSide(contact.side, zone.authority)) return { class: 'exempt', decision: 'open', enforceable: false, reason: 'own side' };
+  const broadcast = contact.broadcast || { source: 'none' };
+  if (broadcast.source === 'none' || !broadcast.faction) {
+    return { class: 'unknown', decision: zone.access.unknown || 'open', enforceable: false, reason: 'no identified broadcast' };
+  }
+  const faction = broadcast.faction;
+  let cls;
+  if (isRecognizedFactionKey(faction) && areFactionsOpposed(faction, zone.flag)) cls = 'warFlag';
+  else if (faction === 'neutral') cls = 'independent';
+  else cls = 'other'; // allies, same-flag foreigners, and identified custom organizations
+  return { class: cls, decision: zone.access[cls] || 'open', enforceable: true, reason: `${isRecognizedFactionKey(faction) ? formatFaction(faction) : faction} broadcast (${broadcast.source})` };
+}
+
+// Orders: one per zone, authority epoch, physical visitor and entry episode. A revised instruction
+// updates the same order; nothing here creates a new incident per tick or per hail.
+function getSecurityActiveOrders(ledger) {
+  return ledger ? Object.values(ledger.orders).filter((order) => order && !order.outcome) : [];
+}
+function getSecurityOrderForVisitor(ledger, instanceId) {
+  return getSecurityActiveOrders(ledger).find((order) => order.visitorInstanceId === instanceId) || null;
+}
+function getPlayerSecurityOrder(systemIndex = state.currentPlanet) {
+  return getSecurityOrderForVisitor(getSecurityLedger(systemIndex), 'player');
+}
+function getSecurityVisitor(ledger, instanceId, create = false) {
+  if (!ledger) return null;
+  if (!ledger.visitors[instanceId] && create) {
+    ledger.visitors[instanceId] = { inside: false, episode: 0, addressedEpisode: null, clearance: null, noncompliant: false, lastOutcome: null, name: '' };
+  }
+  return ledger.visitors[instanceId] || null;
+}
+function estimateSecurityTravelMs(distance, unitsPerFrame) {
+  const perFrame = Math.max(0.3, finiteNumber(unitsPerFrame, 1));
+  return (distance / perFrame) * 16.6667;
+}
+function computeSecurityAllowanceMs(distance, unitsPerFrame, kind) {
+  const travel = estimateSecurityTravelMs(distance, unitsPerFrame) + 4000; // plus turning and approach
+  return Math.round(Math.max(SECURITY_MIN_ALLOWANCE_MS, travel * 2 + (kind === 'challenge' ? SECURITY_DWELL_MS : 0)));
+}
+function describeSecurityInstruction(order, zone) {
+  const authority = zone?.label || order.authorityLabel || 'Local authority';
+  if (order.kind === 'withdraw') return `${authority}: this area is closed to your vessel. Withdraw beyond the marked exit.`;
+  return `${authority}: hold at the marked point for an identity check. Stop within ${SECURITY_HOLD_TOLERANCE} units and hold for ${Math.round(SECURITY_DWELL_MS / 1000)} seconds.`;
+}
+function issueSecurityOrder(ledger, zone, contact, decision, position, unitsPerFrame) {
+  const kind = decision.decision === 'closed' ? 'withdraw' : 'challenge';
+  const angle = Math.atan2(position.y - zone.centre.y, position.x - zone.centre.x);
+  const hold = { angle, distance: zone.holdDistance };
+  const exit = { angle, distance: zone.exitDistance + 60 };
+  const target = resolveSecurityPoint(zone, kind === 'withdraw' ? exit : hold);
+  const distance = Math.hypot(target.x - position.x, target.y - position.y);
+  const allowance = computeSecurityAllowanceMs(distance, unitsPerFrame, kind);
+  const id = `o${ledger.nextOrder}`;
+  ledger.nextOrder += 1;
+  const order = {
+    id,
+    zoneId: zone.id,
+    geometryKey: zone.geometryKey,
+    systemIndex: zone.systemIndex,
+    authority: zone.authority,
+    authorityLabel: zone.label,
+    epoch: zone.epoch,
+    visitorInstanceId: contact.instanceId,
+    visitorKind: contact.kind,
+    visitorName: contact.name,
+    npcId: contact.kind === 'npc' ? contact.npcId : null,
+    episode: getSecurityVisitor(ledger, contact.instanceId, true).episode,
+    accessClass: decision.class,
+    decision: decision.decision,
+    accessSignature: zone.accessSignature,
+    kind,
+    revision: 1,
+    state: 'pending', // pending | holding | check_incomplete
+    outcome: null,
+    reason: '',
+    hold,
+    exit,
+    withdrawing: false, // a challenge the visitor chose to leave instead of completing
+    allowanceMs: allowance,
+    remainingMs: allowance,
+    dwellMs: 0,
+    issuedAtMs: Math.round(ledger.localElapsedMs),
+    resolvedAtMs: null,
+    acknowledged: false,
+    compliance: null, // { scope: 'movement_identity' | 'withdrawal' }
+    noncompliant: false,
+  };
+  ledger.orders[id] = order;
+  const visitor = getSecurityVisitor(ledger, contact.instanceId, true);
+  visitor.addressedEpisode = visitor.episode;
+  visitor.name = contact.name;
+  pushSecurityEvent(ledger, `${zone.label} ordered ${contact.name} to ${kind === 'withdraw' ? 'withdraw' : 'hold for an identity check'} (${decision.class}).`);
+  return order;
+}
+function reviseSecurityOrder(order, zone, position, unitsPerFrame, kind, reason) {
+  order.kind = kind;
+  order.revision += 1;
+  order.state = 'pending';
+  order.dwellMs = 0;
+  order.accessSignature = zone.accessSignature;
+  order.decision = kind === 'withdraw' ? 'closed' : 'challenge';
+  order.withdrawing = false;
+  const target = resolveSecurityPoint(zone, kind === 'withdraw' ? order.exit : order.hold);
+  const distance = Math.hypot(target.x - position.x, target.y - position.y);
+  order.allowanceMs = computeSecurityAllowanceMs(distance, unitsPerFrame, kind);
+  order.remainingMs = order.allowanceMs;
+  order.reason = reason || '';
+  order.acknowledged = false;
+}
+const SECURITY_NONCOMPLIANT_OUTCOMES = new Set(['refused', 'expired']);
+const SECURITY_CLEARING_OUTCOMES = new Set(['cleared', 'waived']);
+function resolveSecurityOrder(ledger, order, outcome, reason = '', options = {}) {
+  if (!order || order.outcome) return order;
+  order.outcome = outcome;
+  order.reason = reason;
+  order.resolvedAtMs = Math.round(ledger.localElapsedMs);
+  if (outcome === 'cleared') order.compliance = { scope: 'movement_identity' };
+  if (outcome === 'withdrawn') order.compliance = { scope: 'withdrawal' };
+  const visitor = getSecurityVisitor(ledger, order.visitorInstanceId, true);
+  visitor.lastOutcome = outcome;
+  if (SECURITY_NONCOMPLIANT_OUTCOMES.has(outcome)) visitor.noncompliant = true;
+  if (SECURITY_CLEARING_OUTCOMES.has(outcome)) {
+    visitor.clearance = { orderId: order.id, epoch: order.epoch, accessClass: order.accessClass, accessSignature: order.accessSignature, provenance: outcome === 'waived' ? 'waiver' : 'check' };
+    visitor.noncompliant = false;
+  }
+  delete ledger.participants[order.visitorInstanceId];
+  pushSecurityEvent(ledger, `${order.visitorName}: ${outcome}${reason ? ` (${reason})` : ''}.`);
+  if (order.visitorKind === 'player') {
+    state.securityOutcomeNotice = { outcome, reason, authorityLabel: order.authorityLabel, atMs: Math.round(ledger.localElapsedMs), systemIndex: order.systemIndex };
+    if (!options.silent) setLog(describeSecurityOutcomeForPlayer(order));
+  } else if (order.authority === PLAYER_SIDE && !options.silent && (SECURITY_NONCOMPLIANT_OUTCOMES.has(outcome) || outcome === 'cleared' || outcome === 'withdrawn')) {
+    setLog(`${order.authorityLabel}: ${order.visitorName} ${outcome}.`);
+  }
+  if (order.visitorKind === 'npc' && Number(order.systemIndex) === Number(state.currentPlanet)) {
+    const npc = (state.npcShips || []).find((entry) => entry && entry.securityInstanceId === order.visitorInstanceId);
+    if (npc?.securityObjective?.orderId === order.id) endNpcSecurityObjective(npc, outcome);
+  }
+  pruneSecurityHistory(ledger);
+  return order;
+}
+function describeSecurityOutcomeForPlayer(order) {
+  const who = order.authorityLabel || 'Local authority';
+  switch (order.outcome) {
+    case 'cleared': return `${who}: identity check complete. You are cleared for this visit.`;
+    case 'waived': return `${who}: check waived. You may proceed for this visit.`;
+    case 'withdrawn': return `${who}: withdrawal acknowledged.`;
+    case 'refused': return `${who}: refusal logged. Their installations will not receive you.`;
+    case 'expired': return `${who}: instruction expired without compliance. Their installations will not receive you.`;
+    case 'departed': return `${who}: you left the area. The instruction lapsed.`;
+    case 'authority_changed': return `${who} no longer holds authority here. The instruction is void.`;
+    case 'checkpoint_unavailable': return `${who}: checkpoint offline. The instruction is void.`;
+    case 'policy_relaxed': return `${who}: restriction lifted. The instruction is withdrawn.`;
+    case 'zone_reconfigured': return `${who}: checkpoint reconfigured. The instruction is withdrawn.`;
+    case 'interrupted': return `${who}: instruction suspended by combat.`;
+    case 'unable_to_comply': return `${who}: your vessel cannot manoeuvre. No fault recorded.`;
+    case 'canceled': return `${who}: instruction cancelled.`;
+    default: return `${who}: instruction ended (${order.outcome}).`;
+  }
+}
+function pruneSecurityHistory(ledger) {
+  const resolved = Object.values(ledger.orders).filter((order) => order?.outcome).sort((a, b) => finiteNumber(a.resolvedAtMs, 0) - finiteNumber(b.resolvedAtMs, 0));
+  while (resolved.length > SECURITY_HISTORY_CAP) {
+    const oldest = resolved.shift();
+    delete ledger.orders[oldest.id];
+  }
+}
+function closeSecurityOrdersForSystem(systemIndex, outcome, reason = '') {
+  const ledger = getSecurityLedger(systemIndex);
+  if (!ledger) return 0;
+  let count = 0;
+  for (const order of getSecurityActiveOrders(ledger)) {
+    resolveSecurityOrder(ledger, order, outcome, reason, { silent: order.visitorKind !== 'player' });
+    count += 1;
+  }
+  return count;
+}
+// A completed jump or wormhole transit is an actual departure for the player: the local demand
+// closes and the visit ends. Unloading NPCs left behind is not their departure (see participants).
+function closePlayerSecurityOrders(systemIndex, outcome = 'departed', reason = 'left the system') {
+  const ledger = getSecurityLedger(systemIndex);
+  if (!ledger) return;
+  const order = getSecurityOrderForVisitor(ledger, 'player');
+  if (order) resolveSecurityOrder(ledger, order, outcome, reason, { silent: true });
+  const visitor = ledger.visitors.player;
+  if (visitor) { visitor.inside = false; visitor.clearance = null; visitor.noncompliant = false; visitor.addressedEpisode = null; }
+}
+// Every actual holder change: old instructions and clearances end and can never reactivate.
+function invalidateSecurityAuthority(systemIndex, reason = 'holder changed') {
+  const i = Number(systemIndex);
+  bumpSecurityAuthorityEpoch(i);
+  closeSecurityOrdersForSystem(i, 'authority_changed', reason);
+  const ledger = getSecurityLedger(i);
+  if (ledger) {
+    for (const visitor of Object.values(ledger.visitors)) { visitor.clearance = null; visitor.noncompliant = false; visitor.addressedEpisode = null; }
+    ledger.participants = {};
+  }
+}
+
+// NPC voluntary compliance. A dedicated objective, in its own field, that owns the ship's
+// destination while it lasts. Role, side, fleet membership and faction are never touched.
+function beginNpcSecurityObjective(npc, order) {
+  npc.securityObjective = { orderId: order.id, phase: order.kind === 'withdraw' ? 'withdraw' : 'approach', holding: false };
+  npc.combatManeuver = null;
+}
+function endNpcSecurityObjective(npc, outcome) {
+  if (!npc) return;
+  const objective = npc.securityObjective;
+  npc.securityObjective = null;
+  if (!objective || npc.destroyed) return;
+  const now = performance.now();
+  npc.waitUntil = 0;
+  const zone = getSecurityZone(state.currentPlanet);
+  const leavesArea = outcome === 'withdrawn' || outcome === 'refused' || outcome === 'expired' || outcome === 'departed';
+  if (zone && leavesArea) {
+    // Choose a lane outside the perimeter; the original destination inside a closed zone would be an
+    // endless leave/re-enter loop. With no such lane, leave the system the ordinary way.
+    const outside = (state.trafficDestinations || []).filter((dest) => distanceToSecurityCentre(zone, dest.point) > zone.reentryDistance);
+    if (outside.length) {
+      const pick = outside[Math.floor(seeded(npc.seed + npc.leg * 17 + 53) * outside.length) % outside.length];
+      npc.destination = { ...pick.point };
+      npc.destinationName = pick.name;
+      npc.leg += 1;
+      return;
+    }
+    if (isAmbientTrafficWarpEligible(npc, now)) { startAmbientTrafficDeparture(npc, now); return; }
+  }
+  const next = pickTrafficDestination(state.trafficDestinations, npc.seed + npc.leg * 17 + 31, npc.destinationName);
+  npc.destination = { ...next.point };
+  npc.destinationName = next.name;
+  npc.leg += 1;
+}
+// Called from updateNpcShips before any combat or lane logic. Returns true when the ship is
+// holding and must not move this tick; otherwise the generic movement flies it to the point set here.
+function updateNpcSecurityObjective(npc, now = performance.now()) {
+  const objective = npc.securityObjective;
+  if (!objective) return false;
+  const ledger = getSecurityLedger(state.currentPlanet);
+  const order = ledger?.orders?.[objective.orderId];
+  const zone = getSecurityZone(state.currentPlanet);
+  if (!order || order.outcome || !zone) { npc.securityObjective = null; return false; }
+  const withdrawing = order.kind === 'withdraw' || order.withdrawing;
+  objective.phase = withdrawing ? 'withdraw' : 'approach';
+  const target = resolveSecurityPoint(zone, withdrawing ? order.exit : order.hold);
+  npc.destination = { ...target };
+  npc.destinationName = withdrawing ? 'checkpoint exit' : 'checkpoint hold';
+  npc.combatManeuver = null;
+  if (!withdrawing && Math.hypot(target.x - npc.x, target.y - npc.y) <= SECURITY_HOLD_TOLERANCE) {
+    objective.holding = true;
+    npc.systemWarpIntensity = 0;
+    npc.waitUntil = now + 250;
+    return true;
+  }
+  objective.holding = false;
+  return false;
+}
+function canNpcTakeSecurityOrders(npc, now = performance.now()) {
+  if (!npc || npc.destroyed || isPlayerSideNpc(npc)) return false;
+  if (npc.role !== 'traffic' && npc.role !== 'localTraffic') return false; // military and mission roles are not addressed this phase
+  if (npc.hostile || npc.attackId || npc.trafficWarp || npc.fleetId) return false;
+  if ((npc.playerAggroUntil && npc.playerAggroUntil > now) || (npc.playerEscortOrderUntil && npc.playerEscortOrderUntil > now)) return false;
+  return true;
+}
+function isNpcSecurityPreempted(npc, now = performance.now()) {
+  return Boolean(npc.hostile) || Boolean(npc.attackId) || Boolean(getNpcDefenseTarget(npc))
+    || (Boolean(npc.playerAggroUntil) && npc.playerAggroUntil > now)
+    || (Boolean(npc.playerEscortOrderUntil) && npc.playerEscortOrderUntil > now);
+}
+
+// The per-tick evaluation. Runs once per simulated local tick, after NPC movement and the player's
+// own movement, with the same bounded frame delta. Nothing here writes hostility, standing,
+// attackId or aggression evidence; a refusal is a record, not a target.
+function updateSecurityEncounters(frameScale = 1) {
+  if (!state.gameStarted || state.gameOver) return;
+  const systemIndex = Number(state.currentPlanet);
+  const zone = getSecurityZone(systemIndex);
+  const existing = getSecurityLedger(systemIndex);
+  if (!zone && !existing) return;
+  const ledger = ensureSecurityLedger(systemIndex);
+  const deltaMs = clamp(finiteNumber(frameScale, 1), 0, 2.5) * 16.6667;
+  ledger.localElapsedMs += deltaMs;
+  const now = performance.now();
+  const activeOrders = getSecurityActiveOrders(ledger);
+
+  if (!zone) {
+    const control = getSystemControl(systemIndex);
+    for (const order of activeOrders) {
+      const authorityGone = order.authority === PLAYER_SIDE ? !control.playerControlled : control.controller !== order.authority;
+      resolveSecurityOrder(ledger, order, authorityGone ? 'authority_changed' : 'checkpoint_unavailable', authorityGone ? 'holder changed' : 'no active checkpoint');
+    }
+    return;
+  }
+
+  // A visitor admitted while a class was open must be reconsidered if that class becomes
+  // challenge or closed during the same visit. Without this reset, addressedEpisode would make
+  // an open decision permanent until the vessel left the re-entry ring.
+  if (ledger.accessSignature !== zone.accessSignature) {
+    for (const [instanceId, visitor] of Object.entries(ledger.visitors)) {
+      if (!visitor?.inside || getSecurityOrderForVisitor(ledger, instanceId)) continue;
+      visitor.addressedEpisode = null;
+    }
+    ledger.accessSignature = zone.accessSignature;
+  }
+
+  // Pass 1: keep existing orders honest against authority, geometry and policy.
+  for (const order of activeOrders) {
+    if (order.authority !== zone.authority || order.epoch !== zone.epoch) { resolveSecurityOrder(ledger, order, 'authority_changed', 'holder changed'); continue; }
+    if (order.geometryKey !== zone.geometryKey) { resolveSecurityOrder(ledger, order, 'zone_reconfigured', 'checkpoint reconfigured'); continue; }
+    if (order.accessSignature !== zone.accessSignature) {
+      const decisionNow = zone.access[order.accessClass] || 'open';
+      const rankNow = SECURITY_ACCESS_ORDER[decisionNow];
+      const rankThen = SECURITY_ACCESS_ORDER[order.decision];
+      if (rankNow === 0) { resolveSecurityOrder(ledger, order, 'policy_relaxed', 'access opened'); continue; }
+      const entity = findSecurityVisitorEntity(order);
+      const position = entity ? securityEntityPosition(entity) : resolveSecurityPoint(zone, order.hold);
+      const speed = entity ? securityEntitySpeed(entity) : 1;
+      if (rankNow < rankThen) reviseSecurityOrder(order, zone, position, speed, 'challenge', 'access relaxed to challenge');
+      else if (rankNow > rankThen) reviseSecurityOrder(order, zone, position, speed, 'withdraw', 'access closed');
+      else order.accessSignature = zone.accessSignature; // an unrelated class changed
+      if (rankNow !== rankThen) pushSecurityEvent(ledger, `${order.visitorName}: instruction revised (${order.kind}), revision ${order.revision}.`);
+    }
+  }
+
+  // Pass 2: observe every visitor in the scene (NPCs and the player), track boundary state, issue
+  // orders on inward crossings, and advance the orders that exist.
+  const entities = [...(state.npcShips || []).filter((npc) => npc && !npc.destroyed && npc.trafficWarp?.phase !== 'away'), 'player'];
+  const seen = new Set();
+  let activeCount = getSecurityActiveOrders(ledger).length;
+  for (const entity of entities) {
+    const contact = getSecurityContact(entity);
+    if (!contact) continue;
+    seen.add(contact.instanceId);
+    const position = securityEntityPosition(entity);
+    const distance = distanceToSecurityCentre(zone, position);
+    const visitor = getSecurityVisitor(ledger, contact.instanceId, distance <= zone.radius);
+    if (!visitor) continue;
+    visitor.name = contact.name;
+    let crossedIn = false;
+    if (!visitor.inside && distance <= zone.radius) {
+      visitor.inside = true;
+      visitor.episode += 1;
+      crossedIn = true;
+    } else if (visitor.inside && distance > zone.reentryDistance) {
+      visitor.inside = false;
+      // The visit ends: a clearance was for this visit only, and a noncompliance record resolves
+      // with the departure without becoming a second offence.
+      visitor.clearance = null;
+      visitor.noncompliant = false;
+    }
+    const order = getSecurityOrderForVisitor(ledger, contact.instanceId);
+    if (visitor.clearance) {
+      const clearance = visitor.clearance;
+      const relevantChanged = clearance.epoch !== zone.epoch || (zone.access[clearance.accessClass] || 'open') !== accessDecisionFromSignature(clearance.accessSignature, clearance.accessClass);
+      const aggression = contact.kind === 'npc'
+        ? hasRecentAggressionAgainst(entity, zone.authority, now, systemIndex)
+        : hasRecentPlayerAggressionAgainst(zone.authority, now, systemIndex);
+      if (relevantChanged || aggression) {
+        visitor.clearance = null;
+        visitor.addressedEpisode = null;
+        pushSecurityEvent(ledger, `${contact.name}: clearance revoked (${aggression ? 'attack on the authority' : 'policy changed'}).`);
+      }
+    }
+    if (!order && visitor.inside && !visitor.clearance && !visitor.noncompliant && visitor.addressedEpisode !== visitor.episode) {
+      const decision = getVisitorAccessDecision(zone, contact);
+      if (!decision || !decision.enforceable || decision.decision === 'open') {
+        visitor.addressedEpisode = visitor.episode; // open access: not inspected, no offence, nothing recorded
+      } else if (contact.kind === 'npc' && !canNpcTakeSecurityOrders(entity, now)) {
+        // not addressed: military and mission roles keep their missions; no order, no fault
+      } else if (activeCount >= SECURITY_MAX_ACTIVE_ORDERS) {
+        // at capacity: defer rather than drop and blame
+      } else {
+        const issued = issueSecurityOrder(ledger, zone, contact, decision, position, securityEntitySpeed(entity));
+        activeCount += 1;
+        if (contact.kind === 'npc') beginNpcSecurityObjective(entity, issued);
+        else {
+          setLog(`Incoming: ${describeSecurityInstruction(issued, zone)}`);
+          playGameSound('hail', { cooldownKey: 'security:order' });
+        }
+      }
+    }
+    if (order) advanceSecurityOrder(ledger, zone, order, entity, contact, position, distance, deltaMs, now);
+    if (crossedIn && !order && contact.kind === 'player' && visitor.noncompliant) setLog(`${zone.label}: your earlier refusal stands. Their installations will not receive you.`);
+  }
+  // Orders whose visitor is not in the scene at all.
+  for (const order of getSecurityActiveOrders(ledger)) {
+    if (seen.has(order.visitorInstanceId)) continue;
+    const npc = (state.npcShips || []).find((entry) => entry && entry.securityInstanceId === order.visitorInstanceId);
+    if (npc?.destroyed) resolveSecurityOrder(ledger, order, 'visitor_destroyed', 'vessel destroyed');
+    else if (npc?.trafficWarp?.phase === 'away' || npc?.trafficWarp?.phase === 'departing') resolveSecurityOrder(ledger, order, 'departed', 'left the system');
+    else resolveSecurityOrder(ledger, order, 'contact_lost', 'no contact');
+  }
+  // Vessels no longer in the scene with no active order are forgotten; the ledger stays bounded.
+  for (const instanceId of Object.keys(ledger.visitors)) {
+    if (instanceId === 'player' || seen.has(instanceId)) continue;
+    if (!getSecurityOrderForVisitor(ledger, instanceId)) delete ledger.visitors[instanceId];
+  }
+}
+function accessDecisionFromSignature(signature, accessClass) {
+  try { return JSON.parse(signature || '{}')[accessClass] || 'open'; } catch { return 'open'; }
+}
+function findSecurityVisitorEntity(order) {
+  if (order.visitorKind === 'player') return 'player';
+  return (state.npcShips || []).find((npc) => npc && npc.securityInstanceId === order.visitorInstanceId) || null;
+}
+function securityEntityPosition(entity) {
+  return entity === 'player' ? playerWorldPosition() : { x: entity.x, y: entity.y };
+}
+function securityEntitySpeed(entity) {
+  if (entity === 'player') return Math.max(1, finiteNumber(state.ship?.baseMaxSpeed, finiteNumber(state.ship?.maxSpeed, 3.5)) * 0.6);
+  return finiteNumber(entity?.speed, 1);
+}
+function isSecurityEntityHolding(entity, target) {
+  const position = securityEntityPosition(entity);
+  if (Math.hypot(target.x - position.x, target.y - position.y) > SECURITY_HOLD_TOLERANCE) return false;
+  if (entity === 'player') return finiteNumber(state.ship?.velocity, 0) <= 0.25;
+  return Boolean(entity.securityObjective?.holding) || (entity.waitUntil && entity.waitUntil > performance.now());
+}
+function advanceSecurityOrder(ledger, zone, order, entity, contact, position, distance, deltaMs, now) {
+  if (order.outcome) return;
+  if (contact.kind === 'npc') {
+    if (entity.destroyed) { resolveSecurityOrder(ledger, order, 'visitor_destroyed', 'vessel destroyed'); return; }
+    if (entity.trafficWarp?.phase === 'departing' || entity.trafficWarp?.phase === 'away') { resolveSecurityOrder(ledger, order, 'departed', 'left the system'); return; }
+    if (isNpcSecurityPreempted(entity, now)) { resolveSecurityOrder(ledger, order, 'interrupted', 'combat'); return; }
+    if (isNpcTractorHeld(entity, now) || isNpcEngineDisabled(entity, now)) { resolveSecurityOrder(ledger, order, 'unable_to_comply', isNpcTractorHeld(entity, now) ? 'tractor held' : 'engines disabled'); return; }
+    if (!entity.securityObjective || entity.securityObjective.orderId !== order.id) beginNpcSecurityObjective(entity, order);
+  }
+  const withdrawing = order.kind === 'withdraw' || order.withdrawing;
+  if (distance > zone.exitDistance) {
+    resolveSecurityOrder(ledger, order, withdrawing ? 'withdrawn' : 'departed', withdrawing ? 'left the restricted area' : 'left the area without clearance');
+    return;
+  }
+  if (order.state === 'check_incomplete') return; // waits for the operator; the clock does not run against the visitor
+  if (withdrawing) {
+    order.remainingMs -= deltaMs;
+    if (order.remainingMs <= 0) resolveSecurityOrder(ledger, order, 'expired', 'did not withdraw in time');
+    return;
+  }
+  const holdPoint = resolveSecurityPoint(zone, order.hold);
+  if (isSecurityEntityHolding(entity, holdPoint)) {
+    order.state = 'holding';
+    order.dwellMs += deltaMs;
+    if (order.dwellMs >= SECURITY_DWELL_MS) {
+      if (contact.broadcast?.source === 'none') { order.state = 'check_incomplete'; order.reason = 'broadcast unavailable; operator review'; return; }
+      resolveSecurityOrder(ledger, order, 'cleared', `${contact.broadcast.faction === 'neutral' ? 'independent' : formatFaction(contact.broadcast.faction)} identity confirmed`);
+      return;
+    }
+  } else {
+    if (order.state === 'holding') order.state = 'pending';
+    order.dwellMs = 0;
+  }
+  order.remainingMs -= deltaMs;
+  if (order.remainingMs <= 0) resolveSecurityOrder(ledger, order, 'expired', 'did not comply in time');
+}
+
+// Player as visitor: the five responses. Physical movement is still the player's own flying.
+function respondToSecurityOrder(action) {
+  const ledger = getSecurityLedger(state.currentPlanet);
+  const order = getPlayerSecurityOrder(state.currentPlanet);
+  const zone = getSecurityZone(state.currentPlanet);
+  if (!ledger || !order || !zone) return false;
+  switch (action) {
+    case 'acknowledge':
+      order.acknowledged = true;
+      setLog(`${zone.label}: acknowledged. ${order.kind === 'withdraw' || order.withdrawing ? 'Exit marker set.' : 'Holding point marked.'}`);
+      return true;
+    case 'repeat':
+      setLog(`${describeSecurityInstruction(order, zone)} ${Math.max(0, Math.ceil(order.remainingMs / 1000))} s remaining.`);
+      return true;
+    case 'request': {
+      if (order.kind === 'withdraw' || order.withdrawing) { setLog(`${zone.label}: this area is closed to you. Withdraw beyond the marked exit.`); return true; }
+      const holdPoint = resolveSecurityPoint(zone, order.hold);
+      const p = playerWorldPosition();
+      const away = Math.hypot(holdPoint.x - p.x, holdPoint.y - p.y);
+      if (away > SECURITY_HOLD_TOLERANCE) { setLog(`${zone.label}: clearance refused. You are ${Math.round(away)} units from the holding point; stop within ${SECURITY_HOLD_TOLERANCE}.`); return true; }
+      if (finiteNumber(state.ship?.velocity, 0) > 0.25) { setLog(`${zone.label}: clearance refused. Come to a full stop at the holding point.`); return true; }
+      if (order.dwellMs < SECURITY_DWELL_MS) { setLog(`${zone.label}: hold position. ${Math.ceil((SECURITY_DWELL_MS - order.dwellMs) / 1000)} s of the identity check remain.`); return true; }
+      resolveSecurityOrder(ledger, order, 'cleared', 'identity confirmed on request');
+      return true;
+    }
+    case 'withdraw':
+      order.withdrawing = true;
+      order.acknowledged = true;
+      setLog(`${zone.label}: withdrawal noted. Leave beyond the marked exit; the instruction closes when you are out.`);
+      return true;
+    case 'refuse':
+      resolveSecurityOrder(ledger, order, 'refused', 'refused by the visitor');
+      return true;
+    default:
+      return false;
+  }
+}
+// Operator actions at the player's own checkpoint. Authority is checked here, not only in the UI.
+function operateSecurityOrder(orderId, action) {
+  const systemIndex = state.currentPlanet;
+  if (!isSystemControlled(systemIndex)) return false;
+  const ledger = getSecurityLedger(systemIndex);
+  const zone = getSecurityZone(systemIndex);
+  const order = ledger?.orders?.[orderId];
+  if (!ledger || !zone || !order || order.outcome || order.authority !== PLAYER_SIDE) return false;
+  const entity = findSecurityVisitorEntity(order);
+  const position = entity ? securityEntityPosition(entity) : resolveSecurityPoint(zone, order.hold);
+  switch (action) {
+    case 'waive': resolveSecurityOrder(ledger, order, 'waived', 'waived by the operator'); return true;
+    case 'withdraw': reviseSecurityOrder(order, zone, position, entity ? securityEntitySpeed(entity) : 1, 'withdraw', 'withdrawal requested by the operator'); pushSecurityEvent(ledger, `${order.visitorName}: withdrawal requested.`); return true;
+    case 'cancel': resolveSecurityOrder(ledger, order, 'canceled', 'cancelled by the operator'); return true;
+    default: return false;
+  }
+}
+
+// Access consequence. A pending or noncompliant visitor is not received by the authority's own
+// installations. Nothing else changes: concessions and private posts inside the zone still trade.
+function getSecurityDockingBlock(ownerSide) {
+  const zone = getSecurityZone(state.currentPlanet);
+  if (!zone || zone.authority === PLAYER_SIDE || !ownerSide || ownerSide !== zone.authority) return null;
+  const order = getPlayerSecurityOrder(state.currentPlanet);
+  if (order) return order.kind === 'withdraw' || order.withdrawing
+    ? `${zone.label}: this area is closed to you. Withdraw beyond the marked exit.`
+    : `${zone.label}: hold at the marked point for clearance before docking.`;
+  const visitor = getSecurityVisitor(getSecurityLedger(state.currentPlanet), 'player');
+  if (visitor?.noncompliant) return `${zone.label}: you refused their instruction. Their installations will not receive you until you leave and return.`;
+  return null;
+}
+
+// Persistence of participants: the bounded snapshot needed to resume an active NPC order after the
+// scene is unloaded, the cache is wiped, or the game is reloaded. Captured for the live system only.
+function captureSecurityParticipants(systemIndex = state.securityLiveSystemIndex) {
+  if (systemIndex === null || systemIndex === undefined) return;
+  const ledger = getSecurityLedger(systemIndex);
+  if (!ledger) return;
+  ledger.participants = {};
+  for (const order of getSecurityActiveOrders(ledger)) {
+    if (order.visitorKind !== 'npc') continue;
+    const npc = (state.npcShips || []).find((entry) => entry && entry.securityInstanceId === order.visitorInstanceId && !entry.destroyed);
+    if (!npc) continue;
+    ledger.participants[order.visitorInstanceId] = {
+      instanceId: order.visitorInstanceId, npcId: npc.id, shipId: npc.shipId, seed: npc.seed, name: npc.name, faction: npc.faction, sideId: npc.sideId, role: npc.role,
+      x: npc.x, y: npc.y, heading: npc.heading, speed: npc.speed, turnRate: npc.turnRate, systemWarpMultiplier: npc.systemWarpMultiplier, scale: npc.scale, leg: npc.leg,
+      combatHull: npc.combatHull, maxCombatHull: npc.maxCombatHull, combatShields: npc.combatShields, maxCombatShields: npc.maxCombatShields,
+      destination: npc.destination ? { ...npc.destination } : null, destinationName: npc.destinationName, objective: npc.securityObjective ? { ...npc.securityObjective } : null,
+      broadcastSource: npc.broadcastSource || null, broadcastFaction: npc.broadcastFaction || null,
+    };
+  }
+}
+// After generic scene restoration: put participants back on their spawn slots, or close their
+// orders with a recovery reason. Never replaces a missing vessel with a different ship.
+function reconcileSecurityParticipants(systemIndex) {
+  const ledger = getSecurityLedger(systemIndex);
+  const cached = state.systemStates?.[Number(systemIndex)];
+  for (const npc of state.npcShips || []) {
+    if (!npc || isPlayerSideNpc(npc)) continue;
+    ensureNpcSecurityInstance(npc);
+    const snapshot = cached?.npcShips?.find((entry) => entry.id === npc.id);
+    if (snapshot && !snapshot.securityInstanceId) snapshot.securityInstanceId = npc.securityInstanceId;
+  }
+  if (!ledger) return;
+  for (const order of getSecurityActiveOrders(ledger)) {
+    if (order.visitorKind !== 'npc') continue;
+    const already = (state.npcShips || []).find((npc) => npc && npc.securityInstanceId === order.visitorInstanceId && !npc.destroyed);
+    if (already) { if (!already.securityObjective) beginNpcSecurityObjective(already, order); continue; }
+    const snap = ledger.participants[order.visitorInstanceId];
+    const npc = snap ? (state.npcShips || []).find((entry) => entry && entry.id === snap.npcId && !entry.destroyed && !isPlayerSideNpc(entry) && !getSecurityOrderForVisitor(ledger, entry.securityInstanceId)) : null;
+    if (!snap || !npc) { resolveSecurityOrder(ledger, order, 'contact_lost', 'participant not restored', { silent: true }); continue; }
+    Object.assign(npc, {
+      securityInstanceId: snap.instanceId, identityLocked: true, shipId: snap.shipId, seed: snap.seed, name: snap.name, faction: snap.faction, sideId: snap.sideId, role: snap.role,
+      x: snap.x, y: snap.y, heading: snap.heading, speed: snap.speed, turnRate: snap.turnRate, systemWarpMultiplier: snap.systemWarpMultiplier, scale: snap.scale, leg: snap.leg,
+      combatHull: snap.combatHull, maxCombatHull: snap.maxCombatHull, combatShields: snap.combatShields, maxCombatShields: snap.maxCombatShields,
+      destination: snap.destination ? { ...snap.destination } : npc.destination, destinationName: snap.destinationName || npc.destinationName,
+      broadcastSource: snap.broadcastSource || null, broadcastFaction: snap.broadcastFaction || null,
+      attitude: getFactionAttitude(snap.faction), hostile: false, trafficWarp: null, waitUntil: 0, systemWarpIntensity: 0,
+      ambientWarpAt: performance.now() + 20000,
+    });
+    npc.securityObjective = snap.objective ? { ...snap.objective } : null;
+    if (!npc.securityObjective) beginNpcSecurityObjective(npc, order);
+    syncAmbientTrafficVariant(npc);
+  }
+}
+function sanitizeSecurityZonesRecord(raw) {
+  const zones = { version: 1, nextVisitorInstance: 1, systems: {}, epochs: {} };
+  if (!raw || typeof raw !== 'object') return zones;
+  zones.nextVisitorInstance = Math.max(1, Math.round(finiteNumber(raw.nextVisitorInstance, 1)));
+  for (const [key, value] of Object.entries(raw.systems || {})) {
+    if (!Number.isFinite(Number(key)) || !value || typeof value !== 'object') continue;
+    zones.systems[Number(key)] = { enabled: Boolean(value.enabled), anchorStationId: value.anchorStationId ? String(value.anchorStationId) : null };
+  }
+  for (const [key, value] of Object.entries(raw.epochs || {})) {
+    if (Number.isFinite(Number(key)) && Number.isFinite(Number(value))) zones.epochs[Number(key)] = Math.max(0, Math.round(Number(value)));
+  }
+  return zones;
+}
+const SECURITY_OUTCOMES = new Set(['cleared', 'waived', 'withdrawn', 'refused', 'expired', 'departed', 'authority_changed', 'checkpoint_unavailable', 'visitor_destroyed', 'unable_to_comply', 'interrupted', 'contact_lost', 'canceled', 'policy_relaxed', 'zone_reconfigured']);
+function sanitizeSecurityEncountersRecord(raw) {
+  const out = { version: 1, systems: {} };
+  if (!raw || typeof raw !== 'object') return out;
+  const polar = (value) => (value && Number.isFinite(Number(value.angle)) && Number.isFinite(Number(value.distance)) ? { angle: Number(value.angle), distance: Number(value.distance) } : null);
+  for (const [key, ledgerRaw] of Object.entries(raw.systems || {})) {
+    if (!Number.isFinite(Number(key)) || !ledgerRaw || typeof ledgerRaw !== 'object') continue;
+    const ledger = { localElapsedMs: Math.max(0, finiteNumber(ledgerRaw.localElapsedMs, 0)), nextOrder: Math.max(1, Math.round(finiteNumber(ledgerRaw.nextOrder, 1))), accessSignature: String(ledgerRaw.accessSignature || ''), visitors: {}, orders: {}, participants: {}, recentEvents: [] };
+    for (const [id, visitor] of Object.entries(ledgerRaw.visitors || {})) {
+      if (!visitor || typeof visitor !== 'object' || !/^(player|v\d+)$/.test(id)) continue;
+      ledger.visitors[id] = {
+        inside: Boolean(visitor.inside), episode: Math.max(0, Math.round(finiteNumber(visitor.episode, 0))),
+        addressedEpisode: Number.isFinite(Number(visitor.addressedEpisode)) && visitor.addressedEpisode !== null ? Number(visitor.addressedEpisode) : null,
+        clearance: visitor.clearance && typeof visitor.clearance === 'object' && SECURITY_ACCESS_CLASSES.includes(visitor.clearance.accessClass)
+          ? { orderId: String(visitor.clearance.orderId || ''), epoch: Math.round(finiteNumber(visitor.clearance.epoch, 0)), accessClass: visitor.clearance.accessClass, accessSignature: String(visitor.clearance.accessSignature || ''), provenance: visitor.clearance.provenance === 'waiver' ? 'waiver' : 'check' }
+          : null,
+        noncompliant: Boolean(visitor.noncompliant), lastOutcome: SECURITY_OUTCOMES.has(visitor.lastOutcome) ? visitor.lastOutcome : null, name: String(visitor.name || ''),
+      };
+    }
+    for (const [id, order] of Object.entries(ledgerRaw.orders || {})) {
+      if (!order || typeof order !== 'object' || !/^o\d+$/.test(id)) continue;
+      const hold = polar(order.hold);
+      const exit = polar(order.exit);
+      if (!hold || !exit || !SECURITY_ACCESS_CLASSES.includes(order.accessClass) || (order.visitorKind !== 'npc' && order.visitorKind !== 'player')) continue;
+      if (!/^(player|v\d+)$/.test(String(order.visitorInstanceId || ''))) continue;
+      ledger.orders[id] = {
+        id, zoneId: String(order.zoneId || ''), geometryKey: String(order.geometryKey || ''), systemIndex: Number(key), authority: String(order.authority || ''), authorityLabel: String(order.authorityLabel || ''),
+        epoch: Math.round(finiteNumber(order.epoch, 0)), visitorInstanceId: String(order.visitorInstanceId), visitorKind: order.visitorKind, visitorName: String(order.visitorName || ''),
+        npcId: order.npcId ?? null, episode: Math.round(finiteNumber(order.episode, 0)), accessClass: order.accessClass, decision: SECURITY_ACCESS_VALUES.includes(order.decision) ? order.decision : 'challenge',
+        accessSignature: String(order.accessSignature || ''), kind: order.kind === 'withdraw' ? 'withdraw' : 'challenge', revision: Math.max(1, Math.round(finiteNumber(order.revision, 1))),
+        state: ['pending', 'holding', 'check_incomplete'].includes(order.state) ? order.state : 'pending', outcome: SECURITY_OUTCOMES.has(order.outcome) ? order.outcome : null, reason: String(order.reason || ''),
+        hold, exit, withdrawing: Boolean(order.withdrawing), allowanceMs: Math.max(1000, finiteNumber(order.allowanceMs, SECURITY_MIN_ALLOWANCE_MS)),
+        remainingMs: clamp(finiteNumber(order.remainingMs, 0), 0, 3600000), dwellMs: clamp(finiteNumber(order.dwellMs, 0), 0, SECURITY_DWELL_MS),
+        issuedAtMs: Math.round(finiteNumber(order.issuedAtMs, 0)), resolvedAtMs: Number.isFinite(Number(order.resolvedAtMs)) && order.resolvedAtMs !== null ? Number(order.resolvedAtMs) : null,
+        acknowledged: Boolean(order.acknowledged), compliance: order.compliance && typeof order.compliance === 'object' ? { scope: order.compliance.scope === 'withdrawal' ? 'withdrawal' : 'movement_identity' } : null,
+        noncompliant: Boolean(order.noncompliant),
+      };
+    }
+    for (const [id, snap] of Object.entries(ledgerRaw.participants || {})) {
+      if (!snap || typeof snap !== 'object' || !/^v\d+$/.test(id) || !Number.isFinite(Number(snap.x)) || !Number.isFinite(Number(snap.y))) continue;
+      const num = (value, fallback) => (Number.isFinite(Number(value)) ? Number(value) : fallback);
+      const pool = (value) => (value === null || value === undefined ? null : num(value, null));
+      ledger.participants[id] = {
+        instanceId: id, npcId: snap.npcId, shipId: num(snap.shipId, 1), seed: num(snap.seed, 1), name: String(snap.name || ''), faction: normalizeFactionKey(snap.faction || 'neutral'),
+        sideId: typeof snap.sideId === 'string' ? snap.sideId : null, role: snap.role === 'localTraffic' ? 'localTraffic' : 'traffic',
+        x: Number(snap.x), y: Number(snap.y), heading: num(snap.heading, 0), speed: clamp(num(snap.speed, 1), 0.3, 3), turnRate: clamp(num(snap.turnRate, 0.5), 0.1, 3), systemWarpMultiplier: clamp(num(snap.systemWarpMultiplier, 1.5), 1, 4), scale: clamp(num(snap.scale, 1), 0.2, 4), leg: num(snap.leg, 0),
+        combatHull: pool(snap.combatHull), maxCombatHull: pool(snap.maxCombatHull), combatShields: pool(snap.combatShields), maxCombatShields: pool(snap.maxCombatShields),
+        destination: snap.destination && Number.isFinite(Number(snap.destination.x)) && Number.isFinite(Number(snap.destination.y)) ? { x: Number(snap.destination.x), y: Number(snap.destination.y) } : null,
+        destinationName: String(snap.destinationName || ''),
+        objective: snap.objective && typeof snap.objective === 'object' ? { orderId: String(snap.objective.orderId || ''), phase: snap.objective.phase === 'withdraw' ? 'withdraw' : 'approach', holding: false } : null,
+        broadcastSource: ['declared', 'none'].includes(snap.broadcastSource) ? snap.broadcastSource : null,
+        broadcastFaction: typeof snap.broadcastFaction === 'string' ? snap.broadcastFaction.slice(0, 80) : null,
+      };
+    }
+    ledger.recentEvents = (Array.isArray(ledgerRaw.recentEvents) ? ledgerRaw.recentEvents : []).filter((event) => event && typeof event === 'object').slice(-SECURITY_HISTORY_CAP).map((event) => ({ atMs: Math.round(finiteNumber(event.atMs, 0)), text: String(event.text || '') }));
+    out.systems[Number(key)] = ledger;
+  }
+  return out;
+}
+function resetSecurityRecords() {
+  state.securityZones = { version: 1, nextVisitorInstance: 1, systems: {}, epochs: {} };
+  state.securityEncounters = { version: 1, systems: {} };
+  state.securityLiveSystemIndex = null;
+  state.securityOutcomeNotice = null;
+}
+// An arriving player is placed at the zone's outer approach point when a foreign checkpoint is
+// active, so the perimeter is seen before it is crossed. The player's own checkpoint never
+// relocates the player. Called after setCameraNearPlanet.
+function placePlayerAtSecurityApproach() {
+  const zone = getSecurityZone(state.currentPlanet);
+  if (!zone || !zone.foreign) return false;
+  const star = state.systemStar || zone.centre;
+  const angle = Math.atan2(star.y - zone.centre.y, star.x - zone.centre.x);
+  const distance = zone.radius + SECURITY_ARRIVAL_MARGIN;
+  setCamera(zone.centre.x + Math.cos(angle) * distance, zone.centre.y + Math.sin(angle) * distance);
+  return true;
+}
+
 // The side that defends a system: the player when the player holds it, else the holding polity.
 function getDefendingSideId(systemIndex = state.currentPlanet) {
   const control = getSystemControl(systemIndex);
@@ -4782,6 +5681,7 @@ function transferSystemControlToPlayer(systemIndex = state.currentPlanet) {
   const transferred = fromOwner ? transferSystemInstallations(i, fromOwner, PLAYER_SIDE) : [];
   refreshCachedStationOwnership(i);
   if (i === Number(state.currentPlanet)) refreshStationOwnership(i);
+  if (!before.playerControlled) invalidateSecurityAuthority(i, 'taken by the player'); // an actual holder change
   return transferred;
 }
 function transferSystemControlToFaction(systemIndex, faction) {
@@ -4797,6 +5697,7 @@ function transferSystemControlToFaction(systemIndex, faction) {
   const transferred = (fromOwner && toOwner && fromOwner !== toOwner) ? transferSystemInstallations(i, fromOwner, toOwner) : [];
   refreshCachedStationOwnership(i);
   if (i === Number(state.currentPlanet)) refreshStationOwnership(i);
+  if (fromOwner !== toOwner) invalidateSecurityAuthority(i, `taken by ${formatFaction(key)}`); // an actual holder change
   return transferred;
 }
 // Saves written before station ownership was recorded: installations of held systems were treated
@@ -8662,6 +9563,15 @@ function tryDockAtPlanetIndex(i, marker = state.planets[i]) {
     addWorldPop(marker.x, marker.y - popOffset, 'Too far');
     return false;
   }
+  // Access consequence of a checkpoint: the holder's world does not receive a visitor with a pending
+  // or refused instruction. Distance, hostility and everything else are unchanged by this.
+  const securityBlock = i === Number(state.currentPlanet) ? getSecurityDockingBlock(getSystemControl(i).polityId) : null;
+  if (securityBlock) {
+    playGameSound('uiError', { cooldownKey: 'dock:security' });
+    setLog(securityBlock);
+    addWorldPop(marker.x, marker.y - popOffset, 'Not cleared', '#ff9c9c');
+    return false;
+  }
   state.docked = true;
   state.dockedPlanetIndex = i;
   state.dockedStationId = null;
@@ -9205,6 +10115,8 @@ function saveGame(slot = state.currentSaveSlot || 1) {
     controlledSystems: state.controlledSystems,
     stationOwners: state.stationOwners || {},
     securityPolicies: ensureSecurityPolicies(),
+    securityZones: ensureSecurityZones(),
+    securityEncounters: (captureSecurityParticipants(state.securityLiveSystemIndex), ensureSecurityEncounters()),
     visitedSystems: state.visitedSystems,
     factionSystemOverrides: state.factionSystemOverrides,
     destroyedStations: state.destroyedStations,
@@ -9316,6 +10228,11 @@ function loadGame(slot = state.currentSaveSlot || 1) {
       if (Object.keys(clean).length && Number.isFinite(Number(key))) state.securityPolicies.systems[Number(key)] = clean;
     }
   }
+  // Saves from before holding zones existed load with no player checkpoints and no active orders.
+  state.securityZones = sanitizeSecurityZonesRecord(s.securityZones);
+  state.securityEncounters = sanitizeSecurityEncountersRecord(s.securityEncounters);
+  state.securityLiveSystemIndex = null; // the NPCs about to be discarded are not this save's participants
+  state.securityOutcomeNotice = null;
   state.controlledSystems = Array.isArray(s.controlledSystems)
     ? s.controlledSystems.map((index) => Number(index)).filter(Number.isFinite)
     : [state.currentPlanet];
@@ -10301,10 +11218,12 @@ function completeWarpTravel() {
   state.planetCallout = null;
   state.warp.active = false;
   const p = state.planets[state.currentPlanet];
+  closePlayerSecurityOrders(state.warp.from, 'departed', 'left the system'); // a completed jump is an actual departure
   applySystemState(state.currentPlanet);
   const completedBuilds = completeDueStationConstructions({ silent: true });
   scheduleNextFleetAttack(performance.now() + 30000);
   setCameraNearPlanet();
+  placePlayerAtSecurityApproach();
   state.ship.velocity = 0;
   state.ship.turnVelocity = 0;
   state.ship.forwardThrustStartedAt = 0;
@@ -10399,6 +11318,133 @@ function handleTargetWindowAction(e, fromPointer = false) {
   if (value === 'sell-cargo') sellCargoToHailedShip();
   targetWindowInteractionLockUntil = performance.now() + 700;
   return true;
+}
+
+// Incoming-order panel for the player as visitor. Available in flight; keyed re-render each frame.
+function securityOrderPanelKey(order, notice, zone) {
+  if (order) return `${order.id}:${order.revision}:${order.kind}:${order.withdrawing}:${order.state}:${Math.ceil(order.remainingMs / 1000)}:${Math.ceil(order.dwellMs / 1000)}:${order.acknowledged}`;
+  if (notice) return `notice:${notice.outcome}:${notice.atMs}`;
+  return zone ? `zone:${zone.id}:${zone.epoch}` : 'none';
+}
+function updateSecurityOrderPanel() {
+  if (!securityOrderPanelEl) return;
+  const visible = state.gameStarted && !state.gameOver && !state.warp.active && !isWormholeTransitActive();
+  const zone = visible ? getSecurityZone(state.currentPlanet) : null;
+  const ledger = visible ? getSecurityLedger(state.currentPlanet) : null;
+  const order = visible ? getPlayerSecurityOrder(state.currentPlanet) : null;
+  let notice = state.securityOutcomeNotice;
+  if (notice && (!visible || Number(notice.systemIndex) !== Number(state.currentPlanet) || !ledger || ledger.localElapsedMs - notice.atMs > SECURITY_OUTCOME_DISPLAY_MS)) {
+    if (visible && ledger && Number(notice.systemIndex) === Number(state.currentPlanet)) state.securityOutcomeNotice = null;
+    notice = null;
+  }
+  const visitor = ledger?.visitors?.player || null;
+  const cleared = zone && zone.foreign && visitor?.clearance && !order;
+  const show = Boolean(order || notice || (zone && zone.foreign && (cleared || visitor?.noncompliant)));
+  securityOrderPanelEl.classList.toggle('hidden', !show);
+  if (!show) { securityOrderPanelEl.dataset.renderKey = ''; return; }
+  const key = securityOrderPanelKey(order, notice, zone) + (cleared ? ':cleared' : visitor?.noncompliant ? ':refused' : '');
+  if (securityOrderPanelEl.dataset.renderKey === key) return;
+  securityOrderPanelEl.dataset.renderKey = key;
+  if (order) {
+    const withdrawing = order.kind === 'withdraw' || order.withdrawing;
+    const seconds = Math.max(0, Math.ceil(order.remainingMs / 1000));
+    const holdSeconds = Math.ceil(Math.max(0, SECURITY_DWELL_MS - order.dwellMs) / 1000);
+    const status = order.state === 'check_incomplete'
+      ? 'Identity check incomplete; awaiting their review.'
+      : withdrawing
+        ? `Leave beyond the exit marker. ${seconds} s.`
+        : order.state === 'holding'
+          ? `Holding. Identity check completes in ${holdSeconds} s.`
+          : `Stop within ${SECURITY_HOLD_TOLERANCE} units of the holding marker. ${seconds} s.`;
+    securityOrderPanelEl.innerHTML = `<div class="security-order-head"><span>Incoming order</span><span>${escapeHtml(order.authorityLabel)}</span></div>
+      <div class="security-order-body">
+        <div class="security-order-text">${escapeHtml(describeSecurityInstruction(order, zone))}</div>
+        <div class="security-order-status">${escapeHtml(status)}</div>
+        <div class="security-order-buttons">
+          <button data-security-response="acknowledge" ${order.acknowledged ? 'disabled' : ''}>${order.acknowledged ? 'Acknowledged' : 'Acknowledge'}</button>
+          <button data-security-response="repeat">Repeat instruction</button>
+          <button data-security-response="request" ${withdrawing ? 'disabled' : ''}>Request clearance</button>
+          <button data-security-response="withdraw" ${withdrawing ? 'disabled' : ''}>Withdraw</button>
+          <button data-security-response="refuse" class="security-refuse" title="Refusal is recorded. Their installations will not receive you for this visit. It authorizes no weapons.">Refuse</button>
+        </div>
+      </div>`;
+    return;
+  }
+  if (notice) {
+    securityOrderPanelEl.innerHTML = `<div class="security-order-head"><span>Checkpoint</span><span>${escapeHtml(notice.authorityLabel || '')}</span></div>
+      <div class="security-order-body"><div class="security-order-text">${escapeHtml(describeSecurityOutcomeForPlayer({ outcome: notice.outcome, authorityLabel: notice.authorityLabel }))}</div></div>`;
+    return;
+  }
+  securityOrderPanelEl.innerHTML = `<div class="security-order-head"><span>Checkpoint</span><span>${escapeHtml(zone.label)}</span></div>
+    <div class="security-order-body"><div class="security-order-text">${cleared
+      ? `Cleared for this visit${visitor.clearance.provenance === 'waiver' ? ' (waived)' : ''}. Leaving the area ends the clearance.`
+      : 'You refused their instruction. Their installations will not receive you until you leave and return.'}</div></div>`;
+}
+securityOrderPanelEl?.addEventListener('click', (e) => {
+  const response = e.target.closest('[data-security-response]');
+  if (!response) return;
+  e.preventDefault();
+  if (respondToSecurityOrder(response.dataset.securityResponse)) {
+    securityOrderPanelEl.dataset.renderKey = '';
+    updateSecurityOrderPanel();
+    updateStats();
+  }
+});
+
+// World markers: the perimeter, the issuing installation, and the player's holding or exit point.
+// The legal perimeter is drawn distinctly from any physical map edge.
+function drawSecurityZoneMarkers(now = performance.now()) {
+  const zone = getSecurityZone(state.currentPlanet);
+  if (!zone) return;
+  const centre = worldToScreen(zone.centre);
+  const colour = zone.foreign ? '#ffb454' : '#7dc8ff';
+  ctx.save();
+  ctx.strokeStyle = colorToRgba(colour, 0.55);
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([10, 8]);
+  ctx.beginPath();
+  ctx.arc(centre.x, centre.y, zone.radius, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const anchor = (state.stations || []).find((station) => station.id === zone.anchorStationId);
+  if (anchor) {
+    const a = worldToScreen(anchor);
+    ctx.fillStyle = colorToRgba(colour, 0.9);
+    ctx.font = canvasUiFont(10, '700');
+    ctx.textAlign = 'center';
+    ctx.fillText(`CHECKPOINT: ${zone.label.toUpperCase()}`, a.x, a.y - getStationScreenRadius(anchor) - 18);
+    ctx.textAlign = 'start';
+  }
+  const order = getPlayerSecurityOrder(state.currentPlanet);
+  if (order) {
+    const withdrawing = order.kind === 'withdraw' || order.withdrawing;
+    const point = worldToScreen(resolveSecurityPoint(zone, withdrawing ? order.exit : order.hold));
+    const pulse = 0.65 + 0.35 * Math.sin(now / 260);
+    ctx.strokeStyle = colorToRgba(withdrawing ? '#ff9c9c' : '#9cffb4', pulse);
+    ctx.lineWidth = 2;
+    if (withdrawing) {
+      ctx.beginPath();
+      ctx.moveTo(point.x - 14, point.y + 12); ctx.lineTo(point.x, point.y - 12); ctx.lineTo(point.x + 14, point.y + 12);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(point.x, point.y - 16); ctx.lineTo(point.x + 16, point.y); ctx.lineTo(point.x, point.y + 16); ctx.lineTo(point.x - 16, point.y); ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([4, 5]);
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, SECURITY_HOLD_TOLERANCE, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.fillStyle = colorToRgba(withdrawing ? '#ff9c9c' : '#9cffb4', 0.95);
+    ctx.font = canvasUiFont(10, '700');
+    ctx.textAlign = 'center';
+    const p = playerWorldPosition();
+    const world = resolveSecurityPoint(zone, withdrawing ? order.exit : order.hold);
+    ctx.fillText(`${withdrawing ? 'EXIT' : 'HOLD'} ${Math.round(Math.hypot(world.x - p.x, world.y - p.y))}`, point.x, point.y - 22);
+    ctx.textAlign = 'start';
+  }
+  ctx.restore();
 }
 
 targetWindowEl?.addEventListener('pointerdown', (e) => {
@@ -10737,6 +11783,26 @@ function renderSecurityPanelMarkup(systemIndex = state.currentPlanet) {
     return `<button data-security-roe="${value}" class="${selected ? 'active' : ''}" aria-pressed="${selected}">${selected ? '&#10004; ' : ''}${escapeHtml(label)}${selected ? ' (in force)' : ''}</button>`;
   };
   const roeLabel = (value) => (value === 'return-fire' ? 'Return fire only' : 'Defend');
+  const accessRow = (cls, label, note) => {
+    const current = effective.access[cls] || 'open';
+    const usable = cls !== 'unknown';
+    const button = (value, text) => `<button data-security-access="${cls}:${value}" class="${current === value ? 'active' : ''}" aria-pressed="${current === value}" ${usable ? '' : 'disabled'}>${current === value ? '&#10004; ' : ''}${text}</button>`;
+    return `<div class="security-access-row" data-security-access-row="${cls}">
+      <div class="security-access-label"><strong>${escapeHtml(label)}</strong><span class="meta">${escapeHtml(note)}</span></div>
+      <div class="security-access-buttons">${button('open', 'Open')}${button('challenge', 'Challenge')}${button('closed', 'Closed')}</div>
+    </div>`;
+  };
+  const config = getPlayerCheckpointConfig(systemIndex) || { enabled: false, anchorStationId: null };
+  const candidates = getSecurityAnchorCandidates(systemIndex, PLAYER_SIDE);
+  const zone = getSecurityZone(systemIndex);
+  const anchorOptions = candidates.length
+    ? candidates.map((station) => `<button data-security-anchor="${escapeHtml(station.id)}" class="${config.anchorStationId === station.id ? 'active' : ''}" aria-pressed="${config.anchorStationId === station.id}">${config.anchorStationId === station.id ? '&#10004; ' : ''}${escapeHtml(station.name)} (${Math.round(station.orbitDistance || 0)})</button>`).join('')
+    : '<div class="meta">No eligible installation: a checkpoint needs a live, completed, planet-orbit station you own here.</div>';
+  const checkpointStatus = zone
+    ? `Checkpoint active from ${escapeHtml(zone.anchorName)}: perimeter ${zone.radius} around ${escapeHtml(name)}, holding point at ${zone.holdDistance}.`
+    : config.enabled
+      ? 'Checkpoint unavailable: the selected installation is not live, completed and yours. Select another.'
+      : 'Checkpoint disabled. With every access row open, an enabled checkpoint issues no orders.';
   return `<div class="market-section">
     <div class="panel-head">${escapeHtml(name)} security</div>
     <div class="meta">${override ? 'Local override in force.' : 'Using empire default.'} Empire default: ${escapeHtml(roeLabel(empire.roe))}. In force here: ${escapeHtml(roeLabel(effective.roe))}.</div>
@@ -10748,11 +11814,61 @@ function renderSecurityPanelMarkup(systemIndex = state.currentPlanet) {
     <div class="meta"><strong>Return fire only:</strong> your ships and stations here engage only ships or stations seen attacking your side in this system, and fleets raiding this holding.</div>
     <div class="meta"><strong>Defend:</strong> as above, plus ships hostile to you and ships at war with your current flag, on sight. This is the default behavior.</div>
     <div class="meta">Explicit attack orders always apply. Foreign ships and stations keep their own owners and commanders whatever you set here.</div>
+    <div class="panel-head">Access</div>
+    <div class="meta">Challenge requests a movement and identity check. Closed requests withdrawal. Refusal alone does not authorize weapons; your rules of engagement still apply. Your own ships are exempt.</div>
+    ${accessRow('warFlag', 'War flags', 'Recognized factions at war with your current flag.')}
+    ${accessRow('independent', 'Independents', 'Vessels broadcasting no allegiance.')}
+    ${accessRow('other', 'Everyone else', 'Allies, same-flag foreigners and identified organizations.')}
+    ${accessRow('unknown', 'Unidentified', 'Unavailable until the contact model can lose an identity.')}
+    <div class="panel-head">Checkpoint</div>
+    <div class="meta">${checkpointStatus}</div>
     <div class="service-grid">
+      <button data-security-checkpoint="${config.enabled ? 'disable' : 'enable'}" ${candidates.length || config.enabled ? '' : 'disabled'}>${config.enabled ? 'Disable checkpoint' : 'Enable checkpoint'}</button>
       <button data-security-action="use-default" ${override ? '' : 'disabled'}>Use empire default here</button>
       <button data-security-action="set-default">Set as empire default</button>
     </div>
+    <div class="meta">Issuing installation</div>
+    <div class="service-grid security-anchor-grid">${anchorOptions}</div>
+    <div class="panel-head">Encounters</div>
+    <div data-security-live>${renderSecurityEncounterListMarkup(systemIndex)}</div>
   </div>`;
+}
+function securityOrderStatusText(order) {
+  if (order.outcome) return order.outcome.replace(/_/g, ' ');
+  if (order.state === 'check_incomplete') return 'check incomplete';
+  const kind = order.kind === 'withdraw' || order.withdrawing ? 'withdrawing' : order.state === 'holding' ? `holding ${Math.ceil(Math.max(0, SECURITY_DWELL_MS - order.dwellMs) / 1000)}s` : 'to hold';
+  return `${kind}, ${Math.max(0, Math.ceil(order.remainingMs / 1000))}s`;
+}
+function securityEncounterListKey(systemIndex = state.currentPlanet) {
+  const ledger = getSecurityLedger(systemIndex);
+  if (!ledger) return 'none';
+  return Object.values(ledger.orders).map((order) => `${order.id}:${securityOrderStatusText(order)}:${order.revision}`).join('|') + `#${ledger.recentEvents.length}`;
+}
+function renderSecurityEncounterListMarkup(systemIndex = state.currentPlanet) {
+  const ledger = getSecurityLedger(systemIndex);
+  const active = getSecurityActiveOrders(ledger);
+  const recent = ledger ? Object.values(ledger.orders).filter((order) => order.outcome).sort((a, b) => finiteNumber(b.resolvedAtMs, 0) - finiteNumber(a.resolvedAtMs, 0)).slice(0, 6) : [];
+  const classLabel = { warFlag: 'war flag', independent: 'independent', other: 'other', unknown: 'unidentified' };
+  const rows = active.map((order) => `<div class="security-order-row" data-security-order-row="${escapeHtml(order.id)}">
+      <div><strong>${escapeHtml(order.visitorName)}</strong> <span class="meta">${escapeHtml(classLabel[order.accessClass] || order.accessClass)} &middot; ${escapeHtml(order.kind)} &middot; rev ${order.revision}</span></div>
+      <div class="meta">${escapeHtml(securityOrderStatusText(order))}${order.reason ? ` &middot; ${escapeHtml(order.reason)}` : ''}</div>
+      <div class="security-order-actions">
+        <button data-security-order="${escapeHtml(order.id)}" data-security-op="waive">Waive this check</button>
+        <button data-security-order="${escapeHtml(order.id)}" data-security-op="withdraw" ${order.kind === 'withdraw' ? 'disabled' : ''}>Request withdrawal</button>
+        <button data-security-order="${escapeHtml(order.id)}" data-security-op="cancel">Cancel instruction</button>
+      </div>
+    </div>`).join('');
+  const history = recent.map((order) => `<div class="meta">${escapeHtml(order.visitorName)}: ${escapeHtml(securityOrderStatusText(order))}${order.reason ? ` (${escapeHtml(order.reason)})` : ''}</div>`).join('');
+  return `${rows || '<div class="meta">No visitor is under instruction.</div>'}${history ? `<div class="meta security-history-head">Recent outcomes</div>${history}` : ''}`;
+}
+function refreshSecurityEncounterList() {
+  if (!planetMenuEl || !state.planetMenuOpen || !state.docked || state.dockMenuTab !== 'security') return;
+  const live = planetMenuEl.querySelector('[data-security-live]');
+  if (!live) return;
+  const key = securityEncounterListKey(state.currentPlanet);
+  if (live.dataset.renderKey === key) return;
+  live.dataset.renderKey = key;
+  live.innerHTML = renderSecurityEncounterListMarkup(state.currentPlanet);
 }
 
 planetMenuEl?.addEventListener('click', (e) => {
@@ -10762,6 +11878,41 @@ planetMenuEl?.addEventListener('click', (e) => {
       setLog(`${state.planets[state.currentPlanet]?.name || 'System'} rules of engagement: ${securityRoe.dataset.securityRoe === 'return-fire' ? 'return fire only' : 'defend'}.`);
     }
     renderPlanetMenu();
+    return;
+  }
+  const securityAccess = e.target.closest('[data-security-access]');
+  if (securityAccess) {
+    const [cls, value] = String(securityAccess.dataset.securityAccess || '').split(':');
+    if (cls && cls !== 'unknown' && SECURITY_ACCESS_VALUES.includes(value) && setSecurityPolicyOverride(state.currentPlanet, { access: { [cls]: value } })) {
+      setLog(`${state.planets[state.currentPlanet]?.name || 'System'} access for ${cls === 'warFlag' ? 'war flags' : cls === 'independent' ? 'independents' : 'everyone else'}: ${value}.`);
+    }
+    renderPlanetMenu();
+    return;
+  }
+  const securityCheckpoint = e.target.closest('[data-security-checkpoint]');
+  if (securityCheckpoint) {
+    const enable = securityCheckpoint.dataset.securityCheckpoint === 'enable';
+    const candidates = getSecurityAnchorCandidates(state.currentPlanet, PLAYER_SIDE);
+    const current = getPlayerCheckpointConfig(state.currentPlanet);
+    const anchor = current?.anchorStationId && candidates.some((station) => station.id === current.anchorStationId) ? current.anchorStationId : (candidates[0]?.id || null);
+    if (setPlayerCheckpoint(state.currentPlanet, { enabled: enable, anchorStationId: enable ? anchor : undefined })) {
+      setLog(enable ? `${state.planets[state.currentPlanet]?.name || 'System'} checkpoint enabled.` : `${state.planets[state.currentPlanet]?.name || 'System'} checkpoint disabled.`);
+    }
+    renderPlanetMenu();
+    return;
+  }
+  const securityAnchor = e.target.closest('[data-security-anchor]');
+  if (securityAnchor) {
+    if (setPlayerCheckpoint(state.currentPlanet, { anchorStationId: securityAnchor.dataset.securityAnchor })) setLog('Checkpoint issuing installation updated.');
+    renderPlanetMenu();
+    return;
+  }
+  const securityOrder = e.target.closest('[data-security-order]');
+  if (securityOrder) {
+    operateSecurityOrder(securityOrder.dataset.securityOrder, securityOrder.dataset.securityOp);
+    const live = planetMenuEl.querySelector('[data-security-live]');
+    if (live) live.dataset.renderKey = '';
+    refreshSecurityEncounterList();
     return;
   }
   const securityAction = e.target.closest('[data-security-action]');
@@ -11304,6 +12455,15 @@ function tryDockAtStation(station) {
   if (distance > dockDistance) {
     setLog(`Move closer to ${station.name} to dock.`);
     addWorldPop(screen.x, screen.y - 42, 'Too far');
+    return false;
+  }
+  // The authority's own installations refuse a visitor with a pending or refused instruction;
+  // concessions and private posts inside the zone are not the authority's and still receive you.
+  const securityBlock = getSecurityDockingBlock(getStationOwner(station, state.currentPlanet));
+  if (securityBlock) {
+    playGameSound('uiError', { cooldownKey: 'dock:security' });
+    setLog(securityBlock);
+    addWorldPop(screen.x, screen.y - 42, 'Not cleared', '#ff9c9c');
     return false;
   }
   state.combatTargetId = null;
@@ -12188,6 +13348,7 @@ function firePlayerWeapon(slot = 1) {
   }
   target.attitude = 'hostile';
   target.hostile = true;
+  recordPlayerAggressionAgainst(target, now);
   markPlayerEscortAttackOrder(target, now);
   state.combatTargetId = target.id;
   state.combatTargetType = target.stationTypeId ? 'station' : 'ship';
@@ -12721,6 +13882,21 @@ function hasRecentAggressionAgainst(entity, side, now = performance.now(), syste
     && Number(entity.lastAggressionSystemIndex) === Number(systemIndex)
     && sidesAligned(entity.lastAggressionTargetSide, side);
 }
+function hasRecentPlayerAggressionAgainst(side, now = performance.now(), systemIndex = state.currentPlanet) {
+  return Boolean(state.lastPlayerAggressionAt) && now - state.lastPlayerAggressionAt < NPC_AGGRESSION_MEMORY_MS
+    && Number(state.lastPlayerAggressionSystemIndex) === Number(systemIndex)
+    && sidesAligned(state.lastPlayerAggressionTargetSide, side);
+}
+function recordPlayerAggressionAgainst(target, now = performance.now()) {
+  if (!target) return;
+  const side = target.stationTypeId
+    ? getStationOwner(target, state.currentPlanet)
+    : getNpcSideId(target);
+  if (!side) return;
+  state.lastPlayerAggressionAt = now;
+  state.lastPlayerAggressionSystemIndex = Number(state.currentPlanet);
+  state.lastPlayerAggressionTargetSide = side;
+}
 function resolveDefenderSide(defender) {
   if (typeof defender === 'string') return defender;
   if (!defender) return getDefendingSideId(state.currentPlanet);
@@ -13093,6 +14269,7 @@ function scheduleAmbientTrafficWarp(npc, now = performance.now()) {
 function isAmbientTrafficWarpEligible(npc, now = performance.now()) {
   if (!npc || npc.destroyed || npc.trafficWarp) return false;
   if (npc.role !== 'traffic' && npc.role !== 'localTraffic') return false;
+  if (npc.securityObjective) return false; // executing a checkpoint instruction: no ambient departure until it ends
   if (npc.hostile || npc.attackId || npc.fleetId || state.combatTargetId === npc.id) return false;
   if ((npc.playerAggroUntil && npc.playerAggroUntil > now) || (npc.playerEscortOrderUntil && npc.playerEscortOrderUntil > now)) return false;
   if (isNpcTractorHeld(npc, now) || isNpcEngineDisabled(npc, now)) return false;
@@ -13122,6 +14299,7 @@ function syncAmbientTrafficVariant(npc) {
   systemShip.faction = npc.faction;
   systemShip.sideId = npc.sideId;
   systemShip.identityLocked = true;
+  systemShip.securityInstanceId = npc.securityInstanceId || null;
 }
 
 function beginAmbientTrafficArrival(npc, now = performance.now()) {
@@ -13168,6 +14346,20 @@ function beginAmbientTrafficArrival(npc, now = performance.now()) {
       startedAt: now,
       endsAt: now + AMBIENT_TRAFFIC_WARP_IN_MS,
     },
+    // A replacement is a different vessel. Nothing the previous occupant of this slot did or had
+    // done to it carries over: no attack evidence, no aggro, no standing escort order, no raid
+    // membership, no open hail, no damage record.
+    lastAggressionAt: 0,
+    lastAggressionTargetSide: null,
+    lastAggressionSystemIndex: null,
+    playerAggroUntil: 0,
+    playerEscortOrderUntil: 0,
+    attackId: null,
+    hailSession: null,
+    lastDamageSource: null,
+    combatManeuver: null,
+    securityInstanceId: nextSecurityInstanceId(), // a different vessel, so a different visitor
+    securityObjective: null,
   });
   syncAmbientTrafficVariant(npc);
 }
@@ -13265,6 +14457,10 @@ function updateNpcShips(frameScale = 1) {
       npc.heading = (finiteNumber(npc.heading, 0) + Math.sin(now * 0.0014 + finiteNumber(npc.seed, 1)) * 0.08 * frameScale + 360) % 360;
       continue;
     }
+    // An administrative objective (checkpoint hold or withdrawal) owns the destination while it lasts.
+    // Combat below still overrides the destination this frame; the encounter update then ends the
+    // objective as interrupted. A holding ship does not move at all.
+    if (npc.securityObjective && updateNpcSecurityObjective(npc, now)) continue;
     const playerDistance = distanceToPlayer(npc);
     const stationTarget = npc.hostile ? getNpcStationTarget(npc) : null;
     const targetPlayer = npc.hostile && shouldNpcTargetPlayer(npc, playerDistance, stationTarget, now);
@@ -13325,6 +14521,7 @@ function updateNpcShips(frameScale = 1) {
         if (npc.combatManeuver) npc.combatManeuver.until = 0;
         continue;
       }
+      if (npc.securityObjective) { npc.waitUntil = now + 200; continue; } // the objective, not the lane picker, decides what comes next
       const next = pickTrafficDestination(state.trafficDestinations, npc.seed + npc.leg * 17 + 31, npc.destinationName);
       npc.destination = { ...next.point };
       npc.destinationName = next.name;
@@ -13484,6 +14681,7 @@ function tick(frameScale = 1) {
   s.x = canvas.width * 0.5;
   s.y = canvas.height * 0.5;
   updateTractorBeams(frameScale);
+  updateSecurityEncounters(frameScale);
 
   const now = performance.now();
   if ((up || down || left || right || s.velocity > 0) && now - lastMotionStatsAt > 250) {
@@ -16285,6 +17483,20 @@ function drawMinimap() {
     if (!station.destroyed) dot(station, station.hostile ? '#ff9c9c' : '#9cffb4', 3.8);
   }
   if (state.wormhole) dot(state.wormhole, '#c59cff', 3.4);
+  const securityZone = getSecurityZone(state.currentPlanet);
+  if (securityZone) {
+    ctx2.save();
+    ctx2.beginPath();
+    ctx2.rect(pad, pad, mapW, mapH);
+    ctx2.clip();
+    orbitGuide(securityZone.centre, securityZone.radius, securityZone.foreign ? 'rgba(255, 180, 84, 0.7)' : 'rgba(125, 200, 255, 0.7)', [5, 4]);
+    ctx2.restore();
+    const playerOrder = getPlayerSecurityOrder(state.currentPlanet);
+    if (playerOrder) {
+      const withdrawing = playerOrder.kind === 'withdraw' || playerOrder.withdrawing;
+      dot(resolveSecurityPoint(securityZone, withdrawing ? playerOrder.exit : playerOrder.hold), withdrawing ? '#ff9c9c' : '#9cffb4', 3.2);
+    }
+  }
   for (const npc of state.npcShips) {
     if (npc.destroyed || npc.trafficWarp?.phase === 'away') continue;
     const color = npc.attitude === 'friendly' ? '#9cffb4' : npc.hostile ? '#ff9c9c' : '#dfeaff';
@@ -16611,6 +17823,8 @@ function render() {
   drawMinimap();
   syncInterstellarMapFrame();
   updateTargetWindow();
+  updateSecurityOrderPanel();
+  refreshSecurityEncounterList();
   clearInterstellarMapOverlay();
 
   if (state.warp.active) {
@@ -16640,6 +17854,7 @@ function render() {
     ctx.fillText(state.wormhole.name || 'Wormhole', wormhole.x, wormhole.y - 32);
     ctx.textAlign = 'start';
   }
+  drawSecurityZoneMarkers(now);
   for (const station of state.stations) {
     const p = worldToScreen(station);
     const stationVisual = getStationVisualProfile(station);
@@ -16812,6 +18027,9 @@ function resetRunState() {
   state.combatTargetId = null;
   state.combatTargetType = 'ship';
   state.lastPlayerShotAt = 0;
+  state.lastPlayerAggressionAt = 0;
+  state.lastPlayerAggressionSystemIndex = null;
+  state.lastPlayerAggressionTargetSide = null;
   state.weaponLastFiredAt = [0, 0, 0];
   state.cloak = { active: false, startedAt: 0, duration: finiteNumber(getCloakItemSettings().durationMs, CLOAK_DURATION_MS) };
   state.stationPlans = [];
@@ -16830,6 +18048,7 @@ function resetRunState() {
   state.controlledSystems = [];
   state.stationOwners = {};
   state.securityPolicies = { default: null, systems: {} };
+  resetSecurityRecords();
   state.visitedSystems = [];
   state.factionSystemOverrides = {};
   state.destroyedStations = {};
@@ -16919,6 +18138,9 @@ function restartInEscapePod() {
   state.combatTargetId = null;
   state.combatTargetType = 'ship';
   state.lastPlayerShotAt = 0;
+  state.lastPlayerAggressionAt = 0;
+  state.lastPlayerAggressionSystemIndex = null;
+  state.lastPlayerAggressionTargetSide = null;
   state.cloak = { active: false, startedAt: 0, duration: finiteNumber(getCloakItemSettings().durationMs, CLOAK_DURATION_MS) };
   state.mapOpen = false;
   state.planetMenuOpen = false;
@@ -16993,6 +18215,7 @@ function startWithFaction(key, options = {}) {
   state.controlledSystems = [];
   state.stationOwners = {};
   state.securityPolicies = { default: null, systems: {} };
+  resetSecurityRecords();
   transferSystemControlToPlayer(state.currentPlanet); // the start system's government installations are the side's
   state.myantimatter = f.myantimatter;
   state.antimatter = f.myantimatter;
