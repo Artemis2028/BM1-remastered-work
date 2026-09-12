@@ -1,0 +1,46 @@
+{
+  "identity": "Use bm-ship:<id> keys; numeric ids are local to this pack, not guaranteed free in the target project.",
+  "legacyReferences": {
+    "26": {
+      "newReferenceId": 211,
+      "existingOwnedShip": "Preserve hull instance, equipment, owner and damage; explicitly migrate only the type ID after reviewing destination stats."
+    },
+    "63": {
+      "newReferenceId": null,
+      "existingOwnedShip": "Keep legacy record loadable; exclude new traffic and sales. Never delete an owned ship."
+    },
+    "60": {
+      "warning": "Saves from erroneous Excalibur=60 builds cannot be distinguished from original independent 60 by numeric ID alone. Require source-save version or an explicit user migration choice."
+    }
+  },
+  "sourceAliasesAreNotSaveMigration": true,
+  "pasoStock": [
+    49,
+    347
+  ],
+  "dominion": {
+    "blenderRoutineIds": [
+      30,
+      206,
+      322
+    ],
+    "coreRegion": "dominion-core",
+    "coreScope": "Dominica/Gamma network, provided explicitly by the target project",
+    "invasionsMayLeaveRegion": true,
+    "ordinaryMarketMustRespectRegion": true
+  },
+  "purchasePrestige": {
+    "Excalibur": 100,
+    "allOtherTiers": "Target must supply world-prestige thresholds; the pack deliberately does not invent values."
+  },
+  "missingFeatures": [
+    "boarding/capture",
+    "fleet transfer",
+    "away-team XP",
+    "repair arms and service capability enforcement",
+    "station construction/workbees",
+    "independence/civil wars",
+    "Reman access recovery mission",
+    "Phase 3 checkpoint and incident engine"
+  ]
+}

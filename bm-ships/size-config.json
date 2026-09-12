@@ -1,0 +1,30 @@
+{
+  "classScales": {
+    "shuttle": 0.5,
+    "escort": 0.68,
+    "lightCruiser": 0.9,
+    "cruiser": 1.2,
+    "capital": 1.55,
+    "battleship": 1.9
+  },
+  "classTurnRates": {
+    "shuttle": 24,
+    "escort": 18,
+    "lightCruiser": 13.5,
+    "cruiser": 9.5,
+    "capital": 6.2,
+    "battleship": 4.4
+  },
+  "classSystemWarpMultipliers": {
+    "shuttle": 4.4,
+    "escort": 4,
+    "lightCruiser": 3.45,
+    "cruiser": 3,
+    "capital": 2.45,
+    "battleship": 2.05
+  },
+  "trafficScaleVariance": {
+    "min": 0.99,
+    "max": 1
+  }
+}
