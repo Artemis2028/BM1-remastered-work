@@ -1,3 +1,17 @@
+import {
+  loadGameShipCatalog,
+  mergeCatalogIntoEntities,
+  buildSpawnContext,
+  buildPurchaseContext,
+  resolveOwnedShipId,
+  pickSpawnShip,
+  pickSeededSpawnId,
+  getCatalogDrawSize,
+  catalogImageUrl,
+  isUnbalancedPrototype,
+  describePurchaseDecision,
+} from './ship-catalog-integration.mjs';
+
 const canvas = document.getElementById('game');
 const gameCtx = canvas.getContext('2d');
 let ctx = gameCtx;
@@ -577,6 +591,9 @@ const state = {
   cargoArray: Array.from({ length: 10 }, () => ({ tons: 0, item: 'Nothing', destination: undefined, payout: 0 })),
   latinum: 100,
   mylatinum: 100,
+  worldPrestige: 0,
+  shipPurchaseTierThresholds: null,
+  shipCatalog: null,
   duranium: 0,
   myduranium: 0,
   antimatter: 6,
@@ -1265,12 +1282,54 @@ function pickSeededPoolItem(pool = [], seedValue = 1, salt = 'pool') {
   return selected;
 }
 
-function getNpcShipId(seedValue) {
+function getCurrentSystemName(systemIndex = state.currentPlanet) {
+  return String(state.planets?.[systemIndex]?.name || '').trim();
+}
+
+function getWorldPrestige() {
+  // Standing and latinum are not world prestige. Unset stays 0; no UI invents a value.
+  return finiteNumber(state.worldPrestige, 0);
+}
+
+function getConfiguredPurchaseTierThresholds() {
+  const configured = state.shipPurchaseTierThresholds;
+  return configured && typeof configured === 'object' ? configured : undefined;
+}
+
+function getCurrentPurchaseVendor(station = getCurrentDockedStation()) {
+  const stationStats = station ? getShipStats(station.stationTypeId) : null;
+  return {
+    systemName: getCurrentSystemName(),
+    stationName: String(stationStats?.name || station?.name || ''),
+  };
+}
+
+function getCatalogSpawnContext(role = 'traffic', systemIndex = state.currentPlanet) {
+  const authorized = role === 'fleetAttack' || role === 'mission';
+  return buildSpawnContext({
+    systemName: getCurrentSystemName(systemIndex),
+    role,
+    authorizedDeployment: authorized,
+    controller: getSystemControl(systemIndex).controller,
+  });
+}
+
+function pickCatalogSpawnId(role, faction, seedValue, systemIndex = state.currentPlanet) {
+  const catalog = state.shipCatalog;
+  if (!catalog) return null;
+  const pool = pickSpawnShip(catalog, getCatalogSpawnContext(role, systemIndex), faction ?? null);
+  // Empty legal pools stay empty. Never fall back to a forbidden hull.
+  return pickSeededSpawnId(pool, seedValue, `catalog-spawn:${role}:${faction || '*'}`, pickSeededPoolItem);
+}
+
+function getNpcShipId(seedValue, role = 'traffic') {
+  if (state.shipCatalog) return pickCatalogSpawnId(role, null, seedValue);
   const pool = state.npcShipIds?.length ? state.npcShipIds : FALLBACK_NPC_SHIP_IDS;
   return pickSeededPoolItem(pool, seedValue, 'npc-any-ship') || pool[0];
 }
 
-function getNpcShipIdForFaction(faction = 'neutral', seedValue = 1) {
+function getNpcShipIdForFaction(faction = 'neutral', seedValue = 1, role = 'patrol') {
+  if (state.shipCatalog) return pickCatalogSpawnId(role, faction, seedValue);
   const pool = state.npcShipIds?.length ? state.npcShipIds : FALLBACK_NPC_SHIP_IDS;
   const exact = pool.filter((id) => getShipFaction(id) === faction);
   const aligned = exact.length ? exact : pool.filter((id) => areFactionsAligned(getShipFaction(id), faction));
@@ -1456,7 +1515,7 @@ function createNpcShip({
     lastShieldHitAt: 0,
     lastShotAt: performance.now() + 700 + seeded(seed + 13) * 1500,
     destroyed: false,
-    scale: getShipVisualScale(shipId) * getTrafficScaleMultiplier(seed + 11),
+    scale: getNpcSpriteScale(shipId, seed + 11),
     role,
     fleetId,
     attackId,
@@ -2366,8 +2425,9 @@ function ensureSystemState(systemIndex) {
     const angle = seeded(shipSeed + 4) * Math.PI * 2;
     const role = i < localPatrolCount ? 'patrol' : i < localTrafficCount ? 'localTraffic' : 'traffic';
     const shipId = i < localTrafficCount
-      ? getNpcShipIdForFaction(localFaction, shipSeed + 10)
-      : getNpcShipId(shipSeed + 10);
+      ? getNpcShipIdForFaction(localFaction, shipSeed + 10, role)
+      : getNpcShipId(shipSeed + 10, role);
+    if (shipId == null) return null;
     const faction = getShipFaction(shipId);
     const flight = getNpcFlightProfile(shipId, shipSeed);
     return {
@@ -2397,9 +2457,9 @@ function ensureSystemState(systemIndex) {
       lastShieldHitAt: 0,
       lastShotAt: 0,
       destroyed: false,
-      scale: getShipVisualScale(shipId) * getTrafficScaleMultiplier(shipSeed + 11),
+      scale: getNpcSpriteScale(shipId, shipSeed + 11),
     };
-  });
+  }).filter(Boolean);
   state.systemStates[systemIndex] = {
     hasNebula,
     nebulaColor: getNebulaColor(base),
@@ -2449,7 +2509,7 @@ function applySystemState(systemIndex) {
     // identity is then written back to the snapshot so later entries cannot change it.
     const locked = Boolean(ship.identityLocked) || (typeof ship.sideId === 'string' && ship.sideId.length > 0);
     const patrolShipId = !locked && state.systemFaction !== 'neutral' && ship.role === 'patrol' && !ship.destroyed
-      ? getNpcShipIdForFaction(state.systemFaction, ship.seed + 10)
+      ? (getNpcShipIdForFaction(state.systemFaction, ship.seed + 10, 'patrol') ?? ship.shipId)
       : ship.shipId;
     const faction = locked ? ship.faction : getShipFaction(patrolShipId);
     const sideId = locked && ship.sideId
@@ -2472,7 +2532,7 @@ function applySystemState(systemIndex) {
       sideId,
       attitude,
       hostile: state.systemAttitude === 'hostile' && attitude !== 'friendly',
-      scale: getShipVisualScale(patrolShipId) * getTrafficScaleMultiplier(ship.seed + 11),
+      scale: getNpcSpriteScale(patrolShipId, ship.seed + 11),
       lastShotAt: now + 700 + seeded(ship.seed + 13) * 1500,
     };
   });
@@ -2964,6 +3024,8 @@ function showPlanetCallout(index = state.currentPlanet) {
 
 function resolveShipId(playership = state.playership) {
   const requestedId = Number(playership) || playership;
+  // Owned/display identity. Catalog replacementId is only for new references.
+  if (state.shipCatalog?.getShip(requestedId)) return resolveOwnedShipId(state.shipCatalog, requestedId);
   const legacyId = Number(LEGACY_SHIP_ID_REPLACEMENTS[requestedId]);
   const currentId = Number.isFinite(legacyId) && state.shipStatsById[legacyId] ? legacyId : requestedId;
   const stats = state.shipStatsById[currentId];
@@ -2977,8 +3039,10 @@ function resolveShipId(playership = state.playership) {
 function getShipStats(playership = state.playership) {
   const requestedId = Number(playership) || playership;
   const resolvedId = resolveShipId(requestedId);
-  const stats = state.shipStatsById[resolvedId];
-  return stats || {
+  const catalogShip = state.shipCatalog?.getShip(resolvedId);
+  const stats = state.shipStatsById[resolvedId] || catalogShip;
+  if (stats) return stats;
+  return {
     id: requestedId,
     name: `Ship ${requestedId}`,
     mass: 1,
@@ -3145,7 +3209,7 @@ function getScaledWeaponCooldown(shipId = state.playership, weapon = getWeapon()
   return Math.max(Math.round(typeMinimum * floorScale), Math.round(cooldown));
 }
 
-function getShipVisualScale(playership = state.playership) {
+function getShipClassScale(playership = state.playership) {
   const stats = getShipStats(playership);
   const configuredScale = finiteNumber(state.shipSizeConfig?.shipScaleOverrides?.[Number(playership)], NaN);
   if (Number.isFinite(configuredScale) && configuredScale > 0) return configuredScale;
@@ -3164,7 +3228,30 @@ function getShipVisualScale(playership = state.playership) {
   return manifestScale * (classScale / manifestClassScale);
 }
 
+function getShipVisualScale(playership = state.playership) {
+  // Pack draw sizes already include the class envelope. Do not multiply class scale again.
+  if (getCatalogDrawSize(state.shipCatalog, playership)) return 1;
+  return getShipClassScale(playership);
+}
+
+function getNpcSpriteScale(shipId, seedValue) {
+  return getShipVisualScale(shipId) * getTrafficScaleMultiplier(seedValue);
+}
+
 function getShipVisualProfile(playership = state.playership) {
+  const catalogSize = getCatalogDrawSize(state.shipCatalog, playership);
+  if (catalogSize) {
+    return {
+      width: Math.round(clamp(catalogSize.width, 18, 520)),
+      height: Math.round(clamp(catalogSize.height, 18, 520)),
+      scale: 1,
+    };
+  }
+  const catalogShip = state.shipCatalog?.getShip(Number(playership));
+  if (catalogShip && !catalogShip.render) {
+    // Prototype / unset size: do not invent a game envelope.
+    return { width: 0, height: 0, scale: 1 };
+  }
   const stats = getShipStats(playership);
   return {
     width: Math.round(clamp(finiteNumber(stats.drawWidth, 74), 18, 520)),
@@ -3195,7 +3282,7 @@ function getStationTargetFrameRadius(station = {}) {
 function getShipHandlingProfile(playership = state.playership) {
   const stats = getShipStats(playership);
   const shipClass = getShipVisualClass(playership);
-  const visualScale = getShipVisualScale(playership);
+  const visualScale = getShipClassScale(playership);
   const mass = Math.max(1, finiteNumber(stats.mass, 1));
   const manifestTurnRate = Math.max(1, finiteNumber(stats.turnRate, DEFAULT_SHIP_SIZE_CONFIG.classTurnRates[shipClass] || 8));
   const classTurnRate = Math.max(
@@ -3885,29 +3972,40 @@ async function loadEntityManifests() {
 
 async function loadShipManifest() {
   try {
-    const [entities] = await Promise.all([
+    const [entities, , catalog] = await Promise.all([
       loadEntityManifests(),
       loadShipSizeConfig(),
+      loadGameShipCatalog().catch((error) => {
+        console.warn('[bm-ships] catalog failed to load; remaster manifest remains in use.', error);
+        return null;
+      }),
     ]);
-    state.shipStatsById = Object.fromEntries(entities.map((ship) => [Number(ship.id), ship]));
+    state.shipCatalog = catalog;
+    const merged = mergeCatalogIntoEntities(entities, catalog);
+    state.shipStatsById = Object.fromEntries(merged.map((ship) => [Number(ship.id), ship]));
     state.shipImageCandidatesById = Object.fromEntries(
-      entities.map((ship) => [Number(ship.id), imageCandidatesForEntity(ship)]),
+      merged.map((ship) => {
+        const catalogSrc = catalogImageUrl(catalog, ship.id);
+        const candidates = catalogSrc ? [catalogSrc] : imageCandidatesForEntity(ship);
+        return [Number(ship.id), candidates];
+      }),
     );
     state.shipImageBoundsById = Object.fromEntries(
-      entities
+      merged
         .filter((ship) => ship.trimBounds)
         .map((ship) => [Number(ship.id), ship.trimBounds]),
     );
     state.shipSpriteCandidateIndex = {};
     state.shipSprites = {};
     state.shipImageById = Object.fromEntries(
-      entities
-        .map((ship) => [Number(ship.id), imageCandidatesForEntity(ship)[0]])
+      merged
+        .map((ship) => [Number(ship.id), (state.shipImageCandidatesById[Number(ship.id)] || [])[0]])
         .filter(([, src]) => src),
     );
-    const trafficIds = entities
+    const trafficIds = merged
       .filter((ship) => {
         if (ship.assetType !== 'ship') return false;
+        if (ship.rosterState === 'retired' || ship.rosterState === 'prototype') return false;
         if (Object.prototype.hasOwnProperty.call(ship, 'trafficEligible')) return ship.trafficEligible;
         return !NON_TRAFFIC_SHIP_TERMS.some((term) => String(ship.name || '').toLowerCase().includes(term));
       })
@@ -3927,6 +4025,8 @@ async function loadShipManifest() {
 function getShipImageCandidates(id) {
   const numericId = Number(id);
   const imageId = resolveShipId(numericId);
+  const catalogSrc = catalogImageUrl(state.shipCatalog, imageId);
+  if (catalogSrc) return [catalogSrc];
   const configured = state.shipImageCandidatesById[imageId];
   if (configured?.length) return configured;
   return [
@@ -7042,7 +7142,7 @@ function getGodModeShips() {
     station: 99,
   };
   return Object.values(state.shipStatsById || {})
-    .filter((ship) => ship && ship.assetType === 'ship')
+    .filter((ship) => ship && ship.assetType === 'ship' && !isUnbalancedPrototype(ship))
     .sort((a, b) => {
       const aClass = classOrder[a.shipClass] || classOrder[getShipVisualClass(a.id)] || 50;
       const bClass = classOrder[b.shipClass] || classOrder[getShipVisualClass(b.id)] || 50;
@@ -7204,6 +7304,8 @@ function getWeaponTypeIconSrc(weapon = getWeapon()) {
 
 function getShipPreviewSrc(shipId) {
   const numericId = Number(shipId);
+  const catalogSrc = catalogImageUrl(state.shipCatalog, resolveShipId(numericId));
+  if (catalogSrc) return catalogSrc;
   return state.shipImageById[numericId] || getShipImageCandidates(numericId)[0] || `assets/game/ships/${numericId}.png`;
 }
 
@@ -7683,11 +7785,13 @@ function scoreShipyardStock(ship, context) {
 function getShipyardStock(station = getCurrentDockedStation()) {
   const ships = Object.values(state.shipStatsById)
     .filter((ship) => ship && ship.assetType === 'ship' && ship.trafficEligible !== false)
+    .filter((ship) => ship.rosterState !== 'retired' && ship.rosterState !== 'prototype' && !isUnbalancedPrototype(ship))
     .filter((ship) => getShipPrice(ship) > 0);
   if (station?.stockIds?.length) {
     const localStock = station.stockIds
       .map((id) => state.shipStatsById[Number(id)])
-      .filter((ship) => ship && ship.assetType === 'ship' && getShipPrice(ship) > 0);
+      .filter((ship) => ship && ship.assetType === 'ship' && getShipPrice(ship) > 0)
+      .filter((ship) => ship.rosterState !== 'retired' && ship.rosterState !== 'prototype' && !isUnbalancedPrototype(ship));
     if (localStock.length) return localStock.slice(0, SHIPYARD_STOCK_SIZE);
   }
   const context = getShipyardStockContext(station);
@@ -8350,6 +8454,7 @@ function getStationStoreShipIds(stationTypeId, systemIndex = state.currentPlanet
   });
   return Object.values(state.shipStatsById)
     .filter((ship) => ship && ship.assetType === 'ship' && getShipPrice(ship) > 0)
+    .filter((ship) => ship.rosterState !== 'retired' && ship.rosterState !== 'prototype' && !isUnbalancedPrototype(ship))
     .filter((ship) => getShipPrice(ship) <= context.maxPrice && Math.max(1, finiteNumber(ship.mass, 1)) <= context.maxMass)
     .filter((ship) => getShipFaction(ship.id) === state.playerFaction || getShipFaction(ship.id) === 'neutral')
     .sort((a, b) => scoreShipyardStock(a, context) - scoreShipyardStock(b, context))
@@ -8404,6 +8509,10 @@ function canBuyFleetShip(shipId, systemIndex = state.currentPlanet) {
   if (!ship || ship.assetType !== 'ship') return { ok: false, reason: 'Unavailable' };
   if (!hasFactionAccessAt(systemIndex)) return { ok: false, reason: 'Control system' };
   if (getPlayerFleetShips(systemIndex).length >= MAX_PLAYER_FLEET_SHIPS_PER_SYSTEM) return { ok: false, reason: 'Fleet full' };
+  const catalogDecision = getCatalogPurchaseDecision(shipId);
+  if (catalogDecision && !catalogDecision.allowed && catalogDecision.reason !== 'funds') {
+    return { ok: false, reason: describePurchaseDecision(catalogDecision, ship) };
+  }
   const cost = getFleetShipCost(ship);
   if (state.latinum < cost) return { ok: false, reason: 'Need latinum' };
   return { ok: true, reason: 'Fleet' };
@@ -8413,6 +8522,10 @@ function canBuyEscortShip(shipId, systemIndex = state.currentPlanet) {
   const ship = state.shipStatsById[Number(shipId)];
   if (!ship || ship.assetType !== 'ship') return { ok: false, reason: 'Unavailable' };
   if (getPlayerEscortFleetShips().length >= MAX_PLAYER_ESCORT_SHIPS) return { ok: false, reason: 'Escort full' };
+  const catalogDecision = getCatalogPurchaseDecision(shipId);
+  if (catalogDecision && !catalogDecision.allowed && catalogDecision.reason !== 'funds') {
+    return { ok: false, reason: describePurchaseDecision(catalogDecision, ship) };
+  }
   const cost = getFleetShipCost(ship);
   if (state.latinum < cost) return { ok: false, reason: 'Need latinum' };
   return { ok: true, reason: 'Escort' };
@@ -9592,6 +9705,18 @@ function requireDocked() {
   return true;
 }
 
+function getCatalogPurchaseDecision(shipId, extra = {}) {
+  if (!state.shipCatalog) return null;
+  const vendorInfo = getCurrentPurchaseVendor();
+  return state.shipCatalog.getPurchaseDecision(shipId, buildPurchaseContext({
+    ...vendorInfo,
+    credits: extra.credits ?? state.latinum,
+    worldPrestige: extra.worldPrestige ?? getWorldPrestige(),
+    tierThresholds: extra.tierThresholds ?? getConfiguredPurchaseTierThresholds(),
+    vendor: extra.vendor,
+  }));
+}
+
 function getShipPurchaseStatus(shipId) {
   const ship = state.shipStatsById[Number(shipId)];
   if (!ship || ship.assetType !== 'ship') {
@@ -9612,7 +9737,18 @@ function getShipPurchaseStatus(shipId) {
   if (serviceBlock) {
     return { ok: false, reason: serviceBlock, ship };
   }
-  const price = getShipPrice(ship);
+  const catalogDecision = getCatalogPurchaseDecision(shipId);
+  if (catalogDecision && !catalogDecision.allowed) {
+    return {
+      ok: false,
+      reason: describePurchaseDecision(catalogDecision, ship),
+      ship,
+      price: catalogDecision.price ?? getShipPrice(ship),
+      cargoCapacity,
+      catalogDecision,
+    };
+  }
+  const price = catalogDecision?.price ?? getShipPrice(ship);
   if (state.latinum < price) {
     return { ok: false, reason: `Need ${price} latinum to buy ${ship.name}.`, ship, price, cargoCapacity };
   }
@@ -10075,6 +10211,8 @@ function saveGame(slot = state.currentSaveSlot || 1) {
     cargo: state.cargo,
     cargoCap: state.cargoCap,
     latinum: state.latinum,
+    worldPrestige: getWorldPrestige(),
+    shipPurchaseTierThresholds: getConfiguredPurchaseTierThresholds() || null,
     duranium: state.duranium,
     antimatter: state.antimatter,
     fuel: state.fuel,
@@ -10154,6 +10292,10 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   state.cargo = s.cargo ?? 0;
   state.cargoCap = s.cargoCap ?? 20;
   state.latinum = s.latinum ?? 100;
+  state.worldPrestige = Number.isFinite(Number(s.worldPrestige)) ? Number(s.worldPrestige) : 0;
+  state.shipPurchaseTierThresholds = s.shipPurchaseTierThresholds && typeof s.shipPurchaseTierThresholds === 'object'
+    ? s.shipPurchaseTierThresholds
+    : null;
   state.duranium = s.duranium ?? s.myduranium ?? 0;
   state.fuelCap = s.fuelCap ?? 100;
   state.antimatter = s.antimatter ?? s.fuel ?? 6;
@@ -10189,7 +10331,7 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   state.mycargo = s.mycargo ?? (s.cargo ?? 0);
   state.totcargo = s.totcargo ?? (s.cargoCap ?? 20);
   state.cargoArray = s.cargoArray ?? state.cargoArray;
-  state.playership = resolveShipId(s.playership ?? 18);
+  state.playership = resolveOwnedShipId(state.shipCatalog, s.playership ?? 18);
   state.playerFaction = s.playerFaction ?? getShipFaction(state.playership);
   state.playerFlags = Array.isArray(s.playerFlags) ? s.playerFlags : [state.playerFaction];
   normalizePlayerFlags();
@@ -14144,9 +14286,11 @@ function spawnFleetAttack(systemIndex = state.currentPlanet, attackerFaction = c
     const seed = hashString(`${attackId}-${index}`);
     const spread = (index - (size - 1) / 2) * 56;
     const sideAngle = originAngle + Math.PI / 2;
+    const shipId = getNpcShipIdForFaction(attackerFaction, seed + 41, 'fleetAttack');
+    if (shipId == null) return null;
     return createNpcShip({
       id: `${attackId}-${index}`,
-      shipId: getNpcShipIdForFaction(attackerFaction, seed + 41),
+      shipId,
       faction: attackerFaction,
       attitude: 'hostile',
       hostile: true,
@@ -14163,7 +14307,8 @@ function spawnFleetAttack(systemIndex = state.currentPlanet, attackerFaction = c
       role: 'fleetAttack',
       attackId,
     });
-  });
+  }).filter(Boolean);
+  if (!ships.length) return false;
   state.npcShips.push(...ships);
   state.activeFleetAttack = {
     id: attackId,
@@ -14283,8 +14428,9 @@ function chooseAmbientTrafficShipId(npc, seed) {
   for (let attempt = 0; attempt < 6; attempt += 1) {
     const trialSeed = seed + attempt * 43;
     candidate = localTraffic
-      ? getNpcShipIdForFaction(localFaction, trialSeed)
-      : getNpcShipId(trialSeed);
+      ? getNpcShipIdForFaction(localFaction, trialSeed, npc.role || 'localTraffic')
+      : getNpcShipId(trialSeed, npc.role || 'traffic');
+    if (candidate == null) return null;
     if (candidate !== npc.shipId) break;
   }
   return candidate;
@@ -14305,6 +14451,10 @@ function syncAmbientTrafficVariant(npc) {
 function beginAmbientTrafficArrival(npc, now = performance.now()) {
   const replacementSeed = hashString(`${npc.id}:${npc.seed}:${Math.floor(now)}`);
   const shipId = chooseAmbientTrafficShipId(npc, replacementSeed);
+  if (shipId == null) {
+    scheduleAmbientTrafficWarp(npc, now);
+    return;
+  }
   const faction = getShipFaction(shipId);
   const attitude = getFactionAttitude(faction);
   const destination = pickTrafficDestination(state.trafficDestinations, replacementSeed + 19, npc.destinationName);
@@ -14328,7 +14478,7 @@ function beginAmbientTrafficArrival(npc, now = performance.now()) {
     seed: replacementSeed,
     leg: 0,
     shipId,
-    scale: getShipVisualScale(shipId) * getTrafficScaleMultiplier(replacementSeed + 11),
+    scale: getNpcSpriteScale(shipId, replacementSeed + 11),
     faction,
     sideId: deriveNpcSideId(faction, npc.id),
     attitude,
@@ -18035,6 +18185,7 @@ function resetRunState() {
   state.stationPlans = [];
   state.playerFlags = [];
   state.factionStanding = {};
+  state.worldPrestige = 0;
   state.feats = {};
   state.power = { energy: 200, dist: { reserve: 5, engines: 5, weapons: 5, shields: 5 } };
   state.autoTarget = true;

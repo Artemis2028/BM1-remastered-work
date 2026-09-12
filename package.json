@@ -9,7 +9,9 @@
     "serve": "python3 -m http.server 8001",
     "release:serve": "python3 -m http.server 8001 --directory dist",
     "clean": "rm -rf dist dist-chrome-extension",
-    "probe": "node scripts/behavior-probe.mjs"
+    "probe": "node scripts/behavior-probe.mjs",
+    "validate:ships": "node bm-ships/validate.mjs",
+    "test:ships": "node scripts/ship-catalog-integration-test.mjs"
   },
   "license": "SEE LICENSE IN LICENSE.md",
   "devDependencies": {

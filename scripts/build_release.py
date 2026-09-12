@@ -20,6 +20,7 @@ INCLUDE_NAMES = {
     "src",
     "data",
     "assets",
+    "bm-ships",
 }
 
 EXCLUDED_NAMES = {
