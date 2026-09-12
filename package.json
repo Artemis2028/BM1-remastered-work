@@ -11,7 +11,8 @@
     "clean": "rm -rf dist dist-chrome-extension",
     "probe": "node scripts/behavior-probe.mjs",
     "validate:ships": "node bm-ships/validate.mjs",
-    "test:ships": "node scripts/ship-catalog-integration-test.mjs"
+    "test:ships": "node scripts/ship-catalog-integration-test.mjs",
+    "test:ships:ingame": "node scripts/ship-catalog-ingame-smoke.mjs"
   },
   "license": "SEE LICENSE IN LICENSE.md",
   "devDependencies": {
