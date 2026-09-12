@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'bm2-pwa-20260911-dominion-blender-v1';
+const CACHE_VERSION = 'bm2-pwa-20260912-phase3-bm-ships-v1';
 const APP_CACHE = `${CACHE_VERSION}-app`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_ASSET_MANIFEST = './offline-assets.json';
@@ -9,6 +9,11 @@ const APP_SHELL = [
   './index.html',
   './styles.css',
   './src/main.js',
+  './src/ship-catalog-integration.mjs',
+  './bm-ships/catalog.mjs',
+  './bm-ships/ships.json',
+  './bm-ships/bm2-id-map.json',
+  './bm-ships/size-config.json',
   './app.webmanifest',
   './data/audio_manifest.json',
   './data/fla_actions_index.json',

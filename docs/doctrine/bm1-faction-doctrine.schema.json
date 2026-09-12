@@ -1,0 +1,2620 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BM1 Faction Doctrine 0.2 \u2014 authoring structure",
+  "$defs": {
+    "predicate": {
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "fact": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "fact"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "all": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/predicate"
+              },
+              "minItems": 1
+            }
+          },
+          "required": [
+            "all"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "any": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/predicate"
+              },
+              "minItems": 1
+            }
+          },
+          "required": [
+            "any"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "interest": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "eventTypes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "asset_overdue",
+              "distress",
+              "route_disruption",
+              "military_buildup",
+              "covert_evidence",
+              "technology_discovery",
+              "border_breach",
+              "asset_attack",
+              "occupation_threat",
+              "trade_opportunity",
+              "central_contact",
+              "prey_sighting"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "when": {
+          "$ref": "#/$defs/predicate"
+        },
+        "response": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "eventTypes",
+        "when",
+        "response",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "rolePolicy": {
+      "type": "object",
+      "properties": {
+        "template": {
+          "type": "string",
+          "minLength": 1
+        },
+        "engagementModes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "template",
+        "engagementModes"
+      ],
+      "additionalProperties": false
+    },
+    "profile": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtimeFaction": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "dormant"
+          ]
+        },
+        "sourceRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "priorities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "rolePolicies": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/rolePolicy"
+          }
+        },
+        "unknownRole": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generators": {
+          "type": "object",
+          "properties": {
+            "traffic": {
+              "type": "string",
+              "enum": [
+                "disabled",
+                "authored_event_only",
+                "requires_assignment_and_budget"
+              ]
+            },
+            "patrol": {
+              "type": "string",
+              "enum": [
+                "disabled",
+                "authored_event_only",
+                "requires_assignment_and_budget"
+              ]
+            },
+            "raid": {
+              "type": "string",
+              "enum": [
+                "disabled",
+                "authored_event_only",
+                "requires_assignment_and_budget"
+              ]
+            },
+            "reinforcement": {
+              "type": "string",
+              "enum": [
+                "disabled",
+                "authored_event_only",
+                "requires_assignment_and_budget"
+              ]
+            },
+            "occupation": {
+              "type": "string",
+              "enum": [
+                "disabled",
+                "authored_event_only",
+                "requires_assignment_and_budget"
+              ]
+            }
+          },
+          "required": [
+            "traffic",
+            "patrol",
+            "raid",
+            "reinforcement",
+            "occupation"
+          ],
+          "additionalProperties": false
+        },
+        "interestRules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/interest"
+          },
+          "minItems": 0
+        },
+        "unmatchedKnownEvent": {
+          "const": "record_only"
+        },
+        "dominionStory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        },
+        "activation": {
+          "type": "string",
+          "enum": [
+            "disabled",
+            "scenario_activation",
+            "campaign_roster"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "runtimeFaction",
+        "status",
+        "sourceRefs",
+        "summary",
+        "priorities",
+        "rolePolicies",
+        "unknownRole",
+        "generators",
+        "interestRules",
+        "unmatchedKnownEvent",
+        "dominionStory",
+        "notes",
+        "activation"
+      ],
+      "additionalProperties": false
+    },
+    "roleTemplate": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "intentPriority": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "minLength": 1
+              },
+              "when": {
+                "$ref": "#/$defs/predicate"
+              }
+            },
+            "required": [
+              "action",
+              "when"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1
+        },
+        "defaultObjective": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sideActions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "description",
+        "intentPriority",
+        "defaultObjective",
+        "sideActions"
+      ],
+      "additionalProperties": false
+    },
+    "objective": {
+      "type": "object",
+      "properties": {
+        "clock": {
+          "type": "string",
+          "enum": [
+            "tactical_seconds",
+            "strategic_jumps"
+          ]
+        },
+        "deadlineRequired": {
+          "const": true
+        },
+        "successWhen": {
+          "$ref": "#/$defs/predicate"
+        },
+        "abortWhen": {
+          "$ref": "#/$defs/predicate"
+        },
+        "complianceAccepted": {
+          "type": "boolean"
+        },
+        "onSuccess": {
+          "const": "close_and_record"
+        },
+        "onAbort": {
+          "const": "close_and_record"
+        },
+        "afterClosure": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "clock",
+        "deadlineRequired",
+        "successWhen",
+        "abortWhen",
+        "complianceAccepted",
+        "onSuccess",
+        "onAbort",
+        "afterClosure"
+      ],
+      "additionalProperties": false
+    },
+    "response": {
+      "type": "object",
+      "properties": {
+        "objective": {
+          "type": "string",
+          "minLength": 1
+        },
+        "eligibleRoles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "requires": {
+          "$ref": "#/$defs/predicate"
+        }
+      },
+      "required": [
+        "objective",
+        "eligibleRoles",
+        "requires"
+      ],
+      "additionalProperties": false
+    },
+    "culture": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "locationNames": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "priorities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "interestRules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/interest"
+          },
+          "minItems": 0
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mayGrantCombatAuthority": {
+          "const": false
+        }
+      },
+      "required": [
+        "name",
+        "locationNames",
+        "priorities",
+        "interestRules",
+        "notes",
+        "mayGrantCombatAuthority"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schema": {
+      "const": "bm1-faction-doctrine"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "const": "DESIGN_ONLY_NOT_LOADED_BY_GAME"
+    },
+    "date": {
+      "type": "string",
+      "minLength": 1
+    },
+    "contract": {
+      "type": "object",
+      "properties": {
+        "predicateGrammar": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evaluationOrder": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        },
+        "intentSelection": {
+          "type": "string",
+          "minLength": 1
+        },
+        "responseSelection": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cultureScope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "closurePrecedence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "weaponGate": {
+          "type": "string",
+          "minLength": 1
+        },
+        "timing": {
+          "type": "string",
+          "minLength": 1
+        },
+        "saveAndBudget": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rewardsAndBlame": {
+          "type": "string",
+          "minLength": 1
+        },
+        "playerOrders": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "predicateGrammar",
+        "evaluationOrder",
+        "intentSelection",
+        "responseSelection",
+        "cultureScope",
+        "closurePrecedence",
+        "weaponGate",
+        "timing",
+        "saveAndBudget",
+        "rewardsAndBlame",
+        "playerOrders"
+      ],
+      "additionalProperties": false
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "locator": {
+            "type": "string",
+            "minLength": 1
+          },
+          "supports": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "locator",
+          "supports"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "facts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "minLength": 1
+          },
+          "meaning": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "domain",
+          "meaning"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "engagementModes": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/predicate"
+      }
+    },
+    "actions": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/predicate"
+      }
+    },
+    "roleTemplates": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/roleTemplate"
+      }
+    },
+    "objectiveTemplates": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/objective"
+      }
+    },
+    "responseCatalog": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/response"
+      }
+    },
+    "eventTypes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "eventContracts": {
+      "type": "object",
+      "properties": {
+        "asset_overdue": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string",
+              "minLength": 1
+            },
+            "payloadSchema": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "properties": {
+                  "type": "object",
+                  "properties": {
+                    "incidentId": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "minLength": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "minLength"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "eventType": {
+                      "type": "object",
+                      "properties": {
+                        "const": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "const"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "locationId": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "minLength": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "minLength"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "jurisdictionAtOccurrence": {
+                      "type": "object",
+                      "properties": {
+                        "oneOf": {
+                          "type": "array",
+                          "items": {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "minLength": {
+                                    "type": "integer"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "minLength"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "type"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          },
+                          "minItems": 0
+                        }
+                      },
+                      "required": [
+                        "oneOf"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "asset": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "properties": {
+                          "type": "object",
+                          "properties": {
+                            "assetId": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "minLength": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "minLength"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "kind": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "enum": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "minItems": 0
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "enum"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "role": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "enum": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "minItems": 0
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "enum"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "ownerId": {
+                              "type": "object",
+                              "properties": {
+                                "oneOf": {
+                                  "type": "array",
+                                  "items": {
+                                    "oneOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "minLength": {
+                                            "type": "integer"
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "minLength"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          }
+                                        },
+                                        "required": [
+                                          "type"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    ]
+                                  },
+                                  "minItems": 0
+                                }
+                              },
+                              "required": [
+                                "oneOf"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "factionId": {
+                              "type": "object",
+                              "properties": {
+                                "oneOf": {
+                                  "type": "array",
+                                  "items": {
+                                    "oneOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "minLength": {
+                                            "type": "integer"
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "minLength"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          }
+                                        },
+                                        "required": [
+                                          "type"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    ]
+                                  },
+                                  "minItems": 0
+                                }
+                              },
+                              "required": [
+                                "oneOf"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "assetId",
+                            "kind",
+                            "role",
+                            "ownerId",
+                            "factionId"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "required": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "minItems": 0
+                        },
+                        "additionalProperties": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "properties",
+                        "required",
+                        "additionalProperties"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "assignment": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "properties": {
+                          "type": "object",
+                          "properties": {
+                            "assignmentId": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "minLength": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "minLength"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "kind": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "enum": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "minItems": 0
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "enum"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "originLocationId": {
+                              "type": "object",
+                              "properties": {
+                                "oneOf": {
+                                  "type": "array",
+                                  "items": {
+                                    "oneOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "minLength": {
+                                            "type": "integer"
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "minLength"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          }
+                                        },
+                                        "required": [
+                                          "type"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    ]
+                                  },
+                                  "minItems": 0
+                                }
+                              },
+                              "required": [
+                                "oneOf"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "destinationLocationId": {
+                              "type": "object",
+                              "properties": {
+                                "oneOf": {
+                                  "type": "array",
+                                  "items": {
+                                    "oneOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "minLength": {
+                                            "type": "integer"
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "minLength"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          }
+                                        },
+                                        "required": [
+                                          "type"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    ]
+                                  },
+                                  "minItems": 0
+                                }
+                              },
+                              "required": [
+                                "oneOf"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "contractId": {
+                              "type": "object",
+                              "properties": {
+                                "oneOf": {
+                                  "type": "array",
+                                  "items": {
+                                    "oneOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "minLength": {
+                                            "type": "integer"
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "minLength"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          }
+                                        },
+                                        "required": [
+                                          "type"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    ]
+                                  },
+                                  "minItems": 0
+                                }
+                              },
+                              "required": [
+                                "oneOf"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "assignmentId",
+                            "kind",
+                            "originLocationId",
+                            "destinationLocationId",
+                            "contractId"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "required": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "minItems": 0
+                        },
+                        "additionalProperties": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "properties",
+                        "required",
+                        "additionalProperties"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "cargo": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "properties": {
+                          "type": "object",
+                          "properties": {
+                            "knowledge": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "enum": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "minItems": 0
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "enum"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "manifest": {
+                              "type": "object",
+                              "properties": {
+                                "oneOf": {
+                                  "type": "array",
+                                  "items": {
+                                    "oneOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "items": {
+                                            "type": "object",
+                                            "properties": {
+                                              "type": {
+                                                "type": "string",
+                                                "minLength": 1
+                                              },
+                                              "properties": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "cargoId": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                      "type": {
+                                                        "type": "string",
+                                                        "minLength": 1
+                                                      },
+                                                      "minLength": {
+                                                        "type": "integer"
+                                                      }
+                                                    },
+                                                    "required": [
+                                                      "type",
+                                                      "minLength"
+                                                    ],
+                                                    "additionalProperties": false
+                                                  },
+                                                  "quantity": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                      "oneOf": {
+                                                        "type": "array",
+                                                        "items": {
+                                                          "oneOf": [
+                                                            {
+                                                              "type": "object",
+                                                              "properties": {
+                                                                "type": {
+                                                                  "type": "string",
+                                                                  "minLength": 1
+                                                                },
+                                                                "minimum": {
+                                                                  "type": "integer"
+                                                                }
+                                                              },
+                                                              "required": [
+                                                                "type",
+                                                                "minimum"
+                                                              ],
+                                                              "additionalProperties": false
+                                                            },
+                                                            {
+                                                              "type": "object",
+                                                              "properties": {
+                                                                "type": {
+                                                                  "type": "string",
+                                                                  "minLength": 1
+                                                                }
+                                                              },
+                                                              "required": [
+                                                                "type"
+                                                              ],
+                                                              "additionalProperties": false
+                                                            }
+                                                          ]
+                                                        },
+                                                        "minItems": 0
+                                                      }
+                                                    },
+                                                    "required": [
+                                                      "oneOf"
+                                                    ],
+                                                    "additionalProperties": false
+                                                  }
+                                                },
+                                                "required": [
+                                                  "cargoId",
+                                                  "quantity"
+                                                ],
+                                                "additionalProperties": false
+                                              },
+                                              "required": {
+                                                "type": "array",
+                                                "items": {
+                                                  "type": "string",
+                                                  "minLength": 1
+                                                },
+                                                "minItems": 0
+                                              },
+                                              "additionalProperties": {
+                                                "type": "boolean"
+                                              }
+                                            },
+                                            "required": [
+                                              "type",
+                                              "properties",
+                                              "required",
+                                              "additionalProperties"
+                                            ],
+                                            "additionalProperties": false
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "items"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          }
+                                        },
+                                        "required": [
+                                          "type"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    ]
+                                  },
+                                  "minItems": 0
+                                }
+                              },
+                              "required": [
+                                "oneOf"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "knowledge",
+                            "manifest"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "required": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "minItems": 0
+                        },
+                        "additionalProperties": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "properties",
+                        "required",
+                        "additionalProperties"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "missedMilestone": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "properties": {
+                          "type": "object",
+                          "properties": {
+                            "milestoneId": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "minLength": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "minLength"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "kind": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "enum": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "minItems": 0
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "enum"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "dueAt": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "properties": {
+                                  "type": "object",
+                                  "properties": {
+                                    "clock": {
+                                      "type": "object",
+                                      "properties": {
+                                        "type": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "enum": {
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "minItems": 0
+                                        }
+                                      },
+                                      "required": [
+                                        "type",
+                                        "enum"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    "value": {
+                                      "type": "object",
+                                      "properties": {
+                                        "type": {
+                                          "type": "string",
+                                          "minLength": 1
+                                        },
+                                        "minimum": {
+                                          "type": "integer"
+                                        }
+                                      },
+                                      "required": [
+                                        "type",
+                                        "minimum"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "required": [
+                                    "clock",
+                                    "value"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "required": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "minItems": 0
+                                },
+                                "additionalProperties": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "properties",
+                                "required",
+                                "additionalProperties"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "grace": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "minimum": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "minimum"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "milestoneId",
+                            "kind",
+                            "dueAt",
+                            "grace"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "required": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "minItems": 0
+                        },
+                        "additionalProperties": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "properties",
+                        "required",
+                        "additionalProperties"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "detectedAt": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "properties": {
+                          "type": "object",
+                          "properties": {
+                            "clock": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "enum": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "minItems": 0
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "enum"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "value": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "minimum": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "minimum"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "clock",
+                            "value"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "required": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "minItems": 0
+                        },
+                        "additionalProperties": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "properties",
+                        "required",
+                        "additionalProperties"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "lastKnown": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "properties": {
+                          "type": "object",
+                          "properties": {
+                            "locationId": {
+                              "type": "object",
+                              "properties": {
+                                "oneOf": {
+                                  "type": "array",
+                                  "items": {
+                                    "oneOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "minLength": {
+                                            "type": "integer"
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "minLength"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          }
+                                        },
+                                        "required": [
+                                          "type"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    ]
+                                  },
+                                  "minItems": 0
+                                }
+                              },
+                              "required": [
+                                "oneOf"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "position": {
+                              "type": "object",
+                              "properties": {
+                                "oneOf": {
+                                  "type": "array",
+                                  "items": {
+                                    "oneOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "properties": {
+                                            "type": "object",
+                                            "properties": {
+                                              "x": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "type": {
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                  }
+                                                },
+                                                "required": [
+                                                  "type"
+                                                ],
+                                                "additionalProperties": false
+                                              },
+                                              "y": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "type": {
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                  }
+                                                },
+                                                "required": [
+                                                  "type"
+                                                ],
+                                                "additionalProperties": false
+                                              }
+                                            },
+                                            "required": [
+                                              "x",
+                                              "y"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          "required": {
+                                            "type": "array",
+                                            "items": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            },
+                                            "minItems": 0
+                                          },
+                                          "additionalProperties": {
+                                            "type": "boolean"
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "properties",
+                                          "required",
+                                          "additionalProperties"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          }
+                                        },
+                                        "required": [
+                                          "type"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    ]
+                                  },
+                                  "minItems": 0
+                                }
+                              },
+                              "required": [
+                                "oneOf"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "observedAt": {
+                              "type": "object",
+                              "properties": {
+                                "oneOf": {
+                                  "type": "array",
+                                  "items": {
+                                    "oneOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "properties": {
+                                            "type": "object",
+                                            "properties": {
+                                              "clock": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "type": {
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                  },
+                                                  "enum": {
+                                                    "type": "array",
+                                                    "items": {
+                                                      "type": "string",
+                                                      "minLength": 1
+                                                    },
+                                                    "minItems": 0
+                                                  }
+                                                },
+                                                "required": [
+                                                  "type",
+                                                  "enum"
+                                                ],
+                                                "additionalProperties": false
+                                              },
+                                              "value": {
+                                                "type": "object",
+                                                "properties": {
+                                                  "type": {
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                  },
+                                                  "minimum": {
+                                                    "type": "integer"
+                                                  }
+                                                },
+                                                "required": [
+                                                  "type",
+                                                  "minimum"
+                                                ],
+                                                "additionalProperties": false
+                                              }
+                                            },
+                                            "required": [
+                                              "clock",
+                                              "value"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          "required": {
+                                            "type": "array",
+                                            "items": {
+                                              "type": "string",
+                                              "minLength": 1
+                                            },
+                                            "minItems": 0
+                                          },
+                                          "additionalProperties": {
+                                            "type": "boolean"
+                                          }
+                                        },
+                                        "required": [
+                                          "type",
+                                          "properties",
+                                          "required",
+                                          "additionalProperties"
+                                        ],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "type": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          }
+                                        },
+                                        "required": [
+                                          "type"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    ]
+                                  },
+                                  "minItems": 0
+                                }
+                              },
+                              "required": [
+                                "oneOf"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "locationId",
+                            "position",
+                            "observedAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "required": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "minItems": 0
+                        },
+                        "additionalProperties": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "properties",
+                        "required",
+                        "additionalProperties"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "incidentId",
+                    "eventType",
+                    "locationId",
+                    "jurisdictionAtOccurrence",
+                    "asset",
+                    "assignment",
+                    "cargo",
+                    "missedMilestone",
+                    "detectedAt",
+                    "lastKnown"
+                  ],
+                  "additionalProperties": false
+                },
+                "required": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "minItems": 0
+                },
+                "additionalProperties": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "type",
+                "properties",
+                "required",
+                "additionalProperties"
+              ],
+              "additionalProperties": false
+            },
+            "trigger": {
+              "type": "string",
+              "minLength": 1
+            },
+            "deduplicationKey": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 0
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 0
+            }
+          },
+          "required": [
+            "description",
+            "payloadSchema",
+            "trigger",
+            "deduplicationKey",
+            "notes"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "asset_overdue"
+      ],
+      "additionalProperties": false
+    },
+    "globalRules": {
+      "type": "object",
+      "properties": {
+        "fireRequires": {
+          "$ref": "#/$defs/predicate"
+        },
+        "standingLossRequires": {
+          "$ref": "#/$defs/predicate"
+        },
+        "legalEnforcementRequires": {
+          "$ref": "#/$defs/predicate"
+        },
+        "standingPolicyNote": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "fireRequires",
+        "standingLossRequires",
+        "legalEnforcementRequires",
+        "standingPolicyNote"
+      ],
+      "additionalProperties": false
+    },
+    "knowledgeRecord": {
+      "type": "object",
+      "properties": {
+        "requiredFields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        },
+        "provenance": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        },
+        "confidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        },
+        "contactQuality": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        }
+      },
+      "required": [
+        "requiredFields",
+        "provenance",
+        "confidence",
+        "contactQuality",
+        "notes"
+      ],
+      "additionalProperties": false
+    },
+    "identityContract": {
+      "type": "object",
+      "properties": {
+        "locationFields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        },
+        "unknownAuthority": {
+          "type": "null"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        },
+        "examples": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "locationId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "kind": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "cultureId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sovereignId": {
+                    "type": "null"
+                  },
+                  "controllerId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "jurisdictionId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "legacyGovernmentId": {
+                    "type": "integer"
+                  },
+                  "note": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "locationId",
+                  "kind",
+                  "cultureId",
+                  "sovereignId",
+                  "controllerId",
+                  "jurisdictionId",
+                  "legacyGovernmentId",
+                  "note"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "locationId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "kind": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "cultureId": {
+                    "type": "null"
+                  },
+                  "sovereignId": {
+                    "type": "null"
+                  },
+                  "controllerId": {
+                    "type": "null"
+                  },
+                  "jurisdictionId": {
+                    "type": "null"
+                  },
+                  "legacyGovernmentId": {
+                    "type": "null"
+                  },
+                  "note": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "locationId",
+                  "kind",
+                  "cultureId",
+                  "sovereignId",
+                  "controllerId",
+                  "jurisdictionId",
+                  "legacyGovernmentId",
+                  "note"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "minItems": 0
+        }
+      },
+      "required": [
+        "locationFields",
+        "kinds",
+        "unknownAuthority",
+        "notes",
+        "examples"
+      ],
+      "additionalProperties": false
+    },
+    "runtimeAdapter": {
+      "type": "object",
+      "properties": {
+        "preserveNativeRole": {
+          "type": "boolean"
+        },
+        "roleMap": {
+          "type": "object",
+          "properties": {
+            "patrol": {
+              "type": "string",
+              "minLength": 1
+            },
+            "traffic": {
+              "type": "string",
+              "minLength": 1
+            },
+            "localTraffic": {
+              "type": "string",
+              "minLength": 1
+            },
+            "playerEscort": {
+              "type": "string",
+              "minLength": 1
+            },
+            "playerFleet": {
+              "type": "string",
+              "minLength": 1
+            },
+            "fleetAttack": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "patrol",
+            "traffic",
+            "localTraffic",
+            "playerEscort",
+            "playerFleet",
+            "fleetAttack"
+          ],
+          "additionalProperties": false
+        },
+        "jobOverride": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dominionDefaultProfile": {
+          "type": "string",
+          "minLength": 1
+        },
+        "centralProfileRequires": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        }
+      },
+      "required": [
+        "preserveNativeRole",
+        "roleMap",
+        "jobOverride",
+        "dominionDefaultProfile",
+        "centralProfileRequires",
+        "notes"
+      ],
+      "additionalProperties": false
+    },
+    "scenarioTreaties": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "parties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0
+          },
+          "visibility": {
+            "type": "string",
+            "minLength": 1
+          },
+          "initialState": {
+            "type": "string",
+            "minLength": 1
+          },
+          "activationRequires": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0
+          },
+          "effects": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0
+          },
+          "sourceRefs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 0
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id",
+          "parties",
+          "visibility",
+          "initialState",
+          "activationRequires",
+          "effects",
+          "sourceRefs",
+          "note"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 0
+    },
+    "campaignOutline": {
+      "type": "object",
+      "properties": {
+        "sourceRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        },
+        "outcome": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        },
+        "transitionRequirements": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        },
+        "failureResponses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        },
+        "playerInterventions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        }
+      },
+      "required": [
+        "sourceRefs",
+        "outcome",
+        "stages",
+        "transitionRequirements",
+        "failureResponses",
+        "playerInterventions"
+      ],
+      "additionalProperties": false
+    },
+    "profiles": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/profile"
+      }
+    },
+    "cultures": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/culture"
+      }
+    },
+    "openTuning": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 0
+    },
+    "phase1Integration": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "breenDominion": {
+          "type": "string"
+        },
+        "enableScenarioTreaties": {
+          "type": "boolean"
+        },
+        "futurePactGate": {
+          "type": "string"
+        },
+        "requiredRelationEntries": {
+          "type": "object",
+          "properties": {
+            "delpin": {
+              "type": "object",
+              "properties": {
+                "friendly": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "hostile": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "friendly",
+                "hostile"
+              ],
+              "additionalProperties": false
+            },
+            "promelli": {
+              "type": "object",
+              "properties": {
+                "friendly": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "hostile": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "friendly",
+                "hostile"
+              ],
+              "additionalProperties": false
+            },
+            "sona": {
+              "type": "object",
+              "properties": {
+                "friendly": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "hostile": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "friendly",
+                "hostile"
+              ],
+              "additionalProperties": false
+            },
+            "tarellian": {
+              "type": "object",
+              "properties": {
+                "friendly": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "hostile": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "friendly",
+                "hostile"
+              ],
+              "additionalProperties": false
+            },
+            "neutral": {
+              "type": "object",
+              "properties": {
+                "friendly": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "hostile": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "friendly",
+                "hostile"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "delpin",
+            "promelli",
+            "sona",
+            "tarellian",
+            "neutral"
+          ],
+          "additionalProperties": false
+        },
+        "missingRelationDefault": {
+          "type": "object",
+          "properties": {
+            "friendly": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "hostile": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "friendly",
+            "hostile"
+          ],
+          "additionalProperties": false
+        },
+        "fallbackMeaning": {
+          "type": "string"
+        },
+        "neutralIdentity": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "breenDominion",
+        "enableScenarioTreaties",
+        "futurePactGate",
+        "requiredRelationEntries",
+        "missingRelationDefault",
+        "fallbackMeaning",
+        "neutralIdentity",
+        "scope"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "$schema",
+    "schema",
+    "version",
+    "status",
+    "date",
+    "contract",
+    "sources",
+    "facts",
+    "engagementModes",
+    "actions",
+    "roleTemplates",
+    "objectiveTemplates",
+    "responseCatalog",
+    "eventTypes",
+    "eventContracts",
+    "globalRules",
+    "knowledgeRecord",
+    "identityContract",
+    "runtimeAdapter",
+    "scenarioTreaties",
+    "campaignOutline",
+    "profiles",
+    "cultures",
+    "openTuning",
+    "phase1Integration"
+  ],
+  "additionalProperties": false
+}

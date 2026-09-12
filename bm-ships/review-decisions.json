@@ -1,0 +1,180 @@
+{
+  "approval": {
+    "date": "2026-09-12",
+    "userInstruction": "Okay anything that I didn’t touch is good",
+    "untouchedDecision": "keep",
+    "scope": "Untouched entries are approved as shown. Explicit corrections take precedence across linked records. Items already left undecided remain open. Alternate images and source layers remain art references, not automatic additions as separate hulls."
+  },
+  "principles": [
+    "Prefer higher-quality faithful artwork when available.",
+    "Keep decisions retain a hull identity; they do not mandate a lower-resolution sprite.",
+    "The independent endgame ship is not the Terran Excalibur.",
+    "100 prestige is explicitly required for Excalibur.",
+    "These changes are review decisions, not engine modifications.",
+    "ART 078 is a distinct war-oriented Klingon hull, second in power after B’rel; light cruiser is the proposed role.",
+    "Untouched entries are approved as shown. Explicit corrections take precedence across linked records. Items already left undecided remain open. Alternate images and source layers remain art references, not automatic additions as separate hulls."
+  ],
+  "entries": {
+    "p-26": {
+      "decision": "remove",
+      "notes": "This is the same as PATCH 211; keep #211. Retire #26 as a separate active hull."
+    },
+    "p-211": {
+      "decision": "keep",
+      "notes": "Retained Vulcan Explorer: user chose this record over PATCH 026."
+    },
+    "p-63": {
+      "decision": "remove",
+      "notes": "Remove / reserve the Vulcan Lifeform."
+    },
+    "h-4": {
+      "decision": "keep",
+      "notes": "Keep this hull and its corrected identity. Prefer higher-quality faithful art when available."
+    },
+    "h-9": {
+      "decision": "keep",
+      "notes": "Keep this hull and its corrected identity. Prefer higher-quality faithful art when available."
+    },
+    "h-10": {
+      "decision": "keep",
+      "notes": "Keep this hull and its corrected identity. Prefer higher-quality faithful art when available."
+    },
+    "h-18": {
+      "decision": "keep",
+      "notes": "Keep this hull and its corrected identity. Prefer higher-quality faithful art when available."
+    },
+    "h-22": {
+      "decision": "keep",
+      "notes": "Keep this hull and its corrected identity. Prefer higher-quality faithful art when available."
+    },
+    "h-48": {
+      "decision": "keep",
+      "notes": "Keep this hull and its corrected identity. Prefer higher-quality faithful art when available."
+    },
+    "h-49": {
+      "decision": "keep",
+      "notes": "Keep this hull and its corrected identity. Prefer higher-quality faithful art when available. Galaxy Dreadnaught: retain at the Project X / X-Base in Paso (user recalled “El Paso x”)."
+    },
+    "h-51": {
+      "decision": "keep",
+      "notes": "Keep this hull and its corrected identity. Prefer higher-quality faithful art when available."
+    },
+    "h-53": {
+      "decision": "keep",
+      "notes": "Keep this hull and its corrected identity. Prefer higher-quality faithful art when available."
+    },
+    "h-65": {
+      "decision": "keep",
+      "notes": "Keep this hull and its corrected identity. Prefer higher-quality faithful art when available."
+    },
+    "h-60": {
+      "decision": "rename",
+      "name": "Concord-class Grand Cruiser",
+      "faction": "Independent / civilian",
+      "cls": "Endgame capital, comparable tier to Excalibur",
+      "notes": "User: this is the independent endgame ship; give it a different name because there are too many dreadnaught names. Concord-class Grand Cruiser is the assistant’s proposed name, pending review. Preserve its separate civilian megaship identity; balance figures remain to be set."
+    },
+    "a-3": {
+      "decision": "keep",
+      "name": "Andorian Cargo Shuttle",
+      "faction": "Andorian",
+      "cls": "Cargo shuttle",
+      "notes": "User identifies andcargo.gif as the Andorian cargo shuttle."
+    },
+    "a-4": {
+      "decision": "keep",
+      "notes": "Keep for additional flavor. Faction / exact role still unassigned; the source filename alone does not finalize an assignment."
+    },
+    "a-14": {
+      "decision": "remove",
+      "name": "Vega-class artwork — duplicate candidate dropped",
+      "notes": "Drop ART 015 (cargoship3.gif) as a separate ship candidate; it uses the Vega-class image. Keep the existing Vega. Reconsider a new ship only if distinct, suitable artwork is chosen. This does not remove Kingston’s separate cargo3.gif."
+    },
+    "a-25": {
+      "decision": "variant",
+      "name": "Excalibur Class",
+      "faction": "Terran",
+      "cls": "Endgame capital",
+      "notes": "A separate endgame capital at Project X / X-Base in Paso (“El Paso” in the recollection). Super expensive; requires 100 prestige. Do not reuse independent BM1 #60 for it. Exact price, stats and drawn size remain to be balanced."
+    },
+    "a-62": {
+      "decision": "keep",
+      "name": "Basic Shuttle",
+      "cls": "Shuttle",
+      "notes": "Keep the basic shuttle."
+    },
+    "a-73": {
+      "decision": "keep",
+      "name": "Construction Workbee",
+      "cls": "Construction support craft",
+      "notes": "Original stationconstructing.gif recovered and inspected in Google Drive / Local AI projects: 79 × 84 pixels, one frame. The asset matches the supplied reference. Use it for an unfinished station, scaled to the construction site. Workbees move around it and direct blue construction beams at the scaffolding. These are construction effects, not weapons fire or aggression. Keep repairarms.gif separate: it overlays the player ship only during repairs. At patch 030155d these construction animations are still pending implementation."
+    },
+    "a-74": {
+      "decision": "keep",
+      "name": "Maintenance Starbase",
+      "cls": "Station",
+      "notes": "User correction: this is the Maintenance Station (#83), not a pilotable tug. It provides ship repairs. The repair arms overlay the player’s ship during repairs here; the arms are also used at planets and other repair-capable facilities, not exclusively at this station."
+    },
+    "a-77": {
+      "decision": "keep",
+      "name": "Klingon Bird of Prey — light cruiser",
+      "faction": "Klingon",
+      "cls": "Light cruiser — second step above B’rel",
+      "notes": "User correction: B’rel is the first / weakest Klingon ship; this Bird of Prey is the second in power. It is larger than a shuttle and war oriented. Proposed classification: light cruiser. Retain it as a separate hull rather than another label for the B’rel. Exact class name and balance remain open."
+    },
+    "a-38": {
+      "decision": "keep",
+      "name": "Klingon Heavy Shipyard",
+      "cls": "Station",
+      "notes": "User identifies klingonheavyship.gif as the Klingon heavy shipyard. Its lattice-and-green-beam design matches existing station type #81. Use it as station artwork, not as a separate mobile heavy ship.",
+      "faction": "Klingon"
+    },
+    "a-76": {
+      "decision": "discuss",
+      "name": "Trade Station — gold four-pod design",
+      "cls": "Station",
+      "notes": "The user remembered this as a station but not which one. Its gold central hub, ring of lights and four round pods visually match the current Trade Station (#75) artwork. Identification is grounded in the existing station catalog; user review remains open."
+    },
+    "a-78": {
+      "decision": "keep",
+      "name": "Defense Platform — ring design",
+      "cls": "Station",
+      "notes": "User identifies this ring craft as a defense platform. It visually matches current station type #86, Defense Platform. Keep as a station; its current description specifies a Type-X phaser. User service rule: defense platforms cannot repair ships."
+    },
+    "a-79": {
+      "decision": "keep",
+      "name": "Advanced Defense Platform — cross design",
+      "cls": "Station",
+      "notes": "User identifies this cross-shaped craft as a defense platform. It visually matches current station type #87, Advanced Defense Platform. Keep as a station; its current description specifies photon torpedoes and other weapons. User service rule: defense platforms cannot repair ships."
+    },
+    "a-82": {
+      "decision": "keep",
+      "name": "Human Bird of Prey — source layer",
+      "faction": "Terran",
+      "notes": "User: birdofpreyfed.psd · Layer 1 is the Human Bird of Prey, rotated 90° left. Match to the existing BM2 061 / PATCH 217 hull. Normalize its orientation when used; do not add a duplicate ship."
+    },
+    "p-239": {
+      "decision": "keep",
+      "notes": "User approved the current Klingon Cargo Ship artwork as the correct ship image. Keep it. This approval is separate from the identification of ART 039 / klingonheavyship.gif as the Klingon Heavy Shipyard."
+    },
+    "a-231": {
+      "decision": "keep",
+      "name": "Repair arms — player ship overlay",
+      "cls": "Repair overlay",
+      "notes": "User correction: repairarms.gif is drawn over the player ship during active repairs. It is a repair overlay, not a station, ship hull or construction scaffold. Planets and repair-capable main starbases, shipyards and the Maintenance Station can provide repairs. Defense platforms cannot. Repair availability must follow the facility’s service capability; the arms appear only while repairing and stop when repair ends. The Drive original is byte-for-byte identical to the uploaded GIF. It contains one frame; repair animation must be driven by the game."
+    },
+    "a-232": {
+      "decision": "keep",
+      "name": "Station construction scaffold — reference sheet",
+      "cls": "Construction reference, not a new station",
+      "notes": "User-supplied reference sheet. Its original scaffold is now recovered as ART 234 / stationconstructing.gif; this sheet is a visual reference, not the source sprite. Repair arms overlay the player ship at repair-capable facilities; they are not limited to the Maintenance Station despite the sheet’s caption."
+    },
+    "a-233": {
+      "decision": "keep",
+      "name": "Station construction scaffold",
+      "cls": "Construction effect",
+      "notes": "Original stationconstructing.gif recovered and inspected in Google Drive / Local AI projects: 79 × 84 pixels, one frame. The asset matches the supplied reference. Use it for an unfinished station, scaled to the construction site. Workbees move around it and direct blue construction beams at the scaffolding. These are construction effects, not weapons fire or aggression. Keep repairarms.gif separate: it overlays the player ship only during repairs. At patch 030155d these construction animations are still pending implementation."
+    }
+  },
+  "scope": "Ship decisions apply here. Station, repair and construction decisions are retained for context only, not implemented or supplied as station assets."
+}

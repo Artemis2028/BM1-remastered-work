@@ -16,7 +16,8 @@ const includeNames = new Set([
   'offline-assets.json',
   'src',
   'data',
-  'assets'
+  'assets',
+  'bm-ships'
 ]);
 
 const excludedNames = new Set([

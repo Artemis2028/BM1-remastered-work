@@ -1,0 +1,3098 @@
+{
+  "assets": [
+    {
+      "path": "assets/0ca795d95e92189b8836165c186d5d9bcaacc1c3774934687f067999e427b77a.png",
+      "sha256": "0ca795d95e92189b8836165c186d5d9bcaacc1c3774934687f067999e427b77a",
+      "bytes": 6311,
+      "native": [
+        57,
+        73
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/1.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/007374907e61b5081aa86f611a0320a5b6d50fc062d2bdadc29d17c13abdd69e.png",
+      "sha256": "007374907e61b5081aa86f611a0320a5b6d50fc062d2bdadc29d17c13abdd69e",
+      "bytes": 7472,
+      "native": [
+        45,
+        116
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/2.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/95d0df8d335da2530726bb7e6578605da06c62b8f034dfa6f86dc8632d2ed011.png",
+      "sha256": "95d0df8d335da2530726bb7e6578605da06c62b8f034dfa6f86dc8632d2ed011",
+      "bytes": 8105,
+      "native": [
+        56,
+        95
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/3.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/d427b4fc096414625804a17f97aac56f4a30f6b62022204cf5fcb26b6976d652.png",
+      "sha256": "d427b4fc096414625804a17f97aac56f4a30f6b62022204cf5fcb26b6976d652",
+      "bytes": 2952071,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/4.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/7ef61553414f6b64a6939e6683df3a0f52b5e759ccce0d35e47aaa5aafb60e12.png",
+      "sha256": "7ef61553414f6b64a6939e6683df3a0f52b5e759ccce0d35e47aaa5aafb60e12",
+      "bytes": 3560,
+      "native": [
+        29,
+        58
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/5.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/9c8a474dd2ca67a92318fd314ee805c8f585172e9fa7087ea51d5e67f2c07d37.png",
+      "sha256": "9c8a474dd2ca67a92318fd314ee805c8f585172e9fa7087ea51d5e67f2c07d37",
+      "bytes": 2710,
+      "native": [
+        43,
+        49
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/6.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/8e0e4e484b4d3cd1be380e7178e9a22628dbbebdd9ea6372279957884f60c2fa.png",
+      "sha256": "8e0e4e484b4d3cd1be380e7178e9a22628dbbebdd9ea6372279957884f60c2fa",
+      "bytes": 1020,
+      "native": [
+        16,
+        26
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/7.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/e3998a144a343ec327fcf8ed0d960754782e681f907a2bee604101cd0011e293.png",
+      "sha256": "e3998a144a343ec327fcf8ed0d960754782e681f907a2bee604101cd0011e293",
+      "bytes": 6858,
+      "native": [
+        66,
+        104
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/8.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/c21ebd07502c1cbf3a0df869ce29571d0c7a6609b58e7679a52eb0457a3b677e.png",
+      "sha256": "c21ebd07502c1cbf3a0df869ce29571d0c7a6609b58e7679a52eb0457a3b677e",
+      "bytes": 1716597,
+      "native": [
+        980,
+        1604
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/9.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/9c78de39f6cda72f3b8e717e86f93502df360d54910434e84df9299682822147.png",
+      "sha256": "9c78de39f6cda72f3b8e717e86f93502df360d54910434e84df9299682822147",
+      "bytes": 1744144,
+      "native": [
+        725,
+        2170
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/10.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/7b720e84ddf182a6bcfa3b1295ecb827ce854b0e4ba11ca520a29491c188d70c.png",
+      "sha256": "7b720e84ddf182a6bcfa3b1295ecb827ce854b0e4ba11ca520a29491c188d70c",
+      "bytes": 1802537,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/11.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/32527056d60a13aff7e431df54082c874acc68cf3e94bcf2fe460a1c6a2ed63d.png",
+      "sha256": "32527056d60a13aff7e431df54082c874acc68cf3e94bcf2fe460a1c6a2ed63d",
+      "bytes": 4965,
+      "native": [
+        38,
+        105
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/12.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/28044f89fe51e7263f7be2e1506741152cdf70a750bd7e220142f84ff4a6e720.png",
+      "sha256": "28044f89fe51e7263f7be2e1506741152cdf70a750bd7e220142f84ff4a6e720",
+      "bytes": 14105,
+      "native": [
+        80,
+        117
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/13.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/bc1068946492d1bf39cbe781525645b6ba317e3b9fd3ee8c7d9575344e1e1e3f.png",
+      "sha256": "bc1068946492d1bf39cbe781525645b6ba317e3b9fd3ee8c7d9575344e1e1e3f",
+      "bytes": 5129,
+      "native": [
+        70,
+        102
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/14.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/5195c3344c6ef8299ad85a0b0313f633a1abd951811cd4eb029be45b8f6462fe.png",
+      "sha256": "5195c3344c6ef8299ad85a0b0313f633a1abd951811cd4eb029be45b8f6462fe",
+      "bytes": 14263,
+      "native": [
+        86,
+        139
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/15.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/6ac3e9ddce8c35a04552ec1885ec27db7185452c535f5e03b0ef5df0c5f9894d.png",
+      "sha256": "6ac3e9ddce8c35a04552ec1885ec27db7185452c535f5e03b0ef5df0c5f9894d",
+      "bytes": 3443,
+      "native": [
+        52,
+        61
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/16.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/0ea142150d4b863e99dcfd69119f48a5af0c0f8991dfd2d0808225d13913c33f.png",
+      "sha256": "0ea142150d4b863e99dcfd69119f48a5af0c0f8991dfd2d0808225d13913c33f",
+      "bytes": 9935,
+      "native": [
+        71,
+        82
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/17.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/fc33023dc2f1996b0ebb2492a1b38db068ca2a8db2035b08e0772d7b807b5516.png",
+      "sha256": "fc33023dc2f1996b0ebb2492a1b38db068ca2a8db2035b08e0772d7b807b5516",
+      "bytes": 492604,
+      "native": [
+        622,
+        908
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/316.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/459cc0febf6b8494e65074abd96e23d612207a0f6b02ed70b0099fccf7861cab.png",
+      "sha256": "459cc0febf6b8494e65074abd96e23d612207a0f6b02ed70b0099fccf7861cab",
+      "bytes": 6682,
+      "native": [
+        82,
+        71
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/19.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/35bb6608e710b29d773912a9b1a7b540519c50bdf574dc479dd16351f9acd709.png",
+      "sha256": "35bb6608e710b29d773912a9b1a7b540519c50bdf574dc479dd16351f9acd709",
+      "bytes": 2561,
+      "native": [
+        26,
+        58
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/20.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/013715a26c862e7ea47d4f0383cc2a93f93a36deae1f8f4691370006f2fe176c.png",
+      "sha256": "013715a26c862e7ea47d4f0383cc2a93f93a36deae1f8f4691370006f2fe176c",
+      "bytes": 5579,
+      "native": [
+        41,
+        75
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/21.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/7523da62e6a6eac588c5a7d9f91bbe8e286a90b58b491200c7529a1bced96aca.png",
+      "sha256": "7523da62e6a6eac588c5a7d9f91bbe8e286a90b58b491200c7529a1bced96aca",
+      "bytes": 2681017,
+      "native": [
+        1536,
+        1024
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/22.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/69d5cf1f3e0ad78700ab98aa7b3df1308960f30018f4fe6c8afa8a8d479a9226.png",
+      "sha256": "69d5cf1f3e0ad78700ab98aa7b3df1308960f30018f4fe6c8afa8a8d479a9226",
+      "bytes": 5534,
+      "native": [
+        124,
+        31
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/23.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/33a8def22bd5f0d29965b8907aeec6bc6c31d0dd5c152828666872546bb7054b.png",
+      "sha256": "33a8def22bd5f0d29965b8907aeec6bc6c31d0dd5c152828666872546bb7054b",
+      "bytes": 2087,
+      "native": [
+        37,
+        49
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/24.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/faf47090e8297e1cf6b2f14773e430cb5521d348a80292e5fa37a8c2efa3d430.png",
+      "sha256": "faf47090e8297e1cf6b2f14773e430cb5521d348a80292e5fa37a8c2efa3d430",
+      "bytes": 2882,
+      "native": [
+        41,
+        57
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/25.png"
+        },
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/26.png"
+        },
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/63.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/61ce917ce3d3f16ffaa0f3e71d12268929ff24060115111b0dd986edb1b4a54a.png",
+      "sha256": "61ce917ce3d3f16ffaa0f3e71d12268929ff24060115111b0dd986edb1b4a54a",
+      "bytes": 6013,
+      "native": [
+        76,
+        102
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/27.png"
+        },
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/64.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/d82305ca1fa347a4a71ddb3a89fc3127c2d076c92999cb88fc61eb1f8ee273a2.png",
+      "sha256": "d82305ca1fa347a4a71ddb3a89fc3127c2d076c92999cb88fc61eb1f8ee273a2",
+      "bytes": 7500,
+      "native": [
+        133,
+        93
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/28.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/18182470dacf85e20ca34aa0cad08530c2cd75c26a8f4e211589de4598384f16.png",
+      "sha256": "18182470dacf85e20ca34aa0cad08530c2cd75c26a8f4e211589de4598384f16",
+      "bytes": 1175,
+      "native": [
+        22,
+        27
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/29.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/96e11dcf6f57369cab671838a6c8f1acf24d1256959ca340dbf91b14c42a889b.png",
+      "sha256": "96e11dcf6f57369cab671838a6c8f1acf24d1256959ca340dbf91b14c42a889b",
+      "bytes": 3715,
+      "native": [
+        56,
+        46
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/30.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/2651f12cc7d4243191d86fb7063dbe54fe1df96ca1b1139582fce4612ae7095a.png",
+      "sha256": "2651f12cc7d4243191d86fb7063dbe54fe1df96ca1b1139582fce4612ae7095a",
+      "bytes": 10552,
+      "native": [
+        69,
+        135
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/31.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/f4905610fa6d9a0707903c2103688270ec873cb86ac70c0b91767b932b2b9f23.png",
+      "sha256": "f4905610fa6d9a0707903c2103688270ec873cb86ac70c0b91767b932b2b9f23",
+      "bytes": 26747,
+      "native": [
+        106,
+        205
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/32.png"
+        },
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/62.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/eea847da2e7fa1a11dcc7c13e83b446034cee2a3a3485e5a97604037253efaa1.png",
+      "sha256": "eea847da2e7fa1a11dcc7c13e83b446034cee2a3a3485e5a97604037253efaa1",
+      "bytes": 8289,
+      "native": [
+        59,
+        87
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/33.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/d37c277d413ea1a52af972d6dbf71256dbab1cf4e5da844ab34c420b3f7771a7.png",
+      "sha256": "d37c277d413ea1a52af972d6dbf71256dbab1cf4e5da844ab34c420b3f7771a7",
+      "bytes": 2011,
+      "native": [
+        28,
+        33
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/34.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/6c990ef4edbc95f3e150ebd907b558fe1bb7697d5199009c22b09bec8bccc04e.png",
+      "sha256": "6c990ef4edbc95f3e150ebd907b558fe1bb7697d5199009c22b09bec8bccc04e",
+      "bytes": 27872,
+      "native": [
+        119,
+        159
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/35.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/205cf68dc86f0f09e552fd1857d26f759d9882c51fc981d428849a9b86bf9961.png",
+      "sha256": "205cf68dc86f0f09e552fd1857d26f759d9882c51fc981d428849a9b86bf9961",
+      "bytes": 5570,
+      "native": [
+        33,
+        83
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/36.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/ad5ddfca7b5b104caef1635b17f1ba495fe1c531c9309071ef16d5545e345b87.png",
+      "sha256": "ad5ddfca7b5b104caef1635b17f1ba495fe1c531c9309071ef16d5545e345b87",
+      "bytes": 9849,
+      "native": [
+        49,
+        124
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/37.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/fd65c5d08dc199bd81a4e237b9fa3b498121a0cfb080c3a728e2c36f408f5cf8.png",
+      "sha256": "fd65c5d08dc199bd81a4e237b9fa3b498121a0cfb080c3a728e2c36f408f5cf8",
+      "bytes": 15823,
+      "native": [
+        82,
+        183
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/38.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/2dbb713d907f6add79f32cb44c464e1800f6feb9e5dd352d2c99eeb8d66293ae.png",
+      "sha256": "2dbb713d907f6add79f32cb44c464e1800f6feb9e5dd352d2c99eeb8d66293ae",
+      "bytes": 1004,
+      "native": [
+        25,
+        22
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/39.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/40aab9c1f93a40d88124857362e2ff763cb8db962d9058306a1e607a3ac1cf95.png",
+      "sha256": "40aab9c1f93a40d88124857362e2ff763cb8db962d9058306a1e607a3ac1cf95",
+      "bytes": 5234,
+      "native": [
+        60,
+        86
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/40.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/0f3a863a0561d91eed9e88afce442e831d73700a056cded6d89977b94398feb6.png",
+      "sha256": "0f3a863a0561d91eed9e88afce442e831d73700a056cded6d89977b94398feb6",
+      "bytes": 17164,
+      "native": [
+        123,
+        171
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/41.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/d52a40b10bc2cce01e461eb038c2f022234a08f5081bc41df415749d10386fe2.png",
+      "sha256": "d52a40b10bc2cce01e461eb038c2f022234a08f5081bc41df415749d10386fe2",
+      "bytes": 27069,
+      "native": [
+        135,
+        205
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/42.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/e0f53b6dfaaa4a2f730f32c59b707a6cee022b86e2a519b60f4ddbeee6dd0f46.png",
+      "sha256": "e0f53b6dfaaa4a2f730f32c59b707a6cee022b86e2a519b60f4ddbeee6dd0f46",
+      "bytes": 8983,
+      "native": [
+        82,
+        114
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/43.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/8bb560331d9ded48b9219940c0cdd119b891c676bc6d3cf737e7bd0b0aa9a8ea.png",
+      "sha256": "8bb560331d9ded48b9219940c0cdd119b891c676bc6d3cf737e7bd0b0aa9a8ea",
+      "bytes": 235547,
+      "native": [
+        403,
+        396
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/44.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/260264ae71abc46d9d25dcc94c47c1b1d8f54f77a69cb14be0c5f07b70d4efd0.png",
+      "sha256": "260264ae71abc46d9d25dcc94c47c1b1d8f54f77a69cb14be0c5f07b70d4efd0",
+      "bytes": 5547,
+      "native": [
+        70,
+        99
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/45.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/c09ffd8ab0d7398cb16dd726cb9a53afd9977c1fd579624f11805fd70628c021.png",
+      "sha256": "c09ffd8ab0d7398cb16dd726cb9a53afd9977c1fd579624f11805fd70628c021",
+      "bytes": 16569,
+      "native": [
+        95,
+        125
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/46.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/bb883915c082e36fa7ee703116878acfc21e7e93a2b9441918162dc4f1815a72.png",
+      "sha256": "bb883915c082e36fa7ee703116878acfc21e7e93a2b9441918162dc4f1815a72",
+      "bytes": 4848,
+      "native": [
+        48,
+        92
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/47.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/20e7f912d068e46aa875ed8cbfb8eb6d33f3a2acee709622e7a70d8cf638ba61.png",
+      "sha256": "20e7f912d068e46aa875ed8cbfb8eb6d33f3a2acee709622e7a70d8cf638ba61",
+      "bytes": 1789282,
+      "native": [
+        1122,
+        1402
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/48.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/df0a3e5ea7e526c78b9465a27bb6bb4b9cba44f15f7cb80d965ae1de133377dd.png",
+      "sha256": "df0a3e5ea7e526c78b9465a27bb6bb4b9cba44f15f7cb80d965ae1de133377dd",
+      "bytes": 1707861,
+      "native": [
+        788,
+        1108
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/60.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/714d2964ff409091fd91208cfbdddfb65b7c74b4d8eb86963c5b2e3fe53419fa.png",
+      "sha256": "714d2964ff409091fd91208cfbdddfb65b7c74b4d8eb86963c5b2e3fe53419fa",
+      "bytes": 939716,
+      "native": [
+        1086,
+        1448
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/50.png"
+        },
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/339.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/439ded1e146822cf7597a617ebb74a7be92ee4ef25046127127c5bce298b60a8.png",
+      "sha256": "439ded1e146822cf7597a617ebb74a7be92ee4ef25046127127c5bce298b60a8",
+      "bytes": 1943394,
+      "native": [
+        1086,
+        1448
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/51.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/7b54f11a241d0910a28062199594710621d5b5b96b64920cdd8574ec1607950b.png",
+      "sha256": "7b54f11a241d0910a28062199594710621d5b5b96b64920cdd8574ec1607950b",
+      "bytes": 9858,
+      "native": [
+        57,
+        133
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/52.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/da88d3e1c7762ca895bb4396822c9f5874e6652b0059d15a3b3b63cce0a44457.png",
+      "sha256": "da88d3e1c7762ca895bb4396822c9f5874e6652b0059d15a3b3b63cce0a44457",
+      "bytes": 2794431,
+      "native": [
+        1536,
+        1024
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/53.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/1ea8913aa6e8380bca95113f9ed6cc787e8e1737bcf494cd4fa60d775a7a4f8e.png",
+      "sha256": "1ea8913aa6e8380bca95113f9ed6cc787e8e1737bcf494cd4fa60d775a7a4f8e",
+      "bytes": 1581717,
+      "native": [
+        1086,
+        1448
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/54.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/c7f1116253a0cf4c17dd1155a4550eccaa8c84c533be50ab359f62bfb7c0584f.png",
+      "sha256": "c7f1116253a0cf4c17dd1155a4550eccaa8c84c533be50ab359f62bfb7c0584f",
+      "bytes": 5164,
+      "native": [
+        69,
+        113
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/55.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/fc7c2fc283073681d5e59d92e21e18ab606b76366bbdb9fd3f709a11ae6d7508.png",
+      "sha256": "fc7c2fc283073681d5e59d92e21e18ab606b76366bbdb9fd3f709a11ae6d7508",
+      "bytes": 8718,
+      "native": [
+        63,
+        127
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/56.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/d972100e73d0ecb5be84761717f0a6aba1bde0cdced66c21af37f629192f4698.png",
+      "sha256": "d972100e73d0ecb5be84761717f0a6aba1bde0cdced66c21af37f629192f4698",
+      "bytes": 9495,
+      "native": [
+        63,
+        116
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/57.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/67bf3e65114f6c120eeca8d12d7c2acd904531d94c951d20f7d7d9b79f2984e5.png",
+      "sha256": "67bf3e65114f6c120eeca8d12d7c2acd904531d94c951d20f7d7d9b79f2984e5",
+      "bytes": 10934,
+      "native": [
+        62,
+        158
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/58.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/b9fa45dfbae015594ebba31f5129170be138aaa6ed422fbd9aea1560b24b7abf.png",
+      "sha256": "b9fa45dfbae015594ebba31f5129170be138aaa6ed422fbd9aea1560b24b7abf",
+      "bytes": 10532,
+      "native": [
+        89,
+        125
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/59.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/ba1aa5544ec1ccef6ae092296ff89326c2f672d4b6ecd8a43dfe1f8d60322f43.webp",
+      "sha256": "ba1aa5544ec1ccef6ae092296ff89326c2f672d4b6ecd8a43dfe1f8d60322f43",
+      "bytes": 6148,
+      "native": [
+        177,
+        230
+      ],
+      "sources": [
+        {
+          "reviewKey": "a-16",
+          "source": "Flash sprites",
+          "quality": "embedded review image; not the editable source master"
+        }
+      ]
+    },
+    {
+      "path": "assets/982c6fc45f7b3656047fc345d4237c42f4250449be35878b07b6745a343ea975.png",
+      "sha256": "982c6fc45f7b3656047fc345d4237c42f4250449be35878b07b6745a343ea975",
+      "bytes": 51340,
+      "native": [
+        257,
+        289
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/61.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/10ca91ab2a0adeb7d05b853d41561935e935061b56448ed1664e2e89b2c63c6e.png",
+      "sha256": "10ca91ab2a0adeb7d05b853d41561935e935061b56448ed1664e2e89b2c63c6e",
+      "bytes": 923359,
+      "native": [
+        792,
+        945
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/65.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/a4c42b3d3c9caa1ebe4f3f111cf0d1c40dcd85124a6f6b9b86efadd47abea5f8.png",
+      "sha256": "a4c42b3d3c9caa1ebe4f3f111cf0d1c40dcd85124a6f6b9b86efadd47abea5f8",
+      "bytes": 843166,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/66.png"
+        },
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/223.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/5f8fa93e009dbb43553f69fd535b55dab7bab69d2056d463955f37c2f8c150c0.png",
+      "sha256": "5f8fa93e009dbb43553f69fd535b55dab7bab69d2056d463955f37c2f8c150c0",
+      "bytes": 228633,
+      "native": [
+        360,
+        536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/206.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/4879c2b63b7a57aacf1c89c90bbc441368d1657ef0f425cde0b080892efc3e6e.png",
+      "sha256": "4879c2b63b7a57aacf1c89c90bbc441368d1657ef0f425cde0b080892efc3e6e",
+      "bytes": 1773733,
+      "native": [
+        1402,
+        1122
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/207.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/80fc85f82ad84cd9663aa10288682d3f05b30d8a0ec05f40189c4dc2106fc33d.png",
+      "sha256": "80fc85f82ad84cd9663aa10288682d3f05b30d8a0ec05f40189c4dc2106fc33d",
+      "bytes": 2033376,
+      "native": [
+        961,
+        1636
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/208.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/989f74ff323e769eb46a619a1f3653e72566ec70af795fb18925891bae311173.png",
+      "sha256": "989f74ff323e769eb46a619a1f3653e72566ec70af795fb18925891bae311173",
+      "bytes": 2013216,
+      "native": [
+        1060,
+        1484
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/209.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/5478c170fa028ae4e53e4f7cb257ad0b3e4d1fb988fdd695258a9095ee04b606.png",
+      "sha256": "5478c170fa028ae4e53e4f7cb257ad0b3e4d1fb988fdd695258a9095ee04b606",
+      "bytes": 1082861,
+      "native": [
+        1085,
+        1449
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/210.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/5af455f0d9c1dd0ec00af676b90a8455d51023d3e01e4fe517acdc421d785b1b.png",
+      "sha256": "5af455f0d9c1dd0ec00af676b90a8455d51023d3e01e4fe517acdc421d785b1b",
+      "bytes": 1687512,
+      "native": [
+        941,
+        1672
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/211.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/764e7a424f23c1fe8dc840b4146d80b76e01a19055be14304d93082bae54b70b.png",
+      "sha256": "764e7a424f23c1fe8dc840b4146d80b76e01a19055be14304d93082bae54b70b",
+      "bytes": 1812379,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/212.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/c6fe259e859399c33568074879128ac9fe3bff9f651090349de2e0df8a7cc78f.png",
+      "sha256": "c6fe259e859399c33568074879128ac9fe3bff9f651090349de2e0df8a7cc78f",
+      "bytes": 1964575,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/213.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/3f893b622fcdc3bf3e8fcc8bceaa792546c4bfda4d7728eadde9570fd0159cfe.png",
+      "sha256": "3f893b622fcdc3bf3e8fcc8bceaa792546c4bfda4d7728eadde9570fd0159cfe",
+      "bytes": 1485772,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/214.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/7ed9b0e0e3f9cd0ed7b4736ed2582c1cb8120b36f0178f0a1c6c800013ddf2cb.png",
+      "sha256": "7ed9b0e0e3f9cd0ed7b4736ed2582c1cb8120b36f0178f0a1c6c800013ddf2cb",
+      "bytes": 1826842,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/215.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/adeba90105f2862aef8cce1447935b3ecb33a4b640a0e5c7af1c04b39b5dec49.png",
+      "sha256": "adeba90105f2862aef8cce1447935b3ecb33a4b640a0e5c7af1c04b39b5dec49",
+      "bytes": 1696258,
+      "native": [
+        1122,
+        1402
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/216.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/701b6b24383879b3221e32b4642ad7ee4db34bdf4e9384bf1c2a8f5311bd2f0f.png",
+      "sha256": "701b6b24383879b3221e32b4642ad7ee4db34bdf4e9384bf1c2a8f5311bd2f0f",
+      "bytes": 1038061,
+      "native": [
+        1024,
+        1024
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/217.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/8f975e85699ac3a1deb7d8e8ef35f3400dc0beff3216010c3af2abaf8bb38139.png",
+      "sha256": "8f975e85699ac3a1deb7d8e8ef35f3400dc0beff3216010c3af2abaf8bb38139",
+      "bytes": 1317347,
+      "native": [
+        1064,
+        1315
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/218.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/bea3eea24fd4166419e879d7fac013ffec13a494304345bf69bfb6838ae68bc4.png",
+      "sha256": "bea3eea24fd4166419e879d7fac013ffec13a494304345bf69bfb6838ae68bc4",
+      "bytes": 1959828,
+      "native": [
+        1028,
+        1355
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/219.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/6031cd252cc25402d7581a10166c3413436310174b9ea5b69ad01efefb049050.png",
+      "sha256": "6031cd252cc25402d7581a10166c3413436310174b9ea5b69ad01efefb049050",
+      "bytes": 1399124,
+      "native": [
+        711,
+        1420
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/220.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/94ad2e86ff1372499eb1a32a414ab6f51fc59e932b6518127f9752eb5c932c2a.png",
+      "sha256": "94ad2e86ff1372499eb1a32a414ab6f51fc59e932b6518127f9752eb5c932c2a",
+      "bytes": 1769421,
+      "native": [
+        857,
+        1143
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/221.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/0447c595a110a6f3b9d9080fcf9bd4032ab1e28f92df84847237eefe4aacabdb.png",
+      "sha256": "0447c595a110a6f3b9d9080fcf9bd4032ab1e28f92df84847237eefe4aacabdb",
+      "bytes": 1242547,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/222.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/3ba2977dc9ee4bb8a55bc04f1ac378529725559e886654344a4d964014c11cb2.png",
+      "sha256": "3ba2977dc9ee4bb8a55bc04f1ac378529725559e886654344a4d964014c11cb2",
+      "bytes": 1237443,
+      "native": [
+        1371,
+        1067
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/224.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/ee65dbb2ceb14661d4490bc64de82b43b6555d36da1ca0694049e9ad99f04ea5.png",
+      "sha256": "ee65dbb2ceb14661d4490bc64de82b43b6555d36da1ca0694049e9ad99f04ea5",
+      "bytes": 1086749,
+      "native": [
+        1082,
+        1204
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/225.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/7e092841c51b91801ba61359e8044dbbbef248908bcf4d92784646a94bfc2e4a.png",
+      "sha256": "7e092841c51b91801ba61359e8044dbbbef248908bcf4d92784646a94bfc2e4a",
+      "bytes": 1610667,
+      "native": [
+        1347,
+        931
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/226.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/7e751608641bb1300ed9cc923734de0589475304d3dddb82ac22f60067bea629.png",
+      "sha256": "7e751608641bb1300ed9cc923734de0589475304d3dddb82ac22f60067bea629",
+      "bytes": 1999445,
+      "native": [
+        1098,
+        1168
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/227.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/c8987cbba490655b1159ddcb2e87f43849154e28865616cd4aeb5ffa9f68f771.png",
+      "sha256": "c8987cbba490655b1159ddcb2e87f43849154e28865616cd4aeb5ffa9f68f771",
+      "bytes": 1657673,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/228.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/6a3aa143976e13bb7151df841cd7219f2aecbd613fc973317d9bc055607078f4.png",
+      "sha256": "6a3aa143976e13bb7151df841cd7219f2aecbd613fc973317d9bc055607078f4",
+      "bytes": 1915904,
+      "native": [
+        1086,
+        1448
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/229.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/1355a25332a0b7bb4abfe76bf453ee4c53d5240ed869ff5ec9af77327ab4efad.png",
+      "sha256": "1355a25332a0b7bb4abfe76bf453ee4c53d5240ed869ff5ec9af77327ab4efad",
+      "bytes": 1165854,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/230.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/0ae772b616fa025640299795d43bd9ef76e5664e1fc80707f422297de90a0d9e.png",
+      "sha256": "0ae772b616fa025640299795d43bd9ef76e5664e1fc80707f422297de90a0d9e",
+      "bytes": 1657371,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/231.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/781ec1a14687bf60528e1d2146b51b54edaa69b35d88baec83e1b49953b1ff10.png",
+      "sha256": "781ec1a14687bf60528e1d2146b51b54edaa69b35d88baec83e1b49953b1ff10",
+      "bytes": 1585010,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/232.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/2fbe0ba1ade861fc54a7c81356aa2087aa93e21f0ce8d723af99998824d80fef.png",
+      "sha256": "2fbe0ba1ade861fc54a7c81356aa2087aa93e21f0ce8d723af99998824d80fef",
+      "bytes": 1452124,
+      "native": [
+        1086,
+        1448
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/233.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/373362c7a6326d7818b26e452b7e799cc7e0316752f5f31630602baa224200a7.png",
+      "sha256": "373362c7a6326d7818b26e452b7e799cc7e0316752f5f31630602baa224200a7",
+      "bytes": 1172798,
+      "native": [
+        1086,
+        1448
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/234.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/51022d7481c7e7262c6d029435a70746dc83f24642680e10e2bda05f3168835d.png",
+      "sha256": "51022d7481c7e7262c6d029435a70746dc83f24642680e10e2bda05f3168835d",
+      "bytes": 1791567,
+      "native": [
+        1122,
+        1402
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/235.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/29137da85f83087275b47074443e2df1b2648ed39834c3b335c9eca178d6fd87.png",
+      "sha256": "29137da85f83087275b47074443e2df1b2648ed39834c3b335c9eca178d6fd87",
+      "bytes": 1967007,
+      "native": [
+        1006,
+        1563
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/236.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/151891f2e8bc3805adc6e8a3cc11f69cbcb8310bc2764576a9d2c239ff854c3f.png",
+      "sha256": "151891f2e8bc3805adc6e8a3cc11f69cbcb8310bc2764576a9d2c239ff854c3f",
+      "bytes": 897811,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/237.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/afb24dd5faa02847c5f84139d0d6aed7cb9b58b67b9f8a78cf6b1d6a78e3c158.png",
+      "sha256": "afb24dd5faa02847c5f84139d0d6aed7cb9b58b67b9f8a78cf6b1d6a78e3c158",
+      "bytes": 1772048,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/238.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/ebf57083dd21eb890b8b98f68fd745e62e2361dff7e6387e30a2df8c72c9ab62.png",
+      "sha256": "ebf57083dd21eb890b8b98f68fd745e62e2361dff7e6387e30a2df8c72c9ab62",
+      "bytes": 3011328,
+      "native": [
+        821,
+        1915
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/239.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/7d2046c1d241a1d92c359f989c441972d92a04ac9fe38b251547c12daa8c9bf3.png",
+      "sha256": "7d2046c1d241a1d92c359f989c441972d92a04ac9fe38b251547c12daa8c9bf3",
+      "bytes": 635748,
+      "native": [
+        1444,
+        1089
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/240.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/dc4d170e58b4c6f20257486a6849a8516f508275fc7a656dcaaee78026d767eb.png",
+      "sha256": "dc4d170e58b4c6f20257486a6849a8516f508275fc7a656dcaaee78026d767eb",
+      "bytes": 2283552,
+      "native": [
+        941,
+        1672
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/241.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/942ff3d8ae4c559860e49719af68e1df8b79a5bb0fb33f0f07bbb0ae72b68f81.png",
+      "sha256": "942ff3d8ae4c559860e49719af68e1df8b79a5bb0fb33f0f07bbb0ae72b68f81",
+      "bytes": 2656245,
+      "native": [
+        1278,
+        1230
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/242.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/bddd14ae260159d8882dc8dd0ee1b20cdcfa4d7947c096cf9f5543d0702c97bf.png",
+      "sha256": "bddd14ae260159d8882dc8dd0ee1b20cdcfa4d7947c096cf9f5543d0702c97bf",
+      "bytes": 2229877,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/243.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/ec23d305385e087c2fd1ecea592b0db5d18fd22156fe87ac0d91598893d1b8f1.png",
+      "sha256": "ec23d305385e087c2fd1ecea592b0db5d18fd22156fe87ac0d91598893d1b8f1",
+      "bytes": 2089567,
+      "native": [
+        725,
+        2170
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/244.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/2355ce7962109d48f69647a6314efcf2a03d652cd06242bd09465a1eedb46b24.png",
+      "sha256": "2355ce7962109d48f69647a6314efcf2a03d652cd06242bd09465a1eedb46b24",
+      "bytes": 1058912,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/245.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/573760751d2819e698a8da1b5e571abc0a4a2d10d6af1fa7c05fd19b5f237b18.png",
+      "sha256": "573760751d2819e698a8da1b5e571abc0a4a2d10d6af1fa7c05fd19b5f237b18",
+      "bytes": 1512251,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/246.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/89d20b0696680b5490726d00a77424aec3771a0b082630d084931ae7937f6ffc.png",
+      "sha256": "89d20b0696680b5490726d00a77424aec3771a0b082630d084931ae7937f6ffc",
+      "bytes": 1239916,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/247.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/c4531bdad6e363089d7d5f0bb97f7df07c39eb05919c678c00077bcca42d63cc.png",
+      "sha256": "c4531bdad6e363089d7d5f0bb97f7df07c39eb05919c678c00077bcca42d63cc",
+      "bytes": 2512022,
+      "native": [
+        1085,
+        1450
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/248.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/d09c710118a520c582c8074f5e1831e4aeda3f95e80c819cdec7a76594819e8e.png",
+      "sha256": "d09c710118a520c582c8074f5e1831e4aeda3f95e80c819cdec7a76594819e8e",
+      "bytes": 2242818,
+      "native": [
+        1122,
+        1402
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/249.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/b6a828851e58ae273a9ae370ba795a8b8ec514970787de8e1f8cbb81af6e2071.png",
+      "sha256": "b6a828851e58ae273a9ae370ba795a8b8ec514970787de8e1f8cbb81af6e2071",
+      "bytes": 2477960,
+      "native": [
+        1672,
+        941
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/250.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/c4fb9c03768aa15d0f37ab68d0616b33c47da960441f1b031c3fc36740820c28.png",
+      "sha256": "c4fb9c03768aa15d0f37ab68d0616b33c47da960441f1b031c3fc36740820c28",
+      "bytes": 2079256,
+      "native": [
+        920,
+        1710
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/251.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/59810dbdd22cab1a930289717ea6230b2df163685db8976e847f2842393a2e3b.png",
+      "sha256": "59810dbdd22cab1a930289717ea6230b2df163685db8976e847f2842393a2e3b",
+      "bytes": 1789860,
+      "native": [
+        941,
+        1672
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/252.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/308192272965ec0c929e395f35d2ea0cf0c3c6afb41406dcef676760e33c6cb0.png",
+      "sha256": "308192272965ec0c929e395f35d2ea0cf0c3c6afb41406dcef676760e33c6cb0",
+      "bytes": 1819119,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/253.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/f45ed65995d8ae436435f91bc5d108649016ee5b3921c2463ce7671f2beb3b10.png",
+      "sha256": "f45ed65995d8ae436435f91bc5d108649016ee5b3921c2463ce7671f2beb3b10",
+      "bytes": 1354650,
+      "native": [
+        1086,
+        1448
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/254.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/3da067eb3107ab746a145412988b7b101bf8680b9602c69cac55f5ffa6ad777a.png",
+      "sha256": "3da067eb3107ab746a145412988b7b101bf8680b9602c69cac55f5ffa6ad777a",
+      "bytes": 1855655,
+      "native": [
+        1041,
+        1511
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/255.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/4800e03bcb57d31209bbcc8314bb094c16a031995c1d64ea6495effce87b6f56.png",
+      "sha256": "4800e03bcb57d31209bbcc8314bb094c16a031995c1d64ea6495effce87b6f56",
+      "bytes": 2157837,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/256.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/fabc3b82d3d6947e9fd303dc597d0ca7eeee3e96dae89945768c1ca403b632fa.png",
+      "sha256": "fabc3b82d3d6947e9fd303dc597d0ca7eeee3e96dae89945768c1ca403b632fa",
+      "bytes": 1619304,
+      "native": [
+        997,
+        1577
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/257.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/d8d4271d2a84b96a9c863125cbf4cf74ffcfe8d2bc22200ab234b99904b11200.png",
+      "sha256": "d8d4271d2a84b96a9c863125cbf4cf74ffcfe8d2bc22200ab234b99904b11200",
+      "bytes": 2380571,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/258.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/f6ab0458ec116620822d8183d86a41ea0c8a23ea3134c8244a9268135fe100d1.png",
+      "sha256": "f6ab0458ec116620822d8183d86a41ea0c8a23ea3134c8244a9268135fe100d1",
+      "bytes": 2168299,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/259.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/eeac21f0a729eb58fc61eb0aa98d5d2f350e4bda012819ba392ab2cb89c05271.png",
+      "sha256": "eeac21f0a729eb58fc61eb0aa98d5d2f350e4bda012819ba392ab2cb89c05271",
+      "bytes": 1344707,
+      "native": [
+        858,
+        1834
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/260.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/8d5e4047420faa7a812f67f6b0b29b76972bd5c8ba2c43a37c978bdc6fbe1913.png",
+      "sha256": "8d5e4047420faa7a812f67f6b0b29b76972bd5c8ba2c43a37c978bdc6fbe1913",
+      "bytes": 2995662,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/261.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/9a702fa77346dffdf6081ddb599a3c3ef772a5dba4a1aebcf397db010ac1bc16.png",
+      "sha256": "9a702fa77346dffdf6081ddb599a3c3ef772a5dba4a1aebcf397db010ac1bc16",
+      "bytes": 1896170,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/262.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/aabf15f12c4c8a88efef6526fb0071280161c2e5bff5b7294fd5c19a7b9dfc55.png",
+      "sha256": "aabf15f12c4c8a88efef6526fb0071280161c2e5bff5b7294fd5c19a7b9dfc55",
+      "bytes": 1982380,
+      "native": [
+        971,
+        1619
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/263.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/0ebbf9474ad67e167fa2c68fad2db8ff8a7db2d8d1eb0100b100b675c71e9f16.png",
+      "sha256": "0ebbf9474ad67e167fa2c68fad2db8ff8a7db2d8d1eb0100b100b675c71e9f16",
+      "bytes": 1320758,
+      "native": [
+        794,
+        1210
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/264.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/3b6fa7c638c74fb41422962e748b62b3b806070e60104283de87ba339856b2c9.png",
+      "sha256": "3b6fa7c638c74fb41422962e748b62b3b806070e60104283de87ba339856b2c9",
+      "bytes": 1481533,
+      "native": [
+        941,
+        1672
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/265.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/9e1e0d62e64b786966f8c67b456e84e2be93b41697cad774fe9ee1d1071e133b.png",
+      "sha256": "9e1e0d62e64b786966f8c67b456e84e2be93b41697cad774fe9ee1d1071e133b",
+      "bytes": 1755923,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/266.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/a486016cde13ead898268f04bbcaf02882a851b22de3719362252ae22f7a8455.png",
+      "sha256": "a486016cde13ead898268f04bbcaf02882a851b22de3719362252ae22f7a8455",
+      "bytes": 1518538,
+      "native": [
+        878,
+        1791
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/267.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/33b5d7a2554d6cee9170d4e9e444042da6c0367fbf591b5c5a92a0218a459550.png",
+      "sha256": "33b5d7a2554d6cee9170d4e9e444042da6c0367fbf591b5c5a92a0218a459550",
+      "bytes": 1575243,
+      "native": [
+        1172,
+        1342
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/268.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/d5cdce67df2c8b535d79871104ee884b9c2402f206f8a6c352fd70762db4ad99.png",
+      "sha256": "d5cdce67df2c8b535d79871104ee884b9c2402f206f8a6c352fd70762db4ad99",
+      "bytes": 2162255,
+      "native": [
+        934,
+        1684
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/269.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/1bfcd58803031d501b119cdabcde613a755f3e16926de925363c1af469647e9f.png",
+      "sha256": "1bfcd58803031d501b119cdabcde613a755f3e16926de925363c1af469647e9f",
+      "bytes": 2013843,
+      "native": [
+        2001,
+        786
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/270.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/1cdf226243655d01d3ca95a9a3468e170ed34b5d96c14141c0990b1c41c390c6.png",
+      "sha256": "1cdf226243655d01d3ca95a9a3468e170ed34b5d96c14141c0990b1c41c390c6",
+      "bytes": 1957986,
+      "native": [
+        970,
+        1622
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/271.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/aa9aa2608eb57760b2682344f341065e073351b8bc5a1ec82bd9435fc3b1e6ce.png",
+      "sha256": "aa9aa2608eb57760b2682344f341065e073351b8bc5a1ec82bd9435fc3b1e6ce",
+      "bytes": 1932175,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/272.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/737cff2dab3549c4fccadbe7a745af8a29b23f49f08c6b1712dcac47289de4c9.png",
+      "sha256": "737cff2dab3549c4fccadbe7a745af8a29b23f49f08c6b1712dcac47289de4c9",
+      "bytes": 2089257,
+      "native": [
+        941,
+        1672
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/273.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/962d819b0192e08e86cfd5d62c522b6b5748f919b1c78fd5116966a3342fdd27.png",
+      "sha256": "962d819b0192e08e86cfd5d62c522b6b5748f919b1c78fd5116966a3342fdd27",
+      "bytes": 1411631,
+      "native": [
+        971,
+        1619
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/274.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/5ecce9a5c91d888c8885ed78688c418546f1b5cd5964b0c1c9910fb776daa219.png",
+      "sha256": "5ecce9a5c91d888c8885ed78688c418546f1b5cd5964b0c1c9910fb776daa219",
+      "bytes": 1469400,
+      "native": [
+        1230,
+        1278
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/275.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/69e7ba725c23d52ac9175e14bfc69d940ca01066a7438df8073bc1d813d10359.png",
+      "sha256": "69e7ba725c23d52ac9175e14bfc69d940ca01066a7438df8073bc1d813d10359",
+      "bytes": 1771598,
+      "native": [
+        963,
+        1634
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/276.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/ffdcedbde553b58b688052ef95357c94fd54a161d6cfcf8a69b4a7531698ed3c.png",
+      "sha256": "ffdcedbde553b58b688052ef95357c94fd54a161d6cfcf8a69b4a7531698ed3c",
+      "bytes": 1087899,
+      "native": [
+        1831,
+        859
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/277.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/f8a64421c45a403f3cf12e574acae0045150e38065c9591b7b769cb0d959c844.png",
+      "sha256": "f8a64421c45a403f3cf12e574acae0045150e38065c9591b7b769cb0d959c844",
+      "bytes": 1506285,
+      "native": [
+        1448,
+        1086
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/278.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/336e4ea7acf2d80ad33b0f092bd0986438fa0a5fbc088685236593827c7d0f8a.png",
+      "sha256": "336e4ea7acf2d80ad33b0f092bd0986438fa0a5fbc088685236593827c7d0f8a",
+      "bytes": 1587658,
+      "native": [
+        1394,
+        1128
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/279.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/07c500748fbf1e4e1cb27ac730af3bc2f28421ecccdc2f5b4ca7966016008137.png",
+      "sha256": "07c500748fbf1e4e1cb27ac730af3bc2f28421ecccdc2f5b4ca7966016008137",
+      "bytes": 1684751,
+      "native": [
+        845,
+        1862
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/280.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/d539a9ba7fe5fe7332c2c9ca4e8c0a202a88c347cebf8d9019ada97f65e4c89d.png",
+      "sha256": "d539a9ba7fe5fe7332c2c9ca4e8c0a202a88c347cebf8d9019ada97f65e4c89d",
+      "bytes": 1339103,
+      "native": [
+        1351,
+        1164
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/281.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/1cd516e3c11369e36bdd34b5b68623b51f56b6f96d57c762ede933355f44ced1.png",
+      "sha256": "1cd516e3c11369e36bdd34b5b68623b51f56b6f96d57c762ede933355f44ced1",
+      "bytes": 1839684,
+      "native": [
+        1092,
+        1440
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/282.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/3356dede737ff253b2724925166e76c8df84b86f30b3106de06dc2771ee30d2a.png",
+      "sha256": "3356dede737ff253b2724925166e76c8df84b86f30b3106de06dc2771ee30d2a",
+      "bytes": 2114050,
+      "native": [
+        1023,
+        1537
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/283.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/4b8a5796db398a36741cc78aefb820113a205fd955fbcdd7b9a61e8b099cdec7.png",
+      "sha256": "4b8a5796db398a36741cc78aefb820113a205fd955fbcdd7b9a61e8b099cdec7",
+      "bytes": 1525302,
+      "native": [
+        815,
+        1930
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/284.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/5b225607979e325c9ed479060ff18a390ec46989219d3f4e6603392b964ddb28.png",
+      "sha256": "5b225607979e325c9ed479060ff18a390ec46989219d3f4e6603392b964ddb28",
+      "bytes": 1618009,
+      "native": [
+        941,
+        1672
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/285.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/3cc6c207cbc9881eddaa21fc4aa5bfca9acef30cdc0df72364c3dd1dce7a35fd.png",
+      "sha256": "3cc6c207cbc9881eddaa21fc4aa5bfca9acef30cdc0df72364c3dd1dce7a35fd",
+      "bytes": 1183008,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/286.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/e116e3d34769a6723c9445b4d366180d89059b02af1c53b1b1d6b53cfd5ede2f.png",
+      "sha256": "e116e3d34769a6723c9445b4d366180d89059b02af1c53b1b1d6b53cfd5ede2f",
+      "bytes": 1160010,
+      "native": [
+        1025,
+        1535
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/287.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/5cf0ed50c3aad9c985e82373c6c662280a6bd16dca93d84d5863ba28c8890425.png",
+      "sha256": "5cf0ed50c3aad9c985e82373c6c662280a6bd16dca93d84d5863ba28c8890425",
+      "bytes": 1019267,
+      "native": [
+        1000,
+        1573
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/288.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/dfdd018020beecb89d5b16ff62c19d3cb8515e53706be206451da8005b11fd6f.png",
+      "sha256": "dfdd018020beecb89d5b16ff62c19d3cb8515e53706be206451da8005b11fd6f",
+      "bytes": 1874436,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/289.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/2e829f6d6c92b6990965501c013bb494ba993c15aaa66f4463e7a3e4d56673ba.png",
+      "sha256": "2e829f6d6c92b6990965501c013bb494ba993c15aaa66f4463e7a3e4d56673ba",
+      "bytes": 2275075,
+      "native": [
+        1086,
+        1448
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/290.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/189683c2d89acb150f4f6afc55a063c2f23da395fac3a7fde85fbbe5037bc0e6.png",
+      "sha256": "189683c2d89acb150f4f6afc55a063c2f23da395fac3a7fde85fbbe5037bc0e6",
+      "bytes": 1687471,
+      "native": [
+        1006,
+        1564
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/291.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/41cac655ae13a199fb963e72d762f01e5493acdfbf7c5682323b7902173b1439.png",
+      "sha256": "41cac655ae13a199fb963e72d762f01e5493acdfbf7c5682323b7902173b1439",
+      "bytes": 1789190,
+      "native": [
+        941,
+        1672
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/292.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/65eade0801990b78fd59338bd223e2a9f6dbe72939ba303d68ac0ed6b4d0db95.png",
+      "sha256": "65eade0801990b78fd59338bd223e2a9f6dbe72939ba303d68ac0ed6b4d0db95",
+      "bytes": 2097290,
+      "native": [
+        937,
+        1678
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/293.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/fa898c4c49df06dc960148153c9ea5ff72fa3c9811cfc89c91bf30fc64ff36be.png",
+      "sha256": "fa898c4c49df06dc960148153c9ea5ff72fa3c9811cfc89c91bf30fc64ff36be",
+      "bytes": 1695292,
+      "native": [
+        1086,
+        1448
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/294.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/2792e304e0bd0b80412ed28ce8f80dda9b171cfdd63764a14d985a012ce0668b.png",
+      "sha256": "2792e304e0bd0b80412ed28ce8f80dda9b171cfdd63764a14d985a012ce0668b",
+      "bytes": 2267535,
+      "native": [
+        1086,
+        1449
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/295.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/74edc1becc98b61876359050486d508a44b06184b89a230ab1f333736342b038.png",
+      "sha256": "74edc1becc98b61876359050486d508a44b06184b89a230ab1f333736342b038",
+      "bytes": 1532861,
+      "native": [
+        1208,
+        1302
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/296.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/f36dc520994c9ae9b13a19b5906736bfc6093fb3e32b870765619532ede3037a.png",
+      "sha256": "f36dc520994c9ae9b13a19b5906736bfc6093fb3e32b870765619532ede3037a",
+      "bytes": 1606798,
+      "native": [
+        955,
+        1647
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/297.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/0c1fdb9af28d3621a6b1022907d33556862028757454b31b9c5ed62a7bdf6b95.png",
+      "sha256": "0c1fdb9af28d3621a6b1022907d33556862028757454b31b9c5ed62a7bdf6b95",
+      "bytes": 1107702,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/298.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/ebb025729fb6494a58e4aca595aee92816db1c03c4364070ff36d458ccd23fd1.png",
+      "sha256": "ebb025729fb6494a58e4aca595aee92816db1c03c4364070ff36d458ccd23fd1",
+      "bytes": 1524772,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/299.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/61463a717bd83a5c959c404be4f64645aa427550eeb8fd602e7e6c7c3d6b6356.png",
+      "sha256": "61463a717bd83a5c959c404be4f64645aa427550eeb8fd602e7e6c7c3d6b6356",
+      "bytes": 2201095,
+      "native": [
+        1100,
+        1430
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/300.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/67bd76f6e5ba189546d807e82532b2a9ab040ec78fd9a9846cfc4d14cbbfa2a3.png",
+      "sha256": "67bd76f6e5ba189546d807e82532b2a9ab040ec78fd9a9846cfc4d14cbbfa2a3",
+      "bytes": 1801044,
+      "native": [
+        937,
+        1678
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/301.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/a396d4731a0c0a143b6d94c65ca3f077e924ce3e935630ec0e013f09f182216e.png",
+      "sha256": "a396d4731a0c0a143b6d94c65ca3f077e924ce3e935630ec0e013f09f182216e",
+      "bytes": 1881621,
+      "native": [
+        1078,
+        1459
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/302.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/f33ae30e98f081fd16db888e3542968f370609852f4e39ab65382708c1f336c0.png",
+      "sha256": "f33ae30e98f081fd16db888e3542968f370609852f4e39ab65382708c1f336c0",
+      "bytes": 1916587,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/303.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/ec5848a7e91b9cd084c95d2267807b1faa19e3fc50b62ea3365144bb6a504707.png",
+      "sha256": "ec5848a7e91b9cd084c95d2267807b1faa19e3fc50b62ea3365144bb6a504707",
+      "bytes": 133771,
+      "native": [
+        227,
+        584
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/304.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/f1d8be22df2f842a6a0f24151014555d501dc58e469f6668aebf4b991816e0cd.png",
+      "sha256": "f1d8be22df2f842a6a0f24151014555d501dc58e469f6668aebf4b991816e0cd",
+      "bytes": 1775814,
+      "native": [
+        965,
+        1630
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/305.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/c7babd2dfe71ae58aa7df0b2f3cb5f586ee9a9f73f2a46ffb5bff802f672de5d.png",
+      "sha256": "c7babd2dfe71ae58aa7df0b2f3cb5f586ee9a9f73f2a46ffb5bff802f672de5d",
+      "bytes": 2318675,
+      "native": [
+        887,
+        1774
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/306.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/dc7f4828e0576511d9ae54f601974c0b5abe56b77d72cd9fe5bb266d808c3d35.png",
+      "sha256": "dc7f4828e0576511d9ae54f601974c0b5abe56b77d72cd9fe5bb266d808c3d35",
+      "bytes": 2068494,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/307.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/0f4650120d2ab4c620fbda8c8f2f62248b594069de73321f391828fb4a9ae30c.png",
+      "sha256": "0f4650120d2ab4c620fbda8c8f2f62248b594069de73321f391828fb4a9ae30c",
+      "bytes": 1918752,
+      "native": [
+        1086,
+        1448
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/308.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/18a396048751aa490f7acd056bbcc5fa1e425a1c962849f4f44cfdb6ec12dc3a.png",
+      "sha256": "18a396048751aa490f7acd056bbcc5fa1e425a1c962849f4f44cfdb6ec12dc3a",
+      "bytes": 1616453,
+      "native": [
+        816,
+        1515
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/309.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/226f0ebc5ef45e3ec065ce3b161a6fff9527f9b6dba88a691bbf286283bb95a8.png",
+      "sha256": "226f0ebc5ef45e3ec065ce3b161a6fff9527f9b6dba88a691bbf286283bb95a8",
+      "bytes": 1690893,
+      "native": [
+        724,
+        2172
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/310.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/5236a0b825603fdef34cc8547668d83f8b40f0226f633d710e85f30c23919bf5.png",
+      "sha256": "5236a0b825603fdef34cc8547668d83f8b40f0226f633d710e85f30c23919bf5",
+      "bytes": 1883321,
+      "native": [
+        1122,
+        1402
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/311.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/215fdd2552c9b5dcc5f5ca133e1d7f80643627fcd1c3879967f5defb88e0941e.png",
+      "sha256": "215fdd2552c9b5dcc5f5ca133e1d7f80643627fcd1c3879967f5defb88e0941e",
+      "bytes": 1935326,
+      "native": [
+        1000,
+        2000
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/312.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/c429466fd69325fc2c75166f6654a5654eb3e92adef7a275b6f183961cf1ff64.png",
+      "sha256": "c429466fd69325fc2c75166f6654a5654eb3e92adef7a275b6f183961cf1ff64",
+      "bytes": 2495895,
+      "native": [
+        922,
+        1514
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/313.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/b148bae87ad2bbd23149e8b5e1e14cfce942f82a58c6e9c208a287df07f17509.png",
+      "sha256": "b148bae87ad2bbd23149e8b5e1e14cfce942f82a58c6e9c208a287df07f17509",
+      "bytes": 1416167,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/314.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/6e0de5621b2d4075d5f2e2f71ad4be8a8a537ebb494298b1828cd6b3619d9c11.png",
+      "sha256": "6e0de5621b2d4075d5f2e2f71ad4be8a8a537ebb494298b1828cd6b3619d9c11",
+      "bytes": 2853632,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/315.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/7e2448521089256069360746c51a3a28592da25ebdc2ed99bb2063e070b5a463.png",
+      "sha256": "7e2448521089256069360746c51a3a28592da25ebdc2ed99bb2063e070b5a463",
+      "bytes": 2294795,
+      "native": [
+        1448,
+        1086
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/317.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/a7cb0cb42304bdfa5e825eac73087e1748cfb77d9aecc13627edd9d172eb9fbe.png",
+      "sha256": "a7cb0cb42304bdfa5e825eac73087e1748cfb77d9aecc13627edd9d172eb9fbe",
+      "bytes": 999340,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/318.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/25b0efbeac93bc40c2f16d9a90274a6e8c5c9a850e0e23d4188248a01e120fc0.png",
+      "sha256": "25b0efbeac93bc40c2f16d9a90274a6e8c5c9a850e0e23d4188248a01e120fc0",
+      "bytes": 2017771,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/319.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/6d1878f6058d04c097c56b606839f4d29a2abf527234128df272fd148cd8c4b5.png",
+      "sha256": "6d1878f6058d04c097c56b606839f4d29a2abf527234128df272fd148cd8c4b5",
+      "bytes": 1514946,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/320.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/300df35f11d7f1b50cf0f333f97b1b61dcd99788f5f17821f44a0a1626b914c7.png",
+      "sha256": "300df35f11d7f1b50cf0f333f97b1b61dcd99788f5f17821f44a0a1626b914c7",
+      "bytes": 1252832,
+      "native": [
+        1448,
+        1086
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/321.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/26a8efb49f5eae170af2117b187d7efabf33b3b1682e4d0f396a7d7c52ed5ac3.png",
+      "sha256": "26a8efb49f5eae170af2117b187d7efabf33b3b1682e4d0f396a7d7c52ed5ac3",
+      "bytes": 1285411,
+      "native": [
+        1024,
+        1024
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/322.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/c9d2c215193b1c49876939d2769e8bf00cb2edf99becd080944d94dc8b2561cf.png",
+      "sha256": "c9d2c215193b1c49876939d2769e8bf00cb2edf99becd080944d94dc8b2561cf",
+      "bytes": 1502287,
+      "native": [
+        902,
+        1743
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/323.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/5331b9c7178b74b14f5a7ef73b6816cefaae632f858529ca6156fbd3ab1031be.png",
+      "sha256": "5331b9c7178b74b14f5a7ef73b6816cefaae632f858529ca6156fbd3ab1031be",
+      "bytes": 1711382,
+      "native": [
+        941,
+        1672
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/324.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/6a9dd502fe08e1a352680bb4ff805f580829b418137f85dbe06d82e70bb7f844.png",
+      "sha256": "6a9dd502fe08e1a352680bb4ff805f580829b418137f85dbe06d82e70bb7f844",
+      "bytes": 1972844,
+      "native": [
+        1054,
+        1492
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/325.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/610e03ae9f2cccd9bd3c68f8ed5bda748e1163644d27e6923c8df0fded81e756.png",
+      "sha256": "610e03ae9f2cccd9bd3c68f8ed5bda748e1163644d27e6923c8df0fded81e756",
+      "bytes": 620511,
+      "native": [
+        744,
+        888
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/326.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/118b103e8140f1c455a5a1092bc4877d3d19c9173af7ad4c2d453ef7496e5c25.png",
+      "sha256": "118b103e8140f1c455a5a1092bc4877d3d19c9173af7ad4c2d453ef7496e5c25",
+      "bytes": 2150080,
+      "native": [
+        887,
+        1774
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/327.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/10e6821395742f0a210df4d789154751884be9965f0862d3f86a08b925f83938.png",
+      "sha256": "10e6821395742f0a210df4d789154751884be9965f0862d3f86a08b925f83938",
+      "bytes": 1979065,
+      "native": [
+        684,
+        1786
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/328.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/9cd83d4e433cb7c5ccb95e26c40e308eb97edc3e1f8dc75f41aab24c00d2490a.png",
+      "sha256": "9cd83d4e433cb7c5ccb95e26c40e308eb97edc3e1f8dc75f41aab24c00d2490a",
+      "bytes": 1702673,
+      "native": [
+        887,
+        1774
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/329.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/b5d03cce51c5a772c6037188e31c897a2dd8d6d8a48110da6652b1df31cb3e64.png",
+      "sha256": "b5d03cce51c5a772c6037188e31c897a2dd8d6d8a48110da6652b1df31cb3e64",
+      "bytes": 1741935,
+      "native": [
+        1448,
+        1086
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/330.png"
+        },
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/332.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/047baddacfceca9dcdd5221f1b1e50f0f33fa6c37bb15c24b75b49811af11d12.png",
+      "sha256": "047baddacfceca9dcdd5221f1b1e50f0f33fa6c37bb15c24b75b49811af11d12",
+      "bytes": 1063193,
+      "native": [
+        1086,
+        1448
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/331.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/3bc4110aa07552cb9e91d93ee576d09ba20e0a24a2f7f0b8f12d1d2282a1a9e5.png",
+      "sha256": "3bc4110aa07552cb9e91d93ee576d09ba20e0a24a2f7f0b8f12d1d2282a1a9e5",
+      "bytes": 531873,
+      "native": [
+        632,
+        948
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/333.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/1d79da3a6fe7658d779c53c059f0181fa928696a8d7213539971a4a8d2e00a43.png",
+      "sha256": "1d79da3a6fe7658d779c53c059f0181fa928696a8d7213539971a4a8d2e00a43",
+      "bytes": 2316848,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/334.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/d1410d5ff076792d33151ad924da4d0034c56dea7dccdbef322e3f4673d81669.png",
+      "sha256": "d1410d5ff076792d33151ad924da4d0034c56dea7dccdbef322e3f4673d81669",
+      "bytes": 1355849,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/335.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/2ae0273b32b5213d42298628185a3f7644ed1561d61b686fa81ed37d73060325.png",
+      "sha256": "2ae0273b32b5213d42298628185a3f7644ed1561d61b686fa81ed37d73060325",
+      "bytes": 2224111,
+      "native": [
+        1086,
+        1448
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/336.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/c09450709fd5cb19f6e4bc3860b1e11ff52995f886744b0a21d6d3efdab91229.png",
+      "sha256": "c09450709fd5cb19f6e4bc3860b1e11ff52995f886744b0a21d6d3efdab91229",
+      "bytes": 1437720,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/337.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/e9a72ea22df449b92acacaa12120faf131906ca47dbc71b84e82967ad178e6be.png",
+      "sha256": "e9a72ea22df449b92acacaa12120faf131906ca47dbc71b84e82967ad178e6be",
+      "bytes": 1834703,
+      "native": [
+        793,
+        1983
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/338.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/66ce752f9803d42ffc831857a4d8c8d5de99ab9b63b9c10ba2491db7a1ccec9e.png",
+      "sha256": "66ce752f9803d42ffc831857a4d8c8d5de99ab9b63b9c10ba2491db7a1ccec9e",
+      "bytes": 1697224,
+      "native": [
+        742,
+        1458
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/340.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/1409685105e14c7f502a30b82db512b552e0c6dd6f4ea592a09c8891add79734.png",
+      "sha256": "1409685105e14c7f502a30b82db512b552e0c6dd6f4ea592a09c8891add79734",
+      "bytes": 1778601,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/341.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/adb6e45507ff903f4733106308d469636af4e4b6a06b5cea8ae2ea11be613bd9.png",
+      "sha256": "adb6e45507ff903f4733106308d469636af4e4b6a06b5cea8ae2ea11be613bd9",
+      "bytes": 1229925,
+      "native": [
+        1024,
+        1536
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/342.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/38a1b9e26a3c8b15825dc1344551a4e2b821b6f3957dd3c58d4ce7e8d0516e53.png",
+      "sha256": "38a1b9e26a3c8b15825dc1344551a4e2b821b6f3957dd3c58d4ce7e8d0516e53",
+      "bytes": 1467128,
+      "native": [
+        912,
+        1349
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/343.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/b98574f76a568a02e614c44bf81e4f586bdb86873b9c9eecd01d1510dfc444bd.png",
+      "sha256": "b98574f76a568a02e614c44bf81e4f586bdb86873b9c9eecd01d1510dfc444bd",
+      "bytes": 1630378,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/344.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/e55cebfe5cd1f35c0a0ee9afca03f32fb743c4d9a45f2e06a82040e405d01562.png",
+      "sha256": "e55cebfe5cd1f35c0a0ee9afca03f32fb743c4d9a45f2e06a82040e405d01562",
+      "bytes": 1518043,
+      "native": [
+        2146,
+        732
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/345.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/6f6817d61ec9c3f82618fbd7cb0af6ca61ec8db41158fab6363cf65cb6209038.png",
+      "sha256": "6f6817d61ec9c3f82618fbd7cb0af6ca61ec8db41158fab6363cf65cb6209038",
+      "bytes": 2988378,
+      "native": [
+        1254,
+        1254
+      ],
+      "sources": [
+        {
+          "commit": "030155dd6e2af52b0b31ff6fd7c9cfd31d49fc6f",
+          "path": "assets/game/ships/346.png"
+        }
+      ]
+    },
+    {
+      "path": "assets/ff5e3297804312b9b2c50923f699cecb9214690374ae6fe58b828eca17aa86b2.webp",
+      "sha256": "ff5e3297804312b9b2c50923f699cecb9214690374ae6fe58b828eca17aa86b2",
+      "bytes": 8000,
+      "native": [
+        122,
+        265
+      ],
+      "sources": [
+        {
+          "reviewKey": "a-25",
+          "source": "excalibur.gif",
+          "quality": "embedded review image; not the editable source master"
+        }
+      ]
+    },
+    {
+      "path": "assets/ac127677e01727b1faa83ef8f5fc787ec6b2616190127cc6e4b1fd5310138d70.webp",
+      "sha256": "ac127677e01727b1faa83ef8f5fc787ec6b2616190127cc6e4b1fd5310138d70",
+      "bytes": 1206,
+      "native": [
+        30,
+        68
+      ],
+      "sources": [
+        {
+          "reviewKey": "a-3",
+          "source": "andcargo.gif",
+          "quality": "embedded review image; not the editable source master"
+        }
+      ]
+    },
+    {
+      "path": "assets/f9b758eb43a5d18b08bb6fd698cf3c9052636829a69eef86f04ae8124be139fb.webp",
+      "sha256": "f9b758eb43a5d18b08bb6fd698cf3c9052636829a69eef86f04ae8124be139fb",
+      "bytes": 262,
+      "native": [
+        10,
+        23
+      ],
+      "sources": [
+        {
+          "reviewKey": "a-4",
+          "source": "andshut.gif",
+          "quality": "embedded review image; not the editable source master"
+        }
+      ]
+    },
+    {
+      "path": "assets/31ad46820a1255994baf8d3acaaeee9be335760e5ab2b4101df5438c7af3f1bd.webp",
+      "sha256": "31ad46820a1255994baf8d3acaaeee9be335760e5ab2b4101df5438c7af3f1bd",
+      "bytes": 288,
+      "native": [
+        13,
+        24
+      ],
+      "sources": [
+        {
+          "reviewKey": "a-62",
+          "source": "shuttle.gif",
+          "quality": "embedded review image; not the editable source master"
+        }
+      ]
+    },
+    {
+      "path": "assets/a30e08269110f9b9dbfee3a03cd60cb93b95f4396a345fa9877884163a1734a4.webp",
+      "sha256": "a30e08269110f9b9dbfee3a03cd60cb93b95f4396a345fa9877884163a1734a4",
+      "bytes": 966,
+      "native": [
+        52,
+        42
+      ],
+      "sources": [
+        {
+          "reviewKey": "a-77",
+          "source": "Klingon shuttle (L14)",
+          "quality": "embedded review image; not the editable source master"
+        }
+      ]
+    }
+  ]
+}
