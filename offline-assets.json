@@ -2,6 +2,11 @@
   "version": "20260910-bm1-remaster-v1",
   "generatedAt": "2026-07-10T00:00:00Z",
   "assets": [
+    "./bm-ships/catalog.mjs",
+    "./bm-ships/ships.json",
+    "./bm-ships/bm2-id-map.json",
+    "./bm-ships/size-config.json",
+    "./src/ship-catalog-integration.mjs",
     "./data/game_items.json",
     "./data/audio_manifest.json",
     "./assets/game/audio/-1.wav",
