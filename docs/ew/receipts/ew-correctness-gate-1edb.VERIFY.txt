@@ -1,0 +1,21 @@
+Independent verification of cursor/ew-correctness-gate-1edb
+=========================================================
+
+Review commit (code, harness, labeled receipts):
+  61ce9b5a1032f95a73e125e826a116d68149de55
+
+Base (do not merge to main):
+  feat/electronic-warfare-review  75a721ec30b831e4ba2cc21338df1d08c35c2899
+
+Format-patch (7 commits, apply onto the base):
+  git checkout 75a721ec30b831e4ba2cc21338df1d08c35c2899
+  git am docs/ew/receipts/ew-correctness-gate-1edb.format-patch
+  git rev-parse HEAD   # expect 61ce9b5a1032f95a73e125e826a116d68149de55
+
+Bundle (requires the same base object):
+  git fetch docs/ew/receipts/ew-correctness-gate-1edb.bundle HEAD:ew-correctness-verify
+  git rev-parse ew-correctness-verify   # expect 61ce9b5a1032f95a73e125e826a116d68149de55
+
+Rerun the pinned harness against the four pinned trees:
+  scripts/ew-four-tree.sh
+  # commands also in passms-20260913-commands.txt
