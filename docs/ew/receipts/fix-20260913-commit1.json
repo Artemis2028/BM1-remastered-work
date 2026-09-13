@@ -1,0 +1,193 @@
+{
+  "root": "/tmp/ew-tree-c1",
+  "sources": {
+    "src/main.js": "5ba906285ac27503f17ec6ef23cda90f2e1ed1dc6bd94bf92c010adb42ab1be3",
+    "src/ship-sensors.mjs": "2011305d0cd5f32d634aa13cc766aaacbfa28ecd06546fe0cc37a19b452714c6",
+    "src/ship-ew.mjs": "77b6f145d98f99964b497093c1a5dc75f28cb066298d57eea77ed1c7a0d2e75c"
+  },
+  "browser": "153.0.8010.12",
+  "environment": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "logicalCPUs": 4
+  },
+  "detectionPass": {
+    "samples": 300,
+    "p50": 0.9000000000232831,
+    "p95": 1,
+    "p99": 1.7999999999301508,
+    "observers": 39,
+    "actors": 39,
+    "pairs": 1480,
+    "jammerPairs": 228,
+    "elapsedMs": 0.8999999999068677,
+    "series": "detection passMs/elapsedMs",
+    "gateAuthority": "electronicsPass",
+    "electronicsPass": {
+      "samples": 300,
+      "p50": 1,
+      "p95": 1.2000000000698492,
+      "p99": 2,
+      "series": "power+sensors wall-clock",
+      "passed": true
+    }
+  },
+  "electronicsPass": {
+    "samples": 300,
+    "p50": 1,
+    "p95": 1.2000000000698492,
+    "p99": 2,
+    "series": "power+sensors wall-clock",
+    "passed": true
+  },
+  "seekerCPU": {
+    "samples": 300,
+    "p50": 0,
+    "p95": 0.09999999997671694,
+    "p99": 0.10000000009313226,
+    "profile": {
+      "max": 0.10000000009313226,
+      "hits": 0,
+      "deaths": 107,
+      "hist": {
+        "lt0_25": 300,
+        "lt0_5": 0,
+        "lt1": 0,
+        "lt2": 0,
+        "lt4": 0,
+        "ge4": 0
+      },
+      "hitKinds": {
+        "player": 0,
+        "station": 0,
+        "ship": 0
+      },
+      "outliers": [
+        {
+          "i": 29,
+          "dt": 0.10000000009313226,
+          "died": 2,
+          "newEffects": 0,
+          "live": 4
+        },
+        {
+          "i": 31,
+          "dt": 0.10000000009313226,
+          "died": 3,
+          "newEffects": 0,
+          "live": 3
+        },
+        {
+          "i": 100,
+          "dt": 0.10000000009313226,
+          "died": 1,
+          "newEffects": 0,
+          "live": 5
+        },
+        {
+          "i": 163,
+          "dt": 0.10000000009313226,
+          "died": 3,
+          "newEffects": 0,
+          "live": 3
+        },
+        {
+          "i": 213,
+          "dt": 0.10000000009313226,
+          "died": 3,
+          "newEffects": 0,
+          "live": 3
+        },
+        {
+          "i": 14,
+          "dt": 0.09999999997671694,
+          "died": 3,
+          "newEffects": 0,
+          "live": 3
+        },
+        {
+          "i": 129,
+          "dt": 0.09999999997671694,
+          "died": 2,
+          "newEffects": 0,
+          "live": 4
+        },
+        {
+          "i": 217,
+          "dt": 0.09999999997671694,
+          "died": 1,
+          "newEffects": 0,
+          "live": 5
+        },
+        {
+          "i": 245,
+          "dt": 0.09999999997671694,
+          "died": 2,
+          "newEffects": 0,
+          "live": 4
+        },
+        {
+          "i": 247,
+          "dt": 0.09999999997671694,
+          "died": 3,
+          "newEffects": 0,
+          "live": 3
+        },
+        {
+          "i": 262,
+          "dt": 0.09999999997671694,
+          "died": 2,
+          "newEffects": 0,
+          "live": 4
+        },
+        {
+          "i": 12,
+          "dt": 0,
+          "died": 2,
+          "newEffects": 0,
+          "live": 4
+        }
+      ]
+    }
+  },
+  "sensorOnlyCPU": {
+    "samples": 300,
+    "p50": 0.9000000000232831,
+    "p95": 1,
+    "p99": 1.7999999999301508
+  },
+  "activeJammers": 6,
+  "mixedEmitterSides": [
+    "ferengi",
+    "terran"
+  ],
+  "ewEnabled": true,
+  "starved": false,
+  "projectileCount": 6,
+  "projectileModel": "ordinary torpedo",
+  "warmupSeconds": 10,
+  "simulationSeconds": 60,
+  "contacts": 20,
+  "stations": 18,
+  "frameCPU": {
+    "samples": 3600,
+    "p50": 0.5,
+    "p95": 1.3000000000465661,
+    "p99": 1.6000000000931323
+  },
+  "renderCPU": {
+    "samples": 300,
+    "p50": 0.40000000002328306,
+    "p95": 0.5999999999767169,
+    "p99": 1.3999999999068677
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 850
+  },
+  "hardwareConcurrency": 4,
+  "deviceMemory": 16,
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+  "errors": []
+}
