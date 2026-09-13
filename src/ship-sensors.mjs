@@ -305,7 +305,7 @@ export class SensorWorld {
               }
             } else c.acquire = 0;
           }
-      const local = new Map(), clearJam=sawJam||this.observerJam.get(o.key);
+      const local = new Map(), clearJam=sawJam||this.observerJam.get(o.key), cues=[];
       for (const [key, c] of map) {
         if (c.foundPass === passId) local.set(key, c);
         if (c.foundPass !== passId && c.sourceObserver === o.key) {
@@ -313,12 +313,12 @@ export class SensorWorld {
           if(c.eligiblePass!==passId)c.acquire = 0;
         }
         if (clearJam && c.jamPass !== passId) c.jamAcquire = 0;
+        if (c.cue && c.cue.victimKey === o.key && c.cue.expiresAt >= now) cues.push({
+          ...c.cue
+        });
       }
       this.observerJam.set(o.key, sawJam);
-      directCues.set(o.key, [...map.values()].filter(c => c.cue && c.cue.victimKey === o.key && c.cue.expiresAt >=
-        now).map(c => ({
-        ...c.cue
-      })));
+      directCues.set(o.key, cues);
       direct.set(o.key, local);
     }
     if (profile) profile.detectMs = (profile.detectMs || 0) + performance.now() - detectStart;
