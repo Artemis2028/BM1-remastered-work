@@ -1,0 +1,43 @@
+Independent verification of frozen candidate ew-correctness-freeze-20260913
+==========================================================================
+
+Frozen tag (do not move this tip; follow-up fixes use another branch):
+  ew-correctness-freeze-20260913
+
+Frozen commit (code + labeled freeze receipts):
+  ff0c4c9450c0cc59a535c4a8f083aaf9c897fd0a
+  git rev-parse ew-correctness-freeze-20260913^{commit}
+
+Frozen tree:
+  61ffee5602c344a8cbb49eebcab32e39a129623f
+  git rev-parse ff0c4c9^{tree}
+
+Implementation / C2 sources (unchanged by the receipts commit):
+  d9419c76c7faeb427939e00f9b958fde614843f1
+
+Pinned harness:
+  scripts/ew-frame-benchmark.mjs
+  sha256 e79876004ea9b8846ed6f31ca040fc1ff2452db43f77ba744837d9fb6b8b115d
+
+Base (do not merge to main):
+  feat/electronic-warfare-review  75a721ec30b831e4ba2cc21338df1d08c35c2899
+
+These downloadable artifacts live on follow-up branch
+cursor/ew-freeze-artifacts-1edb. They are not part of the frozen
+candidate tree.
+
+Bundle (preserves the exact freeze commit; requires the base object):
+  git fetch docs/ew/receipts/ew-correctness-freeze-20260913.bundle \
+    refs/heads/cursor/ew-freeze-artifacts-1edb:ew-correctness-freeze
+  git rev-parse ew-correctness-freeze
+  # expect ff0c4c9450c0cc59a535c4a8f083aaf9c897fd0a
+
+Format-patch (apply onto the base; new commit SHAs, same tree):
+  git checkout --detach 75a721ec30b831e4ba2cc21338df1d08c35c2899
+  git am docs/ew/receipts/ew-correctness-freeze-20260913.format-patch
+  git rev-parse HEAD^{tree}
+  # expect 61ffee5602c344a8cbb49eebcab32e39a129623f
+
+Rerun the pinned harness against the four pinned trees:
+  EW_RECEIPT_STAMP=freeze-20260913 scripts/ew-four-tree.sh
+  # unprofiled gate. Optional: node scripts/ew-frame-benchmark.mjs --passes --profile

@@ -1,0 +1,151 @@
+{
+  "root": "/tmp/ew-authority-tree-a",
+  "harness": {
+    "file": "scripts/ew-frame-benchmark.mjs",
+    "sha256": "e79876004ea9b8846ed6f31ca040fc1ff2452db43f77ba744837d9fb6b8b115d",
+    "gate": "electronicsPass (original full-workload timer) p95<=2ms p99<=4ms",
+    "sameSeriesAsPlatinum": "performance-*.json detectionPass was this power+sensors wall-clock",
+    "platinumAuthority": {
+      "p95": 2.5,
+      "p99": 6.9,
+      "passed": false,
+      "host": "INTEL(R) XEON(R) PLATINUM 8573C"
+    },
+    "cumulativeFrameGate": "whole-frame tick p95 vs pre-sensor baseline <=2ms",
+    "increments": [
+      "EW−sensors",
+      "EW−pre-sensor"
+    ],
+    "order": "updateProjectiles(1) → updatePowerSystems(12) → updateSensorSystems(12)",
+    "measurementBoundary": "electronicsPass is the unchanged 2/4 full-workload timer. detectionPass, updateMs and whole-frame tick are reported separately and are not substitute gates. SeekerCPU is the full projectile update and stays in whole-frame measurements. --profile is optional and is not the gate.",
+    "thresholdsRecalibrated": false,
+    "profiled": false
+  },
+  "sources": {
+    "src/main.js": "47fd75c8ba9820c23b73c2e1c1c6047a3ef810cbccf955ee498e212e13bfc9fc"
+  },
+  "browser": "153.0.8010.12",
+  "environment": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "logicalCPUs": 4,
+    "hostnameClass": "supplementary-not-platinum"
+  },
+  "workload": {
+    "system": "Earth",
+    "contacts": 20,
+    "stations": 18,
+    "projectiles": 6,
+    "warmupTicks": 600,
+    "measuredTicks": 3600,
+    "passWarmup": 50,
+    "passSamples": 300,
+    "passCadenceMs": 200,
+    "renderSamples": 300
+  },
+  "electronicsPass": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "pre-sensor tree has no power+sensors full-workload timer"
+  },
+  "detectionPass": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "pre-sensor tree has no detection pass"
+  },
+  "updateMs": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "pre-sensor tree has no updateSensorSystems"
+  },
+  "seekerCPU": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "pre-sensor tree has no sensor-pass seeker window"
+  },
+  "instrumented": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "pre-sensor tree has no sensorWorld.metrics"
+  },
+  "detailProfile": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "run without --profile"
+  },
+  "profiled": false,
+  "sensorOnlyCPU": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "pre-sensor tree has no updateSensorSystems"
+  },
+  "activeJammers": 0,
+  "mixedEmitterSides": [
+    "ferengi",
+    "terran"
+  ],
+  "ewEnabled": false,
+  "starved": false,
+  "projectileCount": 6,
+  "projectileModel": "ordinary torpedo",
+  "warmupSeconds": 10,
+  "simulationSeconds": 60,
+  "contacts": 20,
+  "stations": 18,
+  "frameCPU": {
+    "samples": 3600,
+    "p50": 0.3000000002793968,
+    "p95": 0.6000000000931323,
+    "p99": 0.7000000001862645
+  },
+  "renderCPU": {
+    "samples": 300,
+    "p50": 0.39999999990686774,
+    "p95": 0.6999999997206032,
+    "p99": 2
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 850
+  },
+  "hardwareConcurrency": 4,
+  "deviceMemory": 16,
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+  "errors": []
+}

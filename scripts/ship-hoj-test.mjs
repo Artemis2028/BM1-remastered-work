@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {createHojFlight,stepHojFlight,HOJ_RULES} from '../src/ship-hoj.mjs';
+import {createHojFlight,stepHojFlight,sampleHojIfDue,HOJ_RULES} from '../src/ship-hoj.mjs';
 import {SensorWorld} from '../src/ship-sensors.mjs';
 import fs from 'node:fs';
 let count=0;const test=(name,f)=>{f();count++;console.log('PASS '+name);};
@@ -8,6 +8,7 @@ const sig=(x=1500,y=0)=>({key:'original:1',system:0,x,y,emitting:true});
 const step=(s,n,signal)=>{for(let i=0;i<n;i++)stepHojFlight(s,1/60,()=>signal);};
 test('catalog is Photon baseline with 1800 range, 9000 price and one respected-tier slot',()=>{const d=JSON.parse(fs.readFileSync(new URL('../data/game_items.json',import.meta.url))).weapons,p=d.find(w=>w.id===15),h=d.find(w=>w.guidance==='home-on-jam');for(const k of ['damage','cooldown','speed','minMass'])assert.equal(h[k],p[k]);assert.equal(h.range,1800);assert.equal(h.price,9000);assert.equal(h.purchaseTier,'respected');});
 test('private seeker reads only at five Hz, not every movement update',()=>{const s=shot();let calls=0;for(let i=0;i<60;i++)stepHojFlight(s,1/60,()=>{calls++;return sig();});assert.equal(calls,5);assert.ok(s.steering);});
+test('an explicit due sample is not counted again on the next flight step',()=>{const s=shot();let calls=0;const read=()=>{calls++;return sig();};assert.equal(sampleHojIfDue(s,read),true);stepHojFlight(s,1/60,read);assert.equal(calls,1);});
 test('turning is bounded by Photon turn rate',()=>{const s=shot(),start=s.heading;step(s,1,sig(1400,500));assert.ok(Math.abs(s.heading-start)<=2.70001&&Math.abs(s.heading-start)>0);});
 test('an explicit silent sample makes flight ballistic immediately',()=>{const s=shot();step(s,12,sig(1400,500));const before=s.heading;step(s,12,{...sig(),emitting:false});assert.equal(s.steering,false);assert.equal(s.heading,before);});
 test('motion between samples uses the stored point, never the live object',()=>{const a=shot(),b=shot(),signal=sig(1400,300);step(a,1,signal);step(b,1,{...signal});signal.y=900;step(a,10,signal);step(b,10,sig(1400,300));assert.equal(a.x,b.x);assert.equal(a.y,b.y);});

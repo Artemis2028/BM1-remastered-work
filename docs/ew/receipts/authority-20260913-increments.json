@@ -1,0 +1,35 @@
+{
+  "stamp": "authority-20260913",
+  "harnessSha256": "cbe314d8664ecf16a2cd5ab0287445e272bf002b2887cde66673084b3442f722",
+  "trees": {
+    "A": "6958f08e73aff55efbf48bae3f9433e5acc270e8",
+    "B": "e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b",
+    "C1": "74caf837c7882a86e3bd7c74f083029453953c1a",
+    "C2": "07fb956764cf0b8fa1901cadfcffeb20ac29be90"
+  },
+  "increments": {
+    "tickP95": {
+      "ewMinusSensors": 0.8,
+      "ewMinusPresensor": 1.7,
+      "cumulativeLimitMs": 2
+    },
+    "electronicsPassP95": {
+      "ewMinusSensors": 0.6,
+      "ewMinusPresensor": null,
+      "note": "pre-sensor electronicsPass is not applicable"
+    }
+  },
+  "thisHostElectronicsPass": {
+    "p95": 2.4,
+    "p99": 3.5,
+    "passed": false
+  },
+  "platinumAuthority": {
+    "p95": 2.5,
+    "p99": 6.9,
+    "passed": false,
+    "series": "same power+sensors full-workload timer"
+  },
+  "decisionRequired": true,
+  "decisionReason": "Unchanged 2/4 full-workload gate fails on Platinum (2.50/6.90, not re-run) and on this supplementary host (C2 2.40/3.50; C1 2.50/3.50). Do not merge to main."
+}

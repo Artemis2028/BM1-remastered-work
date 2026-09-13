@@ -1,0 +1,72 @@
+{
+  "root": "/tmp/ew-commit1",
+  "sources": {
+    "src/main.js": "5ba906285ac27503f17ec6ef23cda90f2e1ed1dc6bd94bf92c010adb42ab1be3",
+    "src/ship-sensors.mjs": "2011305d0cd5f32d634aa13cc766aaacbfa28ecd06546fe0cc37a19b452714c6",
+    "src/ship-ew.mjs": "77b6f145d98f99964b497093c1a5dc75f28cb066298d57eea77ed1c7a0d2e75c"
+  },
+  "browser": "153.0.8010.12",
+  "environment": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "logicalCPUs": 4
+  },
+  "detectionPass": {
+    "samples": 300,
+    "p50": 1.2000000000116415,
+    "p95": 1.6999999999534339,
+    "p99": 2.1000000000349246,
+    "observers": 39,
+    "actors": 39,
+    "pairs": 1480,
+    "jammerPairs": 228,
+    "elapsedMs": 0.8999999999650754,
+    "passed": true
+  },
+  "seekerCPU": {
+    "samples": 300,
+    "p50": 0,
+    "p95": 0.1000000000349246,
+    "p99": 0.1000000000349246
+  },
+  "sensorOnlyCPU": {
+    "samples": 300,
+    "p50": 1,
+    "p95": 1.5,
+    "p99": 2
+  },
+  "activeJammers": 6,
+  "mixedEmitterSides": [
+    "ferengi",
+    "terran"
+  ],
+  "ewEnabled": true,
+  "starved": false,
+  "projectileCount": 6,
+  "projectileModel": "ordinary torpedo",
+  "warmupSeconds": 10,
+  "simulationSeconds": 60,
+  "contacts": 20,
+  "stations": 18,
+  "frameCPU": {
+    "samples": 3600,
+    "p50": 0.5,
+    "p95": 1.3999999999650754,
+    "p99": 1.6000000000349246
+  },
+  "renderCPU": {
+    "samples": 300,
+    "p50": 0.5,
+    "p95": 1.1000000000349246,
+    "p99": 3.1000000000349246
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 850
+  },
+  "hardwareConcurrency": 4,
+  "deviceMemory": 16,
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+  "errors": []
+}

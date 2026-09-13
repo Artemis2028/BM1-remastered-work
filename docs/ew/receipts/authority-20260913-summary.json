@@ -1,0 +1,70 @@
+{
+  "measurementBoundary": "electronicsPass = updatePowerSystems + updateSensorSystems after the seeker window. Same series Platinum recorded as detectionPass. Detection-pass, updateMs and whole-frame tick are separate reports. Pre-sensor sensor-pass series are not applicable (null), never zero.",
+  "gate": { "series": "electronicsPass", "p95Ms": 2, "p99Ms": 4, "thresholdsRecalibrated": false },
+  "implementationCommit": "07fb956764cf0b8fa1901cadfcffeb20ac29be90",
+  "pr": 4,
+  "pinnedHarness": {
+    "file": "scripts/ew-frame-benchmark.mjs",
+    "sha256": "cbe314d8664ecf16a2cd5ab0287445e272bf002b2887cde66673084b3442f722",
+    "order": "updateProjectiles(1) → updatePowerSystems(12) → updateSensorSystems(12)",
+    "rerun": "scripts/ew-four-tree.sh"
+  },
+  "pinnedTrees": {
+    "A": "6958f08e73aff55efbf48bae3f9433e5acc270e8",
+    "B": "e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b",
+    "C1": "74caf837c7882a86e3bd7c74f083029453953c1a",
+    "C2": "07fb956764cf0b8fa1901cadfcffeb20ac29be90"
+  },
+  "host": {
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "logicalCPUs": 4,
+    "hardwareConcurrency": 4,
+    "browser": "153.0.8010.12",
+    "viewport": { "width": 1280, "height": 850 },
+    "matchesReferencePlatinum8573C": false,
+    "referenceVerification": "outstanding",
+    "role": "supplementary"
+  },
+  "sourcesC2": {
+    "src/main.js": "1ea39f3d3c45348b79c6614c35a8fc0d796ae24467506ba7adc8a13c880ffd60",
+    "src/ship-sensors.mjs": "36f298913f3c8c9479e6d1a071bb5383026e5aa5828fcb5af047ab5c26d19a15",
+    "src/ship-ew.mjs": "4f16df1f128dd9fffb607a8024f64827a0cb640ba648fc9c709067520afd1d17",
+    "src/ship-hoj.mjs": "7d46cdfe0dcab3be056ca64e578c24094e95f7956bb8ae1eb64c8b275c40df5e"
+  },
+  "suites": {
+    "ewModel": "20/20",
+    "ewLive": "33/33",
+    "seekerModel": "14/14",
+    "seekerLive": "35/35",
+    "ewPlusSeeker": "102/102",
+    "sensors": "24/24 · 54/54",
+    "power": "21/21 · 29/29",
+    "behavior": "79/79",
+    "builds": "node + python passed; ship-ew.mjs and ship-hoj.mjs in dist"
+  },
+  "trees": {
+    "A": { "tickP95": 0.5, "tickP99": 0.6, "electronicsPass": null, "note": "sensor-pass metrics not applicable" },
+    "B": { "tickP95": 1.4, "tickP99": 2.3, "electronicsP95": 1.8, "electronicsP99": 2.8, "electronicsPassed": true, "detectionP95": 1.6, "detectionP99": 2.5, "seekerP95": 0.1, "seekerP99": 0.2 },
+    "C1": { "tickP95": 1.7, "tickP99": 2.3, "electronicsP95": 2.5, "electronicsP99": 3.5, "electronicsPassed": false, "detectionP95": 2.2, "detectionP99": 3.1, "seekerP95": 0.1, "seekerP99": 0.1, "activeJammers": 6 },
+    "C2": { "tickP95": 2.2, "tickP99": 3.4, "electronicsP95": 2.4, "electronicsP99": 3.5, "electronicsPassed": false, "detectionP95": 2.0, "detectionP99": 3.2, "updateMsP95": 2.0, "updateMsP99": 3.2, "seekerP95": 0.3, "seekerP99": 0.3, "activeJammers": 6 }
+  },
+  "increments": {
+    "tickP95": { "ewMinusSensors": 0.8, "ewMinusPresensor": 1.7, "cumulativeLimitMs": 2, "cumulativePassed": true },
+    "electronicsPassP95": { "ewMinusSensors": 0.6, "ewMinusPresensor": null }
+  },
+  "gatesThisHost": {
+    "electronicsPass2_4": false,
+    "c1AlsoFailed": true,
+    "cumulativeTickP95VsA": 1.7,
+    "thresholdsRaised": false
+  },
+  "platinumAuthority": { "p95": 2.5, "p99": 6.9, "passed": false, "reRun": false },
+  "decisionRequired": true,
+  "decisionReason": "Unchanged 2/4 full-workload gate fails on Platinum (2.50/6.90, not re-run) and on this supplementary host (C2 2.40/3.50; C1 2.50/3.50). Do not merge to main.",
+  "earlierReceiptsRetained": [
+    "performance-*.json (Platinum authority, failed)",
+    "review-20260913-*.json",
+    "fix-20260913-*.json",
+    "passms-20260913-*.json (superseded passMs-as-gate experiment)"
+  ]
+}

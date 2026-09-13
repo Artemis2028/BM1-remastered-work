@@ -52,3 +52,60 @@ Screenshots show wide and 1024×768 touch-viewport EW controls, actual own-fleet
 The torpedo's 9,000-latinum price versus the 60,000-latinum Fleet jammer remains a provisional playtest ratio. There is no automatic general NPC launcher rollout. Existing ship roster, artwork, standing, native hull stats and three-slot loadouts are preserved.
 
 Recommended next reviewer: Claude, concentrating on power conservation, knowledge/identity boundaries, checkpoint compatibility and the timing receipts before pushing.
+
+## Follow-up: seeker p99 and commit-1 vs HOJ (13 September 2026)
+
+A later review on `cursor/ew-perf-gate-23f3` reproduced the fixture on a **different** host (4-core generic Xeon, `hardwareConcurrency` 4). That host is quieter than the Platinum 8573C reference above. **The reference receipts in this file and `receipts/performance-*.json` remain the authority for that runner; they are still a failed 2 / 4 ms full-pass gate. Thresholds were not raised.**
+
+Full write-up: [PERFORMANCE-REVIEW.md](PERFORMANCE-REVIEW.md). Review receipts: `receipts/review-20260913-*.json`.
+
+- Commit-1 (noise/ECCM, ordinary torpedoes) clears 2 / 4 **on the review host** (1.70 / 2.10). On the reference host, sensor-only already failed the same full-pass gate, so noise/ECCM is not the increment that broke a green gate.
+- Seeker p99 is **not proven impact-only**. Earlier review-host deaths often coincided with a hit, but `authority-20260913-ew-tip.json` sample i:51 is **2.2 ms with no hit and no projectile death**. Typical frames stay 0.1–0.3 ms; the 2.2 ms cause remains unproven.
+- Reuse of collision bodies, incarnation keys, the actor map, flight segments and the jammer-candidate list is in this follow-up. Acceptance suites stayed green (EW 20 + 32, seeker 13 + 33, sensors 24 + 54, power 21 + 29, behavior S1–S5).
+- Post-fix review-host full-pass: **1.50 / 1.80** and **1.50 / 1.70** (two serial runs). That does **not** replace the reference 2.50 / 6.90 failure. HOJ stays on the EW review branch; do not merge to main from this follow-up.
+
+## Follow-up: correctness + measurement names (13 September 2026)
+
+Implemented on `cursor/ew-correctness-gate-1edb` from `0979e44`. Suites: **20 + 33 + 13 + 35 = 101** EW/seeker checks, sensors 24/24 · 54/54, power 21/21 · 29/29, behavior 79/79, ship suites green, both release builders include `ship-ew.mjs` / `ship-hoj.mjs`.
+
+This host (4-core generic Xeon, concurrency 4, Chromium 153.0.8010.12) electronicsPass **1.50 / 1.90** and cumulative tick **+1.00 ms**. **Platinum 8573C reference verification is outstanding**; the recorded 2.50 / 6.90 failure is retained. Detection-only (1.30 / 1.60) is reported and was not substituted for the gate.
+
+Receipts: `receipts/fix-20260913-*.json` and `receipts/fix-20260913-summary.json`. Those files gated **electronicsPass** (power+sensors wall-clock) and timed seekers as the full projectile update. Keep them; they are not the passMs series. Boundaries: `receipts/MEASUREMENT-BOUNDARIES.md`.
+
+## Follow-up: passMs contract (13 September 2026)
+
+Authoritative gate: **2 ms p95 / 4 ms p99 on passMs** — detection, interference, sharing, scan attributable to that pass, and due seeker sampling. `updateMs`, `electronicsPass` (power+sensors) and whole-frame tick are reported separately. Cumulative frame cost vs pre-sensor ≤ 2 ms p95. Pre-sensor sensor-pass metrics are **not applicable**, never zero.
+
+Seeker sampling is accounted for in `passMs` explicitly (`sampleDueHojSeekers` + `sampleHojIfDue`) without counting the same read twice. Restoring the old `elapsedMs` assignment around `sensorWorld.pass()` would still miss it.
+
+## Follow-up: restore the original full-workload 2/4 gate (13 September 2026)
+
+The passMs-as-gate wording is **superseded**. The 2 / 4 ms gate is again the original externally measured full-workload timer (power+sensors wall-clock; Platinum `detectionPass` 2.50 / 6.90, **failed**). Thresholds were not raised. Detection-pass, `updateMs`, `electronicsPass` and whole-frame tick are reported separately. Increments: EW−sensors and EW−pre-sensor; cumulative tick vs pre-sensor ≤ 2 ms.
+
+Platinum verification is **outstanding** on this VM. This host is supplementary. **Decision required before merge.** Do not merge to main.
+
+This-host electronicsPass (300 samples, original timer): B 1.80 / 2.80 (pass), C1 **2.50 / 3.50 fail**, C2 **2.40 / 3.50 fail**. Pre-sensor series are null / not applicable. Tick increments: EW−sensors **+0.80 ms**, EW−pre-sensor **+1.70 ms** (cumulative limit 2 ms). Suites: **20 + 33 + 14 + 35 = 102** EW/seeker, sensors 24/24 · 54/54, power 21/21 · 29/29, behavior 79/79, both release builders.
+
+Pinned harness sha256 `cbe314d8…`. Receipts: `receipts/authority-20260913-*.json`. The `passms-20260913-*` files stay labeled as the superseded experiment.
+
+## Freeze: independent identity, same-hull replacement, lazy bodies (13 September 2026)
+
+Implementation `d9419c7`. Pinned harness sha256 `e79876004ea9b8846ed6f31ca040fc1ff2452db43f77ba744837d9fb6b8b115d`. Receipts: `receipts/freeze-20260913-*.json`.
+
+- Cached HOJ key compares `seed` and `securityInstanceId` independently.
+- Same-hull ambient replacement goes through `beginAmbientTrafficArrival`; the fixture asserts a live paid jammer before the original torpedo coasts without reacquiring.
+- Unfiltered collision bodies are built once per `updateProjectiles`, only when the first HOJ or positional-counterfire shot needs them. Shooter exclusion stays in `pointImpact`. Mixed HOJ / counterfire / HOJ stays green.
+- Profiled C2 (not the gate): detection then sharing were the bottleneck. Sharing now walks peer reports in actor order (first direct peer still wins; `direct` is not written). Detection pair grid was not redesigned.
+
+This host, unprofiled four-tree:
+
+| Tree | Tick p95 / p99 | electronicsPass | Detection-pass | updateMs | Seeker |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A `6958f08` | 0.60 / 0.70 | n/a | n/a | n/a | n/a |
+| B `e7aa3c5` | 1.20 / 1.40 | 1.40 / 1.80 pass | 1.30 / 1.50 | n/a | 0.10 / 0.10 |
+| C1 `74caf83` | 1.40 / 1.60 | 1.80 / 2.40 pass | 1.50 / 2.10 | n/a | 0.10 / 0.10 |
+| C2 `d9419c7` | 1.70 / 2.10 | **2.20 / 2.60 fail** | 1.90 / 2.40 | 1.90 / 2.40 | 0.20 / 0.30 |
+
+Increments: EW−sensors tick **+0.50**, EW−pre-sensor tick **+1.10** (limit 2). electronicsPass EW−sensors **+0.80**. Suites: **20 + 33 + 14 + 38 = 105** EW/seeker, sensors 24/24 · 54/54, power 21/21 · 29/29, behavior 79/79, ships 14 · 11 · smoke · 30 · 23 · 19, both release builders.
+
+Seeker sample i:51 at 2.2 ms with no hit/death (`authority-20260913-ew-tip.json`) remains **unproven**. This freeze run’s seeker outliers all had a hit; that does not rewrite the earlier sample. Platinum 2.50 / 6.90 is outstanding. **Decision required. Do not merge to main.**
