@@ -139,7 +139,7 @@ try {
         B.updateSensorSystems(12);
         await new Promise(r => setTimeout(r, 200));
       }
-      const passes = [],seekers = [],sensorOnly=[];
+      const electronics = [],seekers = [],detectionOnly=[],sensorUpdates=[];
       const seekerOutliers=[],seekerHist={lt0_25:0,lt0_5:0,lt1:0,lt2:0,lt4:0,ge4:0};
       let seekerHits=0,seekerDeaths=0,seekerMax=0;
       window.__ewSeekProf={player:0,station:0,ship:0};
@@ -152,8 +152,9 @@ try {
         seekers.push(seekerDone-t);
         B.updatePowerSystems(12);
         B.updateSensorSystems(12);
-        passes.push(performance.now()-seekerDone);
-        sensorOnly.push(B.sensorWorld.metrics.elapsedMs);
+        electronics.push(performance.now()-seekerDone);
+        detectionOnly.push(B.sensorWorld.metrics.passMs ?? B.sensorWorld.metrics.elapsedMs);
+        if(Number.isFinite(B.sensorWorld.metrics.updateMs))sensorUpdates.push(B.sensorWorld.metrics.updateMs);
         const dt=seekers[seekers.length-1];
         const died=projBefore-s.projectiles.length, newEffects=(s.weaponEffects?s.weaponEffects.length:0)-effectsBefore;
         seekerHits+=Math.max(0,newEffects);seekerDeaths+=Math.max(0,died);
@@ -163,18 +164,26 @@ try {
         if(dt>=1||newEffects>0||died>0)seekerOutliers.push({i,dt,died,newEffects,live:s.projectiles.length});
         await new Promise(r => setTimeout(r, Math.max(0, 200 - (performance.now() - t))));
       }
-      detectionPass = {
-        ...stats(passes),
-        ...B.sensorWorld.metrics
+      const electronicsPass = {
+        ...stats(electronics),
+        series: 'power+sensors wall-clock'
       };
-      seekerCPU=stats(seekers);sensorOnlyCPU=stats(sensorOnly);
-      detectionPass.passed = detectionPass.p95 <= 2 && detectionPass.p99 <= 4;
+      electronicsPass.passed = electronicsPass.p95 <= 2 && electronicsPass.p99 <= 4;
+      detectionPass = {
+        ...stats(detectionOnly),
+        ...B.sensorWorld.metrics,
+        series: 'detection passMs/elapsedMs'
+      };
+      seekerCPU=stats(seekers);sensorOnlyCPU=stats(sensorUpdates.length?sensorUpdates:detectionOnly);
+      if(sensorUpdates.length)sensorOnlyCPU.series='sensor updateMs';
+      detectionPass.gateAuthority='electronicsPass';
       seekerCPU.profile={max:seekerMax,hits:seekerHits,deaths:seekerDeaths,hist:seekerHist,
         hitKinds:window.__ewSeekProf||null,
         outliers:seekerOutliers.sort((a,b)=>b.dt-a.dt).slice(0,12)};
+      detectionPass.electronicsPass=electronicsPass;
     }
     return {
-      detectionPass,seekerCPU,sensorOnlyCPU,
+      detectionPass,electronicsPass:detectionPass?.electronicsPass||null,seekerCPU,sensorOnlyCPU,
       activeJammers:s.npcShips.filter(n=>n.ew?.strength>0).length,
       mixedEmitterSides:[...new Set(s.npcShips.slice(0,6).map(n=>n.faction))],
       ewEnabled:!!B.ensureActorEW,starved,
@@ -208,7 +217,7 @@ try {
     ...result,
     errors
   }, null, 2));
-  if (errors.length || result.ewEnabled&&!result.starved&&result.activeJammers<6 || result.detectionPass && !result.detectionPass.passed) process.exitCode = 1;
+  if (errors.length || result.ewEnabled&&!result.starved&&result.activeJammers<6 || result.electronicsPass && !result.electronicsPass.passed) process.exitCode = 1;
 } finally {
   if (browser) await browser.close();
   server.close();

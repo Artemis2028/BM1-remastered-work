@@ -16,7 +16,7 @@ const shim =
 // Authored foreign access variants are test fixtures; all classification/order code stays real.
 const probeOriginalZone=getSecurityZone;let probeForeignAccess=null;
 getSecurityZone=function(...args){const z=probeOriginalZone(...args);if(z?.foreign&&probeForeignAccess){z.access={...z.access,...probeForeignAccess};z.accessSignature=JSON.stringify(z.access);}return z;};
-window.__power={EW_MODULES,ensureActorEW,setEWOrder,getEWUpgradeDecision,buyEWModule,renderEWPanel,stationElectronicProfile,stopEW,state,startWithFaction,applyCurrentShipStats,getShipStats,getWeapon,getDefaultWeaponId,
+window.__power={EW_MODULES,ensureActorEW,setEWOrder,getEWUpgradeDecision,buyEWModule,installedJammerDiscardWarning,openShipPurchaseModal,completeShipPurchase,getShipyardStock,getShipPurchaseStatus,renderEWPanel,stationElectronicProfile,stopEW,state,startWithFaction,applyCurrentShipStats,getShipStats,getWeapon,getDefaultWeaponId,
  ensureActorSensors,ensurePlayerPower,ensureNpcPower,getActorPowerProfile,createNpcShip,ensureNpcCombatStats,playerWorldPosition,
  sensorWorld,sensorKey,sensorCanTrack,sensorContact,sensorCheckpointTrack,sensorCheckpointBroadcast,sensorSnapshotActor,
  updatePowerSystems,updateSensorSystems,startSensorAction,getSensorUpgradeDecision,buySensorSuite,renderPowerPanel,renderTopLeftPanel,render,
@@ -128,6 +128,19 @@ try {
     document.querySelector('[data-ew-order="eccm:boost"][data-ew-ship="player"]')?.click();test('actual DOM ECCM order works',s.ew.eccmOrder==='boost');
     const platforms=Object.values(s.shipStatsById).filter(t=>/defen[sc]e.*platform/i.test(t.name||''));
     test('real station type records give military platforms enhanced arrays',platforms.length>0&&platforms.every(t=>B.stationElectronicProfile({stationTypeId:t.id}).passive===1500&&B.stationElectronicProfile({stationTypeId:t.id}).processing===1.25),platforms.map(t=>({id:t.id,name:t.name})));
+    s.stations=stations;s.docked=true;s.latinum=1e6;s.factionStanding.terran=100;s.cargo=0;
+    const vendor=stations.find(st=>!st.destroyed&&!st.underConstruction);s.dockedStationId=vendor?.id||null;
+    B.ensureActorEW().module=3;
+    const stock=(vendor?B.getShipyardStock(vendor):[]).find(ship=>B.getShipPurchaseStatus(ship.id)?.ok);
+    const warn=B.installedJammerDiscardWarning();
+    if(stock)B.openShipPurchaseModal(stock.id);
+    const modal=document.querySelector('.ship-purchase-card')?.innerHTML||'';
+    const suite=B.ensureActorSensors().suite;
+    if(stock)B.completeShipPurchase(stock.id);
+    test('command-hull purchase warns, then discards the jammer without carry-over or price changes',
+      !!stock&&!!warn&&warn.includes('discards the installed')&&modal.includes('discards the installed')&&
+      s.ew.module===null&&B.ensureActorSensors().suite===suite&&B.EW_MODULES[3].price===60000&&B.getWeapon(46)?.price===9000,
+      {warn,stock:stock?.id,playership:s.playership,module:s.ew.module,modal:modal.slice(0,280)});
     return {checks};
   });
   if(process.argv.includes('--screenshot')){

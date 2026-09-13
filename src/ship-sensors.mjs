@@ -1,4 +1,4 @@
-import { receiverEW } from './ship-ew.mjs';
+import { receiverEW, CLEAR_RECEPTION } from './ship-ew.mjs';
 // Observer-scoped knowledge. This module receives physical snapshots, never game globals.
 export const SENSOR_RULES = Object.freeze({
   version: 1,
@@ -179,9 +179,11 @@ export class SensorWorld {
   constructor() {
     this.contacts = new Map();
     this.observerSides = new Map();
+    this.observerJam = new Map();
     this.now = 0;
     this.system = null;
     this.metrics = {};
+    this.passId = 0;
   }
   map(key) {
     if (!this.contacts.has(key)) this.contacts.set(key, new Map());
@@ -193,6 +195,7 @@ export class SensorWorld {
   clear(system) {
     this.contacts.clear();
     this.observerSides.clear();
+    this.observerJam.clear();
     this.system = system;
   }
   observe(o, t, now, source = 'visual') {
@@ -225,28 +228,40 @@ export class SensorWorld {
     const direct = new Map(),
       directCues = new Map();
     const byKey = new Map(actors.map(a => [a.key, a]));
-    const jammers=actors.filter(a=>a.jammerStrength>0).sort((a,b)=>a.key.localeCompare(b.key));
-    const jamBuckets=new Map(), maxJamRadius=Math.max(0,...jammers.map(a=>a.jammerRadius));
-    const jamEmissionReach=Math.max(0,...actors.filter(a=>a.jammerEmitting).map(a=>a.jammerRadius*2));
-    for(const j of jammers){const k=`${Math.floor(j.x/cell)},${Math.floor(j.y/cell)}`;if(!jamBuckets.has(k))jamBuckets.set(k,[]);jamBuckets.get(k).push(j);}
-    let jammerPairs=0;
-    const nearby=[];
+    const jammers=[];
+    let jamEmissionReach=0;
+    for(const a of actors){
+      if(a.jammerStrength>0)jammers.push(a);
+      if(a.jammerEmitting)jamEmissionReach=Math.max(jamEmissionReach,a.jammerRadius*2);
+    }
+    if(jammers.length>1)jammers.sort((a,b)=>a.key.localeCompare(b.key));
+    const jamBuckets=new Map();
+    let maxJamRadius=0, nearby=null, jammerPairs=0;
+    if(jammers.length){
+      maxJamRadius=Math.max(0,...jammers.map(a=>a.jammerRadius));
+      for(const j of jammers){const k=`${Math.floor(j.x/cell)},${Math.floor(j.y/cell)}`;if(!jamBuckets.has(k))jamBuckets.set(k,[]);jamBuckets.get(k).push(j);}
+      nearby=[];
+    }
+    this.passId++;
+    const passId=this.passId;
     for (const o of actors) {
       if (this.observerSides.has(o.key) && this.observerSides.get(o.key) !== o.side) this.contacts.delete(o.key);
       this.observerSides.set(o.key, o.side);
-      nearby.length=0;
-      if(jammers.length)for(let x=Math.floor((o.x-maxJamRadius)/cell);x<=Math.floor((o.x+maxJamRadius)/cell);x++)
-        for(let y=Math.floor((o.y-maxJamRadius)/cell);y<=Math.floor((o.y+maxJamRadius)/cell);y++){
-          const cellJammers=jamBuckets.get(`${x},${y}`);
-          if(cellJammers)for(const j of cellJammers)nearby.push(j);
-        }
-      if(nearby.length>1)nearby.sort((a,b)=>a.key.localeCompare(b.key));
-      jammerPairs+=nearby.length;
-      o.ewReception=receiverEW(o,nearby);
+      if(jammers.length){
+        nearby.length=0;
+        for(let x=Math.floor((o.x-maxJamRadius)/cell);x<=Math.floor((o.x+maxJamRadius)/cell);x++)
+          for(let y=Math.floor((o.y-maxJamRadius)/cell);y<=Math.floor((o.y+maxJamRadius)/cell);y++){
+            const cellJammers=jamBuckets.get(`${x},${y}`);
+            if(cellJammers)for(const j of cellJammers)nearby.push(j);
+          }
+        if(nearby.length>1)nearby.sort((a,b)=>a.key.localeCompare(b.key));
+        jammerPairs+=nearby.length;
+        o.ewReception=receiverEW(o,nearby);
+      } else o.ewReception=CLEAR_RECEPTION;
       const quality=o.ewReception.quality, rf=Math.sqrt(quality);
       const map = this.map(o.key);
       if (!o.observer) continue;
-      const found = new Set(), eligible = new Set(), jamEligible = new Set();
+      let sawJam=false;
       const range = Math.max(o.visual + maxRadius, o.passive * maxSignature, o.active, o.coverage || 0, 2400,
         maxEmission * (o.passive / 1200), jamEmissionReach*(o.passive/1200));
       const x0 = Math.floor((o.x - range) / cell),
@@ -276,29 +291,30 @@ export class SensorWorld {
             const active = o.emitting && dist <= o.active * rf;
             const emission = t.emitting && o.passive > 0 && dist <= t.active * 2 * (o.passive / 1200) * rf;
             const jamEmission=t.jammerEmitting&&o.passive>0&&dist<=t.jammerRadius*2*(o.passive/1200);
-            if(jamEmission){jamEligible.add(t.key);c.jamAcquire=(c.jamAcquire||0)+dt;}
+            if(jamEmission){c.jamPass=passId;c.jamAcquire=(c.jamAcquire||0)+dt;sawJam=true;}
             if (visual || coverage || passive || active || emission || jamEmission) {
-              eligible.add(t.key); c.acquire += dt;
+              c.eligiblePass=passId; c.acquire += dt;
               if (visual || coverage || active || (jamEmission && c.jamAcquire>=.999999) || ((passive||emission) && quality>0 && c.acquire >= 1/quality)) {
                 this.observe(o, t, now, visual ? 'visual' : coverage ? 'checkpoint' : active ? 'active' : jamEmission?'jammer':'passive');
                 if(jamEmission&&c.jamAcquire>=.999999)c.jammerAt=now;
-                found.add(t.key);
+                c.foundPass=passId;
               }
             } else c.acquire = 0;
           }
+      const local = new Map(), clearJam=sawJam||this.observerJam.get(o.key);
       for (const [key, c] of map) {
-        if (!found.has(key) && c.sourceObserver === o.key) {
+        if (c.foundPass === passId) local.set(key, c);
+        if (c.foundPass !== passId && c.sourceObserver === o.key) {
           c.valid = false;
-          if(!eligible.has(key))c.acquire = 0;
+          if(c.eligiblePass!==passId)c.acquire = 0;
         }
+        if (clearJam && c.jamPass !== passId) c.jamAcquire = 0;
       }
+      this.observerJam.set(o.key, sawJam);
       directCues.set(o.key, [...map.values()].filter(c => c.cue && c.cue.victimKey === o.key && c.cue.expiresAt >=
         now).map(c => ({
         ...c.cue
       })));
-      for(const [key,c] of map)if(!jamEligible.has(key))c.jamAcquire=0;
-      const local = new Map();
-      for (const key of found) local.set(key, map.get(key));
       direct.set(o.key, local);
     }
     for (const o of actors) {

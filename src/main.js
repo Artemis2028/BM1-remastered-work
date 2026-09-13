@@ -4443,6 +4443,10 @@ function buyEWModule(id,entity=state) {
   state.latinum-=d.price;stopEW(ensureActorEW(a),true);a.ew.module=id;
   captureShipPowerState();updateStats();renderTopLeftPanel();return true;
 }
+function installedJammerDiscardWarning(entity = state) {
+  const m = EW_MODULES[ensureActorEW(entity).module];
+  return m ? `This purchase replaces your command ship and discards the installed ${m.name}. The module is not transferred.` : '';
+}
 function renderEWPanel() {
   const controls=a=>{
     const e=ensureActorEW(a),key=sensorKey(a),m=EW_MODULES[e.module];
@@ -4771,11 +4775,13 @@ function updateSensorSystems(frameScale = 1) {
         }
       }
     }
-    sensorWorld.metrics.elapsedMs = performance.now() - start;
+    const passMs = performance.now() - start;
+    sensorWorld.metrics.elapsedMs = passMs;
+    sensorWorld.metrics.passMs = passMs;
   }
   for (const a of sensorActors.values())
     if (!a.station) advanceSensorScan(a.entity, dt);
-  sensorWorld.metrics.elapsedMs=performance.now()-sensorUpdateStart;
+  sensorWorld.metrics.updateMs=performance.now()-sensorUpdateStart;
 }
 
 function snapshotActorSensors(entity, systemIndex = state.currentPlanet) {
@@ -4928,12 +4934,12 @@ function getCounterfireCue(entity) {
 }
 
 const collisionBodyPool=[];
-function sensorCollisionTargets(sourceKey) {
+function sensorCollisionTargets() {
   const bodies=collisionBodyPool;
   let n=0;
   const take=a=>{
     if(a.destroyed||a.underConstruction)return;
-    const key=sensorKey(a);if(key===sourceKey)return;
+    const key=sensorKey(a);
     const p=sensorPosition(a),info=sensorHullInfo(a,ensureActorSensors(a));
     const body=bodies[n]||(bodies[n]={});
     body.x=p.x;body.y=p.y;body.key=key;body.entity=a;body.radius=info.radius*(a.stationTypeId?.58:1);
@@ -4958,14 +4964,17 @@ function applyPointImpact(hit, shot) {
   else damageCombatTarget(a, damage, shot.creditSource, shot.color, hit);
 }
 
-// Local incarnation keys never survive a new object or a replacement hull/power state.
+// Local incarnation keys never survive a new object, hull/system change, or a new spawn seed on a reused object.
 const hojIncarnations=new WeakMap();let hojIncarnationSequence=0;const hojActorMap=new Map();
 function hojEmitterKey(entity){const a=sensorEntity(entity),object=a===state?ensurePlayerPower():a;
   let rec=hojIncarnations.get(object);
   const hull=a===state?state.playership:a.shipId||a.stationTypeId,system=state.currentPlanet;
-  if(!rec){rec={n:++hojIncarnationSequence,hull,system,key:''};hojIncarnations.set(object,rec);}
-  if(rec.key&&rec.hull===hull&&rec.system===system)return rec.key;
-  rec.hull=hull;rec.system=system;rec.key=`${sensorKey(a)}:inc:${rec.n}:hull:${hull}`;
+  const spawn=a===state?null:(a.seed??a.securityInstanceId??null);
+  if(!rec){rec={n:++hojIncarnationSequence,hull,system,spawn,key:''};hojIncarnations.set(object,rec);}
+  if(rec.key&&rec.hull===hull&&rec.system===system&&Object.is(rec.spawn,spawn))return rec.key;
+  if(rec.key)rec.n=++hojIncarnationSequence;
+  rec.hull=hull;rec.system=system;rec.spawn=spawn;
+  rec.key=`${sensorKey(a)}:inc:${rec.n}:hull:${hull}`;
   return rec.key;
 }
 const liveJammerScratch={key:'',system:0,x:0,y:0,emitting:true};
@@ -5025,7 +5034,7 @@ function updateHojProjectile(shot,frameScale,bodies=null,readSignal=null) {
   });
   let frames=Math.max(0,frameScale);
   while(frames>1e-7&&!shot.dead){const step=Math.min(1,frames),segment=stepHojFlight(shot,step/60,read);
-    const hit=pointImpact(segment.from,segment.to,bodies||sensorCollisionTargets(shot.attack.key),shot.attack.key);
+    const hit=pointImpact(segment.from,segment.to,bodies||sensorCollisionTargets(),shot.attack.key);
     if(hit){shot.x=hit.x;shot.y=hit.y;applyPointImpact(hit,shot);shot.dead=true;
       addWeaponEffect({kind:'burst',x:hit.x,y:hit.y,color:shot.color,radius:54,ttl:260});
       const prof=globalThis.__ewSeekProf;if(prof){const k=hit.target.entity===state?'player':hit.target.entity.stationTypeId?'station':'ship';prof[k]=(prof[k]||0)+1;}}
@@ -5082,7 +5091,7 @@ function fireCounterfirePoint(entity, cue, weapon, now = performance.now(), slot
     color: getWeaponShotColor(a === state ? getPlayerFlag() : a.faction, weapon)
   };
   if (getWeaponVisualKind(weapon) === 'beam') {
-    const hit = pointImpact(origin, cue, sensorCollisionTargets(shot.attack.key));
+    const hit = pointImpact(origin, cue, sensorCollisionTargets(), shot.attack.key);
     addWeaponEffect({
       kind: 'beam',
       from: {
@@ -10719,6 +10728,7 @@ function renderShipPurchaseModal() {
     : getDefaultFleetAssignmentValue(assignmentOptions);
   state.pendingShipPurchase.fleetAssignment = selectedAssignment;
   const fleetSelectionOk = assignmentOptions.some((option) => option.value === selectedAssignment && option.status?.ok);
+  const jammerDiscardWarning = installedJammerDiscardWarning();
   const optionMarkup = assignmentOptions.map((option) => (
     `<option value="${escapeHtml(option.value)}" ${option.value === selectedAssignment ? 'selected' : ''} ${option.status?.ok ? '' : 'disabled'}>${escapeHtml(option.label)}${option.status?.ok ? '' : ` - ${option.status?.reason || 'Unavailable'}`}</option>`
   )).join('');
@@ -10738,6 +10748,7 @@ function renderShipPurchaseModal() {
           Personal cost ${escapeHtml(price)} latinum | Fleet cost ${escapeHtml(fleetPrice)} latinum | Balance ${escapeHtml(state.latinum)} latinum
           ${status.ok ? '' : `<br>${escapeHtml(status.reason)}`}
         </div>
+        ${jammerDiscardWarning ? `<div class="ship-purchase-warning">${escapeHtml(jammerDiscardWarning)}</div>` : ''}
         <div class="fleet-assignment-field">
           <label for="fleet-assignment-select">Fleet assignment</label>
           <select id="fleet-assignment-select" data-fleet-assignment>${optionMarkup}</select>
@@ -10763,7 +10774,8 @@ function openShipPurchaseModal(shipId) {
   }
   state.pendingShipPurchase = { shipId: Number(shipId) };
   renderShipPurchaseModal();
-  setLog(status.ok ? `Review purchase: ${status.ship.name}.` : status.reason);
+  const jammerWarn = installedJammerDiscardWarning();
+  setLog(status.ok ? `Review purchase: ${status.ship.name}.${jammerWarn ? ` ${jammerWarn}` : ''}` : status.reason);
 }
 
 function closeShipPurchaseModal() {
@@ -10783,6 +10795,7 @@ function completeShipPurchase(shipId) {
   }
   const ship = status.ship;
   const price = status.price;
+  const discarded = EW_MODULES[ensureActorEW().module];
   state.latinum -= price;
   state.ew = sanitizeEW();
   state.playership = Number(shipId);
@@ -10791,7 +10804,7 @@ function completeShipPurchase(shipId) {
   applyShipDefaultWeapons(state.playership, true);
   state.pendingShipPurchase = null;
   playGameSound('shipLaunch', { cooldownKey: `purchase:ship:${shipId}`, volume: 0.88 });
-  setLog(`Purchased ${ship.name} for ${price} latinum. Warp range ${getShipWarpRange()}.`);
+  setLog(`Purchased ${ship.name} for ${price} latinum. Warp range ${getShipWarpRange()}.${discarded ? ` Installed ${discarded.name} was discarded.` : ''}`);
   updateStats();
 }
 
@@ -14844,7 +14857,8 @@ function updateProjectiles(frameScale = 1) {
   const now = performance.now();
   const player = playerWorldPosition();
   const playerCloaked = isPlayerCloaked(now);
-  let collisionBodies=null,hojActorsReady=false;
+  const collisionBodies=sensorCollisionTargets();
+  let hojActorsReady=false;
   const readHojSignal=key=>{
     if(!hojActorsReady){
       hojActorMap.clear();
@@ -14856,11 +14870,11 @@ function updateProjectiles(frameScale = 1) {
     const a=hojActorMap.get(key);return a?liveJammerSignal(a):null;
   };
   for (const shot of state.projectiles) {
-    if(shot.guidance==='home-on-jam'){collisionBodies ||= sensorCollisionTargets(null);updateHojProjectile(shot,frameScale,collisionBodies,readHojSignal);continue;}
+    if(shot.guidance==='home-on-jam'){updateHojProjectile(shot,frameScale,collisionBodies,readHojSignal);continue;}
     if (shot.pointAim) {
       const from={x:shot.x,y:shot.y},step=Math.min(shot.remaining,Math.hypot(shot.vx,shot.vy)*frameScale),len=Math.hypot(shot.vx,shot.vy)||1;
       const to={x:shot.x+shot.vx/len*step,y:shot.y+shot.vy/len*step};
-      const hit=pointImpact(from,to,sensorCollisionTargets(shot.attack.key));
+      const hit=pointImpact(from,to,collisionBodies,shot.attack.key);
       shot.x=hit?hit.x:to.x;shot.y=hit?hit.y:to.y;shot.remaining-=step;
       if(hit){applyPointImpact(hit,shot);shot.dead=true;}else if(shot.remaining<=0||now-shot.born>shot.ttl)shot.dead=true;
       continue;
