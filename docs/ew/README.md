@@ -1,6 +1,6 @@
 # Electronic warfare
 
-**Review candidate, not performance-cleared:** functional suites (102 EW/seeker) pass. The 2 / 4 ms gate is the **original full-workload timer** (`electronicsPass` = power+sensors). Platinum **2.50 / 6.90 failed** (not re-run). This supplementary host also **fails** that same timer (C2 2.40 / 3.50; C1 2.50 / 3.50). Cumulative tick vs pre-sensor is +1.70 ms. **Explicit decision required. Do not merge to main.** See VALIDATION.md and `receipts/MEASUREMENT-BOUNDARIES.md`.
+**Frozen review candidate, not performance-cleared:** functional suites (105 EW/seeker) pass. The 2 / 4 ms gate is the **original full-workload timer** (`electronicsPass` = power+sensors). Platinum **2.50 / 6.90 failed** (not re-run). This supplementary host also **fails** that same timer (C2 2.20 / 2.60). Cumulative tick vs pre-sensor is +1.10 ms. **Explicit decision required. Do not merge to main.** See VALIDATION.md and `receipts/MEASUREMENT-BOUNDARIES.md`.
 
 Base: sensors commit `758665eef8cc001973529a23e9cd556aeb98c68e`.
 

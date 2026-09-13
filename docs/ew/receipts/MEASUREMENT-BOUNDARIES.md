@@ -110,6 +110,16 @@ with no hit and no projectile death (`authority-20260913-ew-tip.json`
 i:51) means the expensive-frame cause is **unproven** — do not label it
 impact-only.
 
+### `freeze-20260913-*.json` — frozen candidate four-tree
+
+- Same harness contract as `authority-20260913-*`.
+- Optional `--profile` receipts (`freeze-20260913-profile*.json`) are
+  **not** the gate. They time funding, snapshots, detection, sharing
+  and scan separately so instrumentation overhead is visible.
+- Implementation / C2 sources: `d9419c76c7faeb427939e00f9b958fde614843f1`.
+- This host C2 electronicsPass **2.20 / 2.60 fail**. Platinum 2.50 / 6.90
+  remains failed and outstanding.
+
 ### `prior-attempt-performance-*.json`
 
 - Earlier failed EW timing on Platinum. Same family as `performance-*.json`.

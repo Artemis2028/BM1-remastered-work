@@ -145,3 +145,17 @@ This host (supplementary, 4-core generic Xeon, Chromium 153.0.8010.12) — origi
 | Platinum EW (authority) | 2.00 / 3.30 | **2.50 / 6.90** | — | — | 0.20 / 4.50 | **fail — not re-run** |
 
 Increments: EW−sensors tick **+0.80 ms**, EW−pre-sensor tick **+1.70 ms** (limit 2). electronicsPass EW−sensors **+0.60 ms**. Thresholds were not raised. Receipts: `receipts/authority-20260913-*.json`. Harness sha256 `cbe314d8…`.
+
+## Freeze candidate (13 September 2026)
+
+Implementation `d9419c7` on `cursor/ew-correctness-gate-1edb`. Same host class. Unprofiled four-tree: `receipts/freeze-20260913-*.json`. Harness sha256 `e7987600…`. `--profile` receipts are separate.
+
+| Tree | Tick p95 / p99 | electronicsPass | Detection-pass | updateMs | Seeker | Gate 2 / 4 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A `6958f08` | 0.60 / 0.70 | n/a | n/a | n/a | n/a | tick baseline |
+| B `e7aa3c5` | 1.20 / 1.40 | 1.40 / 1.80 | 1.30 / 1.50 | n/a | 0.10 / 0.10 | pass |
+| C1 `74caf83` | 1.40 / 1.60 | 1.80 / 2.40 | 1.50 / 2.10 | n/a | 0.10 / 0.10 | pass |
+| C2 `d9419c7` | 1.70 / 2.10 | **2.20 / 2.60** | 1.90 / 2.40 | 1.90 / 2.40 | 0.20 / 0.30 | **fail p95** |
+| Platinum EW (authority) | 2.00 / 3.30 | **2.50 / 6.90** | — | — | 0.20 / 4.50 | **fail — not re-run** |
+
+Increments: EW−sensors tick **+0.50 ms**, EW−pre-sensor tick **+1.10 ms** (limit 2). electronicsPass EW−sensors **+0.80 ms**. Profiled bottleneck was `SensorWorld.pass` (detect then share); sharing no longer scans every actor. Detection grid was not redesigned. Functional count: EW 20 + 33, seeker 14 + 38 = **105**. **Decision required. Do not merge to main.**
