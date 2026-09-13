@@ -78,4 +78,6 @@ Authoritative gate: **2 ms p95 / 4 ms p99 on passMs** — detection, interferenc
 
 Seeker sampling is accounted for in `passMs` explicitly (`sampleDueHojSeekers` + `sampleHojIfDue`) without counting the same read twice. Restoring the old `elapsedMs` assignment around `sensorWorld.pass()` would still miss it.
 
-Pinned harness: `scripts/ew-frame-benchmark.mjs`. Four trees: `scripts/ew-four-tree.sh`. Platinum receipts stay the release authority. This host is supplementary. Still do not merge to main.
+Pinned harness: `scripts/ew-frame-benchmark.mjs` (sha256 `7aee0987…`). Four trees: `scripts/ew-four-tree.sh`. Platinum receipts stay the release authority. This host is supplementary. Still do not merge to main.
+
+This-host passMs (300 samples, 5 Hz): B 0.90 / 0.90, C1 1.50 / 2.00, C2 **1.20 / 1.60**. Pre-sensor series are null / not applicable. Cumulative tick p95 C2−A **+1.10 ms**. Suites after the change: **20 + 33 + 14 + 35 = 102** EW/seeker, sensors 24/24 · 54/54, power 21/21 · 29/29, behavior 79/79, ship suites green, both release builders. Receipts: `receipts/passms-20260913-*.json`.

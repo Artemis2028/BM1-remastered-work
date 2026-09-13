@@ -123,4 +123,16 @@ One pinned harness (`scripts/ew-frame-benchmark.mjs`) against all four pinned tr
 
 Seeker sampling still runs through the projectile path. `sampleDueHojSeekers` / `sampleHojIfDue` add due samples to `passMs` once; `stepHojFlight` will not read the same sample again.
 
-Rerun: `scripts/ew-four-tree.sh`. Receipts: `receipts/passms-20260913-*.json` (filled after the pinned rerun). Exact review-branch commit and a format-patch / bundle ship with that rerun. Still do not merge to main.
+Rerun: `scripts/ew-four-tree.sh`. Receipts: `receipts/passms-20260913-*.json`. Harness sha256 `7aee098732a6bd0f8332cc10e60f3d07503cd80f2e789bd3ccb76c84a3e4d629`. Measured implementation commit `969668e`. Still do not merge to main.
+
+This host (4-core generic Xeon, concurrency 4, Chromium 153.0.8010.12, 1280×850) — supplementary, not Platinum:
+
+| Tree | Tick p95 / p99 | passMs p95 / p99 | electronicsPass | updateMs | Seeker sample | Gate 2 / 4 on passMs |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A pre-sensor `6958f08` | 0.40 / 0.50 | n/a | n/a | n/a | n/a | tick baseline |
+| B sensors `e7aa3c5` | 1.20 / 1.50 | 0.90 / 0.90 | 1.00 / 1.10 | n/a | 0.00 / 0.10 (no HOJ) | pass |
+| C1 noise/ECCM `74caf83` | 1.40 / 1.80 | 1.50 / 2.00 | 1.70 / 2.20 | n/a | 0.10 / 0.10 (no HOJ) | pass |
+| C2 this tip `969668e` | 1.50 / 2.00 | **1.20 / 1.60** | 1.30 / 1.60 | 1.10 / 1.50 | 0.10 / 0.10 | **pass on this host** |
+| Platinum EW (kept, different series) | 2.00 / 3.30 | not this contract | 2.50 / 6.90 | — | 0.20 / 4.50 (full projectiles) | **fail — not re-run** |
+
+Cumulative tick p95, C2 minus A: **+1.10 ms** (limit 2 ms). `elapsedMs` on C2 was not the gate. Functional count after the explicit-sample fixture: EW 20 + 33, seeker 14 + 35 (**102**).

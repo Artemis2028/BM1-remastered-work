@@ -73,7 +73,7 @@ Rerun: `scripts/ew-four-tree.sh`. Commands and hashes are copied next to the raw
 - **Not** the authoritative passMs gate. Keep the file; do not treat the
   electronicsPass pass/fail as the new contract.
 
-### `passms-20260913-*.json` — corrected passMs contract
+### `passms-20260913-*.json` — corrected passMs contract (this run)
 
 - One pinned tip harness against A / B / C1 / C2.
 - Production order: power → sensors → due seeker sample → projectile flight.
