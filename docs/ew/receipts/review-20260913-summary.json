@@ -1,0 +1,53 @@
+{
+  "host": {
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "logicalCPUs": 4,
+    "hardwareConcurrency": 4,
+    "browser": "153.0.8010.12",
+    "matchesReferencePlatinum8573C": false
+  },
+  "preSensorTick": {
+    "tree": "6958f08",
+    "p95": 0.6,
+    "p99": 0.7
+  },
+  "sensorTick": {
+    "tree": "e7aa3c5",
+    "p95": 1.2,
+    "p99": 1.5
+  },
+  "commit1Tick": {
+    "tree": "74caf83",
+    "p95": 1.4,
+    "p99": 1.6
+  },
+  "ewUnfixedTick": {
+    "p95": 1.6,
+    "p99": 2.2
+  },
+  "ewPostfixTick": {
+    "p95": 1.5,
+    "p99": 2.0
+  },
+  "commit1FullPass": {
+    "p95": 1.7,
+    "p99": 2.1,
+    "passed": true
+  },
+  "ewUnfixedFullPassRuns": [
+    { "p95": 1.9, "p99": 2.2, "passed": true },
+    { "p95": 2.3, "p99": 2.9, "passed": false }
+  ],
+  "ewPostfixFullPassRuns": [
+    { "p95": 1.5, "p99": 1.8, "passed": true },
+    { "p95": 1.5, "p99": 1.7, "passed": true }
+  ],
+  "seekerP99ThisHost": 0.3,
+  "seekerHits": { "ship": 19, "station": 10, "player": 0, "deaths": 29 },
+  "referencePlatinumStillFailed": true,
+  "referenceFullPass": { "p95": 2.5, "p99": 6.9 },
+  "referenceSeekerP99": 4.5,
+  "thresholdsRaised": false,
+  "passedOnThisHostAfterFix": true,
+  "passedOnReferenceHost": false
+}

@@ -52,3 +52,14 @@ Screenshots show wide and 1024×768 touch-viewport EW controls, actual own-fleet
 The torpedo's 9,000-latinum price versus the 60,000-latinum Fleet jammer remains a provisional playtest ratio. There is no automatic general NPC launcher rollout. Existing ship roster, artwork, standing, native hull stats and three-slot loadouts are preserved.
 
 Recommended next reviewer: Claude, concentrating on power conservation, knowledge/identity boundaries, checkpoint compatibility and the timing receipts before pushing.
+
+## Follow-up: seeker p99 and commit-1 vs HOJ (13 September 2026)
+
+A later review on `cursor/ew-perf-gate-23f3` reproduced the fixture on a **different** host (4-core generic Xeon, `hardwareConcurrency` 4). That host is quieter than the Platinum 8573C reference above. **The reference receipts in this file and `receipts/performance-*.json` remain the authority for that runner; they are still a failed 2 / 4 ms full-pass gate. Thresholds were not raised.**
+
+Full write-up: [PERFORMANCE-REVIEW.md](PERFORMANCE-REVIEW.md). Review receipts: `receipts/review-20260913-*.json`.
+
+- Commit-1 (noise/ECCM, ordinary torpedoes) clears 2 / 4 **on the review host** (1.70 / 2.10). On the reference host, sensor-only already failed the same full-pass gate, so noise/ECCM is not the increment that broke a green gate.
+- Seeker p99 is **physical impact**, not guidance math: 29 hits / 29 deaths per 300 samples, 19 ships + 10 stations, 0 player. Typical seeker frames stay 0.1–0.2 ms.
+- Reuse of collision bodies, incarnation keys, the actor map, flight segments and the jammer-candidate list is in this follow-up. Acceptance suites stayed green (EW 20 + 32, seeker 13 + 33, sensors 24 + 54, power 21 + 29, behavior S1–S5).
+- Post-fix review-host full-pass: **1.50 / 1.80** and **1.50 / 1.70** (two serial runs). That does **not** replace the reference 2.50 / 6.90 failure. HOJ stays on the EW review branch; do not merge to main from this follow-up.

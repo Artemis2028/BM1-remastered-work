@@ -1,0 +1,177 @@
+{
+  "root": "/workspace",
+  "sources": {
+    "src/main.js": "4adb7c33557bd25fc6af8a829d4b40acd642e624725be81b9bc381f0e83ba68f",
+    "src/ship-sensors.mjs": "046e9d80c187c561dbca4f55b205a0ada877a1ea9f1e965bf23f82dbc9a86bf8",
+    "src/ship-ew.mjs": "77b6f145d98f99964b497093c1a5dc75f28cb066298d57eea77ed1c7a0d2e75c",
+    "src/ship-hoj.mjs": "ef82dcd7f0697c21f8866447ea5752dbae078463dbb9f832706d2d72597a7174"
+  },
+  "browser": "153.0.8010.12",
+  "environment": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "logicalCPUs": 4
+  },
+  "detectionPass": {
+    "samples": 300,
+    "p50": 1.2999999999301508,
+    "p95": 1.5,
+    "p99": 1.7000000000698492,
+    "observers": 39,
+    "actors": 39,
+    "pairs": 1480,
+    "jammerPairs": 228,
+    "elapsedMs": 1,
+    "passed": true
+  },
+  "seekerCPU": {
+    "samples": 300,
+    "p50": 0.09999999997671694,
+    "p95": 0.2000000000698492,
+    "p99": 0.30000000004656613,
+    "profile": {
+      "max": 0.30000000004656613,
+      "hits": 29,
+      "deaths": 29,
+      "hist": {
+        "lt0_25": 294,
+        "lt0_5": 6,
+        "lt1": 0,
+        "lt2": 0,
+        "lt4": 0,
+        "ge4": 0
+      },
+      "hitKinds": {
+        "player": 0,
+        "station": 10,
+        "ship": 19
+      },
+      "outliers": [
+        {
+          "i": 114,
+          "dt": 0.30000000004656613,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5
+        },
+        {
+          "i": 293,
+          "dt": 0.30000000004656613,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5
+        },
+        {
+          "i": 1,
+          "dt": 0.2999999999301508,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5
+        },
+        {
+          "i": 3,
+          "dt": 0.2999999999301508,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5
+        },
+        {
+          "i": 280,
+          "dt": 0.2999999999301508,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5
+        },
+        {
+          "i": 13,
+          "dt": 0.2000000000698492,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5
+        },
+        {
+          "i": 69,
+          "dt": 0.2000000000698492,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5
+        },
+        {
+          "i": 73,
+          "dt": 0.2000000000698492,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5
+        },
+        {
+          "i": 101,
+          "dt": 0.2000000000698492,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5
+        },
+        {
+          "i": 127,
+          "dt": 0.2000000000698492,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5
+        },
+        {
+          "i": 200,
+          "dt": 0.2000000000698492,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5
+        },
+        {
+          "i": 207,
+          "dt": 0.2000000000698492,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5
+        }
+      ]
+    }
+  },
+  "sensorOnlyCPU": {
+    "samples": 300,
+    "p50": 1.099999999976717,
+    "p95": 1.3000000000465661,
+    "p99": 1.5
+  },
+  "activeJammers": 6,
+  "mixedEmitterSides": [
+    "ferengi",
+    "terran"
+  ],
+  "ewEnabled": true,
+  "starved": false,
+  "projectileCount": 6,
+  "projectileModel": "home-on-jam",
+  "warmupSeconds": 10,
+  "simulationSeconds": 60,
+  "contacts": 20,
+  "stations": 18,
+  "frameCPU": {
+    "samples": 3600,
+    "p50": 0.5999999999767169,
+    "p95": 1.5,
+    "p99": 1.900000000023283
+  },
+  "renderCPU": {
+    "samples": 300,
+    "p50": 0.6999999999534339,
+    "p95": 1.099999999976717,
+    "p99": 1.8000000000465661
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 850
+  },
+  "hardwareConcurrency": 4,
+  "deviceMemory": 16,
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+  "errors": []
+}
