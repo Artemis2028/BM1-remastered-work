@@ -141,4 +141,16 @@ Cumulative tick p95, C2 minus A: **+1.10 ms** (limit 2 ms). `elapsedMs` on C2 wa
 
 The passMs-as-gate paragraph above is **superseded**. The 2 / 4 ms gate is the original power+sensors full-workload timer. Platinum **2.50 / 6.90 remains failed** and is the release authority. Thresholds were not recalibrated. This host is supplementary. Detection-pass, `updateMs` and whole-frame tick are separate reports. Increments: EW−sensors and EW−pre-sensor.
 
-**Return for an explicit decision. Do not merge to main.** Receipts: `receipts/authority-20260913-*.json`.
+**Return for an explicit decision. Do not merge to main.**
+
+This host (supplementary, 4-core generic Xeon, Chromium 153.0.8010.12) — original timer, not passMs:
+
+| Tree | Tick p95 / p99 | electronicsPass p95 / p99 | Detection-pass | updateMs | Seeker (full projectiles) | Gate 2 / 4 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A pre-sensor `6958f08` | 0.50 / 0.60 | n/a | n/a | n/a | n/a | tick baseline |
+| B sensors `e7aa3c5` | 1.40 / 2.30 | 1.80 / 2.80 | 1.60 / 2.50 | n/a | 0.10 / 0.20 | pass |
+| C1 noise/ECCM `74caf83` | 1.70 / 2.30 | **2.50 / 3.50** | 2.20 / 3.10 | n/a | 0.10 / 0.10 | **fail p95** |
+| C2 tip `07fb956` | 2.20 / 3.40 | **2.40 / 3.50** | 2.00 / 3.20 | 2.00 / 3.20 | 0.30 / 0.30 | **fail p95** |
+| Platinum EW (authority) | 2.00 / 3.30 | **2.50 / 6.90** | — | — | 0.20 / 4.50 | **fail — not re-run** |
+
+Increments: EW−sensors tick **+0.80 ms**, EW−pre-sensor tick **+1.70 ms** (limit 2). electronicsPass EW−sensors **+0.60 ms**. Thresholds were not raised. Receipts: `receipts/authority-20260913-*.json`. Harness sha256 `cbe314d8…`.

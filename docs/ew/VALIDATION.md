@@ -82,6 +82,8 @@ Seeker sampling is accounted for in `passMs` explicitly (`sampleDueHojSeekers` +
 
 The passMs-as-gate wording is **superseded**. The 2 / 4 ms gate is again the original externally measured full-workload timer (power+sensors wall-clock; Platinum `detectionPass` 2.50 / 6.90, **failed**). Thresholds were not raised. Detection-pass, `updateMs`, `electronicsPass` and whole-frame tick are reported separately. Increments: EW−sensors and EW−pre-sensor; cumulative tick vs pre-sensor ≤ 2 ms.
 
-Platinum verification is **outstanding** on this VM. This host is supplementary. **Decision required before merge** because the unchanged Platinum 2/4 result is still a fail. Do not merge to main.
+Platinum verification is **outstanding** on this VM. This host is supplementary. **Decision required before merge.** Do not merge to main.
 
-Pinned harness: `scripts/ew-frame-benchmark.mjs`. Four trees: `scripts/ew-four-tree.sh`. Receipts: `receipts/authority-20260913-*.json`. The `passms-20260913-*` files stay labeled as the superseded experiment.
+This-host electronicsPass (300 samples, original timer): B 1.80 / 2.80 (pass), C1 **2.50 / 3.50 fail**, C2 **2.40 / 3.50 fail**. Pre-sensor series are null / not applicable. Tick increments: EW−sensors **+0.80 ms**, EW−pre-sensor **+1.70 ms** (cumulative limit 2 ms). Suites: **20 + 33 + 14 + 35 = 102** EW/seeker, sensors 24/24 · 54/54, power 21/21 · 29/29, behavior 79/79, both release builders.
+
+Pinned harness sha256 `cbe314d8…`. Receipts: `receipts/authority-20260913-*.json`. The `passms-20260913-*` files stay labeled as the superseded experiment.
