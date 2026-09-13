@@ -20,6 +20,17 @@ check('bad or over-budget allocations and malformed power are bounded without re
  assert.equal(ensurePowerState({energy:0},baseline).energy,0);assert.equal(ensurePowerState({energy:-50},baseline).energy,0);
  assert.equal(ensurePowerState({energy:1e9},baseline).energy,200);
 });
+check('more system allocation improves damage, shield recovery or speed and increases energy demand',()=>{
+ const dist=n=>({reserve:0,engines:n,weapons:0,shields:0});
+ assert(powerEngineFactor(dist(10))>powerEngineFactor(dist(5)));
+ near(powerWeaponFactor({reserve:0,engines:0,weapons:5,shields:0}),1);
+ near(powerWeaponFactor({reserve:0,engines:0,weapons:10,shields:0}),1.4);
+ const a=fresh(),b=fresh();a.energy=b.energy=100;
+ a.dist={reserve:0,engines:0,weapons:0,shields:5};b.dist={...a.dist,shields:10};
+ const input={shieldMissing:1,shieldReady:true};
+ const normal=stepShipPower(a,baseline,1,input),boost=stepShipPower(b,baseline,1,input);
+ near(boost.shieldFraction,normal.shieldFraction*2);assert(b.energy<a.energy);
+});
 check('idle regeneration conserves energy and caps reserves; reserve allocation does not multiply output',()=>{
  for(const reserve of [0,5,10]){const p=fresh();p.energy=20;p.dist={reserve,engines:0,weapons:0,shields:0};stepShipPower(p,baseline,1);near(p.energy,30);}
  const p=fresh();const result=stepShipPower(p,baseline,1);near(p.energy,200);near(p.telemetry.spilled,10);assert.equal(result.shieldFraction,0);

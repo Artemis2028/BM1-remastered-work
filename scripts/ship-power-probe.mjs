@@ -8,7 +8,7 @@ import {chromium} from 'playwright';
 const root=path.resolve(fileURLToPath(new URL('../',import.meta.url)));
 const shim=`window.__power={state,keys,startWithFaction,applyCurrentShipStats,applyShipDefaultWeapons,
  getShipStats,getWeapon,getOriginalShipWeaponSlots,getDefaultWeaponId,getWeaponEnergyCost,
- getActorPowerProfile,ensurePlayerPower,ensureNpcPower,getPowerMaxEnergy,getScaledWeaponDamage,
+ getScaledWeaponCooldown,getActorPowerProfile,ensurePlayerPower,ensureNpcPower,getPowerMaxEnergy,getScaledWeaponDamage,
  getPowerEnginesFactor,setPowerDist,advanceActorPower,updatePowerSystems,updateShieldRegeneration,
  firePlayerWeapon,fireNpcWeapon,createNpcShip,ensureNpcCombatStats,playerWorldPosition,tick,
  getSystemIndexByName,applySystemState,saveGame,loadGame,getSaveSlotKey,captureShipPowerState,
@@ -48,6 +48,15 @@ try{
   const damageBefore=B.getScaledWeaponDamage(n.shipId,weapon,null,1,n);s.power.dist={reserve:0,engines:0,weapons:10,shields:10};
   test('player allocation cannot leak into an NPC flying the same hull',near(damageBefore,B.getScaledWeaponDamage(n.shipId,weapon,null,1,n)));
   s.power.dist={reserve:5,engines:5,weapons:5,shields:5};
+  const normalCooldown=B.getScaledWeaponCooldown(326,weapon);
+  const normalDamage=B.getScaledWeaponDamage(326,weapon);
+  const normalCost=B.getWeaponEnergyCost(weapon);
+  s.power.dist={reserve:0,engines:5,weapons:10,shields:5};
+  test('weapon allocation increases actual player damage and shot cost without changing recharge',B.getScaledWeaponDamage(326,weapon)>normalDamage&&B.getWeaponEnergyCost(weapon)>normalCost&&B.getScaledWeaponCooldown(326,weapon)===normalCooldown);
+  const npcDamage=B.getScaledWeaponDamage(326,weapon,null,1,n),npcCost=B.getWeaponEnergyCost(weapon,n);
+  n.power.dist={...s.power.dist};
+  test('NPC weapon allocation increases its own damage and shot cost',B.getScaledWeaponDamage(326,weapon,null,1,n)>npcDamage&&B.getWeaponEnergyCost(weapon,n)>npcCost);
+  s.power.dist={reserve:5,engines:5,weapons:5,shields:5};n.power.dist={...s.power.dist};
   n.power.energy=0;B.fireNpcWeapon(n,at,'player',performance.now());
   test('depleted NPC emits no shot, cooldown or aggression evidence',n.lastShotAt===-1e9&&!n.lastAggressionAt&&s.projectiles.length===0);
   n.power.energy=100;const cost=B.getWeaponEnergyCost(weapon,n);B.fireNpcWeapon(n,at,'player',performance.now());
@@ -118,6 +127,15 @@ try{
   const snap=saved.systems[home].participants.v999;
   test('checkpoint snapshot sanitation preserves power and crew fields',snap.power.energy===2&&snap.crewSkill==='elite'&&snap.crewTemperament==='cautious');
   const html=B.renderPowerPanel();test('OPS displays generation, demand, reserves and recovery/drain label',html.includes('EU/s')&&html.includes('Reactor')&&html.includes('Draw')&&html.includes('Energy'));
+  test('OPS has three functional sliders and a read-only unused-allocation count',!html.includes('data-power-tank="reserve"')&&(html.match(/data-power-tank=/g)||[]).length===3&&html.includes('data-power-unused'));
+  s.power.dist={reserve:5,engines:5,weapons:5,shields:5};B.setPowerDist('engines',8);
+  test('raising a system spends spare points before reducing other systems',s.power.dist.engines===8&&s.power.dist.weapons===5&&s.power.dist.shields===5&&B.renderPowerPanel().includes('Unused allocation: 2 points'));
+  B.setPowerDist('weapons',10);
+  test('a full allocation budget redistributes without exceeding twenty points',s.power.dist.weapons===10&&s.power.dist.engines+s.power.dist.weapons+s.power.dist.shields===20);
+  B.setPowerDist('engines',0);B.setPowerDist('weapons',0);B.setPowerDist('shields',0);
+  const zeroed=JSON.stringify(s.power.dist);B.setPowerDist('reserve',10);
+  test('all twenty points can be unused and the removed reserve control cannot change allocation',B.renderPowerPanel().includes('Unused allocation: 20 points')&&JSON.stringify(s.power.dist)===zeroed);
+  s.power.dist={reserve:5,engines:5,weapons:5,shields:5};
   s.topLeftPanelOpen=true;s.topLeftTab='power';s.power.energy=80;B.updatePowerSystems(1);B.renderTopLeftPanel();B.render();
   return {checks,encounters};
  });

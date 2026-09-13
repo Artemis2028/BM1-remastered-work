@@ -22,3 +22,9 @@ The environment used Playwright with Chromium supplied through an external prelo
 The final behavior probe includes the S1d fixture correction explained in POWER-AND-CREWS.md. No acceptance assertion was relaxed. The submitted patch is an increment on the pushed reviewed-ships tree, with no art binaries or Phase 3 replacement.
 
 The 180-second crew experiment exercises actual engine functions with a frozen renderer and explicit simulation steps. It is a controlled acceptance scenario, not a full campaign balance study. NPC primary-weapon selection, legacy difficulty scales and station energy behavior remain the boundaries described in the implementation notes.
+
+## OPS follow-up
+
+On top of power commit `e0e3f6895e87e44f6f87effe5961e738d69f8309`, reran the shared power tests (21/21) and real browser power probe (29/29). New checks cover spare-first allocation, a full 20-point budget, zero active allocation, the absence of an inert Reserve slider, and greater player/NPC weapon damage and cost with unchanged cooldown. Shield recovery and engine speed tradeoffs are covered by the power model test. Engine syntax passes. The 235-check table above is the original power patch baseline, not a claim that every suite was rerun for this UI follow-up.
+
+The sensor allocation and crew-scan requirements are documentation for the next implementation. They are not exposed as working controls or scan results yet.

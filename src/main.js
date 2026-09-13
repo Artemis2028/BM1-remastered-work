@@ -4395,28 +4395,25 @@ function restoreFleetPower(ship, fleetShip) {
 }
 const POWER_DIST_BUDGET = 20;
 function setPowerDist(key, value) {
-  if (!POWER_DIST_KEYS.includes(key)) return;
-  if (!state.power || typeof state.power !== 'object') state.power = { energy: 200, dist: {} };
-  if (!state.power.dist || typeof state.power.dist !== 'object') state.power.dist = {};
-  state.power.dist = normalizePowerDist(state.power.dist);
-  const dist = state.power.dist;
-  const next = clamp(Math.round(finiteNumber(value, 5)), 0, 10);
-  let delta = next - clamp(Math.round(finiteNumber(dist[key], 5)), 0, 10);
-  dist[key] = next;
-  if (delta > 0) {
-    const others = POWER_DIST_KEYS.filter((k) => k !== key).sort((x, y) => clamp(Math.round(finiteNumber(dist[y], 5)), 0, 10) - clamp(Math.round(finiteNumber(dist[x], 5)), 0, 10));
-    for (const other of others) {
-      if (delta <= 0) break;
-      const avail = clamp(Math.round(finiteNumber(dist[other], 5)), 0, 10);
-      const take = Math.min(avail, delta);
-      dist[other] = avail - take;
-      delta -= take;
-    }
-    dist[key] = next - delta;
+  const systems = POWER_DIST_KEYS.filter(k => k !== 'reserve');
+  if (!systems.includes(key)) return; // unused allocation is a readout, not a control
+  const power = ensurePlayerPower();
+  const dist = power.dist;
+  dist[key] = clamp(Math.round(finiteNumber(value, 5)), 0, 10);
+  let excess = Math.max(0, systems.reduce((sum, k) => sum + dist[k], 0) - POWER_DIST_BUDGET);
+  // Consume spare allocation first. Only reduce another system when the actual
+  // engines/weapons/shields budget is full; preserve the slider being adjusted.
+  for (const other of systems.filter(k => k !== key).sort((a, b) => dist[b] - dist[a])) {
+    const take = Math.min(excess, dist[other]);
+    dist[other] -= take;
+    excess -= take;
   }
+  // Keep the legacy field bounded for old readers. The UI derives unused points
+  // from the active allocations, including the case where all 20 are unused.
+  dist.reserve = Math.min(10, POWER_DIST_BUDGET - systems.reduce((sum, k) => sum + dist[k], 0));
 }
 function adjustPowerDist(key, dir) {
-  if (!POWER_DIST_KEYS.includes(key)) return;
+  if (key === 'reserve' || !POWER_DIST_KEYS.includes(key)) return;
   if (!state.power || typeof state.power !== 'object') state.power = { energy: 200, dist: {} };
   if (!state.power.dist || typeof state.power.dist !== 'object') state.power.dist = {};
   setPowerDist(key, clamp(Math.round(finiteNumber(state.power?.dist?.[key], 5)), 0, 10) + (dir > 0 ? 1 : -1));
@@ -4437,7 +4434,6 @@ function renderPowerPanel() {
   const energy = Math.round(clamp(finiteNumber(state.power?.energy, max), 0, max));
   const pct = Math.round((energy / Math.max(1, max)) * 100);
   const defs = [
-    ['reserve', 'RESERVE'],
     ['engines', 'ENGINES'],
     ['weapons', 'WEAPONS'],
     ['shields', 'SHIELDS'],
@@ -4450,12 +4446,15 @@ function renderPowerPanel() {
       + `</div><div class="power-tank-label">${label}</div>`
       + `<div class="power-tank-val">${value}</div></div>`;
   }).join('');
-  const total = POWER_DIST_KEYS.reduce((sum, k) => sum + getPowerDist(k), 0);
+  const allocated = defs.reduce((sum, [key]) => sum + getPowerDist(key), 0);
   return `<div class="panel-head">Power Distribution (OPS) Control</div>`
-    + `<div class="meta">Energy ${energy}/${max} (${pct}%) | Budget ${total}/${POWER_DIST_BUDGET} | Drag a tank or use -/+</div>`
+    + `<div class="meta">Energy ${energy}/${max} (${pct}%) | Allocated ${allocated}/${POWER_DIST_BUDGET} | Drag a system slider</div>`
     + `<div class="meta" data-power-readout>Reactor ${profile.reactorOutput.toFixed(1)} EU/s · Draw ${telemetry.consumption.toFixed(1)} EU/s · ${telemetry.net >= 0 ? (energy >= max ? 'Surplus' : 'Recovering') : 'Draining'} ${Math.abs(telemetry.net).toFixed(1)} EU/s</div>`
-    + `<div class="meta">Draw includes a one-second average of weapon bursts. Reserve leaves power uncommitted; it does not increase reactor output.</div>`
+    + `<div class="meta">Weapon draw is averaged over one second. Lower system settings reduce demand; reactor output stays fixed.</div>`
+    + `<div class="meta" data-power-unused>Unused allocation: ${POWER_DIST_BUDGET - allocated} points. Stored energy is shown above.</div>`
     + `<div class="power-tanks">${tanks}</div>`
+    + `<div class="meta" data-power-effects>Impulse ${(powerEngineFactor(power.dist) * 100).toFixed(0)}% · Weapon damage ${(powerWeaponFactor(power.dist) * 100).toFixed(0)}% · Shield recovery ${(getPowerDist('shields') / 5 * 100).toFixed(0)}%</div>`
+    + `<div class="meta">Relative to normal allocation (5 points). Stronger shots cost more energy; stronger engines and faster shield recovery draw more power. Weapon recharge stays unchanged. Recent shield hits and available energy still limit recovery.</div>`
     + `<div class="ship-actions"><button data-top-action="close-panel">Close</button></div>`;
 }
 function advanceActorPower(npc, frameScale, now) {
