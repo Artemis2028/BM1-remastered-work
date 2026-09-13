@@ -1,6 +1,6 @@
 # Electronic warfare
 
-**Review candidate, not performance-cleared:** functional suites and both release builds pass, and the cumulative tick increment passes. The full 5 Hz pass still exceeds its p95/p99 limits on the recorded runner. See VALIDATION.md before release.
+**Review candidate, not performance-cleared:** functional suites (101 EW/seeker checks) and both release builds pass, and the cumulative tick increment passes on the review host. The full 5 Hz electronics pass still exceeds its p95/p99 limits on the recorded Platinum runner; that verification is outstanding here. See VALIDATION.md before release.
 
 Base: sensors commit `758665eef8cc001973529a23e9cd556aeb98c68e`.
 

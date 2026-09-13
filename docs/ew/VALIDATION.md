@@ -63,3 +63,11 @@ Full write-up: [PERFORMANCE-REVIEW.md](PERFORMANCE-REVIEW.md). Review receipts: 
 - Seeker p99 is **physical impact**, not guidance math: 29 hits / 29 deaths per 300 samples, 19 ships + 10 stations, 0 player. Typical seeker frames stay 0.1–0.2 ms.
 - Reuse of collision bodies, incarnation keys, the actor map, flight segments and the jammer-candidate list is in this follow-up. Acceptance suites stayed green (EW 20 + 32, seeker 13 + 33, sensors 24 + 54, power 21 + 29, behavior S1–S5).
 - Post-fix review-host full-pass: **1.50 / 1.80** and **1.50 / 1.70** (two serial runs). That does **not** replace the reference 2.50 / 6.90 failure. HOJ stays on the EW review branch; do not merge to main from this follow-up.
+
+## Follow-up: correctness + measurement names (13 September 2026)
+
+Implemented on `cursor/ew-correctness-gate-1edb` from `0979e44`. Suites: **20 + 33 + 13 + 35 = 101** EW/seeker checks, sensors 24/24 · 54/54, power 21/21 · 29/29, behavior 79/79, ship suites green, both release builders include `ship-ew.mjs` / `ship-hoj.mjs`.
+
+This host (4-core generic Xeon, concurrency 4, Chromium 153.0.8010.12) electronicsPass **1.50 / 1.90** and cumulative tick **+1.00 ms**. **Platinum 8573C reference verification is outstanding**; the recorded 2.50 / 6.90 failure is retained. Detection-only (1.30 / 1.60) is reported and was not substituted for the gate.
+
+Receipts: `receipts/fix-20260913-*.json` and `receipts/fix-20260913-summary.json`.

@@ -94,3 +94,21 @@ Targeted reuse only; no budget raise, no roster/price/slot/artwork change, no kn
 - **Reference Platinum host:** still **not passed** at 2.50 / 6.90. Those receipts are kept. This review did not re-measure that machine.
 - **Noise/ECCM can land before HOJ** from a *unique full-pass regress* standpoint (sensors already owned the red gate on the reference runner; commit-1 is green here). HOJ seeker p99 on the reference runner is impact+GC; reuse is a reasonable attempt, not a proven clear on that host.
 - Do not merge to main from this follow-up.
+
+## Follow-up: correctness + named timing (13 September 2026)
+
+Branch `cursor/ew-correctness-gate-1edb` on the same host class (4-core generic Xeon, `hardwareConcurrency` 4, Chromium 153.0.8010.12, 1280×850). **Still not the Platinum 8573C reference.** Thresholds were not raised. Prior Platinum `performance-*.json` receipts stay failed and authoritative for that runner.
+
+Identical harness boundaries on all trees: `electronicsPass` is power+sensors wall-clock (the 2 / 4 ms gate); `elapsedMs` / `passMs` is the detection pass only; `updateMs` is the complete sensor update. Older trees still overwrite `elapsedMs` in-engine; the harness wall-clock is the comparable series.
+
+| Tree | Tick p95 / p99 | electronicsPass p95 / p99 | Detection-only p95 / p99 | Seeker p95 / p99 | Gate 2 / 4 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A pre-sensor `6958f08` | 0.40 / 0.50 | n/a | n/a | n/a | tick baseline |
+| B sensors `e7aa3c5` | 1.20 / 1.30 | 1.00 / 1.20 | 0.90 / 1.00 | 0.10 / 0.10 | pass |
+| C1 noise/ECCM `74caf83` | 1.30 / 1.60 | 1.20 / 2.00 | 1.00 / 1.80 | 0.10 / 0.10 | pass |
+| C2 this tip | 1.40 / 1.80 | **1.50 / 1.90** | 1.30 / 1.60 | 0.20 / 0.30 | **pass on this host** |
+| Reference EW (Platinum, kept) | 2.00 / 3.30 | 2.50 / 6.90 | n/a | 0.20 / 4.50 | **fail — not re-run** |
+
+Cumulative tick p95, C2 minus A: **1.00 ms** (limit 2 ms) on this host. Detection-only on C2 is 1.30 / 1.60; it was **not** used as the gate.
+
+Functional count after the two seeker fixtures and the command-hull warning: EW 20 + 33, seeker 13 + 35 (**101**). Sensors 24 + 54, power 21 + 29, behavior 79/79, both release builders. Raw receipts: `receipts/fix-20260913-*.json`.

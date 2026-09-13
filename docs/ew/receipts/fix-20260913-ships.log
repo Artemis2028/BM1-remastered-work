@@ -1,0 +1,4 @@
+
+> broken-mirror-1@0.0.1 check:ship-manifest
+> node scripts/sync-ship-roster.mjs --check
+

@@ -1,0 +1,38 @@
+
+> broken-mirror-1@0.0.1 test:ew:ingame
+> node scripts/ship-ew-probe.mjs
+
+PASS real engine freezes
+PASS new captain starts empty without changing three weapon slots
+PASS module 1 rejects below faction standing
+PASS module 1 purchases at tier and charges once
+PASS module 1 cannot be rebought
+PASS module 2 rejects below faction standing
+PASS module 2 purchases at tier and charges once
+PASS module 2 cannot be rebought
+PASS module 3 rejects below faction standing
+PASS module 3 purchases at tier and charges once
+PASS module 3 cannot be rebought
+PASS docked transmit order refused
+PASS real jammer control enables requested module
+PASS paid field begins after spin-up and consumes energy
+PASS foreign receiver measures paid interference
+PASS jamming changes no weapons, standing or attack evidence
+PASS Off removes field immediately
+PASS own fleet interference is named in real panel
+PASS ECCM raises local quality and records actual draw
+PASS foreign refit rejected
+PASS local escort and garrison use same standing gate
+PASS remote commanded ship refit rejected
+PASS save restores player module, manual ECCM and energy
+PASS fleet save restores equipment and order without refill
+PASS pre-EW save gets empty captain/fleet equipment
+PASS Fleet emission is detected beyond comms without identity
+PASS cloak switches captain jammer Off
+PASS capture retains module but clears former operating orders
+PASS ambient replacement drops old equipment and operating state
+PASS actual DOM jammer order works
+PASS actual DOM ECCM order works
+PASS real station type records give military platforms enhanced arrays
+PASS command-hull purchase warns, then discards the jammer without carry-over or price changes
+33/33 live EW checks passed

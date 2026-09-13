@@ -1,0 +1,6 @@
+
+> broken-mirror-1@0.0.1 build:python
+> python3 scripts/build_release.py
+
+Release written to /workspace/dist
+Chrome extension app written to /workspace/dist-chrome-extension
