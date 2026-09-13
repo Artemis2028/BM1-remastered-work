@@ -1,5 +1,6 @@
 #!/usr/bin/env node
- // Paired whole-frame CPU benchmark. Use identical --root scenes before/after the sensor patch.
+ // Legacy sensor-only helper. The pinned four-tree authority is scripts/ew-frame-benchmark.mjs
+ // (passMs = sensors + due seeker sampling; pre-sensor reports N/A, never zero).
 import fs from 'node:fs';
 import os from 'node:os';
 import http from 'node:http';

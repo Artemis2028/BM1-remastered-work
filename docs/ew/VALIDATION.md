@@ -70,4 +70,12 @@ Implemented on `cursor/ew-correctness-gate-1edb` from `0979e44`. Suites: **20 + 
 
 This host (4-core generic Xeon, concurrency 4, Chromium 153.0.8010.12) electronicsPass **1.50 / 1.90** and cumulative tick **+1.00 ms**. **Platinum 8573C reference verification is outstanding**; the recorded 2.50 / 6.90 failure is retained. Detection-only (1.30 / 1.60) is reported and was not substituted for the gate.
 
-Receipts: `receipts/fix-20260913-*.json` and `receipts/fix-20260913-summary.json`.
+Receipts: `receipts/fix-20260913-*.json` and `receipts/fix-20260913-summary.json`. Those files gated **electronicsPass** (power+sensors wall-clock) and timed seekers as the full projectile update. Keep them; they are not the passMs series. Boundaries: `receipts/MEASUREMENT-BOUNDARIES.md`.
+
+## Follow-up: passMs contract (13 September 2026)
+
+Authoritative gate: **2 ms p95 / 4 ms p99 on passMs** — detection, interference, sharing, scan attributable to that pass, and due seeker sampling. `updateMs`, `electronicsPass` (power+sensors) and whole-frame tick are reported separately. Cumulative frame cost vs pre-sensor ≤ 2 ms p95. Pre-sensor sensor-pass metrics are **not applicable**, never zero.
+
+Seeker sampling is accounted for in `passMs` explicitly (`sampleDueHojSeekers` + `sampleHojIfDue`) without counting the same read twice. Restoring the old `elapsedMs` assignment around `sensorWorld.pass()` would still miss it.
+
+Pinned harness: `scripts/ew-frame-benchmark.mjs`. Four trees: `scripts/ew-four-tree.sh`. Platinum receipts stay the release authority. This host is supplementary. Still do not merge to main.

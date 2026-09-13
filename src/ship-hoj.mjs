@@ -9,22 +9,26 @@ export function createHojFlight({ key, system, x, y, aim, speed = 10, range = 18
     signal: null, signalAt: -Infinity, steering: false, dead: false };
 }
 const segment = { from: { x: 0, y: 0 }, to: { x: 0, y: 0 } };
+// Single sample entry: advances sampleDue so a later stepHojFlight will not re-read.
+export function sampleHojIfDue(shot, readSignal) {
+  if (!shot || shot.dead || shot.elapsed + 1e-8 < shot.sampleDue) return false;
+  const signal = readSignal(shot.emitterKey);
+  const accepted = signal?.key === shot.emitterKey && signal.system === shot.system && signal.emitting
+    && Math.hypot(signal.x - shot.x, signal.y - shot.y) <= HOJ_RULES.reach
+    && Math.abs(delta(shot.heading, bearing(shot, signal))) <= HOJ_RULES.halfCone;
+  if (accepted) {
+    if (!shot.signal) shot.signal = { x: 0, y: 0 };
+    shot.signal.x = signal.x; shot.signal.y = signal.y;
+  } else shot.signal = null;
+  shot.signalAt = shot.elapsed;
+  shot.sampleDue = shot.elapsed + HOJ_RULES.cadence;
+  return true;
+}
 export function stepHojFlight(shot, dt, readSignal) {
   segment.from.x = shot.x; segment.from.y = shot.y;
   if (shot.dead) { segment.to.x = shot.x; segment.to.y = shot.y; return segment; }
   const seconds = Math.max(0, Math.min(dt, shot.lifeRemaining, shot.remaining / (shot.speed * 60)));
-  if (shot.elapsed + 1e-8 >= shot.sampleDue) {
-    const signal = readSignal(shot.emitterKey);
-    const accepted = signal?.key === shot.emitterKey && signal.system === shot.system && signal.emitting
-      && Math.hypot(signal.x - shot.x, signal.y - shot.y) <= HOJ_RULES.reach
-      && Math.abs(delta(shot.heading, bearing(shot, signal))) <= HOJ_RULES.halfCone;
-    if (accepted) {
-      if (!shot.signal) shot.signal = { x: 0, y: 0 };
-      shot.signal.x = signal.x; shot.signal.y = signal.y;
-    } else shot.signal = null;
-    shot.signalAt = shot.elapsed;
-    shot.sampleDue = shot.elapsed + HOJ_RULES.cadence;
-  }
+  sampleHojIfDue(shot, readSignal);
   shot.steering = !!shot.signal && shot.elapsed - shot.signalAt <= HOJ_RULES.memory;
   if (shot.steering) {
     const turn = shot.turnRate * seconds * 60;

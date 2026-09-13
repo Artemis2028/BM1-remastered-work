@@ -111,4 +111,16 @@ Identical harness boundaries on all trees: `electronicsPass` is power+sensors wa
 
 Cumulative tick p95, C2 minus A: **1.00 ms** (limit 2 ms) on this host. Detection-only on C2 is 1.30 / 1.60; it was **not** used as the gate.
 
-Functional count after the two seeker fixtures and the command-hull warning: EW 20 + 33, seeker 13 + 35 (**101**). Sensors 24 + 54, power 21 + 29, behavior 79/79, both release builders. Raw receipts: `receipts/fix-20260913-*.json`.
+Functional count after the two seeker fixtures and the command-hull warning: EW 20 + 33, seeker 13 + 35 (**101**). Sensors 24 + 54, power 21 + 29, behavior 79/79, both release builders. Raw receipts: `receipts/fix-20260913-*.json`. **Those receipts gated `electronicsPass` and are retained with that boundary labeled** in `receipts/MEASUREMENT-BOUNDARIES.md`. They are not the passMs authority.
+
+## Follow-up: passMs gate (authoritative timing paragraph)
+
+The 2 ms p95 / 4 ms p99 gate applies to **passMs**: the complete 5 Hz sensing workload, including detection, interference, sharing, scan advancement attributable to that pass, and due seeker sampling. Do not gate merely on whichever value currently occupies `elapsedMs`.
+
+Report `updateMs`, `electronicsPass`, and whole-frame timing separately. Judge cumulative added frame cost against the pre-sensor baseline at ≤2 ms p95. Projectile movement, collision, damage and FX remain included in whole-frame measurements.
+
+One pinned harness (`scripts/ew-frame-benchmark.mjs`) against all four pinned trees. Pre-sensor supplies the frame baseline and reports sensor-pass metrics as **not applicable**, never zero. Platinum remains the release authority; this two-core / 4-core run is supplementary.
+
+Seeker sampling still runs through the projectile path. `sampleDueHojSeekers` / `sampleHojIfDue` add due samples to `passMs` once; `stepHojFlight` will not read the same sample again.
+
+Rerun: `scripts/ew-four-tree.sh`. Receipts: `receipts/passms-20260913-*.json` (filled after the pinned rerun). Exact review-branch commit and a format-patch / bundle ship with that rerun. Still do not merge to main.

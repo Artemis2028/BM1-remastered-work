@@ -1,6 +1,6 @@
 # Electronic warfare
 
-**Review candidate, not performance-cleared:** functional suites (101 EW/seeker checks) and both release builds pass, and the cumulative tick increment passes on the review host. The full 5 Hz electronics pass still exceeds its p95/p99 limits on the recorded Platinum runner; that verification is outstanding here. See VALIDATION.md before release.
+**Review candidate, not performance-cleared:** functional suites (101 EW/seeker checks, seeker model now 14 after the explicit-sample fixture) and both release builds pass on the review host. The 2 / 4 ms gate is **passMs** (complete 5 Hz sensing workload including due seeker sampling), not `elapsedMs` and not `electronicsPass`. Platinum 8573C remains the release authority and is still a failed power+sensors receipt there; this host is supplementary. See VALIDATION.md and `receipts/MEASUREMENT-BOUNDARIES.md` before release.
 
 Base: sensors commit `758665eef8cc001973529a23e9cd556aeb98c68e`.
 

@@ -1,4 +1,4 @@
-import { HOJ_WEAPON_ID, createHojFlight, stepHojFlight } from './ship-hoj.mjs';
+import { HOJ_WEAPON_ID, createHojFlight, stepHojFlight, sampleHojIfDue } from './ship-hoj.mjs';
 import { EW_MODULES, sanitizeEW, snapshotEW, stopEW, rollEW, manageEW, fundElectronics } from './ship-ew.mjs';
 import { SENSOR_RULES, SENSOR_SUITES, SensorWorld, sensorProfile, ensureSensorEquipment, defaultTransponder, fundSensors, sensorDistance, visualReach, freshTrack, receivedDeclaration, pointImpact } from './ship-sensors.mjs';
 import {
@@ -4728,6 +4728,8 @@ function updateSensorSystems(frameScale = 1) {
   const dt = clamp(frameScale / 60, 0, 1);
   sensorClock += dt;
   sensorAccumulator += dt;
+  sensorWorld.metrics.passOpen=false;
+  let passStart=null;
   if (sensorWorld.system !== state.currentPlanet) {
     state.sensorArchives ||= {};
     if (sensorWorld.system !== null) state.sensorArchives[sensorWorld.system] = {
@@ -4741,8 +4743,8 @@ function updateSensorSystems(frameScale = 1) {
       saved.at));
   }
   if (sensorAccumulator + .000001 >= .2) {
-    const start = performance.now(),
-      elapsed = Math.min(sensorAccumulator, 1);
+    passStart = performance.now();
+    const elapsed = Math.min(sensorAccumulator, 1);
     sensorAccumulator = 0;
     const zone = getSecurityZone(),
       entities = [state, ...state.npcShips.filter(n => !n.destroyed && n.trafficWarp?.phase !== 'away'), ...state
@@ -4775,12 +4777,20 @@ function updateSensorSystems(frameScale = 1) {
         }
       }
     }
-    const passMs = performance.now() - start;
-    sensorWorld.metrics.elapsedMs = passMs;
-    sensorWorld.metrics.passMs = passMs;
+    // elapsedMs/detectionMs are detection+sharing only — not the 2/4 gate.
+    sensorWorld.metrics.elapsedMs = performance.now() - passStart;
+    sensorWorld.metrics.detectionMs = sensorWorld.metrics.elapsedMs;
+    sensorWorld.metrics.passOpen = true;
   }
   for (const a of sensorActors.values())
     if (!a.station) advanceSensorScan(a.entity, dt);
+  if (passStart!==null) {
+    // passMs starts as detection+sharing+scan; due seeker samples are added once
+    // from the projectile path (sampleDueHojSeekers) without flying the shot.
+    sensorWorld.metrics.passMs = performance.now() - passStart;
+    sensorWorld.metrics.seekerSampleMs = 0;
+    sensorWorld.metrics.seekerSamples = 0;
+  }
   sensorWorld.metrics.updateMs=performance.now()-sensorUpdateStart;
 }
 
@@ -4989,6 +4999,35 @@ function liveJammerSignal(entity) {
   liveJammerScratch.key=hojEmitterKey(a);liveJammerScratch.system=state.currentPlanet;
   liveJammerScratch.x=p.x;liveJammerScratch.y=p.y;liveJammerScratch.emitting=true;
   return liveJammerScratch;
+}
+function sampleDueHojSeekers(readSignal=null) {
+  const started=performance.now();
+  let ready=false;
+  const read=readSignal||(key=>{
+    if(!ready){
+      hojActorMap.clear();
+      hojActorMap.set(hojEmitterKey(state),state);
+      for(const a of state.npcShips)hojActorMap.set(hojEmitterKey(a),a);
+      for(const a of state.stations)hojActorMap.set(hojEmitterKey(a),a);
+      ready=true;
+    }
+    const a=hojActorMap.get(key);return a?liveJammerSignal(a):null;
+  });
+  let n=0;
+  for(const shot of state.projectiles){
+    if(shot.guidance!=='home-on-jam'||shot.dead||shot.system!==state.currentPlanet)continue;
+    if(sampleHojIfDue(shot,read))n++;
+  }
+  const ms=performance.now()-started;
+  // Sample every frame (cadence-gated). Fold the time into passMs once, on the
+  // 5 Hz pass that just opened — never overwrite that slice on a later empty call.
+  if(sensorWorld.metrics.passOpen){
+    sensorWorld.metrics.seekerSampleMs=ms;
+    sensorWorld.metrics.seekerSamples=n;
+    sensorWorld.metrics.passMs=(sensorWorld.metrics.passMs||0)+ms;
+    sensorWorld.metrics.passOpen=false;
+  }
+  return {ms,n};
 }
 function hasHojLaunchTrack(source,target) {
   const c=sensorContact(source,target);
@@ -14869,6 +14908,7 @@ function updateProjectiles(frameScale = 1) {
     }
     const a=hojActorMap.get(key);return a?liveJammerSignal(a):null;
   };
+  sampleDueHojSeekers(readHojSignal);
   for (const shot of state.projectiles) {
     if(shot.guidance==='home-on-jam'){updateHojProjectile(shot,frameScale,collisionBodies,readHojSignal);continue;}
     if (shot.pointAim) {
