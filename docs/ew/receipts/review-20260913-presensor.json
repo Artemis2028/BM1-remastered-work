@@ -1,0 +1,49 @@
+{
+  "root": "/tmp/ew-presensor",
+  "sources": {
+    "src/main.js": "47fd75c8ba9820c23b73c2e1c1c6047a3ef810cbccf955ee498e212e13bfc9fc"
+  },
+  "browser": "153.0.8010.12",
+  "environment": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "logicalCPUs": 4
+  },
+  "detectionPass": null,
+  "seekerCPU": null,
+  "sensorOnlyCPU": null,
+  "activeJammers": 0,
+  "mixedEmitterSides": [
+    "ferengi",
+    "terran"
+  ],
+  "ewEnabled": false,
+  "starved": false,
+  "projectileCount": 6,
+  "projectileModel": "ordinary torpedo",
+  "warmupSeconds": 10,
+  "simulationSeconds": 60,
+  "contacts": 20,
+  "stations": 18,
+  "frameCPU": {
+    "samples": 3600,
+    "p50": 0.30000000004656613,
+    "p95": 0.5999999999767169,
+    "p99": 0.7000000000698492
+  },
+  "renderCPU": {
+    "samples": 300,
+    "p50": 0.40000000002328306,
+    "p95": 0.8000000000465661,
+    "p99": 1
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 850
+  },
+  "hardwareConcurrency": 4,
+  "deviceMemory": 16,
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+  "errors": []
+}

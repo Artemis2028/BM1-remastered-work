@@ -1,0 +1,52 @@
+{
+  "commit": "af516a8cf7df21a3d8dcec69fe98232f1605a884",
+  "base": "0979e44d4a6541ad287c4d7280f0328519d620eb",
+  "pr": 4,
+  "host": {
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "logicalCPUs": 4,
+    "hardwareConcurrency": 4,
+    "browser": "153.0.8010.12",
+    "viewport": { "width": 1280, "height": 850 },
+    "matchesReferencePlatinum8573C": false,
+    "referenceVerification": "outstanding"
+  },
+  "sourcesTip": {
+    "src/main.js": "17e8ae4dc9347d05ff2665b2d45b19317f1c7e5771067f0b5c893e35de451524",
+    "src/ship-sensors.mjs": "36f298913f3c8c9479e6d1a071bb5383026e5aa5828fcb5af047ab5c26d19a15",
+    "src/ship-ew.mjs": "4f16df1f128dd9fffb607a8024f64827a0cb640ba648fc9c709067520afd1d17",
+    "src/ship-hoj.mjs": "ef82dcd7f0697c21f8866447ea5752dbae078463dbb9f832706d2d72597a7174"
+  },
+  "suites": {
+    "ewModel": "20/20",
+    "ewLive": "33/33",
+    "seekerModel": "13/13",
+    "seekerLive": "35/35",
+    "ewPlusSeeker": "101/101",
+    "sensors": "24/24 · 54/54",
+    "power": "21/21 · 29/29",
+    "behavior": "79/79",
+    "ships": "14/14 · 11/11 · ingame smoke · 30/30 · 23/23 · 19/19",
+    "builds": "node + python passed; ship-ew.mjs and ship-hoj.mjs in dist"
+  },
+  "trees": {
+    "A": { "ref": "6958f08", "tickP95": 0.4, "tickP99": 0.5 },
+    "B": { "ref": "e7aa3c5", "tickP95": 1.2, "tickP99": 1.3, "electronicsP95": 1.0, "electronicsP99": 1.2, "detectionP95": 0.9, "detectionP99": 1.0 },
+    "C1": { "ref": "74caf83", "tickP95": 1.3, "tickP99": 1.6, "electronicsP95": 1.2, "electronicsP99": 2.0, "detectionP95": 1.0, "detectionP99": 1.8, "activeJammers": 6 },
+    "C2": { "ref": "af516a8", "tickP95": 1.4, "tickP99": 1.8, "electronicsP95": 1.5, "electronicsP99": 1.9, "detectionP95": 1.3, "detectionP99": 1.6, "updateP95": 1.3, "updateP99": 1.6, "seekerP95": 0.2, "seekerP99": 0.3, "activeJammers": 6, "seekerHits": { "ship": 19, "station": 10, "player": 0, "deaths": 29 } }
+  },
+  "gatesThisHost": {
+    "electronicsPass2_4": true,
+    "cumulativeTickP95VsA": 1.0,
+    "cumulativeTickLimit": 2.0,
+    "thresholdsRaised": false
+  },
+  "referencePlatinumStillFailed": true,
+  "referenceFullPass": { "p95": 2.5, "p99": 6.9 },
+  "hypotheses": {
+    "seekerIdentityMissedSeed": "confirmed",
+    "collisionPoolAliasing": "confirmed",
+    "elapsedMsOverwrite": "confirmed",
+    "ambientUsuallyChangesHull": "confirmed; fixture forces same hull after real replacement"
+  }
+}
