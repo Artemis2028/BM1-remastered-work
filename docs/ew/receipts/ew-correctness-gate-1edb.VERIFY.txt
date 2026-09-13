@@ -1,26 +1,27 @@
 Independent verification of cursor/ew-correctness-gate-1edb
 =========================================================
 
-Review commit (code, harness, labeled receipts):
-  61ce9b5a1032f95a73e125e826a116d68149de55
+Review commit (code, harness, labeled receipts, original-timer results):
+  fa88ac2517bf121b8dc6a336bc1764eec9eeff47
+
+Review tree:
+  dfa46a3b83d1b43d04ca901eca6b2cc98898802b
+  git rev-parse fa88ac2^{tree}
 
 Base (do not merge to main):
   feat/electronic-warfare-review  75a721ec30b831e4ba2cc21338df1d08c35c2899
 
-Review tree:
-  git rev-parse 61ce9b5^{tree}
-
 Bundle (preserves the exact commit; requires the base object):
   git fetch docs/ew/receipts/ew-correctness-gate-1edb.bundle HEAD:ew-correctness-verify
   git rev-parse ew-correctness-verify
-  # expect 61ce9b5a1032f95a73e125e826a116d68149de55
+  # expect fa88ac2517bf121b8dc6a336bc1764eec9eeff47
 
-Format-patch (7 commits, apply onto the base; new commit SHAs, same tree):
+Format-patch (apply onto the base; new commit SHAs, same tree):
   git checkout --detach 75a721ec30b831e4ba2cc21338df1d08c35c2899
   git am docs/ew/receipts/ew-correctness-gate-1edb.format-patch
   git rev-parse HEAD^{tree}
-  # expect the same tree as 61ce9b5^{tree}
+  # expect dfa46a3b83d1b43d04ca901eca6b2cc98898802b
 
 Rerun the pinned harness against the four pinned trees:
   scripts/ew-four-tree.sh
-  # commands also in passms-20260913-commands.txt
+  # commands also in authority-20260913-commands.txt
