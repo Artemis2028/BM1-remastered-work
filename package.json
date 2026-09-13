@@ -23,7 +23,10 @@
     "test:sensors:ingame": "node scripts/ship-sensors-probe.mjs",
     "test:sensors:performance": "node scripts/sensor-frame-benchmark.mjs --passes",
     "test:ew": "node scripts/ship-ew-test.mjs",
-    "test:ew:ingame": "node scripts/ship-ew-probe.mjs"
+    "test:ew:ingame": "node scripts/ship-ew-probe.mjs",
+    "test:ew:seeker": "node scripts/ship-hoj-test.mjs",
+    "test:ew:seeker:ingame": "node scripts/ship-hoj-probe.mjs",
+    "test:ew:performance": "node scripts/ew-frame-benchmark.mjs --passes"
   },
   "license": "SEE LICENSE IN LICENSE.md",
   "devDependencies": {

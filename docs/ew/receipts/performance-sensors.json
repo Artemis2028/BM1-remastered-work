@@ -1,0 +1,70 @@
+{
+  "root": "/workspace/scratch/02f528369085/ew-sensor-baseline",
+  "sources": {
+    "src/main.js": "966c183e4911c385a61625d856321b6c81e2290f6bbc9075689537b1cb48054c",
+    "src/ship-sensors.mjs": "53c43a6ff00ec8f23e9bd83eec3aad4e017a89017f8102398d50088130dc212c"
+  },
+  "browser": "153.0.8010.0",
+  "environment": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "logicalCPUs": 8
+  },
+  "detectionPass": {
+    "samples": 300,
+    "p50": 1,
+    "p95": 2.2000000029802322,
+    "p99": 8.799999997019768,
+    "observers": 39,
+    "actors": 39,
+    "pairs": 1442,
+    "elapsedMs": 0.7999999970197678,
+    "passed": false
+  },
+  "seekerCPU": {
+    "samples": 300,
+    "p50": 0,
+    "p95": 0.10000000149011612,
+    "p99": 1.1000000014901161
+  },
+  "sensorOnlyCPU": {
+    "samples": 300,
+    "p50": 0.8999999985098839,
+    "p95": 2,
+    "p99": 5.299999997019768
+  },
+  "activeJammers": 0,
+  "mixedEmitterSides": [
+    "ferengi",
+    "terran"
+  ],
+  "ewEnabled": false,
+  "starved": false,
+  "projectileCount": 6,
+  "projectileModel": "ordinary torpedo",
+  "warmupSeconds": 10,
+  "simulationSeconds": 60,
+  "contacts": 20,
+  "stations": 18,
+  "frameCPU": {
+    "samples": 3600,
+    "p50": 0.8999999985098839,
+    "p95": 2,
+    "p99": 2.899999998509884
+  },
+  "renderCPU": {
+    "samples": 300,
+    "p50": 0.7999999970197678,
+    "p95": 1.5,
+    "p99": 2.9000000059604645
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 850
+  },
+  "hardwareConcurrency": 9,
+  "deviceMemory": 16,
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.0 Safari/537.36",
+  "errors": []
+}

@@ -1,0 +1,56 @@
+PASS real engine main loop freezes
+PASS all 172 native sensor profiles reach runtime
+PASS dark on-screen contact is visible with sensors offline
+PASS radio-only declaration at zero sensors has no firing track
+PASS radio-only contact cannot be fired on
+PASS declaration expires without sensor reidentification
+PASS dark contact outside nominal passive reach is untracked
+PASS funded sweep acquires a previously unseen contact and spends power
+PASS focused scan builds actual equipment assessment with unknown cargo/crew
+PASS underfunded active scan pauses rather than transmitting for free
+PASS Survey upgrade is denied below economy standing 30
+PASS Survey upgrade uses shared tier and charges once
+PASS suite 1 enforces faction standing 15
+PASS suite 2 enforces faction standing 30
+PASS suite 3 enforces faction standing 75
+PASS suite and transponder selection persist through save/load
+PASS actual pre-sensor save migrates deterministically without charge refill
+PASS locally commanded fleet ship can refit independently
+PASS fleet restoration preserves own suite and exact crew
+PASS foreign visitor cannot consume a fleet refit
+PASS checkpoint issuer fixture exists
+PASS Unknown is physically trackable and enforceable under Closed
+PASS closed dark visitor gets a real withdrawal order
+PASS own-side exemption survives player dark mode
+PASS issuer shares a live positional track with its same-side patrol
+PASS issuer loss stops shared tracking and keeps the last position frozen
+PASS issuer reacquisition restores the same-side track
+PASS attack-origin evidence is labeled in OPS
+PASS hit cue freezes launch origin instead of following hidden movement
+PASS point beam hits physical source and credits player damage
+PASS empty-origin point beam spends energy but cannot damage moved source
+PASS point torpedo is ballistic and preserves impact attribution
+PASS point beam collateral kills actual intervening ship and rewards once
+PASS counterfire kill reward is not duplicated by another update
+PASS ballistic torpedo into empty origin misses moved source
+PASS hit-origin counterfire permission expires
+PASS npc point counterfire preserves kill credit
+PASS escort point counterfire preserves kill credit
+PASS station point counterfire preserves kill credit
+PASS dark player at foreign same-flag checkpoint obeys Unknown open
+PASS dark player at foreign same-flag checkpoint obeys Unknown challenge
+PASS dark challenged player remains incomplete and denied services
+PASS fresh hostile declaration revises incomplete order without deadline reset
+PASS dark player at foreign same-flag checkpoint obeys Unknown closed
+PASS five real system geometries load, with remote secret installations
+PASS unscanned target label does not disclose its actual hull or faction
+PASS inexperienced searches a frozen last position, not hidden coordinates
+PASS regular searches a frozen last position, not hidden coordinates
+PASS veteran searches a frozen last position, not hidden coordinates
+PASS elite searches a frozen last position, not hidden coordinates
+PASS ambient slot reuse changes contact identity and resets equipment
+PASS returning to a system restores dated reports without granting a fresh track
+PASS OPS contains sensor allocation and explicit transponder UI
+PASS live OPS refresh preserves expanded contact reports
+{"browser":"153.0.8010.0","environment":{"platform":"linux","arch":"x64","cpu":"INTEL(R) XEON(R) PLATINUM 8573C","logicalCPUs":8},"errors":[]}
+54/54 live sensor checks passed

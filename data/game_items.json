@@ -665,6 +665,23 @@
         "neutral"
       ],
       "description": "Doubles reactor generation while installed in a weapon/device slot. Does not increase stored energy capacity. Additional cores do not stack."
+    },
+    {
+      "id": 46,
+      "name": "Anti-emitter Torpedo",
+      "type": "Torpedo",
+      "damage": 33,
+      "cooldown": 1200,
+      "range": 1800,
+      "speed": 10,
+      "price": 9000,
+      "minMass": 1,
+      "color": "#ffffff",
+      "icon": "tachyon.gif",
+      "stockFactions": [],
+      "guidance": "home-on-jam",
+      "purchaseTier": "respected",
+      "description": "A standoff torpedo that homes on a live jamming emission. It coasts when that emitter falls silent and can reacquire only the original ship. Uses one weapon slot."
     }
   ]
 }

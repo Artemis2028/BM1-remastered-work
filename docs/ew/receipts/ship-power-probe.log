@@ -1,0 +1,31 @@
+PASS main loop freezes for deterministic engine scenarios
+PASS every authored hull power profile reaches the actual engine
+PASS player and NPC on identical hull/fit/allocations pay the same weapon cost
+PASS player allocation cannot leak into an NPC flying the same hull
+PASS weapon allocation increases actual player damage and shot cost without changing recharge
+PASS NPC weapon allocation increases its own damage and shot cost
+PASS depleted NPC emits no shot, cooldown or aggression evidence
+PASS successful NPC shot debits exactly once and records attribution
+PASS depleted player emits no shot and does not spend cooldown
+PASS failed disruptive device activations do not spend cooldown or create player attack evidence
+PASS equal ships recover the same shield percentage for the same energy despite legacy durability units
+PASS legacy regeneration path does not refill ship shields a second time
+PASS two fitted secondary cores double output once, never capacity or stored energy
+PASS removing core removes output bonus immediately
+PASS insufficient continuous power disengages the real player cloak
+PASS real flight tick respects engine allocation and accelerates only with supplied propulsion
+PASS all four crew profiles fight through the real weapon path
+PASS veteran and elite crews preserve more reserve and spend less time near exhaustion than inexperienced crews
+PASS fleet creation restores energy and independently assigned skill/temperament
+PASS escort energy and crew survive system travel
+PASS cached foreign ship keeps energy and crew across return and change of holder
+PASS ambient replacement gets its own full initial power and valid crew, with a different seed
+PASS save/reload preserves player and fleet energy without stale live state overwriting the save
+PASS checkpoint snapshot sanitation preserves power and crew fields
+PASS OPS displays generation, demand, reserves and recovery/drain label
+PASS OPS has four functional sliders and a read-only unused-allocation count
+PASS raising a system spends spare points before reducing other systems
+PASS a full allocation budget redistributes without exceeding twenty points
+PASS all twenty points can be unused and the removed reserve control cannot change allocation
+{"encounters":{"inexperienced":{"min":0.010000000000008166,"shots":74,"low":1145,"recovered":false},"regular":{"min":0.1200916666666765,"shots":75,"low":0,"recovered":false},"veteran":{"min":0.2201583333333214,"shots":79,"low":0,"recovered":false},"elite":{"min":0.3000249999999866,"shots":81,"low":0,"recovered":false}}}
+29/29 live power checks passed

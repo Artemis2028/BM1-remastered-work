@@ -1,3 +1,4 @@
+import { HOJ_WEAPON_ID, createHojFlight, stepHojFlight } from './ship-hoj.mjs';
 import { EW_MODULES, sanitizeEW, snapshotEW, stopEW, rollEW, manageEW, fundElectronics } from './ship-ew.mjs';
 import { SENSOR_RULES, SENSOR_SUITES, SensorWorld, sensorProfile, ensureSensorEquipment, defaultTransponder, fundSensors, sensorDistance, visualReach, freshTrack, receivedDeclaration, pointImpact } from './ship-sensors.mjs';
 import {
@@ -4755,8 +4756,7 @@ function updateSensorSystems(frameScale = 1) {
     for (const a of actors) {
       const equip = ensureActorSensors(a.entity);
       if (a.entity !== state && !a.station) {
-        const memory = [...sensorWorld.map(a.key).values()].find(c => c.position && !freshTrack(c, sensorClock) &&
-          sensorClock - c.observedAt < 10);
+        let memory=null;for(const c of sensorWorld.map(a.key).values())if(c.position&&!freshTrack(c,sensorClock)&&sensorClock-c.observedAt<10){memory=c;break;}
         a.entity.power.searching = !!memory;
         if (memory && !a.entity.power.combat && !a.entity.power.recovering && equip.mode === 'passive' && (a.entity
             .sensorNextDecision ?? 0) <= sensorClock) {
@@ -4880,7 +4880,7 @@ function renderSensorPanelMarkup() {
  <div class="meta">Rated passive ${Math.round(profile.passive)} / active ${Math.round(profile.active)} units at 5 points. Active transmissions reveal your presence.</div>
  <div class="sensor-actions"><button data-sensor-action="toggle">Transponder: ${e.transponder?'On':'Off'}</button><button data-sensor-action="sweep">Active sweep</button><button data-sensor-action="focus">Focused scan</button><button data-sensor-action="cancel">Cancel scan</button></div>
  <div class="meta">Declared: ${escapeHtml(e.declaration)} · ${isPlayerCloaked()?'Suppressed by cloak':e.transponder?'Transmitting':'Running dark'}</div>
- <details class="sensor-contact-list" data-sensor-details="contacts"><summary>Contact reports (${reports.length})</summary>${reports.slice(-12).map(c=>`<div class="meta">${escapeHtml(c.report?.hull||receivedDeclaration(c,sensorClock)||'Unidentified contact')} — ${freshTrack(c,sensorClock)?'Tracked':c.cue?.expiresAt>=sensorClock?'Attack origin':c.position?'Last known position':'Broadcast only'} · ${Math.max(0,sensorClock-(c.report?.assessedAt??(c.cue?.expiresAt>=sensorClock?c.cue.launchedAt:c.position?c.observedAt:c.declaredAt))).toFixed(1)}s old${c.report?.weapons?'<br>Weapons: '+escapeHtml(c.report.weapons.join(', ')||'None')+'<br>'+escapeHtml(c.report.condition)+' · EW: '+escapeHtml(c.report.ewModule||'Unknown')+' · '+escapeHtml(c.report.reactor||'Reactor unknown')+' · '+escapeHtml(c.report.crew)+'<br>'+escapeHtml(c.report.cargo):''}</div>`).join('')}</details>
+ <details class="sensor-contact-list" data-sensor-details="contacts"><summary>Contact reports (${reports.length})</summary>${reports.slice(-12).map(c=>`<div class="meta">${escapeHtml(c.report?.hull||receivedDeclaration(c,sensorClock)||'Unidentified contact')}${sensorClock-(c.jammerAt??-Infinity)<=.400001?' · Jamming emission':''} — ${freshTrack(c,sensorClock)?'Tracked':c.cue?.expiresAt>=sensorClock?'Attack origin':c.position?'Last known position':'Broadcast only'} · ${Math.max(0,sensorClock-(c.report?.assessedAt??(c.cue?.expiresAt>=sensorClock?c.cue.launchedAt:c.position?c.observedAt:c.declaredAt))).toFixed(1)}s old${c.report?.weapons?'<br>Weapons: '+escapeHtml(c.report.weapons.join(', ')||'None')+'<br>'+escapeHtml(c.report.condition)+' · EW: '+escapeHtml(c.report.ewModule||'Unknown')+' · '+escapeHtml(c.report.reactor||'Reactor unknown')+' · '+escapeHtml(c.report.crew)+'<br>'+escapeHtml(c.report.cargo):''}</div>`).join('')}</details>
  ${localFleet.length?'<details data-sensor-details="fleet"><summary>Local fleet sensors & crew</summary>'+localFleet.map(n=>`<div class="meta">${escapeHtml(getTargetName(n))} — ${escapeHtml(n.crewSkill)} / ${escapeHtml(n.crewTemperament)} · ${escapeHtml(SENSOR_SUITES[ensureActorSensors(n).suite].name)}${state.docked?refit(n):''}</div>`).join('')+'</details>':''}
  ${state.docked?'<details data-sensor-details="refit"><summary>Sensor refit — captain’s ship</summary>'+refit(state)+'</details>':''}`;
 }
@@ -4928,13 +4928,14 @@ function getCounterfireCue(entity) {
 }
 
 function sensorCollisionTargets(sourceKey) {
-  return [state, ...state.npcShips, ...state.stations].filter(a => !a.destroyed && !a.underConstruction && sensorKey(
-    a) !== sourceKey).map(a => ({
-    ...sensorPosition(a),
-    entity: a,
-    radius: a === state ? getShipScreenRadius(state.playership, state.ship.drawScale) : a.stationTypeId ?
-      getStationScreenRadius(a) * .58 : getShipScreenRadius(a.shipId, a.scale || 1)
-  }));
+  const bodies=[];
+  for(const a of [state,...state.npcShips,...state.stations]){
+    if(a.destroyed||a.underConstruction)continue;
+    const key=sensorKey(a);if(key===sourceKey)continue;
+    const p=sensorPosition(a),info=sensorHullInfo(a,ensureActorSensors(a));
+    bodies.push({x:p.x,y:p.y,key,entity:a,radius:info.radius*(a.stationTypeId?.58:1)});
+  }
+  return bodies;
 }
 
 function applyPointImpact(hit, shot) {
@@ -4949,9 +4950,74 @@ function applyPointImpact(hit, shot) {
   else damageCombatTarget(a, damage, shot.creditSource, shot.color, hit);
 }
 
+// Local incarnation keys never survive a new object or a replacement hull/power state.
+const hojIncarnations=new WeakMap();let hojIncarnationSequence=0;
+function hojEmitterKey(entity){const a=sensorEntity(entity),object=a===state?ensurePlayerPower():a;
+  if(!hojIncarnations.has(object))hojIncarnations.set(object,++hojIncarnationSequence);
+  return `${sensorKey(a)}:inc:${hojIncarnations.get(object)}:hull:${a===state?state.playership:a.shipId||a.stationTypeId}`;
+}
+// An emission is a targeting opportunity, never permission to attack.
+function liveJammerSignal(entity) {
+  const a=sensorEntity(entity);
+  if(a.destroyed||a.underConstruction||a.trafficWarp?.phase==='away'||
+    (a===state ? state.docked||state.warp.active||isPlayerCloaked() : a.cloaked||a.cloak?.active))return null;
+  const e=ensureActorEW(a);
+  return e.transmitting&&e.funded>0&&e.radius>0 ? {key:hojEmitterKey(a),system:state.currentPlanet,...sensorPosition(a),emitting:true} : null;
+}
+function hasHojLaunchTrack(source,target) {
+  const c=sensorContact(source,target);
+  return !!liveJammerSignal(target)&&freshTrack(c,sensorClock)&&Number.isFinite(c.jammerAt)&&sensorClock-c.jammerAt<=.400001;
+}
+function hojEngagementAllowed(source,target,explicit=false) {
+  const a=sensorEntity(source),b=sensorEntity(target);
+  if(a===b||sensorSide(a)===sensorSide(b))return false;
+  if(a===state)return explicit||(b.stationTypeId?isPlayerEscortStationTarget(b):isPlayerEscortShipTarget(b));
+  if(isPlayerSideNpc(a))return b.stationTypeId?isPlayerEscortStationTarget(b):isPlayerEscortShipTarget(b);
+  if(b===state)return !!a.hostile||a.attitude==='hostile'||hasRecentAggressionAgainst(state,sensorSide(a))||sidesOpposed(sensorSide(a),getPlayerFlag());
+  if(b.stationTypeId)return hasRecentAggressionAgainst(b,sensorSide(a))||sidesOpposed(sensorSide(a),sensorSide(b))||
+    (isRaidingHere(a)&&sidesAligned(getDefendingSideId(),sensorSide(b)));
+  return isNpcSystemAttacker(b,a);
+}
+function launchHoj(source,target,weapon,now=performance.now(),slot=0,explicit=false) {
+  const a=sensorEntity(source),b=sensorEntity(target),station=!!a.stationTypeId;
+  if(!target||a.destroyed||a.underConstruction||a.trafficWarp?.phase==='away'||
+    (a===state&&(state.docked||state.warp.active))||!hasHojLaunchTrack(a,b)||!hojEngagementAllowed(a,b,explicit))return false;
+  const origin=sensorPosition(a),track=sensorContact(a,b),range=weapon.range;
+  if(sensorDistance(origin,track.position)>range||sensorDistance(origin,sensorPosition(b))>range)return false;
+  const cooldown=station?(b===state?Math.max(STATION_PLAYER_MIN_COOLDOWN_MS,Math.round((a.defenseCooldown||STATION_WEAPON_COOLDOWN_MS)*STATION_PLAYER_COOLDOWN_SCALE)):a.defenseCooldown||STATION_WEAPON_COOLDOWN_MS):
+    getScaledWeaponCooldown(a===state?state.playership:a.shipId,weapon,a===state?1:NPC_WEAPON_COOLDOWN_SCALE,a===state?1:NPC_WEAPON_FLOOR_SCALE);
+  if(now-(a===state?state.weaponLastFiredAt[slot]||0:a.lastShotAt||0)<cooldown)return false;
+  if(!station){const power=a===state?ensurePlayerPower():ensureNpcPower(a),cost=getWeaponEnergyCost(weapon,a===state?null:a);
+    if(a!==state&&!crewAllowsShot(power,getActorPowerProfile(a),cost)||!spendPower(power,cost))return false;}
+  if(a===state){if(isPlayerCloaked(now))setPlayerCloak(false,now,true);state.weaponLastFiredAt[slot]=now;state.lastPlayerShotAt=now;
+    recordPlayerAggressionAgainst(b,now);markPlayerEscortAttackOrder(b,now);b.hostile=true;b.attitude='hostile';}
+  else {a.lastShotAt=now;a.lastAggressionAt=now;a.lastAggressionSystemIndex=state.currentPlanet;a.lastAggressionTargetSide=sensorSide(b);}
+  const credit=a===state?'player':station?'station':isPlayerEscortNpc(a)?'playerEscort':'npc';
+  const shot={...createHojFlight({key:hojEmitterKey(b),system:state.currentPlanet,...origin,aim:track.position,speed:weapon.speed,range,turnRate:getProjectileTurnRate(weapon,station?'station':a===state?'player':'npc')}),
+    attack:sensorAttackSnapshot(a),creditSource:credit,owner:a===state?'player':station?'station':'npc',
+    damage:station?(a.defenseDamage||weapon.damage):getScaledWeaponDamage(a===state?state.playership:a.shipId,weapon,weapon.damage,1,a===state?null:a),
+    weaponId:weapon.id,kind:'torpedo',color:getWeaponShotColor(a===state?getPlayerFlag():a.faction,weapon),born:now,ttl:range/weapon.speed*1000/60};
+  state.projectiles.push(shot);playWeaponSound(weapon,{sourceId:`hoj:${sensorKey(a)}`,volume:.8});return true;
+}
+function updateHojProjectile(shot,frameScale,bodies=null,readSignal=null) {
+  if(shot.system!==state.currentPlanet){shot.dead=true;return;}
+  // Sample only the requested incarnation. Flight samples are private to this projectile.
+  const read=readSignal||(key=>{
+    const a=[state,...state.npcShips,...state.stations].find(a=>hojEmitterKey(a)===key);
+    return a?liveJammerSignal(a):null;
+  });
+  let frames=Math.max(0,frameScale);
+  while(frames>1e-7&&!shot.dead){const step=Math.min(1,frames),segment=stepHojFlight(shot,step/60,read);
+    const hit=pointImpact(segment.from,segment.to,bodies||sensorCollisionTargets(shot.attack.key),shot.attack.key);
+    if(hit){shot.x=hit.x;shot.y=hit.y;applyPointImpact(hit,shot);shot.dead=true;
+      addWeaponEffect({kind:'burst',x:hit.x,y:hit.y,color:shot.color,radius:54,ttl:260});}
+    frames-=step;
+  }
+}
+
 function fireCounterfirePoint(entity, cue, weapon, now = performance.now(), slot = 0) {
   const a = sensorEntity(entity);
-  if (a.destroyed || a.underConstruction || !cue || cue.expiresAt < sensorClock || cue.system !== state.currentPlanet ||
+  if (weapon.guidance === 'home-on-jam' || a.destroyed || a.underConstruction || !cue || cue.expiresAt < sensorClock || cue.system !== state.currentPlanet ||
     cue.sourceSide === sensorSide(a) || !isCombatWeapon(weapon)) return false;
   const trackedSource = sensorActors.get(cue.sourceKey);
   if (trackedSource && (sensorSide(trackedSource.entity) === sensorSide(a) || sensorCanTrack(a, trackedSource.entity)))
@@ -5182,7 +5248,7 @@ function advanceActorPower(npc, frameScale, now) {
     cloaked: !npc && Boolean(state.cloak?.active),
   });
   const actor=npc||state, ew=ensureActorEW(actor), sensors=ensureActorSensors(actor);
-  const electronics=sensorProfile(getShipStats(npc?npc.shipId:state.playership),sensors.suite);
+  const electronics=sensorHullInfo(actor,sensors).profile;
   const raw=getShipStats(npc?npc.shipId:state.playership).sensorProfile||{};
   manageEW(ew,power,npc||{crewSkill:'regular'},dt,{combat:power.combat||(!npc&&now-state.lastPlayerShotAt<5000),searching:power.searching,
     externalNoise:actor.ewReception?.externalNoise||0,capacity:profile.energyCapacity,proposedDraw:(EW_MODULES[ew.module]?.draw||0)+electronics.draw*4});
@@ -8201,7 +8267,7 @@ function setPlayerCloak(active, now = performance.now(), silent = false) {
   if (active) {
     state.combatTargetId = null;
     state.combatTargetType = 'ship';
-    state.projectiles = state.projectiles.filter((shot) => shot.pointAim || !(shot.targetType === 'player' || shot.owner !== 'player' && !shot.targetId));
+    state.projectiles = state.projectiles.filter((shot) => shot.guidance === 'home-on-jam' || shot.pointAim || !(shot.targetType === 'player' || shot.owner !== 'player' && !shot.targetId));
     playGameSound('cloak', { cooldownKey: 'cloak:player' });
     if (!silent) setLog('Cloaking device engaged. Enemy sensors have lost your ship.');
   } else if (!silent) {
@@ -8331,7 +8397,20 @@ function getStationWeaponStock(station = getCurrentDockedStation()) {
       .filter(Boolean);
     if (localStock.length) return [...new Map(localStock.map((weapon) => [weapon.id, weapon])).values()];
   }
-  return getWeaponStockForFaction(station?.faction || state.systemFaction).slice(0, 4);
+  const stock=getWeaponStockForFaction(station?.faction || state.systemFaction).slice(0,4);
+  if(station&&/shipyard|research|science|university|starbase|military/i.test(getShipStats(station.stationTypeId).name||''))stock.push(getWeapon(HOJ_WEAPON_ID));
+  return stock;
+}
+
+function getHojPurchaseDecision(station=getCurrentDockedStation()) {
+  const owner=station?getStationOwner(station):null;
+  const faction=owner===PLAYER_SIDE?getPlayerFlag():owner?.startsWith('private:')?'neutral':owner;
+  const requirement=getConfiguredPurchaseTierThresholds()?.respected??PURCHASE_TIER_STANDING.respected;
+  const standing=faction?getFactionStanding(faction):0;
+  const service=station&&!station.destroyed&&!station.underConstruction&&/shipyard|research|science|university|starbase|military/i.test(getShipStats(station.stationTypeId).name||'');
+  const blocked=owner?getSecurityDockingBlock(owner):null;
+  const reason=!state.docked?'Dock at a weapons vendor':!service?'Military or science weapons service required':blocked?String(blocked):standing<requirement?`Requires ${requirement} ${formatFaction(faction)} standing; yours ${standing}`:null;
+  return {canBuy:!reason,reason,requirement,standing,faction};
 }
 
 function getAuthoredShipWeaponSlots(shipId) {
@@ -8448,7 +8527,8 @@ function buyWeapon(weaponId) {
   }
   const weapon = getWeapon(weaponId);
   const wStation = getCurrentDockedStation();
-  const wRefusal = serviceRefusal((wStation && wStation.faction) || getSystemFaction(state.currentPlanet));
+  if(weapon.guidance==='home-on-jam'){const decision=getHojPurchaseDecision(wStation);if(!decision.canBuy){setLog(decision.reason);return;}}
+  const wRefusal = weapon.guidance==='home-on-jam' ? null : serviceRefusal((wStation && wStation.faction) || getSystemFaction(state.currentPlanet));
   if (wRefusal) {
     setLog(wRefusal);
     return;
@@ -10171,8 +10251,9 @@ function renderPlanetMenu() {
     const price = getWeaponPrice(weapon);
     const compatible = state.godMode || state.mymass >= weapon.minMass;
     const inventoryFull = !state.godMode && state.weaponInventory.length >= getWeaponInventoryLimit();
-    const canBuy = compatible && state.latinum >= price && !inventoryFull;
-    const action = !compatible
+    const hoj=weapon.guidance==='home-on-jam'?getHojPurchaseDecision(station):{canBuy:true};
+    const canBuy = compatible && state.latinum >= price && !inventoryFull && hoj.canBuy;
+    const action = !hoj.canBuy ? escapeHtml(hoj.reason) : !compatible
       ? `Mass ${weapon.minMass}+`
       : inventoryFull
         ? 'Inventory full'
@@ -10192,6 +10273,7 @@ function renderPlanetMenu() {
         ${ownedCount ? `<span class="icon-stat"><span>Owned ${ownedCount}</span></span>` : ''}
         <span>Damage ${weapon.damage} / Ship ${getScaledWeaponDamage(state.playership, weapon)}</span>
         <span>Range ${weapon.range}</span>
+        ${weapon.guidance==='home-on-jam'?'<span>Emission lock only · coasts when jammer goes silent · respected standing</span>':''}
         <span>Cooldown ${(weapon.cooldown / 1000).toFixed(1)}s / Ship ${(getScaledWeaponCooldown(state.playership, weapon) / 1000).toFixed(1)}s</span>
         <span>Mass ${weapon.minMass}+</span>
       </div>
@@ -14281,6 +14363,12 @@ function firePlayerWeapon(slot = 1) {
     return;
   }
   if (now - lastFiredAt < cooldown) return;
+  if (weapon.guidance === 'home-on-jam') {
+    const selected=getSelectedCombatTarget();
+    const target=selected||(state.autoTarget!==false?[...state.npcShips,...state.stations].find(n=>!n.destroyed&&hasHojLaunchTrack(state,n)&&hojEngagementAllowed(state,n)&&sensorDistance(playerWorldPosition(),n)<=weapon.range):null);
+    if(!launchHoj(state,target,weapon,now,slotIndex,!!selected))setLog('Anti-emitter torpedo needs a fresh jamming emission in launch range.');
+    return;
+  }
   if (isEngineDisruptorWeapon(weapon)) {
     if (!consumeWeaponEnergy(getWeaponEnergyCost(weapon))) return;
     if (isPlayerCloaked(now)) setPlayerCloak(false, now, true);
@@ -14425,6 +14513,7 @@ function fireNpcWeapon(npc, target = playerWorldPosition(), targetType = 'player
   const weaponId = getDefaultWeaponId(npc.shipId, npc.faction, true);
   if (!weaponId) return;
   const weapon = getWeapon(weaponId);
+  if(weapon.guidance==='home-on-jam'){launchHoj(npc,targetType==='player'?state:target,weapon,now);return;}
   const cooldown = getScaledWeaponCooldown(npc.shipId, weapon, NPC_WEAPON_COOLDOWN_SCALE, NPC_WEAPON_FLOOR_SCALE);
   if (now - (npc.lastShotAt || 0) < cooldown) return;
   const power = ensureNpcPower(npc);
@@ -14505,6 +14594,9 @@ function fireNpcWeapon(npc, target = playerWorldPosition(), targetType = 'player
 function fireStationWeapon(station, target, now = performance.now()) {
   if (station.destroyed || station.underConstruction) return;
   if (!sensorCanTrack(station,target.id ? target : state)) return;
+  const candidateIds=(station.stationWeaponIds?.length?station.stationWeaponIds:getStationWeaponIds(station)).filter(id=>isCombatWeapon(getWeapon(id)));
+  const candidate=getWeapon(candidateIds[(station.shotIndex||0)%candidateIds.length]||DEFAULT_WEAPON_ID);
+  if(candidate.guidance==='home-on-jam'){if(launchHoj(station,target.id?target:state,candidate,now))station.shotIndex=(station.shotIndex||0)+1;return;}
   const stationScale = getStationVisualProfile(station).scale;
   const targetType = target.stationTypeId ? 'station' : target.id ? 'ship' : 'player';
   const baseCooldown = station.defenseCooldown || STATION_WEAPON_COOLDOWN_MS;
@@ -14734,7 +14826,10 @@ function updateProjectiles(frameScale = 1) {
   const now = performance.now();
   const player = playerWorldPosition();
   const playerCloaked = isPlayerCloaked(now);
+  let collisionBodies=null,hojActors=null;
+  const readHojSignal=key=>{hojActors ||= new Map([state,...state.npcShips,...state.stations].map(a=>[hojEmitterKey(a),a]));const a=hojActors.get(key);return a?liveJammerSignal(a):null;};
   for (const shot of state.projectiles) {
+    if(shot.guidance==='home-on-jam'){collisionBodies ||= sensorCollisionTargets(null);updateHojProjectile(shot,frameScale,collisionBodies,readHojSignal);continue;}
     if (shot.pointAim) {
       const from={x:shot.x,y:shot.y},step=Math.min(shot.remaining,Math.hypot(shot.vx,shot.vy)*frameScale),len=Math.hypot(shot.vx,shot.vy)||1;
       const to={x:shot.x+shot.vx/len*step,y:shot.y+shot.vy/len*step};

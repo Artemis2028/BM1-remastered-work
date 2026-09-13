@@ -1,0 +1,29 @@
+{
+  "preSensorTick": {
+    "samples": 3600,
+    "p50": 0.5,
+    "p95": 0.8000000044703484,
+    "p99": 1.2000000029802322
+  },
+  "sensorTick": {
+    "samples": 3600,
+    "p50": 0.8999999985098839,
+    "p95": 2,
+    "p99": 2.899999998509884
+  },
+  "ewTick": {
+    "samples": 3600,
+    "p50": 0.7000000029802322,
+    "p95": 2,
+    "p99": 3.2999999970197678
+  },
+  "incrementalP95Ms": 0,
+  "cumulativeP95Ms": 1.1999999955296516,
+  "cumulativeLimitMs": 2,
+  "referenceEnvironmentMatches": true,
+  "runsReportingFailure": [
+    "sensors",
+    "ew"
+  ],
+  "passed": false
+}

@@ -1,0 +1,22 @@
+PASS catalog uses existing 15/30/75 tiers and reviewed prices
+PASS noise-free and zero receiver cases remain finite
+PASS single and stacked Fleet jammer figures, without old ceiling
+PASS fourth and subsequent emitter contribute; ordering does not change quality
+PASS friendly interference is real and attributable; cancellation is self only
+PASS edge and beyond have no interference
+PASS better ECCM recovers range; military platform burns through
+PASS spin-up spends energy and emits before interference
+PASS all electronics receive the same fraction without order theft
+PASS capacity overflow pays same-step electronics; no free generation
+PASS frame subdivisions have equal energy and activation
+PASS Off has two-second restart delay plus paid spin-up
+PASS cloak/docking block forces Off, zero Sensors cannot transmit
+PASS snapshot carries orders/timers but no paid live field
+PASS seeded equipment independent of faction skill; civilians and command start empty
+PASS four crew skills use power/recovery rather than hardware discounts
+PASS jammed reacquisition completes after a prior local track is lost
+PASS maximum interference preserves visual edges, checkpoint coverage and radio declarations
+PASS new jammer emission needs its own one-second acquisition even on a visually tracked hull
+crew-energy-traces {"inexperienced":[94.12,83.32,72.52,61.72,50.92,40.12,29.32,18.52,7.72,2.92,4.12,5.32,6.52,7.72,2.92,4.12,5.32,6.52,7.72,2.92,4.12,5.32,6.52,7.72,2.92,4.12,5.32,6.52,7.72,2.92],"regular":[94.12,83.32,72.52,61.72,50.92,40.12,29.32,30.52,25.72,26.92,28.12,29.32,24.52,25.72,26.92,28.12,29.32,24.52,25.72,26.92,28.12,29.32,24.52,25.72,26.92,28.12,29.32,24.52,25.72,26.92],"veteran":[94.12,83.32,72.52,61.72,59.56,57.4,61,58.84,56.68,60.28,58.12,55.96,59.56,57.4,55.24,58.84,55.24,58.84,55.24,58.84,55.24,58.84,55.24,58.84,55.24,58.84,55.24,58.84,55.24,58.84],"elite":[94.12,90.52,89.8,91.96,91.24,89.08,91.24,90.52,89.8,91.96,91.24,89.08,91.24,90.52,89.8,91.96,91.24,89.08,91.24,90.52,89.8,91.96,91.24,89.08,91.24,90.52,89.8,91.96,91.24,89.08]}
+PASS identical paid hardware produces four distinct crew reserve traces
+20/20 EW model checks passed

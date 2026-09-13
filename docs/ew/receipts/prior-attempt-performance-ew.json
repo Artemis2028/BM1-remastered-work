@@ -1,0 +1,67 @@
+{
+  "root": "/workspace/scratch/02f528369085/hull-merge-work",
+  "browser": "153.0.8010.0",
+  "environment": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "logicalCPUs": 8
+  },
+  "detectionPass": {
+    "samples": 300,
+    "p50": 1.3999999985098839,
+    "p95": 4.899999998509884,
+    "p99": 10.5,
+    "observers": 39,
+    "actors": 39,
+    "pairs": 1480,
+    "jammerPairs": 228,
+    "elapsedMs": 1.1000000014901161,
+    "passed": false
+  },
+  "seekerCPU": {
+    "samples": 300,
+    "p50": 0.30000000447034836,
+    "p95": 1.6000000014901161,
+    "p99": 7.100000001490116
+  },
+  "sensorOnlyCPU": {
+    "samples": 300,
+    "p50": 1.2000000029802322,
+    "p95": 4.200000002980232,
+    "p99": 7.899999998509884
+  },
+  "activeJammers": 6,
+  "mixedEmitterSides": [
+    "ferengi",
+    "terran"
+  ],
+  "ewEnabled": true,
+  "starved": false,
+  "projectileCount": 5,
+  "projectileModel": "home-on-jam",
+  "warmupSeconds": 10,
+  "simulationSeconds": 60,
+  "contacts": 20,
+  "stations": 18,
+  "frameCPU": {
+    "samples": 3600,
+    "p50": 1.1000000014901161,
+    "p95": 2.5,
+    "p99": 3.4000000059604645
+  },
+  "renderCPU": {
+    "samples": 300,
+    "p50": 0.7999999970197678,
+    "p95": 1.2999999970197678,
+    "p99": 2
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 850
+  },
+  "hardwareConcurrency": 9,
+  "deviceMemory": 16,
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.0 Safari/537.36",
+  "errors": []
+}

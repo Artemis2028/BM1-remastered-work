@@ -1,0 +1,25 @@
+{
+  "preSensorTick": {
+    "samples": 3600,
+    "p50": 0.3999999985098839,
+    "p95": 0.6000000014901161,
+    "p99": 1
+  },
+  "sensorTick": {
+    "samples": 3600,
+    "p50": 0.8000000044703484,
+    "p95": 2,
+    "p99": 2.600000001490116
+  },
+  "ewTick": {
+    "samples": 3600,
+    "p50": 1.1000000014901161,
+    "p95": 2.5,
+    "p99": 3.4000000059604645
+  },
+  "incrementalP95Ms": 0.5,
+  "cumulativeP95Ms": 1.8999999985098839,
+  "cumulativeLimitMs": 2,
+  "referenceEnvironmentMatches": true,
+  "passed": false
+}

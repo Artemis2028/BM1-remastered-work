@@ -1,0 +1,12 @@
+PASS every explicit station ship reference resolves to our active catalog
+PASS empty civilian loadouts can travel but cannot populate military patrols
+PASS catalog loads through the remaster helper (HTTP-shaped fetch, not file:// globals)
+PASS merge overlays catalog ships and leaves stations/pods untouched
+PASS getShip stays distinct from resolveNewShipId for 26 and 63
+PASS ambiguous shipId 60 is never auto-converted to Excalibur
+PASS Blender remnant traffic and Dominion core / reserved rules
+PASS purchase uses faction standing/credits/vendor and refuses missing thresholds
+PASS draw sizes are final envelopes including the five newly balanced hulls
+PASS ambient roles never receive authorizedDeployment from the helper
+PASS catalog JSON and helpers load over HTTP, not file://
+11/11 remaster ship-catalog integration checks passed.

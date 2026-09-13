@@ -1,0 +1,24 @@
+PASS all 38 approved references resolve to one canonical hull each
+PASS legacy-manifest entries cannot resurrect aliases or duplicate survivors
+PASS alias validation rejects cycles, missing targets and IDs that still have records
+PASS reviewed prices coexist with the approved artwork selections and Defiant anchor
+PASS source IDs, regional pools and explicit station stock contain no discarded hulls
+PASS five variant pairs and the requested unique BM2 hulls remain active
+PASS game loop freezes
+PASS starting hull resolves Ferengi #18 to #316
+PASS live roster and ship selector have exactly 172 active hulls
+PASS all old IDs are absent from runtime records but resolve to selected survivors
+PASS NPC construction uses canonical hull while preserving political identity
+PASS a yard listing both old and new IDs offers each hull once
+PASS old and canonical IDs share faction-standing gates in all three purchase paths
+PASS buying the old Defiant reference charges 62500 and stores hull #326
+PASS escort and garrison commissioning store canonical IDs
+PASS the current ship cannot be repurchased through its old alias
+PASS civilian and Imperial Ambassador fits are distinct and use three slots
+PASS upgraded Akira has a heavy beam and twin quantum fit
+PASS Steamrunner strike frigate has its own three-weapon fit
+PASS Imperial Ambassador and strike Akira have stronger NPC starting fire than their base variants
+PASS every explicit starting weapon fits its hull mass
+PASS civilian shuttles retain empty, armable three-slot layouts
+PASS Vulcan Explorer uses the approved native scale rounded to screen pixels
+23/23 hull merge checks passed

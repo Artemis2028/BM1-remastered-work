@@ -1,0 +1,49 @@
+{
+  "root": "/workspace/scratch/02f528369085/sensor-baseline",
+  "sources": {
+    "src/main.js": "47fd75c8ba9820c23b73c2e1c1c6047a3ef810cbccf955ee498e212e13bfc9fc"
+  },
+  "browser": "153.0.8010.0",
+  "environment": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "logicalCPUs": 8
+  },
+  "detectionPass": null,
+  "seekerCPU": null,
+  "sensorOnlyCPU": null,
+  "activeJammers": 0,
+  "mixedEmitterSides": [
+    "ferengi",
+    "terran"
+  ],
+  "ewEnabled": false,
+  "starved": false,
+  "projectileCount": 6,
+  "projectileModel": "ordinary torpedo",
+  "warmupSeconds": 10,
+  "simulationSeconds": 60,
+  "contacts": 20,
+  "stations": 18,
+  "frameCPU": {
+    "samples": 3600,
+    "p50": 0.5,
+    "p95": 0.8000000044703484,
+    "p99": 1.2000000029802322
+  },
+  "renderCPU": {
+    "samples": 300,
+    "p50": 0.8999999985098839,
+    "p95": 2.100000001490116,
+    "p99": 6.399999998509884
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 850
+  },
+  "hardwareConcurrency": 9,
+  "deviceMemory": 16,
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.0 Safari/537.36",
+  "errors": []
+}

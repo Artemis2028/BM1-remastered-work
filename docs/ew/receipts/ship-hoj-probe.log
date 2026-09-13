@@ -1,0 +1,34 @@
+PASS real engine freezes
+PASS paid Fleet emission produces real launch track beyond Photon range
+PASS real player fire launches in one slot and charges normal weapon energy
+PASS cooldown rejects repeat without duplicate energy charge
+PASS standoff torpedo physically hits with player attribution and aggression evidence
+PASS actual launch gate rejects beyond 1800 despite fresh emission
+PASS normal visual track is insufficient without a jamming emission
+PASS empty reactor refuses launch with no aggression or cooldown
+PASS silence changes to ballistic at next sample and keeps projectile alive
+PASS ballistic flight ignores silent entity motion
+PASS original incarnation reacquires without renewing lifetime
+PASS even a reused ID and seed cannot redirect onto replacement object
+PASS silent moved target survives a finite-life miss
+PASS intervening body takes physical impact with credit on actual victim
+PASS emission alone is not ROE permission for escort
+PASS escort real weapon path launches against legal hostile emitter
+PASS escort impact keeps playerEscort credit
+PASS foreign NPC weapon path credits NPC instead of player
+PASS station real weapon path launches with station credit
+PASS station impact credits station
+PASS player cloak leaves incoming seeker projectile intact
+PASS cloaked emitter cannot feed seeker steering
+PASS captain can launch from fresh direct shared emission report
+PASS shared emission really launches
+PASS stale shared emission cannot authorize another launch
+PASS seeker observations never update shooter contact reports
+PASS Daystrom explicit stock contains new torpedo
+PASS authored limited stock is not silently expanded
+PASS respected boundary refuses 29 standing
+PASS respected boundary allows 30 standing
+PASS real store purchase charges 9000 once and loads an existing weapon slot
+PASS direct purchase handler cannot bypass standing gate
+PASS defense platform does not become a weapon shop
+33/33 live seeker checks passed

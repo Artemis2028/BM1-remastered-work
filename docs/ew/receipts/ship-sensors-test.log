@@ -1,0 +1,25 @@
+PASS old reserve 0/5/10 always migrates to five sensor points
+PASS largest remainder allocation is deterministic
+PASS new zero sensors survives and malformed totals stay bounded
+PASS upgrades multiply native science hardware and use economy tiers
+PASS ordinary roles broadcast, pirate/covert default dark, authored overrides win
+PASS commanded captured pirate gets command identity, custom polity stays exact
+PASS passive detection acquires after one second without emission
+PASS quiet contact evades passive at same distance
+PASS transponder heard at zero sensors gives identity not a track
+PASS viewport floor includes corners and sprite edges, not just 250 units
+PASS visual track works with zero sensors and no broadcast
+PASS active sweep discovers selected-nothing and emits beyond passive range
+PASS cloak blocks visual, ordinary active, broadcasts and checkpoint array
+PASS all sides share directly but allied/spoofed different sides do not
+PASS one missed pass age 0.4 accepted, two missed age 0.6 rejected
+PASS source loss invalidates shared track, retains frozen last position
+PASS power is paid, shortage pauses active emissions and zero remains zero
+PASS restored intelligence is stale, not free track/broadcast refresh
+PASS hit cue uses launch origin, expires and cannot cross systems
+PASS point beam/projectile collision selects nearest physical body and misses empty space
+PASS unidentified passive acquisition survives multiple passes without a radio report
+PASS shared hit origins keep their original expiry and cannot relay
+PASS a captured observer cannot inherit the previous side’s private reports
+PASS one damage event cannot refresh an origin cue every effect tick
+24/24 sensor model checks passed

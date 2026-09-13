@@ -130,8 +130,24 @@ try {
     test('real station type records give military platforms enhanced arrays',platforms.length>0&&platforms.every(t=>B.stationElectronicProfile({stationTypeId:t.id}).passive===1500&&B.stationElectronicProfile({stationTypeId:t.id}).processing===1.25),platforms.map(t=>({id:t.id,name:t.name})));
     return {checks};
   });
+  if(process.argv.includes('--screenshot')){
+    const filename=process.argv[process.argv.indexOf('--screenshot')+1];
+    const expose=()=>page.evaluate(()=>{const el=document.querySelector('[data-sensor-details="ew"]');el?.setAttribute('open','');el?.scrollIntoView({block:'start'});});
+    await page.evaluate(()=>{const B=window.__power,s=B.state,p=B.playerWorldPosition();s.docked=false;
+      const escort=B.createNpcShip({id:9899,seed:9899,shipId:1,faction:'terran',role:'playerEscort',fleetId:'ew-preview',from:{x:p.x+300,y:p.y},ew:{module:3,jammerOrder:'on'}});
+      B.ensureNpcCombatStats(escort);B.ensureNpcPower(escort);escort.power.energy=180;escort.power.dist={engines:0,weapons:0,shields:0,sensors:5};s.npcShips.push(escort);
+      for(let i=0;i<8;i++){B.updatePowerSystems(12);B.updateSensorSystems(12);}B.renderTopLeftPanel();});
+    await expose();await page.screenshot({path:filename});
+    await page.setViewportSize({width:1024,height:768});await expose();
+    await page.locator('[data-ew-order="jammer:off"][data-ew-ship="player"]').tap();await expose();
+    await page.locator('[data-ew-order="jammer:on"][data-ew-ship="player"]').tap();await expose();
+    result.checks.push({name:'1024×768 touch viewport operates jammer controls',ok:await page.evaluate(()=>window.__power.state.ew.jammerOrder==='on')});
+    await page.screenshot({path:filename.replace(/\.png$/, '-touch.png')});
+    await page.setViewportSize({width:1280,height:850});
+    await page.evaluate(()=>{const B=window.__power;B.state.docked=true;B.renderTopLeftPanel();});await expose();
+    await page.screenshot({path:filename.replace(/\.png$/, '-refit.png')});
+  }
   for(const c of result.checks)console.log(`${c.ok?'PASS':'FAIL'} ${c.name}${c.ok?'':' '+JSON.stringify(c.detail)}`);
   console.log(`${result.checks.filter(c=>c.ok).length}/${result.checks.length} live EW checks passed`);
-  if(process.argv.includes('--screenshot')){await page.evaluate(()=>{document.querySelector('[data-sensor-details="ew"]')?.setAttribute('open','');});await page.screenshot({path:process.argv[process.argv.indexOf('--screenshot')+1]});}
   if(errors.length||result.checks.some(c=>!c.ok))process.exitCode=1;
 }finally{if(browser)await browser.close();server.close();}

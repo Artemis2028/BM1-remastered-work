@@ -241,7 +241,7 @@ export class SensorWorld {
       const quality=o.ewReception.quality, rf=Math.sqrt(quality);
       const map = this.map(o.key);
       if (!o.observer) continue;
-      const found = new Set(), eligible = new Set();
+      const found = new Set(), eligible = new Set(), jamEligible = new Set();
       const range = Math.max(o.visual + maxRadius, o.passive * maxSignature, o.active, o.coverage || 0, 2400,
         maxEmission * (o.passive / 1200), jamEmissionReach*(o.passive/1200));
       const x0 = Math.floor((o.x - range) / cell),
@@ -271,11 +271,12 @@ export class SensorWorld {
             const active = o.emitting && dist <= o.active * rf;
             const emission = t.emitting && o.passive > 0 && dist <= t.active * 2 * (o.passive / 1200) * rf;
             const jamEmission=t.jammerEmitting&&o.passive>0&&dist<=t.jammerRadius*2*(o.passive/1200);
+            if(jamEmission){jamEligible.add(t.key);c.jamAcquire=(c.jamAcquire||0)+dt;}
             if (visual || coverage || passive || active || emission || jamEmission) {
               eligible.add(t.key); c.acquire += dt;
-              if (visual || coverage || active || (jamEmission && c.acquire>=1) || (quality>0 && c.acquire >= 1/quality)) {
+              if (visual || coverage || active || (jamEmission && c.jamAcquire>=.999999) || ((passive||emission) && quality>0 && c.acquire >= 1/quality)) {
                 this.observe(o, t, now, visual ? 'visual' : coverage ? 'checkpoint' : active ? 'active' : jamEmission?'jammer':'passive');
-                if(jamEmission)c.jammerAt=now;
+                if(jamEmission&&c.jamAcquire>=.999999)c.jammerAt=now;
                 found.add(t.key);
               }
             } else c.acquire = 0;
@@ -290,6 +291,7 @@ export class SensorWorld {
         now).map(c => ({
         ...c.cue
       })));
+      for(const [key,c] of map)if(!jamEligible.has(key))c.jamAcquire=0;
       const local = new Map();
       for (const key of found) local.set(key, map.get(key));
       direct.set(o.key, local);
@@ -325,6 +327,7 @@ export class SensorWorld {
           c.position.y = report.position.y;
           c.observedAt = report.observedAt;
           c.valid = true;
+          c.jammerAt = report.jammerAt;
           c.source = 'shared';
           c.sourceObserver = source.key;
           break;
@@ -402,13 +405,14 @@ export class SensorWorld {
   }
 }
 // Segment/circle entry, rather than endpoint overlap (fast ballistic shots cannot tunnel).
-export function pointImpact(from, to, targets) {
+export function pointImpact(from, to, targets, excludeKey = null) {
   const dx = to.x - from.x,
     dy = to.y - from.y,
     a = dx * dx + dy * dy;
   if (!a) return null;
   let best = null;
   for (const t of targets) {
+    if(excludeKey!==null&&t.key===excludeKey||t.entity?.destroyed)continue;
     const fx = from.x - t.x,
       fy = from.y - t.y,
       b = 2 * (fx * dx + fy * dy),

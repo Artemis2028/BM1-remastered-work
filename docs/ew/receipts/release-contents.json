@@ -1,0 +1,66 @@
+{
+  "node": [
+    {
+      "file": "src/ship-ew.mjs",
+      "identical": true,
+      "offline": true
+    },
+    {
+      "file": "src/ship-hoj.mjs",
+      "identical": true,
+      "offline": true
+    },
+    {
+      "file": "src/ship-sensors.mjs",
+      "identical": true,
+      "offline": true
+    },
+    {
+      "file": "data/game_items.json",
+      "identical": true,
+      "offline": true
+    },
+    {
+      "file": "data/stationData.json",
+      "identical": true,
+      "offline": true
+    },
+    {
+      "file": "sw.js",
+      "identical": true,
+      "offline": true
+    }
+  ],
+  "python": [
+    {
+      "file": "src/ship-ew.mjs",
+      "identical": true,
+      "offline": true
+    },
+    {
+      "file": "src/ship-hoj.mjs",
+      "identical": true,
+      "offline": true
+    },
+    {
+      "file": "src/ship-sensors.mjs",
+      "identical": true,
+      "offline": true
+    },
+    {
+      "file": "data/game_items.json",
+      "identical": true,
+      "offline": true
+    },
+    {
+      "file": "data/stationData.json",
+      "identical": true,
+      "offline": true
+    },
+    {
+      "file": "sw.js",
+      "identical": true,
+      "offline": true
+    }
+  ]
+}
