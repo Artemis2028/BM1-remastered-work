@@ -4777,7 +4777,7 @@ function updateSensorSystems(frameScale = 1) {
         }
       }
     }
-    // elapsedMs/detectionMs are detection+sharing only — not the 2/4 gate.
+    // Detection-pass only (sharing included). Not the 2/4 full-workload gate.
     sensorWorld.metrics.elapsedMs = performance.now() - passStart;
     sensorWorld.metrics.detectionMs = sensorWorld.metrics.elapsedMs;
     sensorWorld.metrics.passOpen = true;
@@ -4785,8 +4785,7 @@ function updateSensorSystems(frameScale = 1) {
   for (const a of sensorActors.values())
     if (!a.station) advanceSensorScan(a.entity, dt);
   if (passStart!==null) {
-    // passMs starts as detection+sharing+scan; due seeker samples are added once
-    // from the projectile path (sampleDueHojSeekers) without flying the shot.
+    // Scan on this pass, still not the full-workload gate (that is power+sensors).
     sensorWorld.metrics.passMs = performance.now() - passStart;
     sensorWorld.metrics.seekerSampleMs = 0;
     sensorWorld.metrics.seekerSamples = 0;
@@ -5019,12 +5018,9 @@ function sampleDueHojSeekers(readSignal=null) {
     if(sampleHojIfDue(shot,read))n++;
   }
   const ms=performance.now()-started;
-  // Sample every frame (cadence-gated). Fold the time into passMs once, on the
-  // 5 Hz pass that just opened — never overwrite that slice on a later empty call.
   if(sensorWorld.metrics.passOpen){
     sensorWorld.metrics.seekerSampleMs=ms;
     sensorWorld.metrics.seekerSamples=n;
-    sensorWorld.metrics.passMs=(sensorWorld.metrics.passMs||0)+ms;
     sensorWorld.metrics.passOpen=false;
   }
   return {ms,n};

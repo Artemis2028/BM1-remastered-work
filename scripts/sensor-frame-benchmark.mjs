@@ -1,6 +1,6 @@
 #!/usr/bin/env node
  // Legacy sensor-only helper. The pinned four-tree authority is scripts/ew-frame-benchmark.mjs
- // (passMs = sensors + due seeker sampling; pre-sensor reports N/A, never zero).
+ // (2/4 gate = original power+sensors full-workload timer; pre-sensor reports N/A, never zero).
 import fs from 'node:fs';
 import os from 'node:os';
 import http from 'node:http';

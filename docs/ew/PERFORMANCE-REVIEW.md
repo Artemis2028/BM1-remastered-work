@@ -136,3 +136,9 @@ This host (4-core generic Xeon, concurrency 4, Chromium 153.0.8010.12, 1280×850
 | Platinum EW (kept, different series) | 2.00 / 3.30 | not this contract | 2.50 / 6.90 | — | 0.20 / 4.50 (full projectiles) | **fail — not re-run** |
 
 Cumulative tick p95, C2 minus A: **+1.10 ms** (limit 2 ms). `elapsedMs` on C2 was not the gate. Functional count after the explicit-sample fixture: EW 20 + 33, seeker 14 + 35 (**102**).
+
+## Follow-up: original full-workload timer restored (13 September 2026)
+
+The passMs-as-gate paragraph above is **superseded**. The 2 / 4 ms gate is the original power+sensors full-workload timer. Platinum **2.50 / 6.90 remains failed** and is the release authority. Thresholds were not recalibrated. This host is supplementary. Detection-pass, `updateMs` and whole-frame tick are separate reports. Increments: EW−sensors and EW−pre-sensor.
+
+**Return for an explicit decision. Do not merge to main.** Receipts: `receipts/authority-20260913-*.json`.

@@ -7,23 +7,28 @@ Platinum 8573C remains the release authority. Two-core / 4-core runs are supplem
 
 ## Authoritative contract (this review)
 
-Gate **2 ms p95 / 4 ms p99** applies to **passMs**: the complete 5 Hz sensing
-workload — detection, interference, sharing, scan advancement attributable to
-that pass, and due seeker sampling.
+The **2 ms p95 / 4 ms p99** gate is the **original externally measured
+full-workload timer**: harness wall-clock of `updatePowerSystems(12)` +
+`updateSensorSystems(12)` after the seeker window. Platinum recorded that
+series as `detectionPass` at **2.50 / 6.90 (failed)**. Those thresholds were
+not raised and that series was not redefined.
 
-- Do **not** gate on whichever value currently occupies `elapsedMs`.
-- Do **not** gate on `electronicsPass`.
-- Report `updateMs`, `electronicsPass`, and whole-frame tick separately.
-- Cumulative added **frame** cost vs the pre-sensor baseline is ≤ 2 ms p95.
-- Projectile movement, collision, damage and FX stay in whole-frame measurements
-  and are **not** part of `passMs`.
-- One pinned harness (`scripts/ew-frame-benchmark.mjs`) against all four pinned
-  trees. Pre-sensor supplies the frame baseline and reports sensor-pass metrics
-  as **not applicable**, never zero.
-- Seeker sampling runs through the projectile path. Restoring an old
-  `elapsedMs` assignment around `sensorWorld.pass()` does **not** include it.
-  Account for due samples in `passMs` explicitly without counting that work
-  twice (`sampleHojIfDue` advances `sampleDue` before flight).
+- Report **separately**: detection-pass (`elapsedMs` / `detectionMs`),
+  `updateMs`, `electronicsPass` (the full-workload timer above), and
+  whole-frame tick.
+- Report both **EW−sensors** and **EW−pre-sensor**. Cumulative added frame
+  cost vs pre-sensor stays **≤ 2 ms p95**.
+- One pinned harness (`scripts/ew-frame-benchmark.mjs`) against all four
+  pinned trees. Pre-sensor supplies the frame baseline and reports
+  sensor-pass metrics as **not applicable**, never zero.
+- Platinum is the release authority. If it is not available, mark it
+  outstanding and treat this host as supplementary.
+- If the unchanged 2/4 gate still fails (including the retained Platinum
+  failure), **return the results for an explicit decision**. Do not merge
+  to main.
+
+The `passms-20260913-*` family gated a later `passMs` definition. Keep those
+files; they are **not** a replacement for the original full-workload gate.
 
 Pinned trees:
 
@@ -70,21 +75,31 @@ Rerun: `scripts/ew-four-tree.sh`. Commands and hashes are copied next to the raw
 - Pre-sensor used `--passes` and the old harness **threw** rather than
   emitting N/A; the saved `fix-20260913-presensor.json` is tick-only from a
   run without the later N/A contract.
-- **Not** the authoritative passMs gate. Keep the file; do not treat the
-  electronicsPass pass/fail as the new contract.
+- Keep the file. The later passMs-as-gate experiment is not a replacement
+  for this series; the restored authority is `electronicsPass` / Platinum
+  `detectionPass`.
 
-### `passms-20260913-*.json` — corrected passMs contract (this run)
+### `passms-20260913-*.json` — superseded passMs-as-gate experiment
+
+- Gated a newly defined `passMs` (sensors + due seeker sampling) at 2 / 4.
+- That **redefined the gate** and is **not** the authority. Keep the files
+  so the experiment is auditable.
+
+### `authority-20260913-*.json` — restored original full-workload timer
 
 - One pinned tip harness against A / B / C1 / C2.
-- Production order: power → sensors → due seeker sample → projectile flight.
-- **Gate = harness `passMs`** (updateSensorSystems + due seeker sampling).
-- `electronicsPass`, `updateMs`, seeker-sample slice, post-sample projectile
-  slice, and whole-frame tick are reported separately.
-- Pre-sensor `--passes` writes **not applicable** (null samples / percentiles),
-  never zeros, for sensor-pass series.
+- Same order as Platinum: projectiles, then power+sensors.
+- **Gate = `electronicsPass`** (power+sensors wall-clock). Same series as
+  Platinum `detectionPass` 2.50 / 6.90. Thresholds not raised.
+- Detection-pass, `updateMs`, seekerCPU (full `updateProjectiles`) and
+  whole-frame tick are reported separately and are not substitute gates.
+- Increments: EW−sensors and EW−pre-sensor. Cumulative tick vs A ≤ 2 ms.
+- Pre-sensor `--passes` writes **not applicable** (nulls), never zeros.
 - JSON includes source hashes, harness hash, environment, workload, sample
   counts and the timing objects above.
 - This host is supplementary unless the CPU string is Platinum 8573C.
+- If the unchanged 2/4 gate still fails (Platinum already failed), return
+  for an explicit decision. Do not merge to main.
 
 ### `prior-attempt-performance-*.json`
 

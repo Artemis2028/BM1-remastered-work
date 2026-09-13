@@ -78,6 +78,10 @@ Authoritative gate: **2 ms p95 / 4 ms p99 on passMs** — detection, interferenc
 
 Seeker sampling is accounted for in `passMs` explicitly (`sampleDueHojSeekers` + `sampleHojIfDue`) without counting the same read twice. Restoring the old `elapsedMs` assignment around `sensorWorld.pass()` would still miss it.
 
-Pinned harness: `scripts/ew-frame-benchmark.mjs` (sha256 `7aee0987…`). Four trees: `scripts/ew-four-tree.sh`. Platinum receipts stay the release authority. This host is supplementary. Still do not merge to main.
+## Follow-up: restore the original full-workload 2/4 gate (13 September 2026)
 
-This-host passMs (300 samples, 5 Hz): B 0.90 / 0.90, C1 1.50 / 2.00, C2 **1.20 / 1.60**. Pre-sensor series are null / not applicable. Cumulative tick p95 C2−A **+1.10 ms**. Suites after the change: **20 + 33 + 14 + 35 = 102** EW/seeker, sensors 24/24 · 54/54, power 21/21 · 29/29, behavior 79/79, ship suites green, both release builders. Receipts: `receipts/passms-20260913-*.json`.
+The passMs-as-gate wording is **superseded**. The 2 / 4 ms gate is again the original externally measured full-workload timer (power+sensors wall-clock; Platinum `detectionPass` 2.50 / 6.90, **failed**). Thresholds were not raised. Detection-pass, `updateMs`, `electronicsPass` and whole-frame tick are reported separately. Increments: EW−sensors and EW−pre-sensor; cumulative tick vs pre-sensor ≤ 2 ms.
+
+Platinum verification is **outstanding** on this VM. This host is supplementary. **Decision required before merge** because the unchanged Platinum 2/4 result is still a fail. Do not merge to main.
+
+Pinned harness: `scripts/ew-frame-benchmark.mjs`. Four trees: `scripts/ew-four-tree.sh`. Receipts: `receipts/authority-20260913-*.json`. The `passms-20260913-*` files stay labeled as the superseded experiment.

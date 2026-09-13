@@ -1,8 +1,10 @@
 #!/usr/bin/env node
-// Pinned four-tree CPU fixture. Gate is passMs: the complete 5 Hz sensing
-// workload (detection, interference, sharing, scan attributable to that pass,
-// and due seeker sampling). Do not gate on elapsedMs or electronicsPass.
-// Pre-sensor + --passes reports those series as not applicable, never zero.
+// Pinned four-tree CPU fixture. The 2/4 ms gate is the original full-workload
+// timer: updatePowerSystems(12) + updateSensorSystems(12) after the seeker
+// window (same series Platinum recorded as detectionPass: 2.50 / 6.90).
+// Do not invent a replacement gate. Report detection-pass, updateMs,
+// electronicsPass and whole-frame separately. Pre-sensor + --passes writes
+// those series as not applicable, never zero.
 import fs from 'node:fs';
 import {createHash} from 'node:crypto';
 import os from 'node:os';
@@ -144,92 +146,42 @@ try {
       reason
     });
     const hasSensors = !!(B.updateSensorSystems && B.sensorWorld);
-    const sampleDueSeekers = () => {
-      if (typeof B.sampleDueHojSeekers === 'function') {
-        const r = B.sampleDueHojSeekers();
-        return {ms: r?.ms || 0, n: r?.n || 0, via: 'production-sampleDueHojSeekers'};
-      }
-      if (!B.createHojFlight || !B.hojEmitterKey) return {ms: 0, n: 0, via: 'no-seekers'};
-      const cadence = .2, reach = 2400, halfCone = 60;
-      const delta = (from, to) => ((to - from + 540) % 360) - 180;
-      const bearing = (from, to) => Math.atan2(to.x - from.x, -(to.y - from.y)) * 180 / Math.PI;
-      const started = performance.now();
-      let ready = false;
-      const map = new Map();
-      const read = key => {
-        if (!ready) {
-          map.clear();
-          map.set(B.hojEmitterKey(s), s);
-          for (const a of s.npcShips) map.set(B.hojEmitterKey(a), a);
-          for (const a of s.stations) map.set(B.hojEmitterKey(a), a);
-          ready = true;
-        }
-        const a = map.get(key);
-        return a && B.liveJammerSignal ? B.liveJammerSignal(a) : null;
-      };
-      const sample = B.sampleHojIfDue || ((shot, readSignal) => {
-        if (!shot || shot.dead || shot.elapsed + 1e-8 < shot.sampleDue) return false;
-        const signal = readSignal(shot.emitterKey);
-        const accepted = signal?.key === shot.emitterKey && signal.system === shot.system && signal.emitting
-          && Math.hypot(signal.x - shot.x, signal.y - shot.y) <= reach
-          && Math.abs(delta(shot.heading, bearing(shot, signal))) <= halfCone;
-        if (accepted) {
-          if (!shot.signal) shot.signal = {x: 0, y: 0};
-          shot.signal.x = signal.x;
-          shot.signal.y = signal.y;
-        } else shot.signal = null;
-        shot.signalAt = shot.elapsed;
-        shot.sampleDue = shot.elapsed + cadence;
-        return true;
-      });
-      let n = 0;
-      for (const shot of s.projectiles) {
-        if (shot.guidance !== 'home-on-jam' || shot.dead || shot.system !== s.currentPlanet) continue;
-        if (sample(shot, read)) n++;
-      }
-      return {ms: performance.now() - started, n, via: B.sampleHojIfDue ? 'exported-sampleHojIfDue' : 'harness-fallback'};
-    };
-    let passMs = null, electronicsPass = null, updateMs = null, seekerSample = null, projectileCPU = null, instrumented = null;
+    let detectionPass = null, electronicsPass = null, updateMs = null, seekerCPU = null, instrumented = null;
     if (withPasses && !hasSensors) {
-      passMs = na('pre-sensor tree has no 5 Hz sensing workload');
-      electronicsPass = na('pre-sensor tree has no power+sensors electronics pass');
+      detectionPass = na('pre-sensor tree has no detection pass');
+      electronicsPass = na('pre-sensor tree has no power+sensors full-workload timer');
       updateMs = na('pre-sensor tree has no updateSensorSystems');
-      seekerSample = na('pre-sensor tree has no due seeker sampling');
-      projectileCPU = na('sensor-pass projectile slice not applicable on the pre-sensor tree');
+      seekerCPU = na('pre-sensor tree has no sensor-pass seeker window');
       instrumented = na('pre-sensor tree has no sensorWorld.metrics');
     } else if (withPasses) {
-      // Production order: power → sensors → due seeker sample → projectile flight.
-      // Sample before flight so passMs includes seekers without movement/collision/FX.
+      // Same order as the Platinum receipts: projectiles, then power+sensors.
       for (let i = 0; i < 50; i++) {
         scene();
+        B.updateProjectiles(1);
         B.updatePowerSystems(12);
         B.updateSensorSystems(12);
-        sampleDueSeekers();
-        B.updateProjectiles(1);
         await new Promise(r => setTimeout(r, 200));
       }
-      const passSamples = [], electronics = [], updates = [], seekers = [], projectiles = [];
+      const electronics = [], detectionOnly = [], updates = [], seekers = [];
       const seekerOutliers = [], seekerHist = {lt0_25: 0, lt0_5: 0, lt1: 0, lt2: 0, lt4: 0, ge4: 0};
-      let seekerHits = 0, seekerDeaths = 0, seekerMax = 0, sampleVia = null;
+      let seekerHits = 0, seekerDeaths = 0, seekerMax = 0;
       window.__ewSeekProf = {player: 0, station: 0, ship: 0};
       for (let i = 0; i < 300; i++) {
         scene();
         const effectsBefore = s.weaponEffects ? s.weaponEffects.length : 0, projBefore = s.projectiles.length;
         const t = performance.now();
-        B.updatePowerSystems(12);
-        const afterPower = performance.now();
-        B.updateSensorSystems(12);
-        const afterSensors = performance.now();
-        const sampled = sampleDueSeekers();
-        const afterSample = performance.now();
         B.updateProjectiles(1);
-        const afterProj = performance.now();
-        electronics.push(afterSensors - t);
-        passSamples.push(afterSample - afterPower);
-        seekers.push(afterSample - afterSensors);
-        projectiles.push(afterProj - afterSample);
-        if (Number.isFinite(B.sensorWorld.metrics.updateMs)) updates.push(B.sensorWorld.metrics.updateMs);
-        sampleVia = sampled.via;
+        const afterSeekers = performance.now();
+        B.updatePowerSystems(12);
+        B.updateSensorSystems(12);
+        const afterElectronics = performance.now();
+        seekers.push(afterSeekers - t);
+        electronics.push(afterElectronics - afterSeekers);
+        const m = B.sensorWorld.metrics || {};
+        if (Number.isFinite(m.detectionMs) || Number.isFinite(m.elapsedMs)) {
+          detectionOnly.push(Number.isFinite(m.detectionMs) ? m.detectionMs : m.elapsedMs);
+        }
+        if (Number.isFinite(m.updateMs)) updates.push(m.updateMs);
         const dt = seekers[seekers.length - 1];
         const died = projBefore - s.projectiles.length, newEffects = (s.weaponEffects ? s.weaponEffects.length : 0) - effectsBefore;
         seekerHits += Math.max(0, newEffects);
@@ -241,35 +193,36 @@ try {
         else if (dt < 2) seekerHist.lt2++;
         else if (dt < 4) seekerHist.lt4++;
         else seekerHist.ge4++;
-        if (dt >= 1 || newEffects > 0 || died > 0) seekerOutliers.push({i, dt, died, newEffects, live: s.projectiles.length, sampleN: sampled.n});
+        if (dt >= 1 || newEffects > 0 || died > 0) seekerOutliers.push({i, dt, died, newEffects, live: s.projectiles.length});
         await new Promise(r => setTimeout(r, Math.max(0, 200 - (performance.now() - t))));
       }
-      passMs = {
-        applicable: true,
-        ...stats(passSamples),
-        series: 'passMs = updateSensorSystems + due seeker sampling',
-        includes: ['detection', 'interference', 'sharing', 'scan-attributable-to-pass', 'due-seeker-sampling'],
-        excludes: ['power', 'projectile-movement', 'collision', 'damage', 'fx'],
-        gate: {p95Ms: 2, p99Ms: 4},
-        gateAuthority: 'passMs'
-      };
-      passMs.passed = passMs.p95 <= 2 && passMs.p99 <= 4;
       electronicsPass = {
         applicable: true,
         ...stats(electronics),
-        series: 'electronicsPass = updatePowerSystems + updateSensorSystems (not the 2/4 gate)',
-        gateAuthority: 'none'
+        series: 'electronicsPass = updatePowerSystems + updateSensorSystems',
+        sameSeriesAsPlatinumDetectionPass: true,
+        includes: ['power', 'electronics', 'snapshots', 'sensing', 'sharing', 'scan'],
+        excludes: ['projectile-movement', 'collision', 'damage', 'fx'],
+        gate: {p95Ms: 2, p99Ms: 4},
+        gateAuthority: 'electronicsPass',
+        thresholdsRecalibrated: false
       };
+      electronicsPass.passed = electronicsPass.p95 <= 2 && electronicsPass.p99 <= 4;
+      detectionPass = detectionOnly.length ? {
+        applicable: true,
+        ...stats(detectionOnly),
+        series: 'detection-pass = engine elapsedMs/detectionMs (detection+sharing; not the 2/4 gate)',
+        gateAuthority: 'none'
+      } : na('this tree does not record a detection-pass elapsedMs');
       updateMs = updates.length ? {
         applicable: true,
         ...stats(updates),
-        series: 'instrumented updateMs (complete updateSensorSystems, seekers not included)'
+        series: 'updateMs = complete updateSensorSystems (not the 2/4 gate)'
       } : na('this tree does not record updateMs');
-      seekerSample = {
+      seekerCPU = {
         applicable: true,
         ...stats(seekers),
-        series: 'due seeker sampling only (cadence-gated; not flight/collision)',
-        via: sampleVia,
+        series: 'seekerCPU = full updateProjectiles (guidance, movement, collision, damage, FX)',
         profile: {
           max: seekerMax,
           hits: seekerHits,
@@ -279,36 +232,26 @@ try {
           outliers: seekerOutliers.sort((a, b) => b.dt - a.dt).slice(0, 12)
         }
       };
-      projectileCPU = {
-        applicable: true,
-        ...stats(projectiles),
-        series: 'updateProjectiles after sampling (movement/collision/damage/FX; not in passMs)'
-      };
-      const m = B.sensorWorld.metrics || {};
+      const last = B.sensorWorld.metrics || {};
       instrumented = {
         applicable: true,
-        elapsedMs: Number.isFinite(m.elapsedMs) ? m.elapsedMs : null,
-        detectionMs: Number.isFinite(m.detectionMs) ? m.detectionMs : null,
-        passMs: Number.isFinite(m.passMs) ? m.passMs : null,
-        updateMs: Number.isFinite(m.updateMs) ? m.updateMs : null,
-        seekerSampleMs: Number.isFinite(m.seekerSampleMs) ? m.seekerSampleMs : null,
-        seekerSamples: Number.isFinite(m.seekerSamples) ? m.seekerSamples : null,
-        observers: m.observers ?? null,
-        actors: m.actors ?? null,
-        pairs: m.pairs ?? null,
-        jammerPairs: m.jammerPairs ?? null,
-        note: 'elapsedMs/detectionMs are detection+sharing only and are not the gate'
+        elapsedMs: Number.isFinite(last.elapsedMs) ? last.elapsedMs : null,
+        detectionMs: Number.isFinite(last.detectionMs) ? last.detectionMs : null,
+        passMs: Number.isFinite(last.passMs) ? last.passMs : null,
+        updateMs: Number.isFinite(last.updateMs) ? last.updateMs : null,
+        observers: last.observers ?? null,
+        actors: last.actors ?? null,
+        pairs: last.pairs ?? null,
+        jammerPairs: last.jammerPairs ?? null,
+        note: 'elapsedMs/detectionMs are detection+sharing only and are not the 2/4 gate'
       };
     }
     return {
-      passMs,
       electronicsPass,
+      detectionPass,
       updateMs,
-      seekerSample,
-      projectileCPU,
+      seekerCPU,
       instrumented,
-      detectionPass: passMs,
-      seekerCPU: seekerSample,
       sensorOnlyCPU: updateMs,
       activeJammers: s.npcShips.filter(n => n.ew?.strength > 0).length,
       mixedEmitterSides: [...new Set(s.npcShips.slice(0, 6).map(n => n.faction))],
@@ -336,10 +279,14 @@ try {
     harness: {
       file: 'scripts/ew-frame-benchmark.mjs',
       sha256: harnessHash,
-      gate: 'passMs p95<=2ms p99<=4ms',
+      gate: 'electronicsPass (original full-workload timer) p95<=2ms p99<=4ms',
+      sameSeriesAsPlatinum: 'performance-*.json detectionPass was this power+sensors wall-clock',
+      platinumAuthority: {p95: 2.5, p99: 6.9, passed: false, host: 'INTEL(R) XEON(R) PLATINUM 8573C'},
       cumulativeFrameGate: 'whole-frame tick p95 vs pre-sensor baseline <=2ms',
-      order: 'updatePowerSystems(12) → updateSensorSystems(12) → due seeker sample → updateProjectiles(1)',
-      measurementBoundary: 'passMs is sensors + due seeker sampling. electronicsPass is power+sensors and is not the gate. Whole-frame tick still includes projectile movement, collision, damage and FX.'
+      increments: ['EW−sensors', 'EW−pre-sensor'],
+      order: 'updateProjectiles(1) → updatePowerSystems(12) → updateSensorSystems(12)',
+      measurementBoundary: 'electronicsPass is the unchanged 2/4 full-workload timer. detectionPass, updateMs and whole-frame tick are reported separately and are not substitute gates. SeekerCPU is the full projectile update and stays in whole-frame measurements.',
+      thresholdsRecalibrated: false
     },
     sources: Object.fromEntries(['src/main.js', 'src/ship-sensors.mjs', 'src/ship-ew.mjs', 'src/ship-hoj.mjs'].filter(f =>
       fs.existsSync(path.join(root, f))).map(f => [f, createHash('sha256').update(fs.readFileSync(path.join(root, f))).digest('hex')])),
@@ -367,7 +314,7 @@ try {
     errors
   };
   console.log(JSON.stringify(payload, null, 2));
-  if (errors.length || result.ewEnabled && !result.starved && result.activeJammers < 6 || result.passMs?.applicable && result.passMs.passed === false) process.exitCode = 1;
+  if (errors.length || result.ewEnabled && !result.starved && result.activeJammers < 6 || result.electronicsPass?.applicable && result.electronicsPass.passed === false) process.exitCode = 1;
 } finally {
   if (browser) await browser.close();
   server.close();

@@ -1,6 +1,6 @@
 # Electronic warfare
 
-**Review candidate, not performance-cleared:** functional suites (102 EW/seeker checks) and both release builds pass on the review host. The 2 / 4 ms gate is **passMs** (complete 5 Hz sensing workload including due seeker sampling), not `elapsedMs` and not `electronicsPass`. On this supplementary 4-core host C2 passMs is 1.20 / 1.60 and cumulative tick vs pre-sensor is +1.10 ms. Platinum 8573C remains the release authority and is still a failed power+sensors receipt there. See VALIDATION.md and `receipts/MEASUREMENT-BOUNDARIES.md` before release.
+**Review candidate, not performance-cleared:** functional suites pass on the review host. The 2 / 4 ms gate is the **original full-workload timer** (`electronicsPass` = power+sensors). Platinum recorded **2.50 / 6.90, failed**; that result is retained and not recalibrated. This host is supplementary. Detection-pass, `updateMs` and whole-frame tick are reported separately. **Explicit decision required before any merge.** Do not merge to main. See VALIDATION.md and `receipts/MEASUREMENT-BOUNDARIES.md`.
 
 Base: sensors commit `758665eef8cc001973529a23e9cd556aeb98c68e`.
 
