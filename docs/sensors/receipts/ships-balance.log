@@ -1,0 +1,20 @@
+PASS all 172 active hulls have a role, rationale, explicit faction gate and reviewed capabilities
+PASS every supplied slot is explicit, defined and compatible with its hull; no obsolete ID fit leaks
+PASS same-class retained variants provide deliberate upgrades or civilian/military tradeoffs
+PASS early progression and specialist tradeoffs replace the old price inversions
+PASS all faction gates work just below and at their threshold without host tier configuration
+PASS supercapital gates and region restrictions survive the full balance pass
+PASS empty and utility-only craft cannot be selected as armed patrols or invasion ships
+PASS live game loop freezes
+PASS all 172 hulls instantiate and keep their exact three slots despite poisoned legacy item rows
+PASS all live hull, shield, cargo, impulse, fuel and range values match the authored capabilities
+PASS repricing every hull leaves its warp range unchanged
+PASS NPC primary weapons match supplied compatible combat equipment; empty and utility craft emit no aggression
+PASS every initially noncombat hull accepts a compatible weapon in a real equipment slot
+PASS fast scout and freighter differ in actual player speed, NPC speed and turning
+PASS Defiant is faster and more agile than Dderidex; the warbird carries far more protection and cargo
+PASS upgraded Akira adds real fitted damage potential and preserves both quantum launchers
+PASS survey and support fits are not hidden assault loadouts
+PASS purchase details show the role, all three supplied slots and shields
+PASS no cheaper same-faction same-market hull dominates every measured capability and included device
+19/19 full-roster balance checks passed

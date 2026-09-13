@@ -1,0 +1,35 @@
+{
+  "root": "/workspace/scratch/02f528369085/sensor-baseline",
+  "browser": "153.0.8010.0",
+  "environment": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "logicalCPUs": 8
+  },
+  "detectionPass": null,
+  "warmupSeconds": 10,
+  "simulationSeconds": 60,
+  "contacts": 20,
+  "stations": 18,
+  "frameCPU": {
+    "samples": 3600,
+    "p50": 0.5,
+    "p95": 0.8000000007450581,
+    "p99": 1.1000000014901161
+  },
+  "renderCPU": {
+    "samples": 300,
+    "p50": 0.8000000007450581,
+    "p95": 1.7999999970197678,
+    "p99": 4.400000002235174
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 850
+  },
+  "hardwareConcurrency": 9,
+  "deviceMemory": 16,
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.0 Safari/537.36",
+  "errors": []
+}

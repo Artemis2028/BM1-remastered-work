@@ -78,6 +78,7 @@ const TIMEOUT_MS = Number(argValue('--timeout') || 45000);
 const SHIM = `
 // ---- behavior-probe export shim (injected in transit; never written to disk) ----
 window.__bm1 = {
+  sensorCanTrack, ensureActorSensors, startSensorAction, updateSensorSystems, ensureNpcPower, ensurePlayerPower, getActorPowerProfile,
   state, startWithFaction, createNpcShip, damageCombatTarget, tick, render,
   fireNpcWeapon, ensureStationCombatStats, ensureNpcCombatStats, getFactionStanding,
   playerWorldPosition, getNpcWeaponRange, getDefaultWeaponId, getWeapon,
@@ -314,6 +315,7 @@ async function scenarioRunner() {
   const savedSlots1 = s.shipStatsById[1].defaultWeaponSlots;
   s.shipStatsById[1].defaultWeaponSlots = [1, null, null]; // explicit beam fixture, so impact is instant
   const hunter = spawn(9003, 4000);
+  B.ensureActorSensors(hunter).suite = 3; // long-range hunter fixture; tracking remains independent of weapon reach
   const hunterWeapon = B.getWeapon(B.getDefaultWeaponId(hunter.shipId, hunter.faction, true));
   need(hunterWeapon.type === 'Beam', `S2 fixture: hunter weapon is ${hunterWeapon.name} (${hunterWeapon.type}), expected a Beam`);
   const weaponRange = B.getNpcWeaponRange(hunter);
@@ -328,6 +330,8 @@ async function scenarioRunner() {
     const t0 = performance.now();
     while (performance.now() - t0 < ms) {
       pin(distance);
+      // Sustained active transmissions make the far player detectable; this tests firing range, not invisible pursuit.
+      if (distance > weaponRange) B.startSensorAction('sweep');
       B.tick(1);
       maxDrop = Math.max(maxDrop, pool0 - (s.shields + s.hull));
       if (stopWhenFired && hunter.lastShotAt > READY) break;
@@ -335,10 +339,23 @@ async function scenarioRunner() {
     }
     return { fired: hunter.lastShotAt > READY, playerHitAfter: (s.lastShieldHitAt || 0) > hitBefore, maxDrop, pursuing: hunter.destinationName === 'player', alive: !hunter.destroyed, elapsedMs: Math.round(performance.now() - t0) };
   };
+  B.ensurePlayerPower().energy = B.getActorPowerProfile().energyCapacity;
+  B.ensureNpcPower(hunter).energy = B.getActorPowerProfile(hunter).energyCapacity;
+  const previousSensorSuite = B.ensureActorSensors().suite;
+  B.ensureActorSensors().suite = 3;
+  const previousPowerDistribution = { ...s.power.dist };
+  s.power.dist = { engines: 0, weapons: 0, shields: 0, sensors: 10 };
   const farDistance = Math.max(4000, Math.round(weaponRange * 4));
+  // Detection has an acquisition delay measured in simulation time. Establish a real
+  // track before timing the independent range assertion, including on a cold browser.
+  for (let i = 0; i < 120 && !B.sensorCanTrack(hunter, s); i++) {
+    pin(farDistance); B.startSensorAction('sweep'); B.tick(1); await sleep(16);
+  }
+  need(B.sensorCanTrack(hunter, s), 'S2 fixture: hunter did not acquire the actively transmitting player');
   out.far = { weaponRange, distance: farDistance, ...(await runPhase(farDistance, 4000)) };
   const nearDistance = Math.round(weaponRange * 0.5);
   out.near = { distance: nearDistance, ...(await runPhase(nearDistance, 4000, true)) };
+  B.ensureActorSensors().suite = previousSensorSuite; B.startSensorAction('cancel'); s.power.dist = previousPowerDistribution;
   s.stations = stationsAside;
   s.shipStatsById[1].defaultWeaponSlots = savedSlots1;
 
@@ -422,6 +439,7 @@ async function scenarioRunner() {
   const merchantF = mk(9308, 'ferengi', { attitude: 'friendly', role: 'traffic' }, pAt(450, 200));
   const govNow = findStation(govId);
   merchantF.lastShotAt = READY;
+  merchantF.x = govNow.x + 200; merchantF.y = govNow.y;
   B.fireNpcWeapon(merchantF, govNow, 'station', performance.now());
   const ferengiHub = findStation('probe-foreign-ferengi');
   const hubCalm = B.isPlayerEscortStationTarget(ferengiHub);
@@ -807,7 +825,8 @@ async function scenarioRunner() {
   hub.playerEscortOrderUntil = performance.now() + 60000;
   const calmHubOrdered = B.isPlayerEscortStationTarget(hub);
   escortS.lastShotAt = READY;
-  for (let i = 0; i < 80 && hub.lastDamageSource !== 'playerEscort'; i++) { B.tick(1); await sleep(30); }
+  escortS.power.energy = B.getActorPowerProfile(escortS).energyCapacity;
+  for (let i = 0; i < 80 && hub.lastDamageSource !== 'playerEscort'; i++) { escortS.x=hub.x+150; escortS.y=hub.y; B.tick(1); await sleep(30); }
   const hubFiredOn = hub.lastDamageSource === 'playerEscort';
   hub.playerEscortOrderUntil = 0;
   out.stationRoe = { hubAlive: !hub.destroyed, govAlive: !govS.destroyed, hubOwner: B.getStationOwner(hub, home), hubFiredAt: hub.lastAggressionTargetSide, hubHostileReturnFire, hubAfterFire, hubHostileDefend, calmHubNoOrder, calmHubOrdered, hubFiredOn, ownOrderRefused, ownOrdered, ownNeverFiredOn };
@@ -1071,7 +1090,7 @@ async function scenarioRunner() {
   const indep = mk(9513, 'neutral', { role: 'traffic' }, polar(zoneK, 70, 1.4));
   const warF = mk(9514, 'klingon', { role: 'traffic' }, polar(zoneK, 80, 1.6));
   const customV = mk(9515, 'neutral', { role: 'traffic', sideId: 'Zzyx-Council' }, polar(zoneK, 90, 1.8)); customV.broadcastSource = 'declared'; customV.broadcastFaction = 'Zzyx-Council';
-  const unknownC = mk(9516, 'ferengi', { role: 'traffic' }, polar(zoneK, 100, 2.0)); unknownC.broadcastSource = 'none';
+  const unknownC = mk(9516, 'ferengi', { role: 'traffic' }, polar(zoneK, 100, 2.0)); unknownC.broadcastSource = 'none'; B.ensureActorSensors(unknownC).transponder = false;
   const decide = (n) => { const d = B.getVisitorAccessDecision(zoneK, B.getSecurityContact(n)); return d ? `${d.class}:${d.decision}:${d.enforceable}` : null; };
   B.setSecurityPolicyOverride(home, { access: { warFlag: 'closed', independent: 'challenge', other: 'challenge' } });
   const zoneK2 = zoneAt(home);
@@ -1128,7 +1147,7 @@ async function scenarioRunner() {
   const zoneS = zoneAt(home);
   const saveV = slotTraffic(zoneS, zoneS.radius - 40, 0.2);
   need(saveV, 'S5.11 fixture: no ambient traffic slot available');
-  if (saveV) { saveV.broadcastSource = 'declared'; saveV.broadcastFaction = 'Zzyx-Council'; }
+  if (saveV) { saveV.broadcastSource = 'declared'; saveV.broadcastFaction = 'Zzyx-Council'; B.ensureActorSensors(saveV).declaration = 'Zzyx-Council'; }
   parkOthers(zoneS, [saveV]);
   await tickUntil(() => !!activeOrderOf(home, saveV), 100);
   const sOrder = activeOrderOf(home, saveV);
@@ -1533,7 +1552,7 @@ try {
     ['S5.3 closed: one withdrawal instruction; the civilian leaves, is recorded withdrawn (scope withdrawal), takes an outside lane, and gets no clearance', g(r.closedAccess).issued && r.closedAccess.kind === 'withdraw' && r.closedAccess.withdrawn && r.closedAccess.outcome === 'withdrawn' && r.closedAccess.compliance === 'withdrawal' && r.closedAccess.nextDestinationOutside && r.closedAccess.objectiveCleared && r.closedAccess.orders === 1 && r.closedAccess.clearance === null],
     ['S5.4 refusal/expiry under return-fire: a calm war-flag visitor expires; noncompliance recorded once; no hostility, raid flag, aggro or standing change; escorts and turrets do not fire', g(r.refusal).issued && r.refusal.cls === 'warFlag' && r.refusal.expired && r.refusal.outcome === 'expired' && r.refusal.noncompliant && r.refusal.hostile === false && r.refusal.attackId === null && r.refusal.aggro === false && r.refusal.standingsSame && r.refusal.escortTarget === false && r.refusal.attacker === false && r.refusal.escortFired === null && r.refusal.anchorFired === null && r.refusal.secondOrderForSameVisit === 1],
     ['S5.5 real aggression under the same policy still permits defence; stale evidence does not; no clearance is implied', g(r.realAggression).afterShot?.target === true && r.realAggression.afterShot.attacker === true && r.realAggression.stale?.target === false && r.realAggression.stale.attacker === false && r.realAggression.noClearance],
-    ['S5.7 classification: own side exempt, same-flag foreigner other, unbranded hull independent, war flag, declared custom polity other, unidentified never enforced', g(r.classification).own === 'exempt:open:false' && r.classification.sameFlag === 'other:challenge:true' && r.classification.independent === 'independent:challenge:true' && r.classification.warFlag === 'warFlag:closed:true' && r.classification.custom === 'other:challenge:true' && r.classification.unknown === 'unknown:open:false' && r.classification.unknownNotOrdered && r.classification.ownNotOrdered && r.classification.customOrdered && r.classification.customSide === 'Zzyx-Council'],
+    ['S5.7 classification: own side exempt, same-flag foreigner other, unbranded hull independent, war flag, declared custom polity other, unidentified enforceable with default open', g(r.classification).own === 'exempt:open:false' && r.classification.sameFlag === 'other:challenge:true' && r.classification.independent === 'independent:challenge:true' && r.classification.warFlag === 'warFlag:closed:true' && r.classification.custom === 'other:challenge:true' && r.classification.unknown === 'unknown:open:true' && r.classification.unknownNotOrdered && r.classification.ownNotOrdered && r.classification.customOrdered && r.classification.customSide === 'Zzyx-Council'],
     ['S5.10 time: the local clock follows the simulated delta, not wall or unloaded time; engine loss and combat end orders without fault; an order in an unloaded system keeps its remaining time and resumes on the same slot', g(r.timeAndInterruptions).slowDelta === 42 && r.timeAndInterruptions.idleDelta === 0 && r.timeAndInterruptions.unloadedDelta === 0 && r.timeAndInterruptions.disabled === 'unable_to_comply' && r.timeAndInterruptions.disabledFault === false && r.timeAndInterruptions.combat === 'interrupted' && r.timeAndInterruptions.combatFault === false && r.timeAndInterruptions.awayOrderKeptRemaining && r.timeAndInterruptions.awayRestoredSameSlot && r.timeAndInterruptions.awayOrderStillActive],
     ['S5.11 save/reload during approach and during dwell: same participant, order, remaining time, declared broadcast and dwell; no duplicate, refilled hull or repeated incident; the check then completes', g(r.saveReload).approach?.orderKept && r.saveReload.approach.remainingKept && r.saveReload.approach.restored && r.saveReload.approach.sameSlot && r.saveReload.approach.duplicates === 1 && r.saveReload.approach.hullKept && r.saveReload.approach.objective && r.saveReload.approach.ordersForVisitor === 1 && r.saveReload.approach.broadcastKept && g(r.saveReload).dwell?.dwellKept && r.saveReload.dwell.restored && r.saveReload.dwell.clearedAfter && r.saveReload.dwell.ordersForVisitor === 1],
     ['S5.12 a replacement on the same slot is a new instance with no order or clearance; the old order closes; boundary jitter is not a new episode, a separated re-entry is', g(r.replacementIdentity).orderIssued && r.replacementIdentity.sameNpcId && r.replacementIdentity.instanceChanged && r.replacementIdentity.oldOrderClosed && r.replacementIdentity.newHasNoClearance && r.replacementIdentity.newHasNoOrder && r.replacementIdentity.ep0 === 1 && r.replacementIdentity.epJitter === 1 && r.replacementIdentity.epReturn === 2],

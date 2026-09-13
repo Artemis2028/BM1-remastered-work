@@ -1,0 +1,15 @@
+PASS 174 distinct records; 172 active and two retired
+PASS All 152 BM2 source IDs resolve; Galaxy Dreadnaught maps to 49, not 60
+PASS Every asset is inside this pack, hash-verified and referenced
+PASS Every image crop and baseline draw size is valid
+PASS 26 redirects only new references to 211; retired 63 remains loadable
+PASS Excalibur, independent capital and Galaxy Dreadnaught are distinct
+PASS Five approved hulls have full balance; civilian shuttles start with empty armable slots
+PASS Blender gets scouts/fighters, not Dominion cruisers or battleships
+PASS Dominion core keeps its heavy ships; only authorized deployments leave
+PASS Gorn stays reserved; tactical cube requires an authored mission
+PASS No illegal fallback when a faction has no permitted local hulls
+PASS Faction standing travels with the captain; credits and another faction cannot substitute
+PASS Secret stock and regional sales require the corresponding vendor/context
+PASS Changing class scale preserves the aspect ratio and the per-hull envelope
+14/14 content/helper checks passed. No game-engine integration is implied.

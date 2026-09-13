@@ -1,0 +1,31 @@
+PASS freeze acknowledges the final game loop
+PASS starting faction has 20 standing; another faction starts at 0
+PASS foreign concessions retain their own trade reputation
+PASS McKinley keeps Steamrunner rather than a Dominion ID collision
+PASS money alone cannot buy a capital for self, escort or garrison
+PASS one Terran standing unlocks the same design in two regions
+PASS changing a flag does not create or erase standing
+PASS Excalibur needs 100 Terran standing, not money or Ferengi trust
+PASS X-Base stocks distinct Galaxy Dreadnaught and Excalibur
+PASS real purchase installs Excalibur at the approved cost and stats
+PASS personal purchase gate also protects fleet paths
+PASS Concord uses independent trade standing
+PASS independent endgame vendor sells Concord, never Excalibur
+PASS real Basic Shuttle purchase costs 900 and selects its own hull
+PASS unarmed purchase preserves three empty slots even with weapons in inventory
+PASS authored empty NPC loadout cannot fire or manufacture aggression
+PASS firing an empty player slot creates no shot
+PASS unarmed shuttle can buy and equip a compatible weapon
+PASS the newly armed shuttle damages a target with the real weapon path
+PASS armed shuttle loadout and faction standing survive save/reload
+PASS intentionally empty loadout survives save/reload
+PASS delivery fixture is accepted with cargo
+PASS completed delivery earns destination trust and issuer trust
+PASS repeating delivery cannot claim the same standing twice
+PASS buy/sell cycling cannot buy its way to capital-ship trust
+PASS Blender purchases remain scout/fighter remnants
+PASS Dominica stocks cruiser 216 and battlecruiser 48, never Concord 60
+PASS core-region stock permits heavy Dominion purchases away from Blender
+PASS new Bird of Prey is between Brel and Kvort in durability and price
+PASS purchase UI shows required and current faction standing
+30/30 live economy checks passed

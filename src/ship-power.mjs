@@ -1,6 +1,7 @@
+import { migrateSensorDistribution } from './ship-sensors.mjs';
 // Shared, deterministic ship power accounting. Units are game energy (EU), not watts.
 // No owner, faction, target or crew-dependent discounts enter these functions.
-export const POWER_KEYS = Object.freeze(['reserve', 'engines', 'weapons', 'shields']);
+export const POWER_KEYS = Object.freeze(['engines', 'weapons', 'shields', 'sensors']);
 export const CREW_SKILLS = Object.freeze({
   inexperienced: Object.freeze({ reaction: 3.0, reserve: 0.01, recover: 0.10, forecast: 0 }),
   regular: Object.freeze({ reaction: 1.6, reserve: 0.12, recover: 0.30, forecast: 0.5 }),
@@ -12,12 +13,7 @@ export const CREW_TEMPERAMENTS = Object.freeze({
 });
 const finite = (v, fallback) => typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-export function normalizePowerDist(raw = {}) {
-  const d = Object.fromEntries(POWER_KEYS.map(k => [k, clamp(Math.round(finite(raw?.[k], 5)), 0, 10)]));
-  let excess = Math.max(0, Object.values(d).reduce((a,b) => a+b, 0) - 20);
-  while (excess > 0) for (const k of POWER_KEYS) if (excess > 0 && d[k] > 0) { d[k]--; excess--; }
-  return d;
-}
+export function normalizePowerDist(raw = {}) { return migrateSensorDistribution(raw); }
 export function shipPowerProfile(stats = {}, secondaryCore = false) {
   const authored = stats.powerProfile || {};
   const mass = clamp(finite(stats.mass, 1), 1, 20);
@@ -128,10 +124,11 @@ export function managePowerCrew(p, profile, crew, input, seconds) {
   p.reserveFraction = reserve;
   p.forecastSeconds = skill.forecast;
   p.decisionIn = skill.reaction;
-  if (p.recovering) p.dist = { reserve: 10, engines: 5, weapons: 1, shields: 4 };
-  else if (!input.combat) p.dist = { reserve: 8, engines: 5, weapons: 2, shields: 5 };
-  else if (input.shieldFraction < 0.30 && crew.crewSkill !== 'inexperienced') p.dist = { reserve: 3, engines: 5, weapons: 4, shields: 8 };
-  else p.dist = { reserve: 2, engines: 5, weapons: 9, shields: 4 };
+  if (p.recovering) p.dist = { engines: 3, weapons: 1, shields: 3, sensors: 2 };
+  else if (input.searching) p.dist = { engines: 5, weapons: 2, shields: 3, sensors: 8 };
+  else if (!input.combat) p.dist = { engines: 5, weapons: 2, shields: 5, sensors: 5 };
+  else if (input.shieldFraction < 0.30 && crew.crewSkill !== 'inexperienced') p.dist = { engines: 4, weapons: 4, shields: 9, sensors: 3 };
+  else p.dist = { engines: 5, weapons: 7, shields: 5, sensors: 3 };
 }
 export function crewAllowsShot(p, profile, cost) {
   if (p.recovering) return false;

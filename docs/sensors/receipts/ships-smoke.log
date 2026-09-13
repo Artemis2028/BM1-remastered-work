@@ -1,0 +1,19 @@
+PASS in-game catalog loaded (includes Dominion Cruiser 216)
+PASS imageUrl uses pack assets (http://127.0.0.1:34871/bm-ships/assets/0ca795d95e92189b8836165c186d5d9bcaacc1c3774934687f067999e427b77a.png)
+PASS preview/src uses pack image URL
+PASS getShip(26) stays 26; resolveNewShipId(26) is 211
+PASS retired 63 stays loadable and is not a new reference
+PASS ship 60 remains independent capital (Concord-class Grand Cruiser)
+PASS Excalibur is an active balanced hull
+PASS draw profile uses pack size with scale 1 ({"width":38,"height":49,"scale":1})
+PASS Blender remnant traffic only
+PASS Dominica core cruiser yes, battleship no ambient
+PASS Earth Gorn pool stays empty
+PASS invasions require authorizedDeployment
+PASS explicit authored standing works without host tier configuration (eligible)
+PASS Excalibur is eligible at 100 Terran standing at Project X (eligible)
+PASS resolveShipId does not remake owned 26
+PASS God Mode ship list includes catalog hulls (172)
+screenshot /workspace/scratch/02f528369085/hull-merge-work/tmp-ship-catalog-god-switcher.png
+screenshot /workspace/scratch/02f528369085/hull-merge-work/tmp-ship-catalog-ingame.png
+in-game catalog smoke passed

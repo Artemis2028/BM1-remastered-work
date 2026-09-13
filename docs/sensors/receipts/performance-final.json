@@ -1,0 +1,45 @@
+{
+  "root": "/workspace/scratch/02f528369085/hull-merge-work",
+  "browser": "153.0.8010.0",
+  "environment": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "logicalCPUs": 8
+  },
+  "detectionPass": {
+    "samples": 300,
+    "p50": 0.8999999985098839,
+    "p95": 1.199999999254942,
+    "p99": 2.300000000745058,
+    "observers": 39,
+    "actors": 39,
+    "pairs": 1481,
+    "elapsedMs": 0.8000000007450581,
+    "passed": true
+  },
+  "warmupSeconds": 10,
+  "simulationSeconds": 60,
+  "contacts": 20,
+  "stations": 18,
+  "frameCPU": {
+    "samples": 3600,
+    "p50": 0.6000000014901161,
+    "p95": 1.5,
+    "p99": 2.199999999254942
+  },
+  "renderCPU": {
+    "samples": 300,
+    "p50": 0.6000000014901161,
+    "p95": 1.199999999254942,
+    "p99": 2
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 850
+  },
+  "hardwareConcurrency": 9,
+  "deviceMemory": 16,
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.0 Safari/537.36",
+  "errors": []
+}

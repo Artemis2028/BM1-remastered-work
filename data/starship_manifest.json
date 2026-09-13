@@ -135,7 +135,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 2,
@@ -234,7 +242,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 4,
@@ -331,7 +347,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 16.35
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1.2,
+        "aperture": 1,
+        "processing": 1.3,
+        "efficiency": 0.8,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 9,
@@ -426,7 +450,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 10,
@@ -521,7 +553,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 11,
@@ -617,7 +657,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 11.8
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 15,
@@ -719,7 +767,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 22,
@@ -816,7 +872,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 11.8
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 24,
@@ -911,7 +975,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 25,
@@ -1006,7 +1078,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 26,
@@ -1155,7 +1235,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1.15,
+        "aperture": 0.95,
+        "processing": 1.15,
+        "efficiency": 0.8,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 33,
@@ -1254,7 +1342,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 15.7
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 35,
@@ -1349,7 +1445,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 18.95
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 38,
@@ -1444,7 +1548,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 20.25
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 42,
@@ -1539,7 +1651,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 22.85
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 47,
@@ -1638,7 +1758,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 9.85
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 48,
@@ -1735,7 +1863,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 20.25
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 49,
@@ -1832,7 +1968,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 23.5
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 50,
@@ -1927,7 +2071,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 15.7
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 51,
@@ -2024,7 +2176,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 17.65
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 53,
@@ -2123,7 +2283,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 22.85
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 54,
@@ -2220,7 +2388,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 55,
@@ -2319,7 +2495,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 15.7
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 60,
@@ -2421,7 +2605,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 22.85
       },
-      "powerDesign": "Large endurance reserve; lower sustained generation than Excalibur."
+      "powerDesign": "Large endurance reserve; lower sustained generation than Excalibur.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 61,
@@ -2516,7 +2708,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 21.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 62,
@@ -2611,7 +2811,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 21.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 63,
@@ -2759,7 +2967,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 21.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 65,
@@ -2854,7 +3070,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 26.1
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 66,
@@ -2951,7 +3175,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 21.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 206,
@@ -3050,7 +3282,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1.15,
+        "aperture": 0.95,
+        "processing": 1.15,
+        "efficiency": 0.8,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 207,
@@ -3149,7 +3389,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 208,
@@ -3249,7 +3497,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1.15,
+        "aperture": 0.95,
+        "processing": 1.15,
+        "efficiency": 0.8,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 209,
@@ -3348,7 +3604,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1.15,
+        "aperture": 0.95,
+        "processing": 1.15,
+        "efficiency": 0.8,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 210,
@@ -3447,7 +3711,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 211,
@@ -3547,7 +3819,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 20.9
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1.2,
+        "aperture": 1,
+        "processing": 1.3,
+        "efficiency": 0.8,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 212,
@@ -3646,7 +3926,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1.15,
+        "aperture": 0.95,
+        "processing": 1.15,
+        "efficiency": 0.8,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 213,
@@ -3747,7 +4035,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 17.65
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 214,
@@ -3846,7 +4142,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 215,
@@ -3946,7 +4250,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 216,
@@ -4045,7 +4357,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 217,
@@ -4144,7 +4464,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 218,
@@ -4243,7 +4571,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 15.7
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 219,
@@ -4342,7 +4678,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 15.7
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 220,
@@ -4441,7 +4785,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 221,
@@ -4540,7 +4892,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 17.65
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 222,
@@ -4639,7 +4999,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 223,
@@ -4738,7 +5106,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 224,
@@ -4837,7 +5213,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 21.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 225,
@@ -4937,7 +5321,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 226,
@@ -5036,7 +5428,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 227,
@@ -5135,7 +5535,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 228,
@@ -5234,7 +5642,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 9.85
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 229,
@@ -5333,7 +5749,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 230,
@@ -5433,7 +5857,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 231,
@@ -5533,7 +5965,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 15.7
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 232,
@@ -5632,7 +6072,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 21.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 233,
@@ -5731,7 +6179,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 234,
@@ -5830,7 +6286,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 235,
@@ -5929,7 +6393,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 236,
@@ -6028,7 +6500,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 237,
@@ -6127,7 +6607,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 238,
@@ -6226,7 +6714,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 239,
@@ -6325,7 +6821,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 240,
@@ -6424,7 +6928,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 241,
@@ -6523,7 +7035,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 242,
@@ -6622,7 +7142,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 243,
@@ -6721,7 +7249,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1.15,
+        "aperture": 0.95,
+        "processing": 1.15,
+        "efficiency": 0.8,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 244,
@@ -6820,7 +7356,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 245,
@@ -6919,7 +7463,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1.2,
+        "aperture": 1,
+        "processing": 1.3,
+        "efficiency": 0.8,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 246,
@@ -7018,7 +7570,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 17.65
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 247,
@@ -7117,7 +7677,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 248,
@@ -7216,7 +7784,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 249,
@@ -7315,7 +7891,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 250,
@@ -7414,7 +7998,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 251,
@@ -7513,7 +8105,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 252,
@@ -7612,7 +8212,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 253,
@@ -7711,7 +8319,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 254,
@@ -7810,7 +8426,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 18.95
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 255,
@@ -7909,7 +8533,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 15.7
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 256,
@@ -8008,7 +8640,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 257,
@@ -8107,7 +8747,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 258,
@@ -8206,7 +8854,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 259,
@@ -8305,7 +8961,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 260,
@@ -8404,7 +9068,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1.2,
+        "aperture": 1,
+        "processing": 1.3,
+        "efficiency": 0.8,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 261,
@@ -8503,7 +9175,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 33.25
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 262,
@@ -8602,7 +9282,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 263,
@@ -8701,7 +9389,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 264,
@@ -8800,7 +9496,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 13.75
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 265,
@@ -8899,7 +9603,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 18.3
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1.2,
+        "aperture": 1,
+        "processing": 1.3,
+        "efficiency": 0.8,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 266,
@@ -8998,7 +9710,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1.2,
+        "aperture": 1,
+        "processing": 1.3,
+        "efficiency": 0.8,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 267,
@@ -9097,7 +9817,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 268,
@@ -9196,7 +9924,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 269,
@@ -9295,7 +10031,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 270,
@@ -9394,7 +10138,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 271,
@@ -9493,7 +10245,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 17
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 272,
@@ -9592,7 +10352,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1.15,
+        "aperture": 0.95,
+        "processing": 1.15,
+        "efficiency": 0.8,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 273,
@@ -9691,7 +10459,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 274,
@@ -9790,7 +10566,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 275,
@@ -9889,7 +10673,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 11.8
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 276,
@@ -9988,7 +10780,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1.2,
+        "aperture": 1,
+        "processing": 1.3,
+        "efficiency": 0.8,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 277,
@@ -10087,7 +10887,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 278,
@@ -10186,7 +10994,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 279,
@@ -10285,7 +11101,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 280,
@@ -10384,7 +11208,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 281,
@@ -10483,7 +11315,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1.15,
+        "aperture": 0.95,
+        "processing": 1.15,
+        "efficiency": 0.8,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 282,
@@ -10582,7 +11422,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1.2,
+        "aperture": 1,
+        "processing": 1.3,
+        "efficiency": 0.8,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 283,
@@ -10681,7 +11529,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 284,
@@ -10780,7 +11636,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1.2,
+        "aperture": 1,
+        "processing": 1.3,
+        "efficiency": 0.8,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 285,
@@ -10879,7 +11743,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1.15,
+        "aperture": 0.95,
+        "processing": 1.15,
+        "efficiency": 0.8,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 286,
@@ -10978,7 +11850,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 287,
@@ -11077,7 +11957,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 15.7
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 288,
@@ -11176,7 +12064,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 289,
@@ -11275,7 +12171,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 18.95
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 290,
@@ -11374,7 +12278,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 291,
@@ -11473,7 +12385,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 292,
@@ -11572,7 +12492,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 293,
@@ -11671,7 +12599,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 294,
@@ -11770,7 +12706,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1.2,
+        "aperture": 1,
+        "processing": 1.3,
+        "efficiency": 0.8,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 295,
@@ -11869,7 +12813,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 13.75
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 296,
@@ -11968,7 +12920,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1.2,
+        "aperture": 1,
+        "processing": 1.3,
+        "efficiency": 0.8,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 297,
@@ -12067,7 +13027,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 298,
@@ -12166,7 +13134,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 299,
@@ -12265,7 +13241,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 17.65
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1.2,
+        "aperture": 1,
+        "processing": 1.3,
+        "efficiency": 0.8,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 300,
@@ -12364,7 +13348,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 18.3
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 301,
@@ -12463,7 +13455,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 302,
@@ -12562,7 +13562,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1.15,
+        "aperture": 0.95,
+        "processing": 1.15,
+        "efficiency": 0.8,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 303,
@@ -12661,7 +13669,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 305,
@@ -12764,7 +13780,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 306,
@@ -12867,7 +13891,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 11.15
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1.2,
+        "aperture": 1,
+        "processing": 1.3,
+        "efficiency": 0.8,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 307,
@@ -12970,7 +14002,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 308,
@@ -13073,7 +14113,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 309,
@@ -13177,7 +14225,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 310,
@@ -13281,7 +14337,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 311,
@@ -13385,7 +14449,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1.2,
+        "aperture": 1,
+        "processing": 1.3,
+        "efficiency": 0.8,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 312,
@@ -13489,7 +14561,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 313,
@@ -13593,7 +14673,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 314,
@@ -13696,7 +14784,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 315,
@@ -13799,7 +14895,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 316,
@@ -13902,7 +15006,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 317,
@@ -14005,7 +15117,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 318,
@@ -14108,7 +15228,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 13.75
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 319,
@@ -14211,7 +15339,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 320,
@@ -14314,7 +15450,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 20.25
       },
-      "powerDesign": "Strong generation, but maintaining cloak plus recovery competes with combat reserves."
+      "powerDesign": "Strong generation, but maintaining cloak plus recovery competes with combat reserves.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 321,
@@ -14417,7 +15561,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 17.65
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 322,
@@ -14520,7 +15672,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 13.75
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 323,
@@ -14623,7 +15783,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 324,
@@ -14726,7 +15894,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 17.65
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 325,
@@ -14831,7 +16007,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 17
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 326,
@@ -14934,7 +16118,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 327,
@@ -15037,7 +16229,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1.2,
+        "aperture": 1,
+        "processing": 1.3,
+        "efficiency": 0.8,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 328,
@@ -15140,7 +16340,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 18.95
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 329,
@@ -15239,7 +16447,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 22.2
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 330,
@@ -15342,7 +16558,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1.15,
+        "aperture": 0.95,
+        "processing": 1.15,
+        "efficiency": 0.8,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 331,
@@ -15445,7 +16669,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 332,
@@ -15548,7 +16780,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 333,
@@ -15647,7 +16887,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 21.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 334,
@@ -15750,7 +16998,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 15.7
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 335,
@@ -15854,7 +17110,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 10.5
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1.2,
+        "aperture": 1,
+        "processing": 1.3,
+        "efficiency": 0.8,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 336,
@@ -15958,7 +17222,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 338,
@@ -16061,7 +17333,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 340,
@@ -16165,7 +17445,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 341,
@@ -16269,7 +17557,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 342,
@@ -16373,7 +17669,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 13.75
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 343,
@@ -16476,7 +17780,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 14.4
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 344,
@@ -16579,7 +17891,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 15.05
       },
-      "powerDesign": "Burst combat output with limited endurance."
+      "powerDesign": "Burst combat output with limited endurance.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 345,
@@ -16682,7 +18002,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 7.25
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 346,
@@ -16785,7 +18113,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 26.75
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 347,
@@ -16882,7 +18218,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 28.05
       },
-      "powerDesign": "High sustained output; substantially less reserve endurance per unit of output than Concord."
+      "powerDesign": "High sustained output; substantially less reserve endurance per unit of output than Concord.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1.2,
+        "processing": 1,
+        "efficiency": 1.1,
+        "signature": 1.5
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 348,
@@ -16980,7 +18324,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Larger reserves and efficient cruise support extended operations."
+      "powerDesign": "Larger reserves and efficient cruise support extended operations.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 349,
@@ -17079,7 +18431,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 0.75,
+        "aperture": 0.8,
+        "processing": 0.85,
+        "efficiency": 1,
+        "signature": 0.65
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 350,
@@ -17177,7 +18537,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 8.55
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 0.85,
+        "processing": 0.85,
+        "efficiency": 1.15,
+        "signature": 0.9
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     },
     {
       "id": 351,
@@ -17281,7 +18649,15 @@
         "shieldRechargePct": 1.25,
         "cloakDraw": 12.45
       },
-      "powerDesign": "Balanced output and reserves for its reviewed role."
+      "powerDesign": "Balanced output and reserves for its reviewed role.",
+      "sensorProfile": {
+        "sensitivity": 1,
+        "aperture": 1,
+        "processing": 1,
+        "efficiency": 1,
+        "signature": 1
+      },
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
     }
   ]
 }

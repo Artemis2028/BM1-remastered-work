@@ -15,18 +15,18 @@ check('all active hulls carry finite positive authored power values; generation 
  const ex=roster.find(s=>s.id===347),co=roster.find(s=>s.id===60);assert(ex.powerProfile.reactorOutput>co.powerProfile.reactorOutput&&ex.powerProfile.energyCapacity<co.powerProfile.energyCapacity);
 });
 check('bad or over-budget allocations and malformed power are bounded without recharging zero',()=>{
- for(const raw of [{engines:Infinity,weapons:100},{reserve:10,engines:10,weapons:10,shields:10},null]){
+ for(const raw of [{engines:Infinity,weapons:100},{sensors:0,engines:10,weapons:10,shields:10},null]){
  const d=normalizePowerDist(raw);assert(Object.values(d).reduce((a,b)=>a+b)<=20);assert(Object.values(d).every(n=>n>=0&&n<=10));}
  assert.equal(ensurePowerState({energy:0},baseline).energy,0);assert.equal(ensurePowerState({energy:-50},baseline).energy,0);
  assert.equal(ensurePowerState({energy:1e9},baseline).energy,200);
 });
 check('more system allocation improves damage, shield recovery or speed and increases energy demand',()=>{
- const dist=n=>({reserve:0,engines:n,weapons:0,shields:0});
+ const dist=n=>({sensors:0,engines:n,weapons:0,shields:0});
  assert(powerEngineFactor(dist(10))>powerEngineFactor(dist(5)));
- near(powerWeaponFactor({reserve:0,engines:0,weapons:5,shields:0}),1);
- near(powerWeaponFactor({reserve:0,engines:0,weapons:10,shields:0}),1.4);
+ near(powerWeaponFactor({sensors:0,engines:0,weapons:5,shields:0}),1);
+ near(powerWeaponFactor({sensors:0,engines:0,weapons:10,shields:0}),1.4);
  const a=fresh(),b=fresh();a.energy=b.energy=100;
- a.dist={reserve:0,engines:0,weapons:0,shields:5};b.dist={...a.dist,shields:10};
+ a.dist={sensors:0,engines:0,weapons:0,shields:5};b.dist={...a.dist,shields:10};
  const input={shieldMissing:1,shieldReady:true};
  const normal=stepShipPower(a,baseline,1,input),boost=stepShipPower(b,baseline,1,input);
  near(boost.shieldFraction,normal.shieldFraction*2);assert(b.energy<a.energy);
@@ -44,8 +44,8 @@ check('underpowered drives slow down; shield recovery sheds without producing un
  const p=fresh();p.energy=0;const r=stepShipPower(p,{...baseline,reactorOutput:1},1,{throttle:1,shieldMissing:1,shieldReady:true});near(p.engineSupply,.25);near(p.energy,0);near(r.shieldFraction,0);
 });
 check('low and high engine allocations affect both speed ceiling and real demand',()=>{
- const rates=[];for(const n of [0,3,5,10]){const p=fresh();p.dist={reserve:0,engines:n,weapons:0,shields:0};stepShipPower(p,baseline,1,{throttle:1});rates.push(p.telemetry.engines);}
- assert.deepEqual(rates,[0,1.44,4,6.760000000000001]);near(powerEngineFactor({engines:0}),0);near(powerEngineFactor({engines:10,reserve:0,shields:0,weapons:0}),1.3);
+ const rates=[];for(const n of [0,3,5,10]){const p=fresh();p.dist={sensors:0,engines:n,weapons:0,shields:0};stepShipPower(p,baseline,1,{throttle:1});rates.push(p.telemetry.engines);}
+ assert.deepEqual(rates,[0,1.44,4,6.760000000000001]);near(powerEngineFactor({engines:0}),0);near(powerEngineFactor({engines:10,sensors:0,shields:0,weapons:0}),1.3);
 });
 check('powered in-system warp costs more than normal cruise',()=>{const p=fresh();stepShipPower(p,baseline,1,{throttle:1,engineBoost:3});near(p.telemetry.engines,12);});
 check('cloak must be sustained from the real budget and switches off if unaffordable',()=>{
@@ -55,7 +55,7 @@ check('cloak must be sustained from the real budget and switches off if unafford
 check('identical fitted weapons have identical costs regardless of actor; shot debit is atomic',()=>{
  const w={name:'Type X Phaser',type:'Beam'},p=fresh();const c=weaponPowerCost(w,50,p.dist);near(c,10);p.energy=c-1;assert(!spendPower(p,c));near(p.energy,c-1);p.energy=c;assert(spendPower(p,c));near(p.energy,0);assert(!spendPower(p,-5));
 });
-check('weapons allocation changes output and cost together',()=>{assert(powerWeaponFactor({weapons:10,reserve:0,shields:0,engines:0})>powerWeaponFactor({weapons:1}));assert(weaponPowerCost({type:'Beam'},100,{weapons:10,reserve:0,shields:0,engines:0})>weaponPowerCost({type:'Beam'},100,{weapons:1}));});
+check('weapons allocation changes output and cost together',()=>{assert(powerWeaponFactor({weapons:10,sensors:0,shields:0,engines:0})>powerWeaponFactor({weapons:1}));assert(weaponPowerCost({type:'Beam'},100,{weapons:10,sensors:0,shields:0,engines:0})>weaponPowerCost({type:'Beam'},100,{weapons:1}));});
 check('secondary core doubles generation only; capacity and all energy costs stay fixed',()=>{const s=roster[0],a=shipPowerProfile(s),b=shipPowerProfile(s,true);near(b.reactorOutput,a.reactorOutput*2);near(a.energyCapacity,b.energyCapacity);near(a.engineDraw,b.engineDraw);});
 check('one second and sixty small idle/continuous steps agree',()=>{const a=fresh(),b=fresh();a.energy=b.energy=30;const i={throttle:1,shieldMissing:1,shieldReady:true};stepShipPower(a,baseline,1,i);for(let j=0;j<60;j++)stepShipPower(b,baseline,1/60,i);near(a.energy,b.energy);});
 check('exactly four skill levels; actor can explicitly retain skill independently of temperament',()=>{
