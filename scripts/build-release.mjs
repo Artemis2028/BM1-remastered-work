@@ -7,6 +7,7 @@ const rootDir = path.resolve(scriptDir, '..');
 const distDir = path.join(rootDir, 'dist');
 const extensionDistDir = path.join(rootDir, 'dist-chrome-extension');
 const releaseVersion = '0.1.1';
+const shipAssetPaths = new Set(JSON.parse(await fs.readFile(path.join(rootDir, 'bm-ships/assets.json'), 'utf8')).assets.map(a => a.path));
 
 const includeNames = new Set([
   'index.html',
@@ -47,6 +48,9 @@ async function pathExists(filePath) {
 async function copyFiltered(source, target) {
   const stat = await fs.stat(source);
   const name = path.basename(source);
+
+  const relative = path.relative(rootDir, source).split(path.sep).join('/');
+  if (relative.startsWith('bm-ships/assets/') && !shipAssetPaths.has(relative.slice('bm-ships/'.length))) return;
 
   if (excludedNames.has(name) || excludedExtensions.has(path.extname(name).toLowerCase())) return;
 

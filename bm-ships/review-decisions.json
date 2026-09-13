@@ -176,5 +176,272 @@
       "notes": "Original stationconstructing.gif recovered and inspected in Google Drive / Local AI projects: 79 × 84 pixels, one frame. The asset matches the supplied reference. Use it for an unfinished station, scaled to the construction site. Workbees move around it and direct blue construction beams at the scaffolding. These are construction effects, not weapons fire or aggression. Keep repairarms.gif separate: it overlays the player ship only during repairs. At patch 030155d these construction animations are still pending implementation."
     }
   },
-  "scope": "Ship decisions apply here. Station, repair and construction decisions are retained for context only, not implemented or supplied as station assets."
+  "scope": "Ship decisions apply here. Station, repair and construction decisions are retained for context only, not implemented or supplied as station assets.",
+  "duplicateReview": {
+    "base": "3b2c2a9703bf17791a3ea36393df18d7267ff95a",
+    "date": "2026-09-13",
+    "merges": [
+      {
+        "from": 304,
+        "to": 2,
+        "artworkRecord": 304
+      },
+      {
+        "from": 3,
+        "to": 305,
+        "artworkRecord": 305
+      },
+      {
+        "from": 5,
+        "to": 306,
+        "artworkRecord": 306
+      },
+      {
+        "from": 6,
+        "to": 307,
+        "artworkRecord": 307
+      },
+      {
+        "from": 7,
+        "to": 308,
+        "artworkRecord": 308
+      },
+      {
+        "from": 8,
+        "to": 309,
+        "artworkRecord": 8
+      },
+      {
+        "from": 12,
+        "to": 310,
+        "artworkRecord": 310
+      },
+      {
+        "from": 13,
+        "to": 311,
+        "artworkRecord": 311
+      },
+      {
+        "from": 14,
+        "to": 312,
+        "artworkRecord": 312
+      },
+      {
+        "from": 16,
+        "to": 314,
+        "artworkRecord": 314
+      },
+      {
+        "from": 17,
+        "to": 315,
+        "artworkRecord": 315
+      },
+      {
+        "from": 18,
+        "to": 316,
+        "artworkRecord": 316
+      },
+      {
+        "from": 19,
+        "to": 317,
+        "artworkRecord": 317
+      },
+      {
+        "from": 20,
+        "to": 318,
+        "artworkRecord": 318
+      },
+      {
+        "from": 21,
+        "to": 319,
+        "artworkRecord": 319
+      },
+      {
+        "from": 27,
+        "to": 320,
+        "artworkRecord": 320
+      },
+      {
+        "from": 28,
+        "to": 321,
+        "artworkRecord": 321
+      },
+      {
+        "from": 30,
+        "to": 322,
+        "artworkRecord": 322
+      },
+      {
+        "from": 31,
+        "to": 323,
+        "artworkRecord": 323
+      },
+      {
+        "from": 32,
+        "to": 324,
+        "artworkRecord": 324
+      },
+      {
+        "from": 34,
+        "to": 326,
+        "artworkRecord": 326
+      },
+      {
+        "from": 36,
+        "to": 327,
+        "artworkRecord": 327
+      },
+      {
+        "from": 37,
+        "to": 328,
+        "artworkRecord": 328
+      },
+      {
+        "from": 39,
+        "to": 330,
+        "artworkRecord": 330
+      },
+      {
+        "from": 40,
+        "to": 331,
+        "artworkRecord": 331
+      },
+      {
+        "from": 41,
+        "to": 332,
+        "artworkRecord": 332
+      },
+      {
+        "from": 43,
+        "to": 334,
+        "artworkRecord": 334
+      },
+      {
+        "from": 45,
+        "to": 335,
+        "artworkRecord": 335
+      },
+      {
+        "from": 46,
+        "to": 336,
+        "artworkRecord": 336
+      },
+      {
+        "from": 52,
+        "to": 338,
+        "artworkRecord": 338
+      },
+      {
+        "from": 339,
+        "to": 55,
+        "artworkRecord": 339
+      },
+      {
+        "from": 56,
+        "to": 340,
+        "artworkRecord": 340
+      },
+      {
+        "from": 57,
+        "to": 341,
+        "artworkRecord": 341
+      },
+      {
+        "from": 58,
+        "to": 342,
+        "artworkRecord": 342
+      },
+      {
+        "from": 59,
+        "to": 343,
+        "artworkRecord": 343
+      },
+      {
+        "from": 23,
+        "to": 345,
+        "artworkRecord": 345
+      },
+      {
+        "from": 44,
+        "to": 346,
+        "artworkRecord": 346
+      },
+      {
+        "from": 337,
+        "to": 47,
+        "artworkRecord": 337
+      }
+    ],
+    "retainedVariants": [
+      [
+        15,
+        313
+      ],
+      [
+        33,
+        325
+      ],
+      [
+        38,
+        329
+      ],
+      [
+        42,
+        333
+      ],
+      [
+        1,
+        344
+      ]
+    ],
+    "priceExceptions": {
+      "326": 62500,
+      "33": 72000,
+      "325": 94000
+    },
+    "oberthImplementation": "User approved merge without selecting survivor/art/balance. Retain 47 at 6500 Latinum, hull 100, shields 100; use artwork 337.",
+    "activeHulls": 172,
+    "balanceAdjustments": {
+      "351": {
+        "hull": 75,
+        "shields": 60,
+        "cost": 9000,
+        "reason": "Keep the added second-step Bird of Prey between the retained Brel #330 (20 hull / 5 shields) and KVort #332 (100 / 110)."
+      }
+    },
+    "startingWeaponSlots": {
+      "15": [
+        1,
+        null,
+        null
+      ],
+      "313": [
+        2,
+        11,
+        15
+      ],
+      "33": [
+        1,
+        15,
+        null
+      ],
+      "325": [
+        2,
+        16,
+        16
+      ],
+      "344": [
+        9,
+        16,
+        15
+      ]
+    }
+  },
+  "balanceRevision": {
+    "date": "2026-09-13",
+    "revision": "full-roster-v2",
+    "scope": "User-authorized complete price, faction standing, capability and weapon-slot review. Earlier numerical exceptions are superseded; approved identities, artwork, aliases and regional rules remain.",
+    "authoritativeFile": "ships.json",
+    "review": "../docs/ship-balance/BALANCE-REVIEW.md"
+  }
 }

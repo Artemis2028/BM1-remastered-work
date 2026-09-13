@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
 EXTENSION_DIST = ROOT / "dist-chrome-extension"
 RELEASE_VERSION = "0.1.1"
+SHIP_ASSET_PATHS = {a["path"] for a in json.loads((ROOT / "bm-ships/assets.json").read_text())["assets"]}
 
 INCLUDE_NAMES = {
     "index.html",
@@ -45,6 +46,9 @@ def should_skip(path: Path) -> bool:
 
 def copy_filtered(source: Path, target: Path) -> None:
     if should_skip(source):
+        return
+    relative = source.relative_to(ROOT).as_posix()
+    if relative.startswith("bm-ships/assets/") and relative.removeprefix("bm-ships/") not in SHIP_ASSET_PATHS:
         return
 
     if source.is_dir():

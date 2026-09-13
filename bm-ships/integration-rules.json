@@ -20,7 +20,6 @@
   ],
   "dominion": {
     "blenderRoutineIds": [
-      30,
       206,
       322
     ],
@@ -28,10 +27,6 @@
     "coreScope": "Dominica/Gamma network, provided explicitly by the target project",
     "invasionsMayLeaveRegion": true,
     "ordinaryMarketMustRespectRegion": true
-  },
-  "purchasePrestige": {
-    "Excalibur": 100,
-    "allOtherTiers": "Target must supply world-prestige thresholds; the pack deliberately does not invent values."
   },
   "missingFeatures": [
     "boarding/capture",
@@ -42,5 +37,86 @@
     "independence/civil wars",
     "Reman access recovery mission",
     "Phase 3 checkpoint and incident engine"
-  ]
+  ],
+  "purchaseStanding": {
+    "scope": "faction across regions; independent designs use neutral trade standing",
+    "tiers": {
+      "open": 0,
+      "trusted": 15,
+      "respected": 30,
+      "military": 50,
+      "strategic": 75
+    },
+    "Excalibur": {
+      "faction": "terran",
+      "minimum": 100
+    },
+    "Concord": {
+      "faction": "neutral",
+      "minimum": 100
+    },
+    "explicitRequirements": "Every active record supplies its own faction and factionStanding. Explicit values override the tier label.",
+    "exceptionalStanding100Ids": [
+      60,
+      61,
+      62,
+      64,
+      65,
+      66,
+      261,
+      346,
+      347
+    ]
+  },
+  "emptyLoadouts": "Three empty weapon/device slots remain armable; never insert an implicit weapon.",
+  "hullAliases": {
+    "304": 2,
+    "3": 305,
+    "5": 306,
+    "6": 307,
+    "7": 308,
+    "8": 309,
+    "12": 310,
+    "13": 311,
+    "14": 312,
+    "16": 314,
+    "17": 315,
+    "18": 316,
+    "19": 317,
+    "20": 318,
+    "21": 319,
+    "27": 320,
+    "28": 321,
+    "30": 322,
+    "31": 323,
+    "32": 324,
+    "34": 326,
+    "36": 327,
+    "37": 328,
+    "39": 330,
+    "40": 331,
+    "41": 332,
+    "43": 334,
+    "45": 335,
+    "46": 336,
+    "52": 338,
+    "339": 55,
+    "56": 340,
+    "57": 341,
+    "58": 342,
+    "59": 343,
+    "23": 345,
+    "44": 346,
+    "337": 47
+  },
+  "balanceRevision": "full-roster-v2",
+  "capabilities": {
+    "slots": 3,
+    "slotIds": "Existing BM weapon/device IDs; preserve nulls and enforce weapon minimum mass.",
+    "npcCombat": "Current BM NPCs use only the first compatible combat weapon. Device-only fits are not armed patrols.",
+    "impulseSpeed": "Base player speed in BM engine units, before power distribution.",
+    "handlingTurnRate": "Authored turn base before host mass and visual-size penalties.",
+    "warpRange": "Explicit range; do not derive from price.",
+    "fuelCapacity": "Installed tank capacity; no passive refueling implied."
+  }
 }

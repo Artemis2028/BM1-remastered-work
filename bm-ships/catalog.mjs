@@ -7,7 +7,25 @@ export function createShipCatalog(manifest, sourceMap, sizeConfig) {
     if (!Number.isInteger(ship.id) || byId.has(ship.id)) throw new Error('Invalid or duplicate ship ID');
     byId.set(ship.id, ship);
   }
-  const getShip = id => byId.get(Number(id)) || null;
+  // A merged ID is a reference to one canonical hull, never a second record.
+  // Retirement (26/63) remains distinct from duplicate consolidation.
+  const aliases = manifest.aliases || {};
+  function resolveAlias(id) {
+    let current = Number(id);
+    const seen = new Set();
+    while (Object.prototype.hasOwnProperty.call(aliases, current)) {
+      if (seen.has(current)) throw new Error('Hull alias cycle');
+      seen.add(current);
+      current = aliases[current];
+    }
+    return current;
+  }
+  for (const [id, target] of Object.entries(aliases)) {
+    if (!Number.isInteger(Number(id)) || !Number.isInteger(target) || byId.has(Number(id)) || !byId.has(resolveAlias(id))) {
+      throw new Error(`Invalid hull alias: ${id}`);
+    }
+  }
+  const getShip = id => byId.get(resolveAlias(id)) || null;
   function resolveNewShipId(id) {
     const seen = new Set();
     let ship = getShip(id);
@@ -44,6 +62,10 @@ export function createShipCatalog(manifest, sourceMap, sizeConfig) {
     if (!ship || ship.rosterState !== 'active') return false;
     const role = context.role || 'traffic';
     if (!['traffic', 'patrol', 'localTraffic', 'fleetAttack', 'mission'].includes(role)) return false;
+    // A tractor or scanner does not turn a medical/utility ship into a combatant.
+    // The host derives armedByDefault from its weapon definitions, not slot count.
+    if (['patrol', 'fleetAttack'].includes(role) && (ship.armedByDefault === false
+      || (Array.isArray(ship.defaultWeaponSlots) && !ship.defaultWeaponSlots.some(Boolean)))) return false;
     if (role === 'fleetAttack') {
       if (!context.authorizedDeployment || ship.fleetEligible === false) return false;
     } else if (role === 'mission') {
@@ -66,20 +88,30 @@ export function createShipCatalog(manifest, sourceMap, sizeConfig) {
   function getPurchaseDecision(id, context = {}) {
     const ship = getShip(id);
     if (!ship || ship.rosterState === 'retired') return {allowed: false, reason: 'unavailable'};
-    const explicit = ship.purchaseRequirements?.worldPrestige;
+    const explicit = ship.purchaseRequirements?.factionStanding;
     const configured = context.tierThresholds?.[ship.purchaseTier];
-    const requiredPrestige = explicit ?? configured;
-    // Price and faction standing alone are not world prestige. The target must supply it.
-    if (!Number.isFinite(requiredPrestige) || requiredPrestige < 0) return {allowed: false, reason: 'prestige-threshold-unconfigured'};
-    if (!Number.isFinite(context.worldPrestige) || context.worldPrestige < requiredPrestige) return {allowed: false, reason: 'world-prestige', requiredPrestige};
-    if (ship.rosterState !== 'active' || ship.balanceStatus === 'pending') return {allowed: false, reason: 'balance-pending', requiredPrestige};
+    const requiredStanding = explicit ?? configured;
+    const requiredFaction = ship.purchaseRequirements?.faction || ship.faction || 'neutral';
+    const currentStanding = Number.isFinite(context.standings?.[requiredFaction]) ? context.standings[requiredFaction] : 0;
+    if (!Number.isFinite(requiredStanding) || requiredStanding < 0) return {allowed: false, reason: 'standing-threshold-unconfigured'};
+    if (currentStanding < requiredStanding) return {allowed: false, reason: 'faction-standing', requiredStanding, requiredFaction, currentStanding};
+    if (ship.rosterState !== 'active' || ship.balanceStatus === 'pending') return {allowed: false, reason: 'balance-pending', requiredStanding};
     if (ship.shipyardEligible === false && (!ship.specialVendor || context.vendor !== ship.specialVendor)) return {allowed: false, reason: 'restricted-stock'};
     if (!regionAllows(ship, {...context, role: 'purchase'})) return {allowed: false, reason: 'region'};
     if (!Number.isFinite(ship.cost) || ship.cost <= 0) return {allowed: false, reason: 'price-unconfigured'};
     if (!Number.isFinite(context.credits) || context.credits < ship.cost) return {allowed: false, reason: 'funds'};
-    return {allowed: true, reason: 'eligible', requiredPrestige, price: ship.cost};
+    return {allowed: true, reason: 'eligible', requiredStanding, requiredFaction, currentStanding, price: ship.cost};
   }
-  return {ships, getShip, resolveNewShipId, fromBM2, eligibleForSpawn, spawnPool, getDrawSize, getPurchaseDecision};
+  // Stock eligibility is independent of the captain's money and standing. Locked hulls
+  // remain visible at their proper yard; restricted hulls do not appear at other ports.
+  function eligibleForStock(id, context = {}) {
+    const ship = getShip(id);
+    return Boolean(ship && ship.rosterState === 'active' && ship.balanceStatus !== 'pending'
+      && Number.isFinite(ship.cost) && ship.cost > 0
+      && (ship.shipyardEligible !== false || (ship.specialVendor && ship.specialVendor === context.vendor))
+      && regionAllows(ship, {...context, role: 'purchase'}));
+  }
+  return {ships, aliases, getShip, resolveNewShipId, fromBM2, eligibleForSpawn, spawnPool, getDrawSize, getPurchaseDecision, eligibleForStock};
 }
 
 export async function loadShipCatalog(baseUrl = new URL('.', import.meta.url), fetcher = globalThis.fetch) {

@@ -110,14 +110,13 @@ async function run() {
       });
 
       B.state.latinum = 1e9;
-      B.state.worldPrestige = 100;
       B.state.shipPurchaseTierThresholds = null;
       const rich = catalog.getPurchaseDecision(206, {
-        systemName: 'Blender', credits: 1e9, worldPrestige: 100,
+        systemName: 'Blender', credits: 1e9, standings: {terran:100,dominion:100},
       });
-      probe.missingThresholds = rich.reason;
+      probe.authoredThreshold = rich.reason;
       const excalibur = catalog.getPurchaseDecision(347, {
-        systemName: 'Paso', vendor: 'paso-project-x', credits: 1e9, worldPrestige: 100,
+        systemName: 'Paso', vendor: 'paso-project-x', credits: 1e9, standings: {terran:100,dominion:100},
       });
       probe.excaliburAt100 = excalibur.reason;
       B.state.playership = 26;
@@ -132,14 +131,14 @@ async function run() {
     note(report.owned26 === 26 && report.new26 === 211, 'getShip(26) stays 26; resolveNewShipId(26) is 211');
     note(report.owned63 === 63 && report.new63 == null, 'retired 63 stays loadable and is not a new reference');
     note(String(report.ship60 || '').includes('Concord'), `ship 60 remains independent capital (${report.ship60})`);
-    note(report.excalibur === 'prototype', 'Excalibur remains a prototype');
+    note(report.excalibur === 'active', 'Excalibur is an active balanced hull');
     note(report.draw?.scale === 1 && report.draw.width > 0, `draw profile uses pack size with scale 1 (${JSON.stringify(report.draw)})`);
     note(report.blenderRemnant && report.blenderHeavyBlocked, 'Blender remnant traffic only');
     note(report.dominicaCruiser && report.dominicaBattleshipAmbient === false, 'Dominica core cruiser yes, battleship no ambient');
     note(report.earthGornEmpty, 'Earth Gorn pool stays empty');
     note(report.unauthorizedInvasionEmpty && report.authorizedInvasion, 'invasions require authorizedDeployment');
-    note(report.missingThresholds === 'prestige-threshold-unconfigured', `missing thresholds refuse (${report.missingThresholds})`);
-    note(report.excaliburAt100 === 'balance-pending', `Excalibur at prestige 100 stays unpurchasable (${report.excaliburAt100})`);
+    note(report.authoredThreshold === 'eligible', `explicit authored standing works without host tier configuration (${report.authoredThreshold})`);
+    note(report.excaliburAt100 === 'eligible', `Excalibur is eligible at 100 Terran standing at Project X (${report.excaliburAt100})`);
     note(report.resolvedOwned26 === 26, 'resolveShipId does not remake owned 26');
 
     const godCount = await page.evaluate(() => {

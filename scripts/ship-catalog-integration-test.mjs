@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import {createShipCatalog} from '../bm-ships/catalog.mjs';
 import {
   loadGameShipCatalog,
   mergeCatalogIntoEntities,
@@ -63,6 +64,22 @@ const catalog = await loadGameShipCatalog(pathToFileURL(`${root}/`), fileFetch);
 const overlay = mergeCatalogIntoEntities(remasterEntities, catalog);
 const byId = Object.fromEntries(overlay.map((entity) => [Number(entity.id), entity]));
 
+await check('every explicit station ship reference resolves to our active catalog', () => {
+  const stations = JSON.parse(fs.readFileSync(new URL('../data/stationData.json', import.meta.url))).stations;
+  for (const station of stations) {
+    for (const id of station.stock.shipIds) assert.equal(catalog.getShip(id)?.rosterState, 'active', `${station.id}: ${id}`);
+  }
+  assert.deepEqual(stations.find(s => s.name === 'X-Base').stock.shipIds, [49,347]);
+  assert(stations.find(s => s.name === 'Dominica Check Point').stock.shipIds.includes(216));
+});
+
+await check('empty civilian loadouts can travel but cannot populate military patrols', () => {
+  for (const id of [348,349,350]) {
+    assert(catalog.eligibleForSpawn(id,{role:'traffic'}));
+    assert.equal(catalog.eligibleForSpawn(id,{role:'patrol'}),false);
+  }
+});
+
 await check('catalog loads through the remaster helper (HTTP-shaped fetch, not file:// globals)', () => {
   assert.equal(typeof catalog.getShip, 'function');
   assert.equal(typeof catalog.spawnPool, 'function');
@@ -79,9 +96,9 @@ await check('merge overlays catalog ships and leaves stations/pods untouched', (
   assert.equal(byId[1].fromShipCatalog, true);
   assert.equal(byId[1].faction, catalog.getShip(1).faction);
   assert.equal(byId[211].fromShipCatalog, true);
-  assert.equal(byId[347].rosterState, 'prototype');
-  assert.equal(Object.prototype.hasOwnProperty.call(byId[347], 'hull'), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(byId[347], 'cost'), false);
+  assert.equal(byId[347].rosterState, 'active');
+  assert.equal(Object.prototype.hasOwnProperty.call(byId[347], 'hull'), true);
+  assert.equal(Object.prototype.hasOwnProperty.call(byId[347], 'cost'), true);
 });
 
 await check('getShip stays distinct from resolveNewShipId for 26 and 63', () => {
@@ -104,7 +121,7 @@ await check('ambiguous shipId 60 is never auto-converted to Excalibur', () => {
 
 await check('Blender remnant traffic and Dominion core / reserved rules', () => {
   const blender = pickSpawnShip(catalog, { systemName: 'Blender', role: 'patrol' }, 'dominion').map((s) => s.id);
-  for (const id of [30, 206, 322]) assert(blender.includes(id), `missing Blender remnant ${id}`);
+  for (const id of [206, 322]) assert(blender.includes(id), `missing Blender remnant ${id}`);
   for (const id of [48, 65, 216, 238]) assert(!blender.includes(id), `illegal Blender hull ${id}`);
   assert.equal(isDominionCoreSystem('Dominica'), true);
   assert.equal(isDominionCoreSystem('Blender'), false);
@@ -128,30 +145,33 @@ await check('Blender remnant traffic and Dominion core / reserved rules', () => 
   );
 });
 
-await check('purchase uses real prestige/credits/vendor and refuses missing thresholds', () => {
+await check('purchase uses faction standing/credits/vendor and refuses missing thresholds', () => {
   const rich = buildPurchaseContext({
     systemName: 'Blender',
     credits: 1e9,
-    worldPrestige: 100,
+    standings: {terran:100,dominion:100},
   });
   assert.equal(rich.tierThresholds, undefined);
-  assert.equal(catalog.getPurchaseDecision(206, rich).reason, 'prestige-threshold-unconfigured');
-  assert.match(describePurchaseDecision(catalog.getPurchaseDecision(206, rich), catalog.getShip(206)), /thresholds/);
+  assert.equal(catalog.getPurchaseDecision(206, rich).allowed, true);
+  const noThreshold = createShipCatalog({...json('ships.json'), ships: catalog.ships.map(s => s.id === 206 ? {...s,purchaseRequirements:undefined} : s)}, json('bm2-id-map.json'), json('size-config.json'));
+  assert.equal(noThreshold.getPurchaseDecision(206, rich).reason, 'standing-threshold-unconfigured');
+  assert.match(describePurchaseDecision(noThreshold.getPurchaseDecision(206, rich), catalog.getShip(206)), /not currently offered/);
 
   const withStandingOnly = buildPurchaseContext({
     systemName: 'Blender',
     credits: 1e9,
-    worldPrestige: 0,
+    standings: {},
     tierThresholds: { open: 10 },
   });
-  assert.equal(catalog.getPurchaseDecision(206, withStandingOnly).allowed, false);
+  assert.equal(noThreshold.getPurchaseDecision(206, withStandingOnly).allowed, false);
+  assert.equal(catalog.getPurchaseDecision(206, withStandingOnly).allowed, true); // explicit authored 0 wins over a caller's tier
 
   assert.equal(detectPurchaseVendor({ systemName: 'Paso', stationName: 'X-Base' }), 'paso-project-x');
   const paso = buildPurchaseContext({
     systemName: 'Paso',
     stationName: 'X-Base',
     credits: 1e9,
-    worldPrestige: 100,
+    standings: {terran:100,dominion:100},
     tierThresholds: { unassigned: 0, strategic: 100, military: 50 },
   });
   assert.equal(paso.vendor, 'paso-project-x');
@@ -159,15 +179,15 @@ await check('purchase uses real prestige/credits/vendor and refuses missing thre
   assert.equal(catalog.getPurchaseDecision(49, { ...paso, vendor: undefined, stationName: 'Outpost' }).allowed, false);
 
   assert.equal(catalog.getPurchaseDecision(EXCALIBUR_ID, {
-    worldPrestige: 100,
+    standings: {terran:100,dominion:100},
     credits: 1e9,
     systemName: 'Paso',
     vendor: 'paso-project-x',
-  }).reason, 'balance-pending');
-  assert.equal(isUnbalancedPrototype(catalog.getShip(EXCALIBUR_ID)), true);
+  }).reason, 'eligible');
+  assert.equal(isUnbalancedPrototype(catalog.getShip(EXCALIBUR_ID)), false);
 });
 
-await check('draw sizes are final envelopes and prototypes stay unsized', () => {
+await check('draw sizes are final envelopes including the five newly balanced hulls', () => {
   const size = getCatalogDrawSize(catalog, 1);
   const doubled = catalog.getDrawSize(1, {
     ...json('size-config.json').classScales,
@@ -175,7 +195,7 @@ await check('draw sizes are final envelopes and prototypes stay unsized', () => 
   });
   assert(size.width > 0 && size.height > 0);
   assert.equal(doubled.width, size.width * 2);
-  assert.equal(getCatalogDrawSize(catalog, EXCALIBUR_ID), null);
+  assert.equal(getCatalogDrawSize(catalog, EXCALIBUR_ID).height, 210);
 });
 
 await check('ambient roles never receive authorizedDeployment from the helper', () => {
@@ -209,8 +229,8 @@ await check('catalog JSON and helpers load over HTTP, not file://', async () => 
     const httpCatalog = await loadGameShipCatalog(new URL(`http://127.0.0.1:${port}/bm-ships/`), fetch);
     assert.equal(httpCatalog.getShip(216).id, 216);
     assert.match(httpCatalog.imageUrl(1), /^http:\/\/127\.0\.0\.1/);
-    const decision = httpCatalog.getPurchaseDecision(347, { worldPrestige: 100, credits: 1e9 });
-    assert.equal(decision.reason, 'balance-pending');
+    const decision = httpCatalog.getPurchaseDecision(347, { standings: {terran:100,dominion:100}, credits: 1e9 });
+    assert.equal(decision.reason, 'restricted-stock');
     const blender = httpCatalog.spawnPool({ systemName: 'Blender', role: 'patrol' }, 'dominion').map((s) => s.id);
     assert(blender.includes(206));
     assert(!blender.includes(216));

@@ -13,12 +13,12 @@ const catalog = createShipCatalog(manifest, map, sizes);
 const byPath = new Map(assets.map(asset => [asset.path, asset]));
 let checks = 0;
 function check(name, fn) { fn(); checks++; console.log(`PASS ${name}`); }
-check('212 distinct records; 205 active, two retired and five unbalanced prototypes', () => {
-  assert.equal(manifest.ships.length, 212);
-  assert.equal(manifest.ships.filter(s => s.rosterState === 'active').length, 205);
+check('174 distinct records; 172 active and two retired', () => {
+  assert.equal(manifest.ships.length, 174);
+  assert.equal(manifest.ships.filter(s => s.rosterState === 'active').length, 172);
   assert.equal(manifest.ships.filter(s => s.rosterState === 'retired').length, 2);
-  assert.equal(manifest.ships.filter(s => s.rosterState === 'prototype').length, 5);
-  assert.equal(new Set(manifest.ships.map(s => s.key)).size, 212);
+  assert.equal(manifest.ships.filter(s => s.rosterState === 'prototype').length, 0);
+  assert.equal(new Set(manifest.ships.map(s => s.key)).size, 174);
   assert(manifest.ships.every(s => s.assetType === 'ship' && !(s.id >= 70 && s.id <= 205)));
 });
 check('All 152 BM2 source IDs resolve; Galaxy Dreadnaught maps to 49, not 60', () => {
@@ -59,15 +59,16 @@ check('Excalibur, independent capital and Galaxy Dreadnaught are distinct', () =
   const [galaxy, independent, excalibur] = [49,60,347].map(catalog.getShip);
   assert.equal(new Set([galaxy.image, independent.image, excalibur.image]).size, 3);
   assert.equal(independent.faction, 'neutral'); assert.equal(excalibur.faction, 'terran');
-  assert.equal(excalibur.purchaseRequirements.worldPrestige, 100);
+  assert.equal(excalibur.purchaseRequirements.factionStanding, 100);
 });
-check('Explicitly retained new artwork is present without fabricated combat stats', () => {
+check('Five approved hulls have full balance; civilian shuttles start with empty armable slots', () => {
   for(const id of [347,348,349,350,351]) {
-    const ship=catalog.getShip(id); assert.equal(ship.rosterState,'prototype');
-    assert.equal(ship.hull,undefined);assert.equal(ship.cost,undefined);
-    assert.equal(catalog.eligibleForSpawn(id),false);
+    const ship=catalog.getShip(id); assert.equal(ship.rosterState,'active');
+    assert(ship.hull > 0 && ship.shields > 0 && ship.cost > 0 && ship.mass > 0);
+    assert.equal(ship.defaultWeaponSlots.length,3);
   }
-  assert.equal(catalog.getShip(351).progression.afterShipId,39);
+  for (const id of [348,349,350]) assert.deepEqual(catalog.getShip(id).defaultWeaponSlots,[null,null,null]);
+  assert.equal(catalog.getShip(351).progression.afterShipId,330);
 });
 check('Blender gets scouts/fighters, not Dominion cruisers or battleships', () => {
   const context={systemName:'Blender',role:'patrol'};
@@ -91,16 +92,17 @@ check('No illegal fallback when a faction has no permitted local hulls', () => {
   assert.deepEqual(catalog.spawnPool({systemName:'Earth',role:'traffic'},'gorn'),[]);
   assert.deepEqual(catalog.spawnPool({systemName:'Earth',role:'traffic'},'not-a-faction'),[]);
 });
-check('World prestige is required independently of money; unknown thresholds fail closed', () => {
-  assert.equal(catalog.getPurchaseDecision(206,{systemName:'Blender',credits:1e9,worldPrestige:100}).reason,'prestige-threshold-unconfigured');
-  const context={systemName:'Blender',credits:1e9,tierThresholds:{open:10}};
-  assert.equal(catalog.getPurchaseDecision(206,{...context,worldPrestige:9}).allowed,false);
-  assert.equal(catalog.getPurchaseDecision(206,{...context,worldPrestige:10}).allowed,true);
-  assert.equal(catalog.getPurchaseDecision(347,{worldPrestige:99,credits:1e9}).reason,'world-prestige');
-  assert.equal(catalog.getPurchaseDecision(347,{worldPrestige:100,credits:1e9}).reason,'balance-pending');
+check('Faction standing travels with the captain; credits and another faction cannot substitute', () => {
+  const c={systemName:'Paso',vendor:'paso-project-x',credits:1e9};
+  assert.equal(catalog.getPurchaseDecision(206,{systemName:'Blender',credits:1e9,standings:{dominion:0}}).allowed,true);
+  const noThreshold = createShipCatalog({...manifest, ships: manifest.ships.map(s => s.id === 206 ? {...s, purchaseRequirements:undefined} : s)}, map, sizes);
+  assert.equal(noThreshold.getPurchaseDecision(206,{systemName:'Blender',credits:1e9,standings:{dominion:100}}).reason,'standing-threshold-unconfigured');
+  assert.equal(catalog.getPurchaseDecision(347,{...c,standings:{terran:99,ferengi:100}}).allowed,false);
+  assert.equal(catalog.getPurchaseDecision(347,{...c,standings:{terran:100}}).allowed,true);
+  assert.equal(catalog.getPurchaseDecision(347,{...c,standings:{terran:100},credits:1}).reason,'funds');
 });
 check('Secret stock and regional sales require the corresponding vendor/context', () => {
-  const c={credits:1e9,worldPrestige:100,tierThresholds:{unassigned:0,strategic:100,military:50}};
+  const c={credits:1e9,standings:{terran:100,dominion:100},tierThresholds:{unassigned:0,strategic:100,military:50}};
   assert.equal(catalog.getPurchaseDecision(49,{...c,systemName:'Paso'}).allowed,false);
   assert.equal(catalog.getPurchaseDecision(49,{...c,systemName:'Paso',vendor:'paso-project-x'}).allowed,true);
   assert.equal(catalog.getPurchaseDecision(216,{...c,systemName:'Blender'}).allowed,false);

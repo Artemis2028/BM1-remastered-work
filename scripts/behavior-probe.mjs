@@ -234,8 +234,8 @@ async function scenarioRunner() {
   clearNpcs(); clearShots();
   const target = spawn(9004, 320);
   s.originalShipWeaponSlots = s.originalShipWeaponSlots || {};
-  const savedSlots2 = s.originalShipWeaponSlots[2];
-  s.originalShipWeaponSlots[2] = [15]; // Photon Torpedo: a tracking projectile, so credit must ride the shot
+  const savedSlots2 = s.shipStatsById[2].defaultWeaponSlots;
+  s.shipStatsById[2].defaultWeaponSlots = [15, null, null]; // explicit live catalog fixture: projectile credit must ride the shot
   const escort = spawn(9005, 40, { shipId: 2, faction: s.playerFaction, attitude: 'friendly', hostile: false, role: 'playerEscort', fleetId: 'probe-escort' });
   const escortWeapon = B.getWeapon(B.getDefaultWeaponId(escort.shipId, escort.faction, true));
   need(escortWeapon.type === 'Torpedo', `S1d fixture: escort weapon is ${escortWeapon.name} (${escortWeapon.type}), expected a Torpedo`);
@@ -249,9 +249,15 @@ async function scenarioRunner() {
   const shot = (s.projectiles || []).find((p) => p.targetId === target.id);
   need(shot, 'S1d fixture: escort produced no projectile aimed at the target');
   escort.lastShotAt = performance.now() + 1e9; // one shot only; the escort AI must not fire again during flight
-  for (let i = 0; i < 400 && !target.destroyed; i++) { B.tick(1); await sleep(16); }
+  // This case tests projectile credit, not evasive maneuvers. Keep the victim at
+  // the launch distance; the separate S2 cases exercise moving/pursuing ships.
+  const impactFixture = { x: target.x, y: target.y };
+  for (let i = 0; i < 400 && !target.destroyed; i++) {
+    target.x = impactFixture.x; target.y = impactFixture.y;
+    B.tick(1); await sleep(16);
+  }
   s.stations = savedStations;
-  s.originalShipWeaponSlots[2] = savedSlots2;
+  s.shipStatsById[2].defaultWeaponSlots = savedSlots2;
   out.escortProjectileKill = {
     shotOwner: shot?.owner, shotCredit: shot?.creditSource, lastDamageSource: target.lastDamageSource,
     destroyed: !!target.destroyed, latinumDelta: s.latinum - latinum, standingDelta: standing('klingon') - kl,
@@ -301,8 +307,8 @@ async function scenarioRunner() {
   clearNpcs(); clearShots();
   s.factionStanding = s.factionStanding || {};
   s.factionStanding.klingon = -60;
-  const savedSlots1 = s.originalShipWeaponSlots[1];
-  s.originalShipWeaponSlots[1] = [1]; // Type X Phaser: a beam, so impact is instant and stop-on-fire is valid
+  const savedSlots1 = s.shipStatsById[1].defaultWeaponSlots;
+  s.shipStatsById[1].defaultWeaponSlots = [1, null, null]; // explicit beam fixture, so impact is instant
   const hunter = spawn(9003, 4000);
   const hunterWeapon = B.getWeapon(B.getDefaultWeaponId(hunter.shipId, hunter.faction, true));
   need(hunterWeapon.type === 'Beam', `S2 fixture: hunter weapon is ${hunterWeapon.name} (${hunterWeapon.type}), expected a Beam`);
@@ -330,7 +336,7 @@ async function scenarioRunner() {
   const nearDistance = Math.round(weaponRange * 0.5);
   out.near = { distance: nearDistance, ...(await runPhase(nearDistance, 4000, true)) };
   s.stations = stationsAside;
-  s.originalShipWeaponSlots[1] = savedSlots1;
+  s.shipStatsById[1].defaultWeaponSlots = savedSlots1;
 
   out.stage = 'S3';
   // ---------- S3: political authority ----------
@@ -605,7 +611,7 @@ async function scenarioRunner() {
   enterKeep(home);
   // An explicitly constructed Zzyx-Council patrol placed in the cached snapshot: restoration must not
   // re-fit its hull, faction or side to the current holder.
-  const zzShip = B.createNpcShip({ id: 'probe-zz-patrol', shipId: 3, faction: 'neutral', seed: 77, from: pAt(500), role: 'patrol', sideId: 'Zzyx-Council' });
+  const zzShip = B.createNpcShip({ id: 'probe-zz-patrol', shipId: 305, faction: 'neutral', seed: 77, from: pAt(500), role: 'patrol', sideId: 'Zzyx-Council' });
   s.systemStates[home].npcShips.push({ ...zzShip, destination: { ...zzShip.destination }, waitUntil: 0 });
   enterKeep(home); // restore once so the baseline includes the constructed ship
   const identity = (list) => list.filter((n) => !n.destroyed && !B.isPlayerSideNpc(n)).map((n) => ({ id: n.id, shipId: n.shipId, faction: n.faction, side: B.getNpcSideId(n) }));
@@ -1496,7 +1502,7 @@ try {
     ['S3h station owners and flags survive reload and re-entry', g(r.persistence).ownersAfterReload?.gov === 'player' && r.persistence.ownersAfterReload.foreign === 'vulcan' && r.persistence.ownersAfterReload.priv === 'private:probe-private-1' && r.persistence.runtime?.govOwned && r.persistence.runtime.govFlag === 'klingon' && r.persistence.runtime.foreignFlag === 'vulcan' && !r.persistence.runtime.foreignOwned],
     ['S3h legacy save without ownership records migrates to the expected owners', g(r.migration).hadRecords && r.migration.recordsRebuilt && r.migration.homeGov === 'player' && r.migration.foreignRecorded === null && r.migration.foreignResolved === 'vulcan' && r.migration.privateResolved === 'private:probe-private-1' && r.migration.bajoraGov],
     ['S3k cached re-entry keeps existing ship id, hull, faction and side across return and change of holder', g(r.cachedReentry).ships > 0 && r.cachedReentry.sameAfterReturn && r.cachedReentry.sameAfterCapture && r.cachedReentry.holderDuring === 'romulan'],
-    ['S3k a constructed custom-polity ship in the snapshot is not re-fitted on restoration', g(r.cachedReentry).zz?.shipId === 3 && r.cachedReentry.zz.faction === 'neutral' && r.cachedReentry.zz.side === 'Zzyx-Council'],
+    ['S3k a constructed custom-polity ship in the snapshot is not re-fitted on restoration', g(r.cachedReentry).zz?.shipId === 305 && r.cachedReentry.zz.faction === 'neutral' && r.cachedReentry.zz.side === 'Zzyx-Council'],
     ['S3l flying the holder flag is not control, but grants faction access', g(r.sameFlagAuthority).playerFlag === 'klingon' && r.sameFlagAuthority.controller === 'klingon' && r.sameFlagAuthority.controlled === false && r.sameFlagAuthority.claimLabel !== 'Controlled' && r.sameFlagAuthority.access === true],
     ['S3j an alliance does not excuse a witnessed attack (Vulcan fires on Terran station)', g(r.alliedAggression).aligned && r.alliedAggression.attacker === false && r.alliedAggression.turretTarget === false && r.alliedAggression.firedAt === 'terran' && r.alliedAggression.attackerAfter && r.alliedAggression.turretTargetAfter && r.alliedAggression.patrolSelects],
     ['S3j fleet accounting follows the same rule: allied patrol and station count only after the attack', g(r.alliedAggression).fleet?.patrol === false && r.alliedAggression.fleet.station === false && r.alliedAggression.fleetAfter?.patrol === true && r.alliedAggression.fleetAfter.station === true],

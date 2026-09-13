@@ -1,10 +1,8 @@
 /**
  * First browser-game wiring for the standalone `bm-ships/` content pack.
  *
- * This module does not invent combat stats, prices, draw sizes, prestige UI,
- * or purchase-tier thresholds. It only adapts pack helpers to remaster
- * call sites. Phase 3 / boarding / repair / workbee / civil-war / Reman-quest
- * features stay out of scope.
+ * Adapts the reviewed pack to engine call sites. Balance is in the pack;
+ * faction standing tuning is in ship-economy.mjs.
  */
 import { loadShipCatalog } from '../bm-ships/catalog.mjs';
 
@@ -49,10 +47,10 @@ export function detectPurchaseVendor({ systemName = '', stationName = '', vendor
   if (system === 'paso' && (station.includes('x-base') || station.includes('project x'))) {
     return 'paso-project-x';
   }
-  if (system === 'remus' && (station.includes('secret') || station.includes('remus-secret'))) {
+  if (system === 'remus' && (station.includes('secret') || station.includes('reman starbase'))) {
     return 'remus-secret';
   }
-  // Do not invent an independent-endgame vendor, mission, or UI.
+  if (system === 'new switzerland' && station === 'free swiss reserve exchange') return 'independent-endgame';
   return null;
 }
 
@@ -83,15 +81,16 @@ export function buildPurchaseContext({
   stationName = '',
   vendor = null,
   credits,
-  worldPrestige,
+  standings,
   tierThresholds,
 } = {}) {
   const context = {
     systemName: String(systemName || '').trim(),
     role: 'purchase',
     credits,
-    worldPrestige,
+    standings,
   };
+  if (isDominionCoreSystem(context.systemName)) context.region = 'dominion-core';
   const detectedVendor = detectPurchaseVendor({ systemName, stationName, vendor });
   if (detectedVendor) context.vendor = detectedVendor;
   // Missing thresholds must refuse. Never invent {unassigned:0} or similar.
@@ -99,7 +98,7 @@ export function buildPurchaseContext({
   return context;
 }
 
-/** Owned / saved hulls stay themselves. Do not follow replacementId. */
+/** Merge aliases resolve to one hull. Retired records still do not follow replacementId. */
 export function resolveOwnedShipId(catalog, id) {
   const numericId = Number(id);
   if (!Number.isFinite(numericId)) return id;
@@ -165,10 +164,10 @@ export function describePurchaseDecision(decision, ship = {}) {
       return 'Ready to purchase.';
     case 'unavailable':
       return `${name} is not available.`;
-    case 'prestige-threshold-unconfigured':
-      return `${name} cannot be sold until this project supplies purchase-tier world-prestige thresholds.`;
-    case 'world-prestige':
-      return `Need ${decision.requiredPrestige} world prestige to buy ${name}. Money alone is not enough.`;
+    case 'standing-threshold-unconfigured':
+      return `${name} is not currently offered for sale.`;
+    case 'faction-standing':
+      return `Need ${decision.requiredStanding} ${decision.requiredFaction === 'neutral' ? 'independent trade' : decision.requiredFaction} standing to buy ${name} (yours: ${decision.currentStanding}).`;
     case 'balance-pending':
       return `${name} is an unfinished prototype; price and combat stats are unset.`;
     case 'restricted-stock':
@@ -193,8 +192,9 @@ export function mergeCatalogIntoEntities(entities = [], catalog) {
     const id = Number(entity.id);
     const catalogShip = catalog?.getShip?.(id);
     if (catalogShip && entity.assetType !== 'station' && entity.assetType !== 'pod') {
+      if (seen.has(catalogShip.id)) continue;
       merged.push(overlayCatalogShip(entity, catalogShip, catalog));
-      seen.add(id);
+      seen.add(catalogShip.id);
       continue;
     }
     merged.push({ ...entity });

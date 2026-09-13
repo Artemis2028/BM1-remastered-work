@@ -1,34 +1,21 @@
 # BM1 / BM2 — standalone ships content pack
 
-Exported 12 September 2026 from integrated snapshot `030155d`, with the later
-approved hull/art review applied. This is an **additive, engine-independent
-content patch**, not a replacement game or a ready-wired engine update.
+Full roster balance reviewed 13 September 2026 (`full-roster-v2`). This folder remains an engine-independent content
+pack. The surrounding remaster now wires it into spawning, rendering, stock,
+equipment and faction-standing purchase checks. See `../docs/SHIP-ECONOMY-REVIEW.md`.
 
-## Install in a separate project
-
-Unzip the deliverable outside your project. At the destination project root:
-
-```sh
-git apply --check /path/to/BM1-BM2-SHIPS-ONLY.patch
-git apply /path/to/BM1-BM2-SHIPS-ONLY.patch
-node bm-ships/validate.mjs
-```
-
-The patch adds only `bm-ships/`. It requires no BM1/Claude commit or history and
-can be applied to an empty Git repository. It never overwrites `src/main.js`,
-world data, stations, weapons, saves, service workers or checkpoint code.
-Stop if that folder already exists; do not force an overwrite. Numeric IDs are
-pack-local: use `bm-ship:<id>` keys or explicitly remap them in another engine.
+To reuse it in another project, copy the **whole `bm-ships/` folder** and call
+its helpers over HTTP. Numeric IDs are pack-local; use the stable `bm-ship:<id>`
+keys when mapping to another engine. The folder alone does not implement gameplay.
 
 ## Contents
 
-- **212 records:** the 207-record combined roster plus five retained candidates.
-- **205 active baseline records**, two retired compatibility records, five
-  unbalanced prototypes. “Active” means usable content, not unrestricted stock.
+- **174 canonical records:** 38 approved duplicate pairs merged; five variant pairs retained.
+- **172 active records** and two retired compatibility records. “Active” means usable content, not unrestricted stock.
 - All **152 BM2 source IDs** map to a record. Distinct BM2 variants remain distinct.
-- **204 unique images**, approximately 259 MB of image bytes. Byte-identical art
+- Content-addressed images with checksums in `assets.json`. Byte-identical art
   shares a content-addressed asset; this does not merge distinct hull records.
-- Descriptions, explicit factions, imported stats, game-size envelopes, crop
+- Descriptions, explicit factions, reviewed stats, game-size envelopes, crop
   rectangles, regional/market metadata, review decisions and source provenance.
 - Dependency-free JavaScript helpers and a Node validation suite.
 
@@ -43,19 +30,21 @@ resampling or sprite rotations were performed for this export.
 |---|---|
 | Vulcan Explorer 26 | Retired for new references; `resolveNewShipId(26)` returns 211. Record remains loadable. |
 | Vulcan Lifeform 63 | Retired/reserved; no new traffic or sales; old record preserved. |
-| Ferengi Shuttle 18 | Approved high-quality BM2 shuttle art replaces the generic grey shuttle. |
+| Ferengi Shuttle 316 (formerly 18) | Approved high-quality BM2 shuttle art replaces the generic grey shuttle. |
 | Galaxy Dreadnaught 49 | Correct three-nacelle BM2 art; BM2 source 49 now maps to 49, not 60. Paso Project X stock metadata. |
-| Independent capital 60 | Separate `civmega.gif` identity, neutral/civilian; proposed name Concord-class Grand Cruiser. |
-| Excalibur 347 | Separate authentic Excalibur image, Terran, Paso Project X, 100 world prestige; final combat stats, price and size remain unset. |
-| Additional candidates 348–351 | Andorian Cargo Shuttle, unassigned utility shuttle, Basic Shuttle, second-step Klingon Bird of Prey. Kept but disabled until balancing. |
+| Independent capital 60 | Separate `civmega.gif` identity, neutral/civilian; Concord-class Grand Cruiser; 100 independent trade standing. |
+| Excalibur 347 | Separate authentic Excalibur image, Terran, Paso Project X, 100 Terran standing; 1,500,000 latinum, with approved hull/shields/cargo. |
+| Additional hulls 348–351 | Andorian Cargo Shuttle, unassigned utility shuttle, Basic Shuttle, second-step Klingon Bird of Prey. Balanced and enabled; utility/basic shuttles are in independent service. |
 | Cargo Ship 3 | No additional hull: its art belongs to the existing Vega identity. Kingston's `cargo3.gif` is separate. |
 | Klingon Cargo Ship 239 | Approved ship artwork retained. |
 | Dominion Cruiser 216 | Present; based around Dominica/Gamma, not routine Blender traffic. |
 
-The new Klingon hull is above B'rel in the intended early progression; its exact
-class name, values and size are still open. The utility/basic shuttle factions
-are not fabricated from filenames. Station art previously mistaken for ships
-is not added as pilotable hulls.
+The new Klingon hull is above B'rel and below K'Vort in price and durability.
+Its faithful nose-up PSD master is borrowed from Claude's bundle without changing
+our hull ID. The other reviewed art and existing draw envelopes remain intact.
+The utility shuttle's original design/faction remains unidentified; independent
+service is provisional, not a claim based on its filename. Station artwork is
+not added as pilotable ships.
 
 ## Using it in a browser game
 
@@ -77,7 +66,7 @@ ctx.drawImage(image, b.sx, b.sy, b.sw, b.sh,
 Draw dimensions are final baseline dimensions; **do not multiply them by the
 class scale again**. `getDrawSize` can apply a requested class-scale ratio.
 Reviewed register envelopes are preferred where mapped; otherwise the compact
-integrated ladder is retained. Prototypes return `null` until a size is chosen.
+integrated ladder is retained. The five newly balanced hulls now have explicit envelopes too.
 
 For NPC spawning, use `spawnPool(context, faction)`; an empty legal pool remains
 empty. Pass `{systemName: 'Blender', role: 'patrol'}` for remnant traffic,
@@ -91,43 +80,89 @@ content availability rule, not a claim about who politically holds a system.
 
 ## Purchases and balancing
 
-`getPurchaseDecision` takes real `worldPrestige`, credits, vendor and region.
-Money alone never substitutes for prestige. Excalibur's threshold is 100.
-Other `purchaseTier` thresholds must be supplied by the destination project in
-`tierThresholds`; missing thresholds refuse the sale rather than inventing an
-economy. Examples in tests use fixture thresholds, not balance recommendations.
+`getPurchaseDecision` takes `standings` (an object keyed by faction), credits,
+vendor and region. The required faction is the hull's faction unless explicitly
+overridden in `purchaseRequirements.faction`. An explicit
+`purchaseRequirements.factionStanding` overrides the tier threshold.
 
-Special vendor checks do not create a vendor, mission or UI. Other faction,
-docking, ownership, capacity and quest restrictions still belong in the engine.
-The imported Reman Warbird access-recovery quest is not implemented here.
-Excalibur remains a prototype even with 100 prestige because price/stats are unset.
+The remaster's initial tier ladder (`src/ship-economy.mjs`) is open 0, trusted 15,
+respected 30, military 50, strategic 75. Excalibur and Concord require 100.
+All 172 active records now have explicit standing requirements, so another host
+does not need to invent tier thresholds. A future record with neither an explicit
+requirement nor a configured tier still refuses the sale.
+`eligibleForStock` checks content availability separately so a locked design
+remains visible in its proper shop. Neither helper changes ownership or flags.
 
-## Save compatibility
+World locations still determine stock: Project X in Paso carries 49/347, the
+Free Swiss Reserve Exchange carries Concord, and the Reman Starbase in Remus
+carries the Reman Warbird. Dominion heavy stock stays in the core region.
 
-Keep `getShip` distinct from `resolveNewShipId`: existing owned ships must not
-be deleted or silently refitted when new-spawn lists change. For 26→211, preserve
-the instance, owner, equipment and damage and explicitly decide how changed
-maximum hull/shields are migrated. For retired 63, preserve the legacy instance.
+Every active record has exactly three `defaultWeaponSlots`, including explicit
+nulls. Civilian shuttles and several transports begin empty; the Olympic carries
+utility devices but no combat weapon. That is an armable loadout, not a ban on weapons. The host
+must preserve those slots and permit compatible weapons to be installed later.
 
-An old save containing `shipId: 60` is ambiguous if it was created by the faulty
-Excalibur=60 export. Use save-version provenance or ask the player; do not
-automatically convert every independent capital into an Excalibur.
+`getShip` retains exact identity; `resolveNewShipId` follows only new-reference
+aliases. No legacy save migration was added for this integration.
 
 ## Not included
 
 Claude Phase 3 security/checkpoint logic; station/weapon rosters; repair arms;
 scaffolding/workbees; capture/boarding; ship-to-ship player transfer; away-team
-XP; civil wars; prestige UI; world/shipyard stock rewriting. These are separate
-engine features, not implied by adding the content folder.
+XP; civil wars; Reman access-recovery quest. Those are separate features. The
+remaster integration contains standing UI and station stock updates; copying
+this content folder alone does not copy that engine code.
 
 ## Validation and rights
 
 Run `node bm-ships/validate.mjs` with a modern Node release. It checks hashes,
 paths, crops, IDs, mappings, retirement, regional restrictions, sizing and
-prestige-helper behavior. This export was also checked by decoding every image
-and applying the binary patch into a clean test repository. It has **not** been
+standing-helper behavior. This export was also checked by decoding every image
+in the source audit. It has **not** been
 integrated or playtested in your unspecified separate project.
 
 See `SOURCE-NOTICE.md`. Original game/assets are attributed to Vexxiang; remaster
 assets retain their source provenance. This export does not grant additional
 rights to publish or redistribute third-party artwork.
+
+## Approved duplicate merges (13 September 2026)
+
+`ships.json` is the authored source for hulls. `data/starship_manifest.json` is
+generated by `node scripts/sync-ship-roster.mjs`; do not tune a second copy.
+The 38 old IDs are aliases, not extra ships in stock, traffic or the ship selector.
+Both variants remain for Ambassador, Akira, Sovereign, Negh’Var and Steamrunner.
+See `../docs/APPROVED-HULL-MERGES.md` for artwork, price and loadout choices.
+
+## Full roster balance v2
+
+`ships.json` remains the single authored runtime roster. The compatibility
+manifest is generated; the TSV in `docs/ship-balance/` is the dated review ledger,
+not another database loaded by the engine. Future tuning belongs in `ships.json`.
+This pass supersedes the older price exceptions where they broke progression.
+Defiant remains 62,500, Excalibur 1,500,000 and Concord 1,050,000 latinum.
+
+- `role` and the current description explain the configured ship. Original
+  wording, former values, rationale and lore source keys are in `balanceReview`.
+- `cost`, `purchaseRequirements.factionStanding`, hull, shields, cargo, mass,
+  speed, turning, range, reserve and starting fit are individually reviewed.
+- `topSpeed` is the displayed/NPC cruise rating. `impulseSpeed` is the base player
+  speed in BM engine units, before power distribution; it avoids the old /4 cap.
+- `handlingTurnRate` is the authored turn base before existing mass/visual-size
+  penalties. `warpRange` is explicit and does not change when a ship is repriced.
+- `fuelCapacity` is the tank capacity used when a hull is installed. It is not
+  the misleading legacy `antimatterUse` field and does not imply fuel generation.
+- `armedByDefault` distinguishes combat weapons from devices. Utility craft can
+  travel but do not populate armed patrol/invasion pools. Existing NPC combat
+  fires the first compatible combat weapon; it does not fire all three slots.
+- Ordinary huge flagships are removed from ambient traffic. Their authorized
+  fleet deployment and purchase restrictions remain separate.
+
+The remaster needs the accompanying engine patch for the new impulse, handling
+and fuel fields. Other projects must adapt these fields to their own units and
+honor the three slots and weapon mass requirements. This content pack does not
+itself implement weapons, boarding, construction or checkpoint AI.
+
+See `../docs/ship-balance/BALANCE-REVIEW.md` and `LORE-SOURCES.md`. Validation now
+includes `npm run test:ships:balance`, which exercises all 172 hulls through the
+actual engine and checks progression and same-market capability dominance.
+Numbers are a coherent first balance pass, not a substitute for campaign playtesting.

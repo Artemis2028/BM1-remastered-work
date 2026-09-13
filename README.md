@@ -4,7 +4,11 @@ A self-contained remastered browser version of Vexxiang's `FlashTrek: Broken Mir
 
 The game runs as static files: no backend, install step, or npm dependencies are required for ordinary play.
 
-BM1 systems ported in: Episode 1 Imperial War intro crawl, 66-ship BM1 fleet, OPS power distribution, faction prestige and flag-claiming, fleet orders (Shift+1..8), alert status, ship scanning, bottom control dock, and BM1 keyboard shortcuts.
+BM1 systems ported in: Episode 1 Imperial War intro crawl, reviewed BM1/BM2 fleet, OPS power distribution, faction prestige and flag-claiming, fleet orders (Shift+1..8), alert status, ship scanning, bottom control dock, and BM1 keyboard shortcuts.
+
+See [the ship integration and balance review](docs/SHIP-ECONOMY-REVIEW.md) for faction-standing gates, the added hulls and the current validation commands.
+
+The [game roadmap](docs/BM1-GAME-ROADMAP.md) records implemented features, agreed next work, and open design decisions across ships, boarding, equipment, stations, security and politics.
 
 ## Play Locally
 

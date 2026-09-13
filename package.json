@@ -12,7 +12,11 @@
     "probe": "node scripts/behavior-probe.mjs",
     "validate:ships": "node bm-ships/validate.mjs",
     "test:ships": "node scripts/ship-catalog-integration-test.mjs",
-    "test:ships:ingame": "node scripts/ship-catalog-ingame-smoke.mjs"
+    "test:ships:ingame": "node scripts/ship-catalog-ingame-smoke.mjs",
+    "test:ships:economy": "node scripts/ship-economy-probe.mjs",
+    "test:ships:merges": "node scripts/hull-merge-probe.mjs",
+    "test:ships:balance": "node scripts/ship-balance-probe.mjs",
+    "check:ship-manifest": "node scripts/sync-ship-roster.mjs --check"
   },
   "license": "SEE LICENSE IN LICENSE.md",
   "devDependencies": {
