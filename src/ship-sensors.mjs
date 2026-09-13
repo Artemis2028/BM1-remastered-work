@@ -224,18 +224,18 @@ export class SensorWorld {
       if (!buckets.has(k)) buckets.set(k, []);
       buckets.get(k).push(a);
     }
-    const maxSignature = Math.max(1, ...actors.map(a => a.signature)),
-      maxRadius = Math.max(0, ...actors.map(a => a.radius || 0)),
-      maxEmission = Math.max(0, ...actors.filter(a => a.emitting).map(a => a.active * 2));
+    let maxSignature = 1, maxRadius = 0, maxEmission = 0, jamEmissionReach = 0;
+    const jammers = [];
+    for (const a of actors) {
+      if (a.signature > maxSignature) maxSignature = a.signature;
+      if ((a.radius || 0) > maxRadius) maxRadius = a.radius || 0;
+      if (a.emitting) maxEmission = Math.max(maxEmission, a.active * 2);
+      if (a.jammerStrength > 0) jammers.push(a);
+      if (a.jammerEmitting) jamEmissionReach = Math.max(jamEmissionReach, a.jammerRadius * 2);
+    }
     const direct = new Map(),
       directCues = new Map();
     const byKey = new Map(actors.map(a => [a.key, a]));
-    const jammers=[];
-    let jamEmissionReach=0;
-    for(const a of actors){
-      if(a.jammerStrength>0)jammers.push(a);
-      if(a.jammerEmitting)jamEmissionReach=Math.max(jamEmissionReach,a.jammerRadius*2);
-    }
     if(jammers.length>1)jammers.sort((a,b)=>a.key.localeCompare(b.key));
     const jamBuckets=new Map();
     let maxJamRadius=0, nearby=null, jammerPairs=0;
@@ -323,9 +323,11 @@ export class SensorWorld {
     }
     if (profile) profile.detectMs = (profile.detectMs || 0) + performance.now() - detectStart;
     const shareStart = profile ? performance.now() : 0;
+    let observerCount = 0;
     const observersBySide = new Map();
     for (const a of actors) {
       if (!a.observer) continue;
+      observerCount++;
       let list = observersBySide.get(a.side);
       if (!list) {
         list = [];
@@ -349,15 +351,19 @@ export class SensorWorld {
           };
         }
       }
-      // Local observations already have this pass's newest position. For each missing
-      // target, the first direct peer report suffices; shared reports never relay.
+      // Local observations already have this pass's newest position. Walk peers
+      // in actor order so the first direct report still wins; do not scan every
+      // actor, and do not write into `direct` (that would relay).
       const ownReports = direct.get(o.key);
-      for (const target of actors) {
-        if (target.key === o.key || ownReports.has(target.key)) continue;
-        for (const source of peers) {
-          const report = direct.get(source.key)?.get(target.key);
-          if (!report) continue;
-          const c = record(map, target.key);
+      const have = new Set(ownReports.keys());
+      have.add(o.key);
+      for (const source of peers) {
+        const reports = direct.get(source.key);
+        if (!reports) continue;
+        for (const [key, report] of reports) {
+          if (have.has(key)) continue;
+          have.add(key);
+          const c = record(map, key);
           c.position ||= {
             x: 0,
             y: 0
@@ -369,7 +375,6 @@ export class SensorWorld {
           c.jammerAt = report.jammerAt;
           c.source = 'shared';
           c.sourceObserver = source.key;
-          break;
         }
       }
       for (const [key, c] of map) {
@@ -384,7 +389,7 @@ export class SensorWorld {
     }
     if (profile) profile.shareMs = (profile.shareMs || 0) + performance.now() - shareStart;
     this.metrics = {
-      observers: actors.filter(a => a.observer).length,
+      observers: observerCount,
       actors: actors.length,
       pairs, jammerPairs
     };
