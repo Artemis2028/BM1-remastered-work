@@ -87,6 +87,10 @@ export function fundElectronics(power, sensors, profile, ew, dt, input={}) {
     net:(power.telemetry?.net||0)-extra,
     spilled:Math.max(0,remaining-(input.capacity||Infinity))/dt};
 }
+export const CLEAR_RECEPTION = Object.freeze({
+  noise: 0, quality: 1, externalNoise: 0,
+  own: Object.freeze([]), ownNoise: 0, selfNoise: 0
+});
 export function receiverEW(observer, emitters) {
   let squares=0,ownSquares=0,selfSquares=0; const own=[];
   for(const j of emitters){

@@ -1,0 +1,33 @@
+# Rerunnable four-tree passMs timing
+# Host class: supplementary unless cpu matches Platinum 8573C
+# Pinned harness: /workspace/scripts/ew-frame-benchmark.mjs
+# Harness sha256: 7aee098732a6bd0f8332cc10e60f3d07503cd80f2e789bd3ccb76c84a3e4d629
+# Pinned trees:
+#   A  pre-sensor / OPS     6958f08e73aff55efbf48bae3f9433e5acc270e8
+#   B  sensors              e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b
+#   C1 noise/ECCM           74caf837c7882a86e3bd7c74f083029453953c1a
+#   C2 review tip           969668e2558b046d4996b82d5f13153f435940ec
+# Gate: passMs p95<=2ms p99<=4ms
+# Cumulative frame: tick p95(C2) - tick p95(A) <= 2ms
+# Pre-sensor + --passes must report sensor-pass metrics as not applicable, never zero.
+
+HARNESS=/workspace/scripts/ew-frame-benchmark.mjs
+RECEIPT_DIR=docs/ew/receipts
+STAMP=passms-20260913
+
+# A — frame baseline; sensor-pass series are N/A
+git -C /workspace worktree add --detach /tmp/ew-passms-tree-a 6958f08e73aff55efbf48bae3f9433e5acc270e8
+node $HARNESS --root /tmp/ew-passms-tree-a --passes > $RECEIPT_DIR/${STAMP}-presensor.json
+
+# B — sensors, ordinary torpedoes
+git -C /workspace worktree add --detach /tmp/ew-passms-tree-b e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b
+node $HARNESS --root /tmp/ew-passms-tree-b --passes > $RECEIPT_DIR/${STAMP}-sensors.json
+
+# C1 — paid noise/ECCM, ordinary torpedoes
+git -C /workspace worktree add --detach /tmp/ew-passms-tree-c1 74caf837c7882a86e3bd7c74f083029453953c1a
+node $HARNESS --root /tmp/ew-passms-tree-c1 --passes > $RECEIPT_DIR/${STAMP}-commit1.json
+
+# C2 — current review tip (this checkout)
+node $HARNESS --root /workspace --passes > $RECEIPT_DIR/${STAMP}-ew-tip.json
+
+git -C /workspace worktree remove --force /tmp/ew-passms-tree-a /tmp/ew-passms-tree-b /tmp/ew-passms-tree-c1

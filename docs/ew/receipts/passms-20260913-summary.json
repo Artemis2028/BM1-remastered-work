@@ -1,0 +1,117 @@
+{
+  "measurementBoundary": "passMs = updateSensorSystems + due seeker sampling. electronicsPass and updateMs reported separately. Whole-frame tick includes projectile movement, collision, damage and FX. Pre-sensor sensor-pass series are not applicable (null), never zero.",
+  "gate": { "series": "passMs", "p95Ms": 2, "p99Ms": 4, "cumulativeFrameP95Ms": 2 },
+  "implementationCommit": "969668e2558b046d4996b82d5f13153f435940ec",
+  "base": "0979e44d4a6541ad287c4d7280f0328519d620eb",
+  "pr": 4,
+  "pinnedHarness": {
+    "file": "scripts/ew-frame-benchmark.mjs",
+    "sha256": "7aee098732a6bd0f8332cc10e60f3d07503cd80f2e789bd3ccb76c84a3e4d629",
+    "rerun": "scripts/ew-four-tree.sh"
+  },
+  "pinnedTrees": {
+    "A": "6958f08e73aff55efbf48bae3f9433e5acc270e8",
+    "B": "e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b",
+    "C1": "74caf837c7882a86e3bd7c74f083029453953c1a",
+    "C2": "969668e2558b046d4996b82d5f13153f435940ec"
+  },
+  "host": {
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "logicalCPUs": 4,
+    "hardwareConcurrency": 4,
+    "browser": "153.0.8010.12",
+    "viewport": { "width": 1280, "height": 850 },
+    "matchesReferencePlatinum8573C": false,
+    "referenceVerification": "outstanding",
+    "role": "supplementary"
+  },
+  "sourcesC2": {
+    "src/main.js": "0ca772c1759e27a9c2b42f9eddc486146f8ccdb1f9deb74f11c368e2d9cae750",
+    "src/ship-sensors.mjs": "36f298913f3c8c9479e6d1a071bb5383026e5aa5828fcb5af047ab5c26d19a15",
+    "src/ship-ew.mjs": "4f16df1f128dd9fffb607a8024f64827a0cb640ba648fc9c709067520afd1d17",
+    "src/ship-hoj.mjs": "7d46cdfe0dcab3be056ca64e578c24094e95f7956bb8ae1eb64c8b275c40df5e"
+  },
+  "suites": {
+    "ewModel": "20/20",
+    "ewLive": "33/33",
+    "seekerModel": "14/14",
+    "seekerLive": "35/35",
+    "ewPlusSeeker": "102/102",
+    "sensors": "24/24 · 54/54",
+    "power": "21/21 · 29/29",
+    "behavior": "79/79",
+    "ships": "14/14 · 11/11 · ingame smoke · 30/30 · 23/23 · 19/19",
+    "builds": "node + python passed; ship-ew.mjs and ship-hoj.mjs in dist"
+  },
+  "trees": {
+    "A": {
+      "ref": "6958f08e73aff55efbf48bae3f9433e5acc270e8",
+      "tickP95": 0.4,
+      "tickP99": 0.5,
+      "passMs": null,
+      "electronicsPass": null,
+      "updateMs": null,
+      "seekerSample": null,
+      "note": "sensor-pass metrics not applicable"
+    },
+    "B": {
+      "ref": "e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b",
+      "tickP95": 1.2,
+      "tickP99": 1.5,
+      "passMsP95": 0.9,
+      "passMsP99": 0.9,
+      "electronicsP95": 1.0,
+      "electronicsP99": 1.1,
+      "updateMs": null,
+      "seekerSampleP95": 0.0,
+      "seekerSampleP99": 0.1,
+      "seekerVia": "no-seekers"
+    },
+    "C1": {
+      "ref": "74caf837c7882a86e3bd7c74f083029453953c1a",
+      "tickP95": 1.4,
+      "tickP99": 1.8,
+      "passMsP95": 1.5,
+      "passMsP99": 2.0,
+      "electronicsP95": 1.7,
+      "electronicsP99": 2.2,
+      "updateMs": null,
+      "seekerSampleP95": 0.1,
+      "seekerSampleP99": 0.1,
+      "seekerVia": "no-seekers",
+      "activeJammers": 6
+    },
+    "C2": {
+      "ref": "969668e2558b046d4996b82d5f13153f435940ec",
+      "tickP95": 1.5,
+      "tickP99": 2.0,
+      "passMsP95": 1.2,
+      "passMsP99": 1.6,
+      "electronicsP95": 1.3,
+      "electronicsP99": 1.6,
+      "updateMsP95": 1.1,
+      "updateMsP99": 1.5,
+      "seekerSampleP95": 0.1,
+      "seekerSampleP99": 0.1,
+      "seekerVia": "production-sampleDueHojSeekers",
+      "projectileP95": 0.1,
+      "projectileP99": 0.2,
+      "activeJammers": 6,
+      "seekerHits": { "ship": 19, "station": 10, "player": 0, "deaths": 29 }
+    }
+  },
+  "gatesThisHost": {
+    "passMs2_4": true,
+    "cumulativeTickP95VsA": 1.1,
+    "cumulativeTickLimit": 2.0,
+    "thresholdsRaised": false,
+    "electronicsPassNotTheGate": true
+  },
+  "referencePlatinumStillFailed": true,
+  "referenceFullPass": { "p95": 2.5, "p99": 6.9, "seriesThenCalled": "power+sensors wall-clock, not this passMs contract" },
+  "earlierReceiptsRetained": [
+    "performance-*.json (Platinum; gated power+sensors as detectionPass)",
+    "review-20260913-*.json (same harness family as Platinum, 4-core host)",
+    "fix-20260913-*.json (gated electronicsPass; detection-only passMs; full updateProjectiles as seeker)"
+  ]
+}

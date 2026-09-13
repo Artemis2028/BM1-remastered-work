@@ -1,0 +1,157 @@
+{
+  "root": "/tmp/ew-passms-tree-a",
+  "harness": {
+    "file": "scripts/ew-frame-benchmark.mjs",
+    "sha256": "7aee098732a6bd0f8332cc10e60f3d07503cd80f2e789bd3ccb76c84a3e4d629",
+    "gate": "passMs p95<=2ms p99<=4ms",
+    "cumulativeFrameGate": "whole-frame tick p95 vs pre-sensor baseline <=2ms",
+    "order": "updatePowerSystems(12) → updateSensorSystems(12) → due seeker sample → updateProjectiles(1)",
+    "measurementBoundary": "passMs is sensors + due seeker sampling. electronicsPass is power+sensors and is not the gate. Whole-frame tick still includes projectile movement, collision, damage and FX."
+  },
+  "sources": {
+    "src/main.js": "47fd75c8ba9820c23b73c2e1c1c6047a3ef810cbccf955ee498e212e13bfc9fc"
+  },
+  "browser": "153.0.8010.12",
+  "environment": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "logicalCPUs": 4,
+    "hostnameClass": "supplementary-not-platinum"
+  },
+  "workload": {
+    "system": "Earth",
+    "contacts": 20,
+    "stations": 18,
+    "projectiles": 6,
+    "warmupTicks": 600,
+    "measuredTicks": 3600,
+    "passWarmup": 50,
+    "passSamples": 300,
+    "passCadenceMs": 200,
+    "renderSamples": 300
+  },
+  "passMs": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "pre-sensor tree has no 5 Hz sensing workload"
+  },
+  "electronicsPass": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "pre-sensor tree has no power+sensors electronics pass"
+  },
+  "updateMs": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "pre-sensor tree has no updateSensorSystems"
+  },
+  "seekerSample": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "pre-sensor tree has no due seeker sampling"
+  },
+  "projectileCPU": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "sensor-pass projectile slice not applicable on the pre-sensor tree"
+  },
+  "instrumented": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "pre-sensor tree has no sensorWorld.metrics"
+  },
+  "detectionPass": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "pre-sensor tree has no 5 Hz sensing workload"
+  },
+  "seekerCPU": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "pre-sensor tree has no due seeker sampling"
+  },
+  "sensorOnlyCPU": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "pre-sensor tree has no updateSensorSystems"
+  },
+  "activeJammers": 0,
+  "mixedEmitterSides": [
+    "ferengi",
+    "terran"
+  ],
+  "ewEnabled": false,
+  "starved": false,
+  "projectileCount": 6,
+  "projectileModel": "ordinary torpedo",
+  "warmupSeconds": 10,
+  "simulationSeconds": 60,
+  "contacts": 20,
+  "stations": 18,
+  "frameCPU": {
+    "samples": 3600,
+    "p50": 0.30000000004656613,
+    "p95": 0.4000000001396984,
+    "p99": 0.5
+  },
+  "renderCPU": {
+    "samples": 300,
+    "p50": 0.39999999990686774,
+    "p95": 0.7000000001862645,
+    "p99": 1.8000000000465661
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 850
+  },
+  "hardwareConcurrency": 4,
+  "deviceMemory": 16,
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+  "errors": []
+}
