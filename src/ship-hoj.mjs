@@ -8,16 +8,20 @@ export function createHojFlight({ key, system, x, y, aim, speed = 10, range = 18
     speed, turnRate, remaining: range, lifeRemaining: range / (speed * 60), elapsed: 0, sampleDue: 0,
     signal: null, signalAt: -Infinity, steering: false, dead: false };
 }
+const segment = { from: { x: 0, y: 0 }, to: { x: 0, y: 0 } };
 export function stepHojFlight(shot, dt, readSignal) {
-  const from = { x: shot.x, y: shot.y };
-  if (shot.dead) return { from, to: from };
+  segment.from.x = shot.x; segment.from.y = shot.y;
+  if (shot.dead) { segment.to.x = shot.x; segment.to.y = shot.y; return segment; }
   const seconds = Math.max(0, Math.min(dt, shot.lifeRemaining, shot.remaining / (shot.speed * 60)));
   if (shot.elapsed + 1e-8 >= shot.sampleDue) {
     const signal = readSignal(shot.emitterKey);
     const accepted = signal?.key === shot.emitterKey && signal.system === shot.system && signal.emitting
       && Math.hypot(signal.x - shot.x, signal.y - shot.y) <= HOJ_RULES.reach
       && Math.abs(delta(shot.heading, bearing(shot, signal))) <= HOJ_RULES.halfCone;
-    shot.signal = accepted ? { x: signal.x, y: signal.y } : null;
+    if (accepted) {
+      if (!shot.signal) shot.signal = { x: 0, y: 0 };
+      shot.signal.x = signal.x; shot.signal.y = signal.y;
+    } else shot.signal = null;
     shot.signalAt = shot.elapsed;
     shot.sampleDue = shot.elapsed + HOJ_RULES.cadence;
   }
@@ -35,5 +39,6 @@ export function stepHojFlight(shot, dt, readSignal) {
   shot.lifeRemaining -= seconds;
   shot.elapsed += seconds;
   if (shot.remaining <= 1e-7 || shot.lifeRemaining <= 1e-7) shot.dead = true;
-  return { from, to: { x: shot.x, y: shot.y } };
+  segment.to.x = shot.x; segment.to.y = shot.y;
+  return segment;
 }

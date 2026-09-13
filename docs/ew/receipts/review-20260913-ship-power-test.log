@@ -1,0 +1,26 @@
+
+> broken-mirror-1@0.0.1 test:power
+> node scripts/ship-power-test.mjs
+
+PASS all active hulls carry finite positive authored power values; generation is distinct from storage
+PASS bad or over-budget allocations and malformed power are bounded without recharging zero
+PASS more system allocation improves damage, shield recovery or speed and increases energy demand
+PASS idle regeneration conserves energy and caps reserves; reserve allocation does not multiply output
+PASS propulsion plus shield recovery uses the same budget and full shields draw nothing
+PASS shield delay prevents recovery and its power cost
+PASS underpowered drives slow down; shield recovery sheds without producing unpaid shields
+PASS low and high engine allocations affect both speed ceiling and real demand
+PASS powered in-system warp costs more than normal cruise
+PASS cloak must be sustained from the real budget and switches off if unaffordable
+PASS identical fitted weapons have identical costs regardless of actor; shot debit is atomic
+PASS weapons allocation changes output and cost together
+PASS secondary core doubles generation only; capacity and all energy costs stay fixed
+PASS one second and sixty small idle/continuous steps agree
+PASS exactly four skill levels; actor can explicitly retain skill independently of temperament
+PASS seeded generation gives both pirate and government exceptions without per-frame rerolls
+PASS same reserves cause a veteran to preserve energy while a novice keeps firing
+PASS skill changes reserve discipline, not the reactor or weapon cost
+PASS reckless elite and cautious novice remain independent combinations
+PASS reaction latency and hysteresis avoid instantaneous repeated allocation changes
+PASS snapshot preserves depleted reserves, allocations and recovery with relative timers
+21/21 power model checks passed

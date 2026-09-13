@@ -140,15 +140,27 @@ try {
         await new Promise(r => setTimeout(r, 200));
       }
       const passes = [],seekers = [],sensorOnly=[];
+      const seekerOutliers=[],seekerHist={lt0_25:0,lt0_5:0,lt1:0,lt2:0,lt4:0,ge4:0};
+      let seekerHits=0,seekerDeaths=0,seekerMax=0;
+      window.__ewSeekProf={player:0,station:0,ship:0};
       for (let i = 0; i < 300; i++) {
         scene();
+        const effectsBefore=s.weaponEffects?s.weaponEffects.length:0, projBefore=s.projectiles.length;
         const t = performance.now();
-        B.updateProjectiles(1);seekers.push(performance.now()-t);
-        const startElectronics=performance.now();
+        B.updateProjectiles(1);
+        const seekerDone=performance.now();
+        seekers.push(seekerDone-t);
         B.updatePowerSystems(12);
         B.updateSensorSystems(12);
-        passes.push(performance.now()-startElectronics);
+        passes.push(performance.now()-seekerDone);
         sensorOnly.push(B.sensorWorld.metrics.elapsedMs);
+        const dt=seekers[seekers.length-1];
+        const died=projBefore-s.projectiles.length, newEffects=(s.weaponEffects?s.weaponEffects.length:0)-effectsBefore;
+        seekerHits+=Math.max(0,newEffects);seekerDeaths+=Math.max(0,died);
+        if(dt>seekerMax)seekerMax=dt;
+        if(dt<0.25)seekerHist.lt0_25++;else if(dt<0.5)seekerHist.lt0_5++;else if(dt<1)seekerHist.lt1++;
+        else if(dt<2)seekerHist.lt2++;else if(dt<4)seekerHist.lt4++;else seekerHist.ge4++;
+        if(dt>=1||newEffects>0||died>0)seekerOutliers.push({i,dt,died,newEffects,live:s.projectiles.length});
         await new Promise(r => setTimeout(r, Math.max(0, 200 - (performance.now() - t))));
       }
       detectionPass = {
@@ -157,6 +169,9 @@ try {
       };
       seekerCPU=stats(seekers);sensorOnlyCPU=stats(sensorOnly);
       detectionPass.passed = detectionPass.p95 <= 2 && detectionPass.p99 <= 4;
+      seekerCPU.profile={max:seekerMax,hits:seekerHits,deaths:seekerDeaths,hist:seekerHist,
+        hitKinds:window.__ewSeekProf||null,
+        outliers:seekerOutliers.sort((a,b)=>b.dt-a.dt).slice(0,12)};
     }
     return {
       detectionPass,seekerCPU,sensorOnlyCPU,
