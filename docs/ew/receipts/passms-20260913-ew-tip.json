@@ -1,0 +1,423 @@
+{
+  "root": "/workspace",
+  "harness": {
+    "file": "scripts/ew-frame-benchmark.mjs",
+    "sha256": "7aee098732a6bd0f8332cc10e60f3d07503cd80f2e789bd3ccb76c84a3e4d629",
+    "gate": "passMs p95<=2ms p99<=4ms",
+    "cumulativeFrameGate": "whole-frame tick p95 vs pre-sensor baseline <=2ms",
+    "order": "updatePowerSystems(12) → updateSensorSystems(12) → due seeker sample → updateProjectiles(1)",
+    "measurementBoundary": "passMs is sensors + due seeker sampling. electronicsPass is power+sensors and is not the gate. Whole-frame tick still includes projectile movement, collision, damage and FX."
+  },
+  "sources": {
+    "src/main.js": "0ca772c1759e27a9c2b42f9eddc486146f8ccdb1f9deb74f11c368e2d9cae750",
+    "src/ship-sensors.mjs": "36f298913f3c8c9479e6d1a071bb5383026e5aa5828fcb5af047ab5c26d19a15",
+    "src/ship-ew.mjs": "4f16df1f128dd9fffb607a8024f64827a0cb640ba648fc9c709067520afd1d17",
+    "src/ship-hoj.mjs": "7d46cdfe0dcab3be056ca64e578c24094e95f7956bb8ae1eb64c8b275c40df5e"
+  },
+  "browser": "153.0.8010.12",
+  "environment": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "logicalCPUs": 4,
+    "hostnameClass": "supplementary-not-platinum"
+  },
+  "workload": {
+    "system": "Earth",
+    "contacts": 20,
+    "stations": 18,
+    "projectiles": 6,
+    "warmupTicks": 600,
+    "measuredTicks": 3600,
+    "passWarmup": 50,
+    "passSamples": 300,
+    "passCadenceMs": 200,
+    "renderSamples": 300
+  },
+  "passMs": {
+    "applicable": true,
+    "samples": 300,
+    "p50": 1,
+    "p95": 1.1999999999534339,
+    "p99": 1.5999999998603016,
+    "series": "passMs = updateSensorSystems + due seeker sampling",
+    "includes": [
+      "detection",
+      "interference",
+      "sharing",
+      "scan-attributable-to-pass",
+      "due-seeker-sampling"
+    ],
+    "excludes": [
+      "power",
+      "projectile-movement",
+      "collision",
+      "damage",
+      "fx"
+    ],
+    "gate": {
+      "p95Ms": 2,
+      "p99Ms": 4
+    },
+    "gateAuthority": "passMs",
+    "passed": true
+  },
+  "electronicsPass": {
+    "applicable": true,
+    "samples": 300,
+    "p50": 1.1999999999534339,
+    "p95": 1.3000000000465661,
+    "p99": 1.6000000000931323,
+    "series": "electronicsPass = updatePowerSystems + updateSensorSystems (not the 2/4 gate)",
+    "gateAuthority": "none"
+  },
+  "updateMs": {
+    "applicable": true,
+    "samples": 300,
+    "p50": 1,
+    "p95": 1.1000000000931323,
+    "p99": 1.5,
+    "series": "instrumented updateMs (complete updateSensorSystems, seekers not included)"
+  },
+  "seekerSample": {
+    "applicable": true,
+    "samples": 300,
+    "p50": 0,
+    "p95": 0.10000000009313226,
+    "p99": 0.10000000009313226,
+    "series": "due seeker sampling only (cadence-gated; not flight/collision)",
+    "via": "production-sampleDueHojSeekers",
+    "profile": {
+      "max": 0.19999999995343387,
+      "hits": 29,
+      "deaths": 29,
+      "hist": {
+        "lt0_25": 300,
+        "lt0_5": 0,
+        "lt1": 0,
+        "lt2": 0,
+        "lt4": 0,
+        "ge4": 0
+      },
+      "hitKinds": {
+        "player": 0,
+        "station": 10,
+        "ship": 19
+      },
+      "outliers": [
+        {
+          "i": 3,
+          "dt": 0.10000000009313226,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 1
+        },
+        {
+          "i": 28,
+          "dt": 0.10000000009313226,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 1
+        },
+        {
+          "i": 81,
+          "dt": 0.10000000009313226,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 0
+        },
+        {
+          "i": 114,
+          "dt": 0.10000000009313226,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 1
+        },
+        {
+          "i": 147,
+          "dt": 0.10000000009313226,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 1
+        },
+        {
+          "i": 225,
+          "dt": 0.10000000009313226,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 1
+        },
+        {
+          "i": 182,
+          "dt": 0.09999999986030161,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 0
+        },
+        {
+          "i": 1,
+          "dt": 0,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 0
+        },
+        {
+          "i": 13,
+          "dt": 0,
+          "died": 2,
+          "newEffects": 2,
+          "live": 4,
+          "sampleN": 0
+        },
+        {
+          "i": 48,
+          "dt": 0,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 0
+        },
+        {
+          "i": 67,
+          "dt": 0,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 0
+        },
+        {
+          "i": 69,
+          "dt": 0,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 0
+        }
+      ]
+    }
+  },
+  "projectileCPU": {
+    "applicable": true,
+    "samples": 300,
+    "p50": 0,
+    "p95": 0.10000000009313226,
+    "p99": 0.20000000018626451,
+    "series": "updateProjectiles after sampling (movement/collision/damage/FX; not in passMs)"
+  },
+  "instrumented": {
+    "applicable": true,
+    "elapsedMs": 0.8999999999068677,
+    "detectionMs": 0.8999999999068677,
+    "passMs": 0.8999999999068677,
+    "updateMs": 0.8999999999068677,
+    "seekerSampleMs": 0,
+    "seekerSamples": 0,
+    "observers": 39,
+    "actors": 39,
+    "pairs": 1480,
+    "jammerPairs": 228,
+    "note": "elapsedMs/detectionMs are detection+sharing only and are not the gate"
+  },
+  "detectionPass": {
+    "applicable": true,
+    "samples": 300,
+    "p50": 1,
+    "p95": 1.1999999999534339,
+    "p99": 1.5999999998603016,
+    "series": "passMs = updateSensorSystems + due seeker sampling",
+    "includes": [
+      "detection",
+      "interference",
+      "sharing",
+      "scan-attributable-to-pass",
+      "due-seeker-sampling"
+    ],
+    "excludes": [
+      "power",
+      "projectile-movement",
+      "collision",
+      "damage",
+      "fx"
+    ],
+    "gate": {
+      "p95Ms": 2,
+      "p99Ms": 4
+    },
+    "gateAuthority": "passMs",
+    "passed": true
+  },
+  "seekerCPU": {
+    "applicable": true,
+    "samples": 300,
+    "p50": 0,
+    "p95": 0.10000000009313226,
+    "p99": 0.10000000009313226,
+    "series": "due seeker sampling only (cadence-gated; not flight/collision)",
+    "via": "production-sampleDueHojSeekers",
+    "profile": {
+      "max": 0.19999999995343387,
+      "hits": 29,
+      "deaths": 29,
+      "hist": {
+        "lt0_25": 300,
+        "lt0_5": 0,
+        "lt1": 0,
+        "lt2": 0,
+        "lt4": 0,
+        "ge4": 0
+      },
+      "hitKinds": {
+        "player": 0,
+        "station": 10,
+        "ship": 19
+      },
+      "outliers": [
+        {
+          "i": 3,
+          "dt": 0.10000000009313226,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 1
+        },
+        {
+          "i": 28,
+          "dt": 0.10000000009313226,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 1
+        },
+        {
+          "i": 81,
+          "dt": 0.10000000009313226,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 0
+        },
+        {
+          "i": 114,
+          "dt": 0.10000000009313226,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 1
+        },
+        {
+          "i": 147,
+          "dt": 0.10000000009313226,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 1
+        },
+        {
+          "i": 225,
+          "dt": 0.10000000009313226,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 1
+        },
+        {
+          "i": 182,
+          "dt": 0.09999999986030161,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 0
+        },
+        {
+          "i": 1,
+          "dt": 0,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 0
+        },
+        {
+          "i": 13,
+          "dt": 0,
+          "died": 2,
+          "newEffects": 2,
+          "live": 4,
+          "sampleN": 0
+        },
+        {
+          "i": 48,
+          "dt": 0,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 0
+        },
+        {
+          "i": 67,
+          "dt": 0,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 0
+        },
+        {
+          "i": 69,
+          "dt": 0,
+          "died": 1,
+          "newEffects": 1,
+          "live": 5,
+          "sampleN": 0
+        }
+      ]
+    }
+  },
+  "sensorOnlyCPU": {
+    "applicable": true,
+    "samples": 300,
+    "p50": 1,
+    "p95": 1.1000000000931323,
+    "p99": 1.5,
+    "series": "instrumented updateMs (complete updateSensorSystems, seekers not included)"
+  },
+  "activeJammers": 6,
+  "mixedEmitterSides": [
+    "ferengi",
+    "terran"
+  ],
+  "ewEnabled": true,
+  "starved": false,
+  "projectileCount": 6,
+  "projectileModel": "home-on-jam",
+  "warmupSeconds": 10,
+  "simulationSeconds": 60,
+  "contacts": 20,
+  "stations": 18,
+  "frameCPU": {
+    "samples": 3600,
+    "p50": 0.6000000000931323,
+    "p95": 1.5,
+    "p99": 2
+  },
+  "renderCPU": {
+    "samples": 300,
+    "p50": 0.6999999999534339,
+    "p95": 1,
+    "p99": 1.5
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 850
+  },
+  "hardwareConcurrency": 4,
+  "deviceMemory": 16,
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+  "errors": []
+}

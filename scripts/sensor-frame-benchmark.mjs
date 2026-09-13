@@ -1,5 +1,6 @@
 #!/usr/bin/env node
- // Paired whole-frame CPU benchmark. Use identical --root scenes before/after the sensor patch.
+ // Legacy sensor-only helper. The pinned four-tree authority is scripts/ew-frame-benchmark.mjs
+ // (2/4 gate = original power+sensors full-workload timer; pre-sensor reports N/A, never zero).
 import fs from 'node:fs';
 import os from 'node:os';
 import http from 'node:http';
@@ -116,22 +117,34 @@ try {
         B.updateSensorSystems(12);
         await new Promise(r => setTimeout(r, 200));
       }
-      const passes = [];
+      const electronics = [], detectionOnly = [], sensorUpdates = [];
       for (let i = 0; i < 300; i++) {
         const t = performance.now();
         B.updatePowerSystems(12);
         B.updateSensorSystems(12);
-        passes.push(B.sensorWorld.metrics.elapsedMs);
+        electronics.push(performance.now() - t);
+        detectionOnly.push(B.sensorWorld.metrics.passMs ?? B.sensorWorld.metrics.elapsedMs);
+        if (Number.isFinite(B.sensorWorld.metrics.updateMs)) sensorUpdates.push(B.sensorWorld.metrics.updateMs);
         await new Promise(r => setTimeout(r, Math.max(0, 200 - (performance.now() - t))));
       }
-      detectionPass = {
-        ...stats(passes),
-        ...B.sensorWorld.metrics
+      const electronicsPass = {
+        ...stats(electronics),
+        series: 'power+sensors wall-clock'
       };
-      detectionPass.passed = detectionPass.p95 <= 2 && detectionPass.p99 <= 4;
+      electronicsPass.passed = electronicsPass.p95 <= 2 && electronicsPass.p99 <= 4;
+      detectionPass = {
+        ...stats(detectionOnly),
+        series: 'detection passMs/elapsedMs',
+        ...B.sensorWorld.metrics,
+        electronicsPass,
+        sensorUpdate: sensorUpdates.length ? { ...stats(sensorUpdates), series: 'sensor updateMs' } : null,
+        gateAuthority: 'electronicsPass'
+      };
     }
     return {
       detectionPass,
+      electronicsPass: detectionPass?.electronicsPass || null,
+      sensorUpdate: detectionPass?.sensorUpdate || null,
       warmupSeconds: 10,
       simulationSeconds: 60,
       contacts: s.npcShips.length,
@@ -159,7 +172,7 @@ try {
     ...result,
     errors
   }, null, 2));
-  if (errors.length || result.detectionPass && !result.detectionPass.passed) process.exitCode = 1;
+  if (errors.length || result.electronicsPass && !result.electronicsPass.passed) process.exitCode = 1;
 } finally {
   if (browser) await browser.close();
   server.close();

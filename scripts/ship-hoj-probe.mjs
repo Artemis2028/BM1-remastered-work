@@ -110,6 +110,44 @@ try {
     B.stopEW(shared.ew);step(4);s.weaponLastFiredAt[0]=-1e9;const count=s.projectiles.length;launch(shared);test('stale shared emission cannot authorize another launch',s.projectiles.length===count);
     // Give the seeker a fresh private emission while captain contact data is frozen.
     shared.ew.jammerOrder='on';step(16);const report=B.sensorContact(s,shared),position=JSON.stringify(report.position);shared.y+=100;B.updateProjectiles(13);test('seeker observations never update shooter contact reports',JSON.stringify(report.position)===position);
+    reset();const idShip=emitter(9919,400);const idSeed=idShip.seed,idInstance=idShip.securityInstanceId,idKey=B.hojEmitterKey(idShip);
+    idShip.securityInstanceId=`probe-instance:${idInstance||'x'}`;
+    test('security-instance change invalidates the cached HOJ key while seed is unchanged',
+      idShip.seed===idSeed&&B.hojEmitterKey(idShip)!==idKey,{seed:idShip.seed,oldKey:idKey,newKey:B.hojEmitterKey(idShip)});
+    const afterInstance=B.hojEmitterKey(idShip),instanceHeld=idShip.securityInstanceId;
+    idShip.seed=idSeed+1;
+    test('seed change invalidates the cached HOJ key while security-instance is unchanged',
+      idShip.securityInstanceId===instanceHeld&&B.hojEmitterKey(idShip)!==afterInstance,{instance:idShip.securityInstanceId,oldKey:afterInstance,newKey:B.hojEmitterKey(idShip)});
+    reset();const recycledHull=emitter(9920,1700);step();const lockedKey=B.hojEmitterKey(recycledHull),sameHull=recycledHull.shipId,oldSeed=recycledHull.seed,oldInstance=recycledHull.securityInstanceId,coastShot=launch(recycledHull);
+    globalThis.__ewForceAmbientShipId=npc=>npc.shipId;
+    B.beginAmbientTrafficArrival(recycledHull,performance.now());
+    delete globalThis.__ewForceAmbientShipId;
+    recycledHull.trafficWarp=null;recycledHull.x=p.x+1600;recycledHull.y=p.y;
+    recycledHull.ew={module:3,jammerOrder:'on'};B.ensureNpcPower(recycledHull);recycledHull.power.energy=200;recycledHull.power.dist={engines:0,weapons:5,shields:0,sensors:5};
+    B.ensureNpcCombatStats(recycledHull);step(17);
+    const liveReplacement=B.liveJammerSignal(recycledHull);
+    test('in-place same-hull ambient replacement has a live paid jammer emission',
+      recycledHull.shipId===sameHull&&recycledHull.seed!==oldSeed&&recycledHull.securityInstanceId!==oldInstance
+      &&liveReplacement&&liveReplacement.emitting&&liveReplacement.key===B.hojEmitterKey(recycledHull)
+      &&recycledHull.ew.strength>0&&recycledHull.ew.funded>0&&recycledHull.ew.radius>0,
+      {sameHull:recycledHull.shipId===sameHull,oldSeed,newSeed:recycledHull.seed,oldInstance,newInstance:recycledHull.securityInstanceId,
+        live:!!liveReplacement,strength:recycledHull.ew.strength,funded:recycledHull.ew.funded,radius:recycledHull.ew.radius});
+    B.updateProjectiles(13);
+    test('same-object same-hull ambient replacement cannot reacquire even if the replacement jams',
+      recycledHull.shipId===sameHull&&B.hojEmitterKey(recycledHull)!==lockedKey&&coastShot&&!coastShot.steering&&!coastShot.dead&&s.projectiles.includes(coastShot),
+      {oldKey:lockedKey,newKey:B.hojEmitterKey(recycledHull),steering:coastShot?.steering,dead:coastShot?.dead,alive:s.projectiles.includes(coastShot)});
+    reset();const mixTarget=emitter(9921,80);mixTarget.combatHull=mixTarget.combatMaxHull=1e9;mixTarget.combatShields=mixTarget.combatMaxShields=1e9;step();
+    const earlyHoj=launch(mixTarget);const mixKey=B.sensorKey(mixTarget);
+    s.projectiles.splice(1,0,{pointAim:true,attack:{key:mixKey,side:'klingon',system:s.currentPlanet,x:mixTarget.x,y:mixTarget.y,time:0,eventId:'mix:cf'},
+      creditSource:'npc',damage:0,color:'#fff',heading:0,speed:10,x:p.x-400,y:p.y-400,vx:0,vy:-10,remaining:20,kind:'torpedo',owner:'npc',
+      turnRate:0,weaponId:15,born:performance.now(),ttl:3000});
+    s.weaponLastFiredAt[0]=-1e9;const lateHoj=launch(mixTarget);
+    lateHoj.x=mixTarget.x-6;lateHoj.y=mixTarget.y;lateHoj.heading=90;lateHoj.vx=lateHoj.speed;lateHoj.vy=0;
+    const mixBefore=(mixTarget.combatHull||0)+(mixTarget.combatShields||0);
+    B.updateProjectiles(1);
+    test('later HOJ still collides after positional counterfire rebuilt the shared body list',
+      lateHoj.dead&&(mixTarget.combatHull||0)+(mixTarget.combatShields||0)<mixBefore&&s.projectiles.includes(earlyHoj),
+      {laterDead:lateHoj.dead,firstDead:earlyHoj.dead,damage:mixBefore-((mixTarget.combatHull||0)+(mixTarget.combatShields||0)),order:s.projectiles.map(p=>p.guidance||(p.pointAim?'point':'other'))});
     B.getShipStats(1).defaultWeaponSlots=originalSlots;
     reset();s.stations=stations;s.docked=true;s.latinum=100000;const vendor=stations.find(st=>st.id==='0-3');
     test('Daystrom explicit stock contains new torpedo',!!vendor&&B.getStationWeaponStock(vendor).some(w=>w.id===B.HOJ_WEAPON_ID));
