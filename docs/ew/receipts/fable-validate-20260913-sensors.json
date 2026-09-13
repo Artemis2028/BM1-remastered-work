@@ -1,0 +1,269 @@
+{
+  "root": "/tmp/ew-authority-tree-b",
+  "harness": {
+    "file": "scripts/ew-frame-benchmark.mjs",
+    "sha256": "e79876004ea9b8846ed6f31ca040fc1ff2452db43f77ba744837d9fb6b8b115d",
+    "gate": "electronicsPass (original full-workload timer) p95<=2ms p99<=4ms",
+    "sameSeriesAsPlatinum": "performance-*.json detectionPass was this power+sensors wall-clock",
+    "platinumAuthority": {
+      "p95": 2.5,
+      "p99": 6.9,
+      "passed": false,
+      "host": "INTEL(R) XEON(R) PLATINUM 8573C"
+    },
+    "cumulativeFrameGate": "whole-frame tick p95 vs pre-sensor baseline <=2ms",
+    "increments": [
+      "EW−sensors",
+      "EW−pre-sensor"
+    ],
+    "order": "updateProjectiles(1) → updatePowerSystems(12) → updateSensorSystems(12)",
+    "measurementBoundary": "electronicsPass is the unchanged 2/4 full-workload timer. detectionPass, updateMs and whole-frame tick are reported separately and are not substitute gates. SeekerCPU is the full projectile update and stays in whole-frame measurements. --profile is optional and is not the gate.",
+    "thresholdsRecalibrated": false,
+    "profiled": false
+  },
+  "sources": {
+    "src/main.js": "966c183e4911c385a61625d856321b6c81e2290f6bbc9075689537b1cb48054c",
+    "src/ship-sensors.mjs": "53c43a6ff00ec8f23e9bd83eec3aad4e017a89017f8102398d50088130dc212c"
+  },
+  "browser": "153.0.8010.12",
+  "environment": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "logicalCPUs": 4,
+    "hostnameClass": "supplementary-not-platinum"
+  },
+  "workload": {
+    "system": "Earth",
+    "contacts": 20,
+    "stations": 18,
+    "projectiles": 6,
+    "warmupTicks": 600,
+    "measuredTicks": 3600,
+    "passWarmup": 50,
+    "passSamples": 300,
+    "passCadenceMs": 200,
+    "renderSamples": 300
+  },
+  "electronicsPass": {
+    "applicable": true,
+    "samples": 300,
+    "p50": 1.2999999998137355,
+    "p95": 1.7999999998137355,
+    "p99": 2.400000000372529,
+    "series": "electronicsPass = updatePowerSystems + updateSensorSystems",
+    "sameSeriesAsPlatinumDetectionPass": true,
+    "includes": [
+      "power",
+      "electronics",
+      "snapshots",
+      "sensing",
+      "sharing",
+      "scan"
+    ],
+    "excludes": [
+      "projectile-movement",
+      "collision",
+      "damage",
+      "fx"
+    ],
+    "gate": {
+      "p95Ms": 2,
+      "p99Ms": 4
+    },
+    "gateAuthority": "electronicsPass",
+    "thresholdsRecalibrated": false,
+    "passed": true
+  },
+  "detectionPass": {
+    "applicable": true,
+    "samples": 300,
+    "p50": 1.099999999627471,
+    "p95": 1.5,
+    "p99": 2.2000000001862645,
+    "series": "detection-pass = engine elapsedMs/detectionMs (detection+sharing; not the 2/4 gate)",
+    "gateAuthority": "none"
+  },
+  "updateMs": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "this tree does not record updateMs"
+  },
+  "seekerCPU": {
+    "applicable": true,
+    "samples": 300,
+    "p50": 0,
+    "p95": 0.10000000055879354,
+    "p99": 0.10000000055879354,
+    "series": "seekerCPU = full updateProjectiles (guidance, movement, collision, damage, FX)",
+    "profile": {
+      "max": 0.20000000018626451,
+      "hits": 0,
+      "deaths": 102,
+      "hist": {
+        "lt0_25": 300,
+        "lt0_5": 0,
+        "lt1": 0,
+        "lt2": 0,
+        "lt4": 0,
+        "ge4": 0
+      },
+      "hitKinds": {
+        "player": 0,
+        "station": 0,
+        "ship": 0
+      },
+      "outliers": [
+        {
+          "i": 12,
+          "dt": 0.10000000055879354,
+          "died": 5,
+          "newEffects": 0,
+          "live": 1
+        },
+        {
+          "i": 63,
+          "dt": 0.10000000055879354,
+          "died": 5,
+          "newEffects": 0,
+          "live": 1
+        },
+        {
+          "i": 118,
+          "dt": 0.10000000055879354,
+          "died": 1,
+          "newEffects": 0,
+          "live": 5
+        },
+        {
+          "i": 135,
+          "dt": 0.10000000055879354,
+          "died": 1,
+          "newEffects": 0,
+          "live": 5
+        },
+        {
+          "i": 254,
+          "dt": 0.10000000055879354,
+          "died": 1,
+          "newEffects": 0,
+          "live": 5
+        },
+        {
+          "i": 16,
+          "dt": 0.09999999962747097,
+          "died": 1,
+          "newEffects": 0,
+          "live": 5
+        },
+        {
+          "i": 29,
+          "dt": 0.09999999962747097,
+          "died": 5,
+          "newEffects": 0,
+          "live": 1
+        },
+        {
+          "i": 84,
+          "dt": 0.09999999962747097,
+          "died": 1,
+          "newEffects": 0,
+          "live": 5
+        },
+        {
+          "i": 97,
+          "dt": 0.09999999962747097,
+          "died": 5,
+          "newEffects": 0,
+          "live": 1
+        },
+        {
+          "i": 114,
+          "dt": 0.09999999962747097,
+          "died": 5,
+          "newEffects": 0,
+          "live": 1
+        },
+        {
+          "i": 165,
+          "dt": 0.09999999962747097,
+          "died": 5,
+          "newEffects": 0,
+          "live": 1
+        },
+        {
+          "i": 169,
+          "dt": 0.09999999962747097,
+          "died": 1,
+          "newEffects": 0,
+          "live": 5
+        }
+      ]
+    }
+  },
+  "instrumented": {
+    "applicable": true,
+    "elapsedMs": 1.3999999994412065,
+    "detectionMs": null,
+    "passMs": null,
+    "updateMs": null,
+    "observers": 39,
+    "actors": 39,
+    "pairs": 1442,
+    "jammerPairs": null,
+    "note": "elapsedMs/detectionMs are detection+sharing only and are not the 2/4 gate"
+  },
+  "detailProfile": {
+    "applicable": false,
+    "reason": "run without --profile"
+  },
+  "profiled": false,
+  "sensorOnlyCPU": {
+    "applicable": false,
+    "samples": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "passed": null,
+    "series": "not applicable",
+    "reason": "this tree does not record updateMs"
+  },
+  "activeJammers": 0,
+  "mixedEmitterSides": [
+    "ferengi",
+    "terran"
+  ],
+  "ewEnabled": false,
+  "starved": false,
+  "projectileCount": 6,
+  "projectileModel": "ordinary torpedo",
+  "warmupSeconds": 10,
+  "simulationSeconds": 60,
+  "contacts": 20,
+  "stations": 18,
+  "frameCPU": {
+    "samples": 3600,
+    "p50": 0.7000000001862645,
+    "p95": 1.599999999627471,
+    "p99": 2.2999999998137355
+  },
+  "renderCPU": {
+    "samples": 300,
+    "p50": 0.6000000005587935,
+    "p95": 1.099999999627471,
+    "p99": 1.7999999998137355
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 850
+  },
+  "hardwareConcurrency": 4,
+  "deviceMemory": 16,
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+  "errors": []
+}
