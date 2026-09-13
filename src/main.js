@@ -4725,6 +4725,7 @@ function sensorPursuitPoint(npc, target, type = 'ship') {
 
 function updateSensorSystems(frameScale = 1) {
   const sensorUpdateStart=performance.now();
+  const profile=globalThis.__ewProfile;
   const dt = clamp(frameScale / 60, 0, 1);
   sensorClock += dt;
   sensorAccumulator += dt;
@@ -4746,6 +4747,7 @@ function updateSensorSystems(frameScale = 1) {
     passStart = performance.now();
     const elapsed = Math.min(sensorAccumulator, 1);
     sensorAccumulator = 0;
+    const snapStart=profile?performance.now():0;
     const zone = getSecurityZone(),
       entities = [state, ...state.npcShips.filter(n => !n.destroyed && n.trafficWarp?.phase !== 'away'), ...state
         .stations.filter(n => !n.destroyed && !n.underConstruction)
@@ -4757,7 +4759,10 @@ function updateSensorSystems(frameScale = 1) {
         sensorWorld.restore(a.key, a.entity.sensorReports, sensorClock);
         delete a.entity.sensorReports;
       }
+    if(profile)profile.snapshotMs=(profile.snapshotMs||0)+performance.now()-snapStart;
+    const passWorkStart=profile?performance.now():0;
     sensorWorld.pass(actors, sensorClock, elapsed);
+    if(profile)profile.passMs=(profile.passMs||0)+performance.now()-passWorkStart;
     for(const a of actors) a.entity.ewReception=a.ewReception;
     for (const a of actors) {
       const equip = ensureActorSensors(a.entity);
@@ -4782,8 +4787,10 @@ function updateSensorSystems(frameScale = 1) {
     sensorWorld.metrics.detectionMs = sensorWorld.metrics.elapsedMs;
     sensorWorld.metrics.passOpen = true;
   }
+  const scanStart=profile?performance.now():0;
   for (const a of sensorActors.values())
     if (!a.station) advanceSensorScan(a.entity, dt);
+  if(profile)profile.scanMs=(profile.scanMs||0)+performance.now()-scanStart;
   if (passStart!==null) {
     // Scan on this pass, still not the full-workload gate (that is power+sensors).
     sensorWorld.metrics.passMs = performance.now() - passStart;
@@ -4973,16 +4980,18 @@ function applyPointImpact(hit, shot) {
   else damageCombatTarget(a, damage, shot.creditSource, shot.color, hit);
 }
 
-// Local incarnation keys never survive a new object, hull/system change, or a new spawn seed on a reused object.
+// Local incarnation keys never survive a new object, hull/system change, a new
+// spawn seed, or a new security instance on a reused object. Seed and instance
+// are compared independently — a seed must not hide an instance change.
 const hojIncarnations=new WeakMap();let hojIncarnationSequence=0;const hojActorMap=new Map();
 function hojEmitterKey(entity){const a=sensorEntity(entity),object=a===state?ensurePlayerPower():a;
   let rec=hojIncarnations.get(object);
   const hull=a===state?state.playership:a.shipId||a.stationTypeId,system=state.currentPlanet;
-  const spawn=a===state?null:(a.seed??a.securityInstanceId??null);
-  if(!rec){rec={n:++hojIncarnationSequence,hull,system,spawn,key:''};hojIncarnations.set(object,rec);}
-  if(rec.key&&rec.hull===hull&&rec.system===system&&Object.is(rec.spawn,spawn))return rec.key;
+  const seed=a===state?null:(a.seed??null),instance=a===state?null:(a.securityInstanceId??null);
+  if(!rec){rec={n:++hojIncarnationSequence,hull,system,seed,instance,key:''};hojIncarnations.set(object,rec);}
+  if(rec.key&&rec.hull===hull&&rec.system===system&&Object.is(rec.seed,seed)&&Object.is(rec.instance,instance))return rec.key;
   if(rec.key)rec.n=++hojIncarnationSequence;
-  rec.hull=hull;rec.system=system;rec.spawn=spawn;
+  rec.hull=hull;rec.system=system;rec.seed=seed;rec.instance=instance;
   rec.key=`${sensorKey(a)}:inc:${rec.n}:hull:${hull}`;
   return rec.key;
 }
@@ -5329,6 +5338,8 @@ function advanceActorPower(npc, frameScale, now) {
 function updatePowerSystems(frameScale = 1) {
   if (state.gameOver || !state.gameStarted) return;
   const now = performance.now();
+  const profile = globalThis.__ewProfile;
+  const fundStart = profile ? performance.now() : 0;
   const previousShieldPercent = Math.floor(state.shields);
   advanceActorPower(null, frameScale, now);
   if (Math.floor(state.shields) !== previousShieldPercent) updateStats();
@@ -5337,6 +5348,7 @@ function updatePowerSystems(frameScale = 1) {
     ensureNpcCombatStats(npc);
     advanceActorPower(npc, frameScale, now);
   }
+  if (profile) profile.fundMs = (profile.fundMs || 0) + performance.now() - fundStart;
   // Fleet records own their power snapshot even if another action wipes scene caches.
   for (const npc of state.npcShips || []) {
     const fleet = !npc.destroyed && npc.fleetId && state.playerFleet.find(f => f.id === npc.fleetId);
@@ -14892,7 +14904,8 @@ function updateProjectiles(frameScale = 1) {
   const now = performance.now();
   const player = playerWorldPosition();
   const playerCloaked = isPlayerCloaked(now);
-  const collisionBodies=sensorCollisionTargets();
+  let collisionBodies=null;
+  const bodies=()=>collisionBodies||(collisionBodies=sensorCollisionTargets());
   let hojActorsReady=false;
   const readHojSignal=key=>{
     if(!hojActorsReady){
@@ -14906,11 +14919,11 @@ function updateProjectiles(frameScale = 1) {
   };
   sampleDueHojSeekers(readHojSignal);
   for (const shot of state.projectiles) {
-    if(shot.guidance==='home-on-jam'){updateHojProjectile(shot,frameScale,collisionBodies,readHojSignal);continue;}
+    if(shot.guidance==='home-on-jam'){updateHojProjectile(shot,frameScale,bodies(),readHojSignal);continue;}
     if (shot.pointAim) {
       const from={x:shot.x,y:shot.y},step=Math.min(shot.remaining,Math.hypot(shot.vx,shot.vy)*frameScale),len=Math.hypot(shot.vx,shot.vy)||1;
       const to={x:shot.x+shot.vx/len*step,y:shot.y+shot.vy/len*step};
-      const hit=pointImpact(from,to,collisionBodies,shot.attack.key);
+      const hit=pointImpact(from,to,bodies(),shot.attack.key);
       shot.x=hit?hit.x:to.x;shot.y=hit?hit.y:to.y;shot.remaining-=step;
       if(hit){applyPointImpact(hit,shot);shot.dead=true;}else if(shot.remaining<=0||now-shot.born>shot.ttl)shot.dead=true;
       continue;
@@ -15459,6 +15472,8 @@ function isAmbientTrafficWarpEligible(npc, now = performance.now()) {
 }
 
 function chooseAmbientTrafficShipId(npc, seed) {
+  const forced = globalThis.__ewForceAmbientShipId;
+  if (typeof forced === 'function') return forced(npc, seed);
   const localFaction = state.systemFaction || getSystemFaction(state.currentPlanet);
   const localTraffic = npc.role === 'localTraffic' && localFaction !== 'neutral';
   let candidate = npc.shipId;

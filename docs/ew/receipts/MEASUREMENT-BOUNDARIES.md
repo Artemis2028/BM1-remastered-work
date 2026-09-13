@@ -101,6 +101,15 @@ Rerun: `scripts/ew-four-tree.sh`. Commands and hashes are copied next to the raw
 - If the unchanged 2/4 gate still fails (Platinum already failed), return
   for an explicit decision. Do not merge to main.
 
+Optional `--profile` on the same harness records funding, snapshot,
+detection, sharing and scan slices. That run is **not** the gate; keep it
+separate so instrumentation overhead is visible.
+
+SeekerCPU remains the full `updateProjectiles` window. A 2.2 ms sample
+with no hit and no projectile death (`authority-20260913-ew-tip.json`
+i:51) means the expensive-frame cause is **unproven** — do not label it
+impact-only.
+
 ### `prior-attempt-performance-*.json`
 
 - Earlier failed EW timing on Platinum. Same family as `performance-*.json`.

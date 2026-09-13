@@ -47,22 +47,13 @@ Cumulative tick p95, EW minus pre-sensor: **+1.20 ms** (limit 2 ms) — already 
 
 HOJ stays on the EW review branch. This follow-up does not merge to main.
 
-## Seeker p99 root cause
+## Seeker p99 — do not treat as impact-only
 
-Unfixed profile (`review-20260913-ew-tip-profile.json`) and post-fix runs agree on the shape:
+Earlier review-host profiles (`review-20260913-ew-tip-profile.json`) showed cheap typical frames (almost all < 0.25 ms) and many deaths that coincided with a physical hit (`newEffects === 1`). That is **not** a complete explanation of later seeker spikes.
 
-- 300 seeker samples: almost all < 0.25 ms; a handful in 0.25–0.50 ms; **none ≥ 1 ms on this host**
-- **29 hits / 29 deaths** every time — every death is a physical impact (`newEffects === 1`), not range/lifetime expiry
-- Hit kinds after the reuse patch: **19 ships, 10 stations, 0 player**
-- Every recorded slow frame is a single-projectile hit; guidance/sampling stays on the 0.1–0.2 ms plateau
+`authority-20260913-ew-tip.json` recorded seeker sample **i:51 at 2.2 ms with `died: 0`, `newEffects: 0`, `live: 6`**. That sample has **no hit and no projectile death**. Its cause is **unproven**. Do not claim the expensive seeker frames are impact-only, collision-body rebuild, GC, or a large live-seeker count.
 
-The expensive seeker frames are **segment hits** (`pointImpact` → `applyPointImpact` → sensor cue + NPC/station damage + burst/shield FX), not collision-body rebuild or a large live-seeker count. Six seekers share one body list per `updateProjectiles`. They spawn 900 units north of the player and strike occupied Earth space (intervening hulls and stations) after a few hundred units. That is accepted HOJ behavior: the flight uses physical bodies on the path, including intervening ships.
-
-That matches the reference shape (p50 0.1, p95 0.2, p99 4.5): typical frames are cheap; rare frames do impact work, and on the loaded Platinum runner those frames also pay GC from per-frame body/key/segment allocation. Sensor-only ordinary torpedoes on that runner already showed a 1.1 ms seeker p99; HOJ adds body rebuild, incarnation strings and impact FX on the same window.
-
-Discarded hunches: “many live seekers” (the fixture holds six, and miss frames stay cheap), “collision-body rebuild is the 4.5 ms of work” (rebuild happens every frame; only hit frames rise), “player HUD `updateStats`” (zero player hits).
-
-The reuse patch does not remove those 29 hits and does not make impact processing free. On this host seeker p99 stayed 0.30 ms. The intended win is less garbage on the hit frames that spike to 4.5 ms on the reference runner. **That 4.5 ms figure was not reproduced here and is not claimed green.**
+Typical frames on this host stay on a 0.1–0.3 ms plateau. Platinum seeker p99 **4.50 ms** was not reproduced here and is not claimed green. Six seekers still share one unfiltered body list per `updateProjectiles`; shooter exclusion stays inside `pointImpact`.
 
 ## What changed
 

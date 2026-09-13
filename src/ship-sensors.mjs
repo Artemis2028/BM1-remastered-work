@@ -214,6 +214,8 @@ export class SensorWorld {
   }
   pass(actors, now, dt = .2) {
     this.now = now;
+    const profile = globalThis.__ewProfile;
+    const jamStart = profile ? performance.now() : 0;
     let pairs = 0;
     const cell = 2400,
       buckets = new Map();
@@ -244,6 +246,8 @@ export class SensorWorld {
     }
     this.passId++;
     const passId=this.passId;
+    if (profile) profile.jamSetupMs = (profile.jamSetupMs || 0) + performance.now() - jamStart;
+    const detectStart = profile ? performance.now() : 0;
     for (const o of actors) {
       if (this.observerSides.has(o.key) && this.observerSides.get(o.key) !== o.side) this.contacts.delete(o.key);
       this.observerSides.set(o.key, o.side);
@@ -317,11 +321,25 @@ export class SensorWorld {
       })));
       direct.set(o.key, local);
     }
+    if (profile) profile.detectMs = (profile.detectMs || 0) + performance.now() - detectStart;
+    const shareStart = profile ? performance.now() : 0;
+    const observersBySide = new Map();
+    for (const a of actors) {
+      if (!a.observer) continue;
+      let list = observersBySide.get(a.side);
+      if (!list) {
+        list = [];
+        observersBySide.set(a.side, list);
+      }
+      list.push(a);
+    }
     for (const o of actors) {
       if (!o.observer) continue;
       const map = this.map(o.key);
-      const peers = actors.filter(source => source.observer && source.key !== o.key &&
-        source.side === o.side && sensorDistance(o, source) <= 2400);
+      const peers = [];
+      for (const source of observersBySide.get(o.side) || []) {
+        if (source.key !== o.key && sensorDistance(o, source) <= 2400) peers.push(source);
+      }
       for (const source of peers) {
         for (const cue of directCues.get(source.key) || []) {
           if (cue.sourceKey === o.key) continue;
@@ -364,6 +382,7 @@ export class SensorWorld {
             .expiresAt < now)) map.delete(key);
       }
     }
+    if (profile) profile.shareMs = (profile.shareMs || 0) + performance.now() - shareStart;
     this.metrics = {
       observers: actors.filter(a => a.observer).length,
       actors: actors.length,

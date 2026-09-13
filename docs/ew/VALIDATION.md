@@ -60,7 +60,7 @@ A later review on `cursor/ew-perf-gate-23f3` reproduced the fixture on a **diffe
 Full write-up: [PERFORMANCE-REVIEW.md](PERFORMANCE-REVIEW.md). Review receipts: `receipts/review-20260913-*.json`.
 
 - Commit-1 (noise/ECCM, ordinary torpedoes) clears 2 / 4 **on the review host** (1.70 / 2.10). On the reference host, sensor-only already failed the same full-pass gate, so noise/ECCM is not the increment that broke a green gate.
-- Seeker p99 is **physical impact**, not guidance math: 29 hits / 29 deaths per 300 samples, 19 ships + 10 stations, 0 player. Typical seeker frames stay 0.1–0.2 ms.
+- Seeker p99 is **not proven impact-only**. Earlier review-host deaths often coincided with a hit, but `authority-20260913-ew-tip.json` sample i:51 is **2.2 ms with no hit and no projectile death**. Typical frames stay 0.1–0.3 ms; the 2.2 ms cause remains unproven.
 - Reuse of collision bodies, incarnation keys, the actor map, flight segments and the jammer-candidate list is in this follow-up. Acceptance suites stayed green (EW 20 + 32, seeker 13 + 33, sensors 24 + 54, power 21 + 29, behavior S1–S5).
 - Post-fix review-host full-pass: **1.50 / 1.80** and **1.50 / 1.70** (two serial runs). That does **not** replace the reference 2.50 / 6.90 failure. HOJ stays on the EW review branch; do not merge to main from this follow-up.
 

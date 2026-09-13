@@ -4,7 +4,9 @@
 // window (same series Platinum recorded as detectionPass: 2.50 / 6.90).
 // Do not invent a replacement gate. Report detection-pass, updateMs,
 // electronicsPass and whole-frame separately. Pre-sensor + --passes writes
-// those series as not applicable, never zero.
+// those series as not applicable, never zero. Optional --profile times
+// funding / snapshots / detection / sharing / scan separately and must
+// stay off the unprofiled gate run so instrumentation overhead is visible.
 import fs from 'node:fs';
 import {createHash} from 'node:crypto';
 import os from 'node:os';
@@ -59,7 +61,7 @@ try {
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.waitForFunction(() => window.__bench?.state.shipCatalog && window.__bench.state.planets.length > 10);
-  const result = await page.evaluate(async ({withPasses,starved}) => {
+  const result = await page.evaluate(async ({withPasses,starved,withProfile}) => {
     const B = window.__bench,
       s = B.state;
     B.startWithFaction('terran');
@@ -146,13 +148,14 @@ try {
       reason
     });
     const hasSensors = !!(B.updateSensorSystems && B.sensorWorld);
-    let detectionPass = null, electronicsPass = null, updateMs = null, seekerCPU = null, instrumented = null;
+    let detectionPass = null, electronicsPass = null, updateMs = null, seekerCPU = null, instrumented = null, detailProfile = null;
     if (withPasses && !hasSensors) {
       detectionPass = na('pre-sensor tree has no detection pass');
       electronicsPass = na('pre-sensor tree has no power+sensors full-workload timer');
       updateMs = na('pre-sensor tree has no updateSensorSystems');
       seekerCPU = na('pre-sensor tree has no sensor-pass seeker window');
       instrumented = na('pre-sensor tree has no sensorWorld.metrics');
+      detailProfile = na(withProfile ? 'pre-sensor tree has no sensor slices' : 'run without --profile');
     } else if (withPasses) {
       // Same order as the Platinum receipts: projectiles, then power+sensors.
       for (let i = 0; i < 50; i++) {
@@ -164,17 +167,25 @@ try {
       }
       const electronics = [], detectionOnly = [], updates = [], seekers = [];
       const seekerOutliers = [], seekerHist = {lt0_25: 0, lt0_5: 0, lt1: 0, lt2: 0, lt4: 0, ge4: 0};
+      const sliceKeys = ['fundMs', 'snapshotMs', 'passMs', 'scanMs', 'jamSetupMs', 'detectMs', 'shareMs'];
+      const slices = Object.fromEntries(sliceKeys.map(k => [k, []]));
       let seekerHits = 0, seekerDeaths = 0, seekerMax = 0;
       window.__ewSeekProf = {player: 0, station: 0, ship: 0};
       for (let i = 0; i < 300; i++) {
         scene();
         const effectsBefore = s.weaponEffects ? s.weaponEffects.length : 0, projBefore = s.projectiles.length;
+        if (withProfile) window.__ewProfile = {fundMs:0,snapshotMs:0,passMs:0,scanMs:0,jamSetupMs:0,detectMs:0,shareMs:0};
+        else window.__ewProfile = null;
         const t = performance.now();
         B.updateProjectiles(1);
         const afterSeekers = performance.now();
         B.updatePowerSystems(12);
         B.updateSensorSystems(12);
         const afterElectronics = performance.now();
+        if (withProfile) {
+          const p = window.__ewProfile || {};
+          for (const k of sliceKeys) slices[k].push(Number(p[k]) || 0);
+        }
         seekers.push(afterSeekers - t);
         electronics.push(afterElectronics - afterSeekers);
         const m = B.sensorWorld.metrics || {};
@@ -245,6 +256,15 @@ try {
         jammerPairs: last.jammerPairs ?? null,
         note: 'elapsedMs/detectionMs are detection+sharing only and are not the 2/4 gate'
       };
+      detailProfile = withProfile ? {
+        applicable: true,
+        series: 'optional instrumentation; not the 2/4 gate',
+        slices: Object.fromEntries(sliceKeys.map(k => [k, stats(slices[k])])),
+        note: 'fundMs = power/electronics funding; snapshotMs = actor snapshots; jamSetupMs + detectMs + shareMs = SensorWorld.pass; scanMs = scan advancement. Keep this run separate from the unprofiled gate.'
+      } : {
+        applicable: false,
+        reason: 'run without --profile'
+      };
     }
     return {
       electronicsPass,
@@ -252,6 +272,8 @@ try {
       updateMs,
       seekerCPU,
       instrumented,
+      detailProfile,
+      profiled: !!withProfile,
       sensorOnlyCPU: updateMs,
       activeJammers: s.npcShips.filter(n => n.ew?.strength > 0).length,
       mixedEmitterSides: [...new Set(s.npcShips.slice(0, 6).map(n => n.faction))],
@@ -273,7 +295,7 @@ try {
       deviceMemory: navigator.deviceMemory,
       userAgent: navigator.userAgent
     };
-  }, {withPasses:process.argv.includes('--passes'),starved:process.argv.includes('--starved')});
+  }, {withPasses:process.argv.includes('--passes'),starved:process.argv.includes('--starved'),withProfile:process.argv.includes('--profile')});
   const payload = {
     root,
     harness: {
@@ -285,8 +307,9 @@ try {
       cumulativeFrameGate: 'whole-frame tick p95 vs pre-sensor baseline <=2ms',
       increments: ['EW−sensors', 'EW−pre-sensor'],
       order: 'updateProjectiles(1) → updatePowerSystems(12) → updateSensorSystems(12)',
-      measurementBoundary: 'electronicsPass is the unchanged 2/4 full-workload timer. detectionPass, updateMs and whole-frame tick are reported separately and are not substitute gates. SeekerCPU is the full projectile update and stays in whole-frame measurements.',
-      thresholdsRecalibrated: false
+      measurementBoundary: 'electronicsPass is the unchanged 2/4 full-workload timer. detectionPass, updateMs and whole-frame tick are reported separately and are not substitute gates. SeekerCPU is the full projectile update and stays in whole-frame measurements. --profile is optional and is not the gate.',
+      thresholdsRecalibrated: false,
+      profiled: process.argv.includes('--profile')
     },
     sources: Object.fromEntries(['src/main.js', 'src/ship-sensors.mjs', 'src/ship-ew.mjs', 'src/ship-hoj.mjs'].filter(f =>
       fs.existsSync(path.join(root, f))).map(f => [f, createHash('sha256').update(fs.readFileSync(path.join(root, f))).digest('hex')])),
