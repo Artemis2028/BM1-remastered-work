@@ -244,6 +244,10 @@ async function scenarioRunner() {
   s.stations = []; // station defenses fire with source 'station' and would steal the last hit
   target.combatShields = 0;
   target.combatHull = 1;
+  // This case tests projectile credit, not a randomly timed evasive maneuver.
+  // Hold the one-hit fixture still and start its normal shield-recovery delay.
+  target.waitUntil = performance.now() + 60000;
+  target.lastShieldHitAt = performance.now();
   latinum = s.latinum; kl = standing('klingon');
   B.fireNpcWeapon(escort, target, 'ship', performance.now());
   const shot = (s.projectiles || []).find((p) => p.targetId === target.id);

@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'bm2-pwa-20260913-full-roster-v2';
+const CACHE_VERSION = 'bm2-pwa-20260913-ship-power-v1';
 const APP_CACHE = `${CACHE_VERSION}-app`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_ASSET_MANIFEST = './offline-assets.json';
@@ -11,6 +11,7 @@ const APP_SHELL = [
   './src/main.js',
   './src/ship-catalog-integration.mjs',
   './src/ship-economy.mjs',
+  './src/ship-power.mjs',
   './bm-ships/catalog.mjs',
   './bm-ships/ships.json',
   './bm-ships/bm2-id-map.json',

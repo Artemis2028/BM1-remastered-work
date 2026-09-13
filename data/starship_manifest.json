@@ -126,7 +126,16 @@
         "sourceDescription": "A small cruiser with excellent torpedo capability.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 290,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 2,
@@ -216,7 +225,16 @@
         "sourceDescription": "A large ship with good cargo and speed, and decent weapons.",
         "loreBasis": "starfleet-ak",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 4,
@@ -304,7 +322,16 @@
         "sourceDescription": "An enormous cargo vessel, but its slow and uses lots of antimatter.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 19,
+        "energyCapacity": 430,
+        "engineDraw": 3.23,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 16.35
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 9,
@@ -390,7 +417,16 @@
         "sourceDescription": "This dual-hull ship has good cargo and long-range capability but poor sublight manuverability.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 216,
+        "engineDraw": 1.95,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 10,
@@ -476,7 +512,16 @@
         "sourceDescription": "An ugly, basic ship with poor manuverability but lots of cargo room.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 300,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 11,
@@ -563,7 +608,16 @@
         "sourceDescription": "Essentially a warship, this is as strong as they get on the civilian market.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 12,
+        "energyCapacity": 166,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 11.8
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 15,
@@ -656,7 +710,16 @@
         "sourceDescription": "A retired Imperial Ambassador refitted for civilian service, retaining a Type X phaser for defense. Its three weapon slots can be re-equipped by its captain.",
         "loreBasis": "starfleet-ak",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 22,
@@ -744,7 +807,16 @@
         "sourceDescription": "Deceptively small, this ship has good weapons and speed.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 12,
+        "energyCapacity": 166,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 11.8
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 24,
@@ -830,7 +902,16 @@
         "sourceDescription": "Small, slow, weak, pathetic. Buy this ship for your grandchild.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 25,
@@ -916,7 +997,16 @@
         "sourceDescription": "A small cargo vessel, purely logical design.",
         "loreBasis": "vulcan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 144,
+        "engineDraw": 1.36,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 26,
@@ -1056,7 +1146,16 @@
         "sourceDescription": "A small, weak scout with limited range and cargo.",
         "loreBasis": "romulan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 33,
@@ -1146,7 +1245,16 @@
         "sourceDescription": "The standard Imperial Akira battlecruiser, supplied with a Type X phaser and photon torpedo launcher. A third slot remains available for captain-selected equipment.",
         "loreBasis": "starfleet-ak",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 18,
+        "energyCapacity": 350,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 15.7
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 35,
@@ -1232,7 +1340,16 @@
         "sourceDescription": "An enormous multipurpose starship, good for cargo and battle.",
         "loreBasis": "starfleet-ak",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 23,
+        "energyCapacity": 540,
+        "engineDraw": 4.8,
+        "shieldDraw": 7,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 18.95
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 38,
@@ -1318,7 +1435,16 @@
         "sourceDescription": "A long-range battlecruiser with many other great qualities.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 25,
+        "energyCapacity": 460,
+        "engineDraw": 4.8,
+        "shieldDraw": 7,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 20.25
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 42,
@@ -1404,7 +1530,16 @@
         "sourceDescription": "The most powerful ship in the galaxy, period.",
         "loreBasis": "klingon",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 29,
+        "energyCapacity": 552,
+        "engineDraw": 6.2,
+        "shieldDraw": 9,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 22.85
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 47,
@@ -1494,7 +1629,16 @@
         "sourceDescription": "Formerly Earth's primary science ship, the Oberth is now a cheap tug.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 9,
+        "energyCapacity": 190,
+        "engineDraw": 1.95,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 9.85
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 48,
@@ -1582,7 +1726,16 @@
         "sourceDescription": "Command ships of the Jem'Hadar fleet.",
         "loreBasis": "dominion",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 25,
+        "energyCapacity": 450,
+        "engineDraw": 4.8,
+        "shieldDraw": 7,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 20.25
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 49,
@@ -1670,7 +1823,16 @@
         "sourceDescription": "Designed to combat the Klingon Neg'Var, these were simply too expensive to produce.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 30,
+        "energyCapacity": 600,
+        "engineDraw": 6.2,
+        "shieldDraw": 9,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 23.5
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 50,
@@ -1756,7 +1918,16 @@
         "sourceDescription": "A sentient, space-faring lifeform.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 18,
+        "energyCapacity": 500,
+        "engineDraw": 3.23,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 15.7
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 51,
@@ -1844,7 +2015,16 @@
         "sourceDescription": "An enourmous ship, usually used for luxury cruises, some have been retrofitted as cargoships.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 21,
+        "energyCapacity": 528,
+        "engineDraw": 4.08,
+        "shieldDraw": 7,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 17.65
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 53,
@@ -1934,7 +2114,16 @@
         "sourceDescription": "A secret project to free themselves from the Romulan Empire, it failed when it was discovered by the Romulans.",
         "loreBasis": "romulan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 29,
+        "energyCapacity": 410,
+        "engineDraw": 4.8,
+        "shieldDraw": 7,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 22.85
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 54,
@@ -2022,7 +2211,16 @@
         "sourceDescription": "A balanced Tamarian warship with strong commerce-era systems and enough firepower to hold its own in disputed space.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 55,
@@ -2112,7 +2310,16 @@
         "sourceDescription": "An alien bioship of unknown origin.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 18,
+        "energyCapacity": 240,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 15.7
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 60,
@@ -2205,7 +2412,16 @@
         "sourceDescription": "A mammoth vessel designed with technology from across the galaxy.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 29,
+        "energyCapacity": 950,
+        "engineDraw": 6.2,
+        "shieldDraw": 9,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 22.85
+      },
+      "powerDesign": "Large endurance reserve; lower sustained generation than Excalibur."
     },
     {
       "id": 61,
@@ -2291,7 +2507,16 @@
         "sourceDescription": "An enormous battleship of unthinkable strength.",
         "loreBasis": "klingon",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 27,
+        "energyCapacity": 600,
+        "engineDraw": 6.2,
+        "shieldDraw": 9,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 21.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 62,
@@ -2377,7 +2602,16 @@
         "sourceDescription": "As the name implies, this is an enormous warship.",
         "loreBasis": "cardassian",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 27,
+        "energyCapacity": 600,
+        "engineDraw": 6.2,
+        "shieldDraw": 9,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 21.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 63,
@@ -2516,7 +2750,16 @@
         "sourceDescription": "A large, lumbering vessel of incredible strength.",
         "loreBasis": "romulan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 27,
+        "energyCapacity": 600,
+        "engineDraw": 6.2,
+        "shieldDraw": 9,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 21.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 65,
@@ -2602,7 +2845,16 @@
         "sourceDescription": "The largest, most powerful Dominion ship in the fleet.",
         "loreBasis": "dominion",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 34,
+        "energyCapacity": 700,
+        "engineDraw": 6.2,
+        "shieldDraw": 9,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 26.1
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 66,
@@ -2690,7 +2942,16 @@
         "sourceDescription": "Designed by the Tholians, this is the strongest ship ever produced.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 27,
+        "energyCapacity": 600,
+        "engineDraw": 6.2,
+        "shieldDraw": 9,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 21.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 206,
@@ -2780,7 +3041,16 @@
         "sourceDescription": "A small armed scout-vessel, typically used for fleet scouting.",
         "loreBasis": "dominion",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 207,
@@ -2870,7 +3140,16 @@
         "sourceDescription": "A small, fast ship with a powerful proton beam. These ships are also used by the Orions.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 180,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 208,
@@ -2961,7 +3240,16 @@
         "sourceDescription": "A small combat ship, best used in groups as they are weak on their own.",
         "loreBasis": "starfleet-ak",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 209,
@@ -3051,7 +3339,16 @@
         "sourceDescription": "A medium Terran courier-cruiser with ample cargo space, compact lines, and long-haul utility.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 300,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 210,
@@ -3141,7 +3438,16 @@
         "sourceDescription": "A small cargo vessel, purely logical design.",
         "loreBasis": "vulcan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 211,
@@ -3232,7 +3538,16 @@
         "sourceDescription": "A huge ship with good defenses and cargo. Quite logical, for a price.",
         "loreBasis": "vulcan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 26,
+        "energyCapacity": 580,
+        "engineDraw": 4.8,
+        "shieldDraw": 7,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 20.9
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 212,
@@ -3322,7 +3637,16 @@
         "sourceDescription": "A small, weak scout with limited range and cargo.",
         "loreBasis": "romulan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 213,
@@ -3414,7 +3738,16 @@
         "sourceDescription": "A prestige capital cruiser with a vast command saucer, reinforced stardrive, and long-range fleet support systems. Expensive, imposing, and built to keep a province obedient.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 21,
+        "energyCapacity": 440,
+        "engineDraw": 4.8,
+        "shieldDraw": 7,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 17.65
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 214,
@@ -3504,7 +3837,16 @@
         "sourceDescription": "The single nacelle design of this ship is efficient with antimatter but suffers cargo space and weapons.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 180,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 215,
@@ -3595,7 +3937,16 @@
         "sourceDescription": "A large, lumbering vessel that carries a lot of cargo but can be painfully difficult to navigate. Fortunately its efficient drive requires no antimatter.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 384,
+        "engineDraw": 3.23,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 216,
@@ -3685,7 +4036,16 @@
         "sourceDescription": "A fast, agile ship much larger and stronger than the more common Fighter.",
         "loreBasis": "dominion",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 217,
@@ -3775,7 +4135,16 @@
         "sourceDescription": "A makeshift warship design using recovered starship parts.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 180,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 218,
@@ -3865,7 +4234,16 @@
         "sourceDescription": "A vicious vessel, the primary ship of the Breen race.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 18,
+        "energyCapacity": 294,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 15.7
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 219,
@@ -3955,7 +4333,16 @@
         "sourceDescription": "A small, powerful warship of the Son'a race.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 18,
+        "energyCapacity": 294,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 15.7
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 220,
@@ -4045,7 +4432,16 @@
         "sourceDescription": "The refitted version of the Azuki Class starship, with significantly more power.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 221,
@@ -4135,7 +4531,16 @@
         "sourceDescription": "A merged Galaxy-class starship with saucer and stardrive operating as one complete capital ship.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 21,
+        "energyCapacity": 440,
+        "engineDraw": 4.8,
+        "shieldDraw": 7,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 17.65
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 222,
@@ -4225,7 +4630,16 @@
         "sourceDescription": "A nimble crystalline shuttle used for customs sweeps, station runs, and short-hop patrol duty inside the Tholian web.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 223,
@@ -4315,7 +4729,16 @@
         "sourceDescription": "A broad-beamed Tholian freighter built to move crystal feedstock, web filament, and station supplies between core worlds.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 300,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 224,
@@ -4405,7 +4828,16 @@
         "sourceDescription": "Equipped with illegal subspace weaponry, this battleship is a deadly foe.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 27,
+        "energyCapacity": 600,
+        "engineDraw": 6.2,
+        "shieldDraw": 9,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 21.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 225,
@@ -4496,7 +4928,16 @@
         "sourceDescription": "The primary ship in the Orion fleet, the starbridge is a well rounded ship for cargo hauling and local defense.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 226,
@@ -4586,7 +5027,16 @@
         "sourceDescription": "An alien cruiser with unknown properties.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 227,
@@ -4676,7 +5126,16 @@
         "sourceDescription": "An alien ship with unknown properties.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 228,
@@ -4766,7 +5225,16 @@
         "sourceDescription": "A small fighter designed by the earth empire for long range defense and ship escort",
         "loreBasis": "starfleet-ak",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 9,
+        "energyCapacity": 110,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 9.85
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 229,
@@ -4856,7 +5324,16 @@
         "sourceDescription": "The Captain's yacht of the sovereign class ship.  It has no shields or weapons",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 230,
@@ -4947,7 +5424,16 @@
         "sourceDescription": "A Terran frontier frigate with an oversized command saucer and bright paired warp coils. Built for patrol captains who need cruiser presence without cruiser expense.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 231,
@@ -5038,7 +5524,16 @@
         "sourceDescription": "A heavy Terran assault cruiser wrapped around a long tactical spine and reinforced nacelle outriggers. It trades finesse for punishing forward firepower and intimidation.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 18,
+        "energyCapacity": 294,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 15.7
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 232,
@@ -5128,7 +5623,16 @@
         "sourceDescription": "A heavily plated Tholian warship built around web projectors and layered shield nodes, meant to hold a lane rather than yield it.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 27,
+        "energyCapacity": 600,
+        "engineDraw": 6.2,
+        "shieldDraw": 9,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 21.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 233,
@@ -5218,7 +5722,16 @@
         "sourceDescription": "A compact Breen patrol craft built for cold-system courier runs, sensor pickets, and quick raids from hidden anchorages.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 234,
@@ -5308,7 +5821,16 @@
         "sourceDescription": "A shield-heavy Breen cruiser suited to escort duty, raiding lanes, and reinforcing Dominion-aligned border systems.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 235,
@@ -5398,7 +5920,16 @@
         "sourceDescription": "A swift Son'a support shuttle used to ferry officers, samples, and field agents through the Briar Patch.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 236,
@@ -5488,7 +6019,16 @@
         "sourceDescription": "A Terran cargo frame with a protected command pod and broad holds. Slow to turn, but useful for building up station resources.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 300,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 237,
@@ -5578,7 +6118,16 @@
         "sourceDescription": "A fast Vulcan cruiser with efficient warp systems, precise defensive fields, and limited cargo capacity.",
         "loreBasis": "vulcan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 238,
@@ -5668,7 +6217,16 @@
         "sourceDescription": "A Dominion logistics vessel used to move ketracel stores, cloning equipment, and station supplies behind the front line.",
         "loreBasis": "dominion",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 300,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 239,
@@ -5758,7 +6316,16 @@
         "sourceDescription": "A reinforced Klingon military hauler with armored cargo tracks and enough weapon hardpoints to survive border raids.",
         "loreBasis": "klingon",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 240,
@@ -5848,7 +6415,16 @@
         "sourceDescription": "A compact Andorian patrol cruiser built for border work, fast intercepts, and disciplined beam fire.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 241,
@@ -5938,7 +6514,16 @@
         "sourceDescription": "A narrow Terran utility cruiser with efficient cargo lanes and enough armor to survive frontier duty.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 242,
@@ -6028,7 +6613,16 @@
         "sourceDescription": "A broad-saucer Terran cruiser designed for patrol command and sustained defensive fire.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 243,
@@ -6118,7 +6712,16 @@
         "sourceDescription": "A sturdy Terran courier shuttle with reinforced nacelle housings and quick docking response.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 244,
@@ -6208,7 +6811,16 @@
         "sourceDescription": "A long-range Terran transport cruiser with a narrow profile and practical station-building cargo space.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 300,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 245,
@@ -6298,7 +6910,16 @@
         "sourceDescription": "A Terran survey cruiser with balanced shields, cargo capacity, and frontier endurance.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 300,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 246,
@@ -6388,7 +7009,16 @@
         "sourceDescription": "A classic Romulan warbird pattern with heavy plasma systems and a broad intimidation profile.",
         "loreBasis": "romulan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 21,
+        "energyCapacity": 440,
+        "engineDraw": 4.8,
+        "shieldDraw": 7,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 17.65
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 247,
@@ -6478,7 +7108,16 @@
         "sourceDescription": "A compact Terran service craft suited to light escort and courier work.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 248,
@@ -6568,7 +7207,16 @@
         "sourceDescription": "A heavy Terran cruiser with command-deck redundancy and stronger-than-average shields.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 249,
@@ -6658,7 +7306,16 @@
         "sourceDescription": "A reliable Terran light cruiser, popular with captains who need cargo room without capital-ship sluggishness.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 250,
@@ -6748,7 +7405,16 @@
         "sourceDescription": "A detached command yacht for Galaxy-class frames, lightly armed but fast enough to escape trouble.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 251,
@@ -6838,7 +7504,16 @@
         "sourceDescription": "A revived Gorn cruiser design with thick armor plates and direct assault doctrine.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 252,
@@ -6928,7 +7603,16 @@
         "sourceDescription": "A lean Gorn patrol ship used to screen border lanes and harass vulnerable freighters.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 180,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 253,
@@ -7018,7 +7702,16 @@
         "sourceDescription": "A Hirogen hunter vessel built around pursuit endurance, boarding pressure, and brutal forward fire.",
         "loreBasis": "hirogen",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 254,
@@ -7108,7 +7801,16 @@
         "sourceDescription": "A heavy Hirogen warship used by hunting packs to dominate local space before closing for the kill.",
         "loreBasis": "hirogen",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 23,
+        "energyCapacity": 405,
+        "engineDraw": 4.8,
+        "shieldDraw": 7,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 18.95
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 255,
@@ -7198,7 +7900,16 @@
         "sourceDescription": "A Klingon cruiser with a long armored spine and an aggressive forward weapons posture.",
         "loreBasis": "klingon",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 18,
+        "energyCapacity": 294,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 15.7
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 256,
@@ -7288,7 +7999,16 @@
         "sourceDescription": "A Romulan cruiser variant with swept green wings, dense shields, and careful firing arcs.",
         "loreBasis": "romulan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 257,
@@ -7378,7 +8098,16 @@
         "sourceDescription": "A Suliban cruiser with cell-ship geometry scaled up for raiding, evasion, and sudden strikes.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 258,
@@ -7468,7 +8197,16 @@
         "sourceDescription": "A small Suliban cell pod, cheap to field and hard to pin down in close traffic.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 259,
@@ -7558,7 +8296,16 @@
         "sourceDescription": "A larger Suliban cell ship used by small packs to probe defenses and flee before reinforcements arrive.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 180,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 260,
@@ -7648,7 +8395,16 @@
         "sourceDescription": "A Vulcan cruiser built for long-range diplomacy, precise shielding, and controlled defensive force.",
         "loreBasis": "vulcan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 384,
+        "engineDraw": 3.23,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 261,
@@ -7738,7 +8494,16 @@
         "sourceDescription": "A Borg tactical cube. It is excluded from ordinary traffic and intended for major encounters or testing.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 45,
+        "energyCapacity": 1100,
+        "engineDraw": 6.2,
+        "shieldDraw": 9,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 33.25
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 262,
@@ -7828,7 +8593,16 @@
         "sourceDescription": "A Terran capital ship with a compact command silhouette and heavy imperial refit systems.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 263,
@@ -7918,7 +8692,16 @@
         "sourceDescription": "A sleek passenger shuttle used for station runs, courier contracts, and light scouting.",
         "loreBasis": "starfleet-ak",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 264,
@@ -8008,7 +8791,16 @@
         "sourceDescription": "A workhorse Terran support cruiser with broad utility systems and dependable warp range.",
         "loreBasis": "lower-decks",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 15,
+        "energyCapacity": 380,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 13.75
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 265,
@@ -8098,7 +8890,16 @@
         "sourceDescription": "A Terran experimental cruiser with a narrow command hull and high-output transit systems.",
         "loreBasis": "crossfield",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 22,
+        "energyCapacity": 350,
+        "engineDraw": 3.23,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 18.3
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 266,
@@ -8188,7 +8989,16 @@
         "sourceDescription": "A clean-lined Terran science cruiser adapted for frontier patrol and small-fleet support.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 267,
@@ -8278,7 +9088,16 @@
         "sourceDescription": "A fast Hirogen shuttle used by hunting parties to scout prey and recover trophies.",
         "loreBasis": "hirogen",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 268,
@@ -8368,7 +9187,16 @@
         "sourceDescription": "A privately maintained warbird hull rebuilt for independent captains and frontier militias.",
         "loreBasis": "romulan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 269,
@@ -8458,7 +9286,16 @@
         "sourceDescription": "An old Terran NX-pattern escort, obsolete by fleet standards but still nimble and stubborn.",
         "loreBasis": "early-earth",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 180,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 270,
@@ -8548,7 +9385,16 @@
         "sourceDescription": "A wide Terran cruiser with lateral weapons coverage and a strong defensive frame.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 271,
@@ -8638,7 +9484,16 @@
         "sourceDescription": "A large Terran operations cruiser with strong shields and solid multi-role endurance.",
         "loreBasis": "lower-decks",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 20,
+        "energyCapacity": 470,
+        "engineDraw": 3.23,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 17
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 272,
@@ -8728,7 +9583,16 @@
         "sourceDescription": "A stripped-down Terran fast craft for scouts who value speed over comfort.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 273,
@@ -8818,7 +9682,16 @@
         "sourceDescription": "A rugged tactical shuttle with a compact hull and improved defensive emitters.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 274,
@@ -8908,7 +9781,16 @@
         "sourceDescription": "An early Terran deep-space escort refitted with modern navigation and patrol systems.",
         "loreBasis": "early-earth",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 180,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 275,
@@ -8998,7 +9880,16 @@
         "sourceDescription": "A compact Terran strike escort designed for fast border response and light raiding.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 12,
+        "energyCapacity": 166,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 11.8
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 276,
@@ -9088,7 +9979,16 @@
         "sourceDescription": "A sleek Terran light cruiser with strong endurance and clean forward fire lanes.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 300,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 277,
@@ -9178,7 +10078,16 @@
         "sourceDescription": "A broad Romulan freight vessel used to move cloaked supplies through contested space.",
         "loreBasis": "romulan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 300,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 278,
@@ -9268,7 +10177,16 @@
         "sourceDescription": "A Romulan military transport-cruiser with layered shielding and heavy utility capacity.",
         "loreBasis": "romulan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 384,
+        "engineDraw": 3.23,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 279,
@@ -9358,7 +10276,16 @@
         "sourceDescription": "A large Romulan warbird silhouette carrying the presence and reach of a capital vessel.",
         "loreBasis": "romulan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 280,
@@ -9448,7 +10375,16 @@
         "sourceDescription": "A Terran refit of the classic Constitution frame, adapted for imperial patrol and command work.",
         "loreBasis": "starfleet-ak",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 281,
@@ -9538,7 +10474,16 @@
         "sourceDescription": "A fast auxiliary craft with better range and protection than most station shuttles.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 282,
@@ -9628,7 +10573,16 @@
         "sourceDescription": "A refined Vulcan light cruiser built for disciplined exploration and controlled defensive action.",
         "loreBasis": "vulcan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 300,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 283,
@@ -9718,7 +10672,16 @@
         "sourceDescription": "A four-nacelle Terran cruiser with excellent warp endurance and multi-vector patrol coverage.",
         "loreBasis": "starfleet-ak",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 284,
@@ -9808,7 +10771,16 @@
         "sourceDescription": "A modern Constitution-line cruiser balancing standing, range, and fleet command capability.",
         "loreBasis": "starfleet-ak",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 384,
+        "engineDraw": 3.23,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 285,
@@ -9898,7 +10870,16 @@
         "sourceDescription": "A compact modern Terran cruiser with a hardened engineering spine and strong tactical sensors.",
         "loreBasis": "starfleet-ak",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 286,
@@ -9988,7 +10969,16 @@
         "sourceDescription": "A modernized Excelsior lineage cruiser with stronger shields and long-range patrol systems.",
         "loreBasis": "starfleet-ak",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 287,
@@ -10078,7 +11068,16 @@
         "sourceDescription": "A rugged Terran cruiser built for fleet operations and sustained combat deployments.",
         "loreBasis": "starfleet-ak",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 18,
+        "energyCapacity": 294,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 15.7
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 288,
@@ -10168,7 +11167,16 @@
         "sourceDescription": "A compact Gorn interceptor with reinforced plating and aggressive close-range handling.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 180,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 289,
@@ -10258,7 +11266,16 @@
         "sourceDescription": "A heavy Terran capital cruiser with dense shields, modern weapons routing, and command-grade drives.",
         "loreBasis": "starfleet-ak",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 23,
+        "energyCapacity": 405,
+        "engineDraw": 4.8,
+        "shieldDraw": 7,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 18.95
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 290,
@@ -10348,7 +11365,16 @@
         "sourceDescription": "A lean Intrepid-derived frigate focused on speed, scouting, and rapid response.",
         "loreBasis": "early-earth",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 291,
@@ -10438,7 +11464,16 @@
         "sourceDescription": "A high-capacity independent freighter popular with frontier merchants and fleet quartermasters.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 300,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 292,
@@ -10528,7 +11563,16 @@
         "sourceDescription": "A Cardassian military transport with armored cargo bays and reliable convoy endurance.",
         "loreBasis": "cardassian",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 300,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 293,
@@ -10618,7 +11662,16 @@
         "sourceDescription": "An Andorian built cruiser with direct weapons geometry and tough forward shielding.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 294,
@@ -10708,7 +11761,16 @@
         "sourceDescription": "A survey-oriented Terran light cruiser with strong sensors and long operational legs.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 300,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 295,
@@ -10798,7 +11860,16 @@
         "sourceDescription": "A Terran tactical light cruiser designed for escort screens and planetary defense patrols.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 15,
+        "energyCapacity": 230,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 13.75
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 296,
@@ -10888,7 +11959,16 @@
         "sourceDescription": "An Orion science vessel with modified sensor banks and unusually practical cargo space.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 180,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 297,
@@ -10978,7 +12058,16 @@
         "sourceDescription": "A compact independent escort favored by small-system security forces.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 180,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 298,
@@ -11068,7 +12157,16 @@
         "sourceDescription": "A modern Terran utility cruiser with balanced cargo, weapons, and patrol range.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 299,
@@ -11158,7 +12256,16 @@
         "sourceDescription": "A modern Terran capital explorer with wide mission capacity and strong defensive grids.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 21,
+        "energyCapacity": 528,
+        "engineDraw": 4.08,
+        "shieldDraw": 7,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 17.65
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 300,
@@ -11248,7 +12355,16 @@
         "sourceDescription": "A Terran cruiser variant with strong tactical systems and flexible fleet support capacity.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 22,
+        "energyCapacity": 450,
+        "engineDraw": 3.23,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 18.3
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 301,
@@ -11338,7 +12454,16 @@
         "sourceDescription": "A dependable frontier escort used by independent patrol groups and private security fleets.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 180,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 302,
@@ -11428,7 +12553,16 @@
         "sourceDescription": "A long-range Terran light cruiser tuned for reconnaissance and rapid redeployment.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 303,
@@ -11518,7 +12652,16 @@
         "sourceDescription": "A small high-speed warp craft suitable for couriers, scouting, and low-risk command travel.",
         "loreBasis": "early-earth",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 305,
@@ -11612,7 +12755,16 @@
         "sourceDescription": "An old design but very dependable. Great long-range capability.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 180,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 306,
@@ -11706,7 +12858,16 @@
         "sourceDescription": "A small, fast ship with excellent long range ability, but fairly weak.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 11,
+        "energyCapacity": 220,
+        "engineDraw": 1.95,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 11.15
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 307,
@@ -11800,7 +12961,16 @@
         "sourceDescription": "A small 25 crew ship, usually deployed for planetary defense.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 180,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 308,
@@ -11894,7 +13064,16 @@
         "sourceDescription": "A small multipurpose runabout with minimal weapons, modest defenses, and limited cargo space.",
         "loreBasis": "starfleet-ak",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 309,
@@ -11989,7 +13168,16 @@
         "sourceDescription": "This ship has good cargo, fast speed, and a strong weapons platform.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 216,
+        "engineDraw": 1.95,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 310,
@@ -12084,7 +13272,16 @@
         "sourceDescription": "A good overall vessel, well rounded for the average buyer.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 180,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 311,
@@ -12179,7 +13376,16 @@
         "sourceDescription": "A civilian explorer with good cargo room and long range.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 216,
+        "engineDraw": 1.95,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 312,
@@ -12274,7 +13480,16 @@
         "sourceDescription": "Old Imperial plantary defenders, obsolete by today's standards and ready for civilian purchase.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 313,
@@ -12369,7 +13584,16 @@
         "sourceDescription": "An Ambassador-class cruiser retained in Terran Imperial service. Its particle beam, pulse turret and photon launcher give it a stronger starting armament than the civilian refit.",
         "loreBasis": "starfleet-ak",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 314,
@@ -12463,7 +13687,16 @@
         "sourceDescription": "A small ship, comparable to the human shuttle but a bit larger in overall mass.",
         "loreBasis": "cardassian",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 315,
@@ -12557,7 +13790,16 @@
         "sourceDescription": "A large, well defended cargo ship with decent speed.",
         "loreBasis": "ferengi",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 316,
@@ -12651,7 +13893,16 @@
         "sourceDescription": "A small warp-capable shuttle with a big cargo hold, but no weapons.",
         "loreBasis": "ferengi",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 144,
+        "engineDraw": 1.36,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 317,
@@ -12745,7 +13996,16 @@
         "sourceDescription": "A defensive cruiser, fast and strong but limited interstellar range.",
         "loreBasis": "ferengi",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 318,
@@ -12839,7 +14099,16 @@
         "sourceDescription": "Hands down the best cargo ship in the galaxy, but dang expensive.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 15,
+        "energyCapacity": 480,
+        "engineDraw": 3.23,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 13.75
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 319,
@@ -12933,7 +14202,16 @@
         "sourceDescription": "A long-range defensive vessel with unique weaponry.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 320,
@@ -13027,7 +14305,16 @@
         "sourceDescription": "An absolutely huge, powerful warship. Only the best command these.",
         "loreBasis": "romulan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 25,
+        "energyCapacity": 450,
+        "engineDraw": 4.8,
+        "shieldDraw": 7,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 20.25
+      },
+      "powerDesign": "Strong generation, but maintaining cloak plus recovery competes with combat reserves."
     },
     {
       "id": 321,
@@ -13121,7 +14408,16 @@
         "sourceDescription": "A long range defensive cruiser with a good set of weapons and of course, a cloaking device.",
         "loreBasis": "romulan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 21,
+        "energyCapacity": 310,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 17.65
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 322,
@@ -13215,7 +14511,16 @@
         "sourceDescription": "A strong ship with unique weapons from another quadrant.",
         "loreBasis": "dominion",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 15,
+        "energyCapacity": 180,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 13.75
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 323,
@@ -13309,7 +14614,16 @@
         "sourceDescription": "A large powerful vessel, well rounded with cargo and weapons and speed.",
         "loreBasis": "cardassian",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 324,
@@ -13403,7 +14717,16 @@
         "sourceDescription": "A variant of the Galor Class, built for war.",
         "loreBasis": "cardassian",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 21,
+        "energyCapacity": 440,
+        "engineDraw": 4.8,
+        "shieldDraw": 7,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 17.65
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 325,
@@ -13499,7 +14822,16 @@
         "sourceDescription": "An upgraded Akira strike cruiser with a heavy particle beam and two quantum torpedo launchers. Its stronger starting weapon fit distinguishes it from the standard Akira class.",
         "loreBasis": "starfleet-ak",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 20,
+        "energyCapacity": 310,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 17
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 326,
@@ -13593,7 +14925,16 @@
         "sourceDescription": "A small short-range warship with ablative armor.",
         "loreBasis": "defiant",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 170,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 327,
@@ -13687,7 +15028,16 @@
         "sourceDescription": "Fast and sleek, this ship is somewhat weak but will take you far.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 300,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 328,
@@ -13781,7 +15131,16 @@
         "sourceDescription": "A small warship, powerful and fast.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 23,
+        "energyCapacity": 300,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 18.95
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 329,
@@ -13871,7 +15230,16 @@
         "sourceDescription": "A powerful Sovereign-class capital ship refitted for Terran command doctrine and heavy fleet engagements.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 28,
+        "energyCapacity": 510,
+        "engineDraw": 4.8,
+        "shieldDraw": 7,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 22.2
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 330,
@@ -13965,7 +15333,16 @@
         "sourceDescription": "A tiny sublight Bird of Prey with a tiny disruptor cannon.",
         "loreBasis": "klingon",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 331,
@@ -14059,7 +15436,16 @@
         "sourceDescription": "A medium sized cruiser. With its large cargo hold they are generally cargo ships.",
         "loreBasis": "klingon",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 300,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 332,
@@ -14153,7 +15539,16 @@
         "sourceDescription": "A good medium-range Bird of Prey, excellent for territorial defense.",
         "loreBasis": "klingon",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 180,
+        "engineDraw": 2.3,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 333,
@@ -14243,7 +15638,16 @@
         "sourceDescription": "A Negh'Var command variant equipped to coordinate Klingon battle groups and direct major fleet operations.",
         "loreBasis": "klingon",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 27,
+        "energyCapacity": 600,
+        "engineDraw": 6.2,
+        "shieldDraw": 9,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 21.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 334,
@@ -14337,7 +15741,16 @@
         "sourceDescription": "A powerful Klingon assault vessel, once plentiful in the empire as a standard battlecruiser.",
         "loreBasis": "klingon",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 18,
+        "energyCapacity": 294,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 15.7
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 335,
@@ -14432,7 +15845,16 @@
         "sourceDescription": "A small, old design ideal for exploration.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 10,
+        "energyCapacity": 216,
+        "engineDraw": 1.95,
+        "shieldDraw": 3.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 10.5
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 336,
@@ -14527,7 +15949,16 @@
         "sourceDescription": "This former Earth Warship has been retrofitted for civilian use.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 338,
@@ -14621,7 +16052,16 @@
         "sourceDescription": "This alien ship uses a quantum flux drive that requires no antimatter. It also cloaks.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 340,
@@ -14716,7 +16156,16 @@
         "sourceDescription": "As old as they get, these ships have been converted to tugs to be of any use.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 300,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 341,
@@ -14811,7 +16260,16 @@
         "sourceDescription": "An old design, these ships will carry lots of cargo if they don't fall apart.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 300,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 342,
@@ -14906,7 +16364,16 @@
         "sourceDescription": "Primarily a support vessel, these ships rarely see combat.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 15,
+        "energyCapacity": 420,
+        "engineDraw": 2.55,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 13.75
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 343,
@@ -15000,7 +16467,16 @@
         "sourceDescription": "A medium range cruiser built for defensive purposes only.",
         "loreBasis": "vulcan",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 16,
+        "energyCapacity": 320,
+        "engineDraw": 3.8,
+        "shieldDraw": 5.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 14.4
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 344,
@@ -15094,7 +16570,16 @@
         "sourceDescription": "A military Steamrunner strike variant supplied with dual pulse phasers, a quantum torpedo launcher and a photon torpedo launcher. Faster handling, stronger shields and its strike loadout distinguish it from the standard Steamrunner cruiser.",
         "loreBasis": "starfleet-lz",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 17,
+        "energyCapacity": 240,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 15.05
+      },
+      "powerDesign": "Burst combat output with limited endurance."
     },
     {
       "id": 345,
@@ -15188,7 +16673,16 @@
         "sourceDescription": "A fragile but efficient Bajoran light craft. Its broad sail profile makes it distinctive, cheap to run, and poorly suited to heavy combat.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 5,
+        "energyCapacity": 170,
+        "engineDraw": 1.36,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 7.25
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 346,
@@ -15282,7 +16776,16 @@
         "sourceDescription": "A massive Borg assimilation cube deployed in Collective-held systems and major fleet operations; it is never ordinary civilian market stock.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 35,
+        "energyCapacity": 900,
+        "engineDraw": 6.2,
+        "shieldDraw": 9,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 26.75
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 347,
@@ -15370,7 +16873,16 @@
         "sourceDescription": "Project X’s exceptional Terran capital ship, entrusted only to captains of the highest faction standing.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 37,
+        "energyCapacity": 800,
+        "engineDraw": 6.2,
+        "shieldDraw": 9,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 28.05
+      },
+      "powerDesign": "High sustained output; substantially less reserve endurance per unit of output than Concord."
     },
     {
       "id": 348,
@@ -15459,7 +16971,16 @@
         "sourceDescription": "A compact Andorian cargo shuttle. Delivered without weapons; three slots accept compatible armament and devices.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 144,
+        "engineDraw": 1.36,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Larger reserves and efficient cruise support extended operations."
     },
     {
       "id": 349,
@@ -15549,7 +17070,16 @@
         "sourceDescription": "A compact utility craft of unidentified design in independent service. Three empty slots can be fitted with compatible weapons or devices.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 350,
@@ -15638,7 +17168,16 @@
         "sourceDescription": "An inexpensive civilian shuttle with a modest hold and three empty, armable equipment slots.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 7,
+        "energyCapacity": 120,
+        "engineDraw": 1.6,
+        "shieldDraw": 2.4,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 8.55
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     },
     {
       "id": 351,
@@ -15733,7 +17272,16 @@
         "sourceDescription": "A war-oriented light cruiser, the next step after the B’rel and below the K’Vort in the early Klingon fleet.",
         "loreBasis": "klingon",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
-      }
+      },
+      "powerProfile": {
+        "reactorOutput": 13,
+        "energyCapacity": 250,
+        "engineDraw": 3,
+        "shieldDraw": 4.5,
+        "shieldRechargePct": 1.25,
+        "cloakDraw": 12.45
+      },
+      "powerDesign": "Balanced output and reserves for its reviewed role."
     }
   ]
 }

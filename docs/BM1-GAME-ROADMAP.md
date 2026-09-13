@@ -25,6 +25,8 @@ The supplied Claude roster bundle ends at `8441e9c`. We reviewed it as source ma
 
 The 13 September revision adds the approved duplicate merges on reviewed economy base `3b2c2a9`. See `APPROVED-HULL-MERGES.md` for the implemented decisions and the delivery README for exact patch bases. Use one matching patch route, not both.
 
+The ship-power follow-up is based on pushed main `302639a`. It adds shared ship energy accounting and four crew skill profiles; see [Power and crews](power/POWER-AND-CREWS.md). Earlier delivery labels below describe the historical ship integration.
+
 ## 3. The main work packages
 
 | Area | Status | Goal / remaining work |
@@ -36,6 +38,8 @@ The 13 September revision adds the approved duplicate merges on reviewed economy
 | Reviewed BM1/BM2 ships | In this delivery | Catalog wired into the engine; our roster, source mappings and approved drawing envelopes retained. |
 | Ship trust and purchase rules | In this delivery | Faction-wide standing, regional/vendor stock, shared gates for personal and fleet purchases. |
 | Empty but armable ships | In this delivery | Three weapon/device slots; an empty loadout stays empty and can be equipped. |
+| Ship power and crew skill | Power follow-up patch | Per-hull reactors/reserves; paid movement, shield recovery and shots; four AI skills with separate temperament. |
+| Passive/active sensors and EW | Agreed next | Detection, identification and tracking; upgradeable suites permit cargo-to-recon refits with power/capacity tradeoffs. |
 | Complete weapon source audit | Agreed next | Merge identical BM1/BM2 definitions, preserve real variants, add supplied descriptions. |
 | Flags, passes and utility inventory | Agreed next | Separate credentials from the three weapon/device slots. Capacity and activation rules remain open. |
 | Boarding and fleet command transfer | Agreed next | Capture damaged ships, develop away teams, switch the player's ship with a fleet ship. |

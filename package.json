@@ -16,7 +16,9 @@
     "test:ships:economy": "node scripts/ship-economy-probe.mjs",
     "test:ships:merges": "node scripts/hull-merge-probe.mjs",
     "test:ships:balance": "node scripts/ship-balance-probe.mjs",
-    "check:ship-manifest": "node scripts/sync-ship-roster.mjs --check"
+    "check:ship-manifest": "node scripts/sync-ship-roster.mjs --check",
+    "test:power": "node scripts/ship-power-test.mjs",
+    "test:power:ingame": "node scripts/ship-power-probe.mjs"
   },
   "license": "SEE LICENSE IN LICENSE.md",
   "devDependencies": {

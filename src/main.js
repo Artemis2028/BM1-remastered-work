@@ -12,6 +12,11 @@ import {
   describePurchaseDecision,
 } from './ship-catalog-integration.mjs';
 import { HOME_FACTION_STANDING, PURCHASE_TIER_STANDING } from './ship-economy.mjs';
+import {
+  POWER_KEYS, normalizePowerDist, shipPowerProfile, ensurePowerState,
+  powerWeaponFactor, powerEngineFactor, weaponPowerCost, spendPower, stepShipPower,
+  assignPowerCrew, managePowerCrew, crewAllowsShot, powerSnapshot,
+} from './ship-power.mjs';
 
 const canvas = document.getElementById('game');
 const gameCtx = canvas.getContext('2d');
@@ -1483,6 +1488,8 @@ function createNpcShip({
   attackId = null,
   name = null,
   sideId = null,
+  crewSkill = null,
+  crewTemperament = null,
 } = {}) {
   const spawn = from || {
     x: state.systemStar.x + (seeded(seed + 1) - 0.5) * 1400,
@@ -1525,6 +1532,7 @@ function createNpcShip({
     fleetId,
     attackId,
     sideId: sideId || deriveNpcSideId(faction, id),
+    ...assignPowerCrew({ seed, faction, role, crewSkill, crewTemperament }),
     identityLocked: true, // an explicitly constructed ship is never re-fitted on restoration
   };
 }
@@ -2486,6 +2494,7 @@ function ensureSystemState(systemIndex) {
 function applySystemState(systemIndex) {
   // The NPCs currently live belong to securityLiveSystemIndex; snapshot the participants of that
   // system's active orders before they are discarded (travel, reload, or a same-system regeneration).
+  captureShipPowerState();
   captureSecurityParticipants(state.securityLiveSystemIndex);
   const s = ensureSystemState(systemIndex);
   const now = performance.now();
@@ -2563,6 +2572,7 @@ function applySystemState(systemIndex) {
   state.combatTargetType = 'ship';
   state.securityLiveSystemIndex = Number(systemIndex);
   reconcileSecurityParticipants(systemIndex);
+  for (const npc of state.npcShips) ensureNpcPower(npc);
 }
 
 function updateSystemOrbits(now = performance.now()) {
@@ -3172,7 +3182,7 @@ function formatShipClass(shipClass = '') {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function getShipWeaponDamageFactor(shipId = state.playership) {
+function getShipWeaponDamageFactor(shipId = state.playership, powerOwner = undefined) {
   const shipClass = getShipVisualClass(shipId);
   const stats = getShipStats(shipId);
   const mass = Math.max(1, finiteNumber(stats.mass, 1));
@@ -3181,16 +3191,17 @@ function getShipWeaponDamageFactor(shipId = state.playership) {
   const massBonus = Math.max(0, mass - 1) * 0.024;
   const durabilityBonus = Math.min(0.18, durability / 6200);
   const clamped = clamp(classFactor + massBonus + durabilityBonus, 0.65, 2.15);
-  if (Number(shipId) === Number(state.playership)) return clamped * getPowerWeaponsFactor();
+  if (powerOwner) return clamped * powerWeaponFactor(ensureNpcPower(powerOwner).dist);
+  if (powerOwner === undefined && Number(shipId) === Number(state.playership)) return clamped * getPowerWeaponsFactor();
   return clamped;
 }
 
-function getScaledWeaponDamage(shipId = state.playership, weapon = getWeapon(), baseDamage = null, ownerScale = 1) {
+function getScaledWeaponDamage(shipId = state.playership, weapon = getWeapon(), baseDamage = null, ownerScale = 1, powerOwner = undefined) {
   const base = Math.max(0, finiteNumber(baseDamage ?? weapon?.damage ?? PLAYER_WEAPON_DAMAGE, PLAYER_WEAPON_DAMAGE));
   if (base <= 0 || weapon?.type === 'Device') return 0;
   const type = String(weapon?.type || '').toLowerCase();
   const typeFactor = type === 'torpedo' ? 1.08 : type === 'heavy' ? 1.16 : type === 'turret' ? 0.94 : type === 'cannon' ? 0.9 : 1;
-  return Math.max(1, Math.round(base * getShipWeaponDamageFactor(shipId) * typeFactor * ownerScale));
+  return Math.max(1, Math.round(base * getShipWeaponDamageFactor(shipId, powerOwner) * typeFactor * ownerScale));
 }
 
 function getScaledWeaponCooldown(shipId = state.playership, weapon = getWeapon(), ownerScale = 1, floorScale = 1) {
@@ -3780,18 +3791,12 @@ function regenerateShieldPool(entity, maxShield, regenPerSecond, frameScale = 1,
 
 function updateShieldRegeneration(frameScale = 1) {
   const now = performance.now();
-  const changed = regenerateShieldPool(state, 100, PLAYER_SHIELD_REGEN_PER_SEC * getPowerShieldsFactor(), frameScale, now);
-  for (const npc of state.npcShips) {
-    if (npc.destroyed) continue;
-    ensureNpcCombatStats(npc);
-    regenerateShieldPool(npc, npc.maxCombatShields, NPC_SHIELD_REGEN_PER_SEC, frameScale, now);
-  }
+  // Ships recover through the shared energy budget in updatePowerSystems.
   for (const station of state.stations) {
     if (station.destroyed) continue;
     ensureStationCombatStats(station);
     regenerateShieldPool(station, station.maxCombatShields, STATION_SHIELD_REGEN_PER_SEC, frameScale, now);
   }
-  if (changed) updateStats();
 }
 
 function applyCurrentShipStats(resetCondition = false) {
@@ -4334,45 +4339,66 @@ function plantFlagForEmpire(faction) {
   updateStats();
   renderPlanetMenu();
 }
-const POWER_DIST_KEYS = ['reserve', 'engines', 'weapons', 'shields'];
-function getPowerDist(key) {
-  const dist = state.power && state.power.dist ? state.power.dist : {};
-  return clamp(Math.round(finiteNumber(dist[key], 5)), 0, 10);
+const POWER_DIST_KEYS = POWER_KEYS;
+function getInstalledPowerSlots(npc = null) {
+  return npc ? getOriginalShipWeaponSlots(npc.shipId) : (state.weaponSlots || []);
 }
-function getPowerMaxEnergy() {
-  return 100 + Math.max(1, finiteNumber(getShipStats().mass, 1)) * 25;
+function getActorPowerProfile(npc = null) {
+  const secondaryCore = getInstalledPowerSlots(npc).some(id => id && getWeapon(id).passiveEffect === 'secondary-reactor');
+  return shipPowerProfile(getShipStats(npc ? npc.shipId : state.playership), secondaryCore);
 }
-function getPowerWeaponsFactor() { return 0.6 + 0.08 * getPowerDist('weapons'); }
-function getPowerEnginesFactor() { return 0.7 + 0.06 * getPowerDist('engines'); }
-function getPowerShieldsFactor() { return 0.5 + 0.1 * getPowerDist('shields'); }
-function getPowerReserveFactor() { return 0.5 + 0.1 * getPowerDist('reserve'); }
-function getWeaponEnergyCost(weapon) {
-  const type = String(weapon?.type || '').toLowerCase();
-  if (type === 'device') {
-    const name = String(weapon?.name || '').toLowerCase();
-    if (name.includes('cloak')) return 25;
-    if (name.includes('thaleron')) return 30;
-    if (name.includes('disruptor')) return 18;
-    if (name.includes('tractor')) return 12;
-    return 15;
-  }
-  return Math.max(3, Math.round(getScaledWeaponDamage(state.playership, weapon) / 5));
+function ensureNpcPower(npc) {
+  Object.assign(npc, assignPowerCrew(npc));
+  npc.power = ensurePowerState(npc.power, getActorPowerProfile(npc));
+  return npc.power;
+}
+function ensurePlayerPower() {
+  state.power = ensurePowerState(state.power, getActorPowerProfile());
+  return state.power;
+}
+function getPowerDist(key) { return normalizePowerDist(state.power?.dist)[key] ?? 0; }
+function getPowerMaxEnergy() { return getActorPowerProfile().energyCapacity; }
+function getPowerWeaponsFactor() { return powerWeaponFactor(state.power?.dist); }
+function getPowerEnginesFactor() { return powerEngineFactor(state.power?.dist) * (state.power?.engineSupply ?? 1); }
+function getPowerShieldsFactor() { return getPowerDist('shields') / 5; }
+function getPowerReserveFactor() { return 1; } // compatibility: reserve points no longer multiply generation
+function getWeaponEnergyCost(weapon, npc = null) {
+  const shipId = npc ? npc.shipId : state.playership;
+  const power = npc ? ensureNpcPower(npc) : ensurePlayerPower();
+  // Use the hull's unallocated damage, independent of the player's selected hull
+  // and of the legacy target-dependent NPC difficulty damage scale.
+  return weaponPowerCost(weapon, getScaledWeaponDamage(shipId, weapon, null, 1, null), power.dist);
 }
 function consumeWeaponEnergy(cost) {
-  const max = getPowerMaxEnergy();
-  const energy = clamp(finiteNumber(state.power?.energy, max), 0, max);
-  if (energy < cost) {
-    setLog('Warning: Power Failure.');
-    return false;
+  if (spendPower(ensurePlayerPower(), cost)) return true;
+  setLog('Insufficient energy. Reduce demand or allow reserves to recover.');
+  return false;
+}
+// Capture only actual surviving vessels; a new ambient occupant gets fresh power/crew.
+function captureShipPowerState(systemIndex = state.securityLiveSystemIndex) {
+  for (const npc of state.npcShips || []) {
+    if (npc.destroyed) continue;
+    const power = powerSnapshot(ensureNpcPower(npc));
+    const fields = { power, crewSkill: npc.crewSkill, crewTemperament: npc.crewTemperament };
+    const fleet = npc.fleetId && state.playerFleet.find(f => f.id === npc.fleetId);
+    if (fleet) Object.assign(fleet, fields);
+    const cached = state.systemStates?.[systemIndex]?.npcShips?.find(n => n.id === npc.id && n.seed === npc.seed);
+    if (cached) Object.assign(cached, fields);
   }
-  state.power.energy = energy - cost;
-  return true;
+}
+function restoreFleetPower(ship, fleetShip) {
+  ship.power = fleetShip.power ? cloneJson(fleetShip.power) : null;
+  ship.crewSkill = fleetShip.crewSkill;
+  ship.crewTemperament = fleetShip.crewTemperament;
+  ensureNpcPower(ship);
+  Object.assign(fleetShip, { power: ship.power, crewSkill: ship.crewSkill, crewTemperament: ship.crewTemperament });
 }
 const POWER_DIST_BUDGET = 20;
 function setPowerDist(key, value) {
   if (!POWER_DIST_KEYS.includes(key)) return;
   if (!state.power || typeof state.power !== 'object') state.power = { energy: 200, dist: {} };
   if (!state.power.dist || typeof state.power.dist !== 'object') state.power.dist = {};
+  state.power.dist = normalizePowerDist(state.power.dist);
   const dist = state.power.dist;
   const next = clamp(Math.round(finiteNumber(value, 5)), 0, 10);
   let delta = next - clamp(Math.round(finiteNumber(dist[key], 5)), 0, 10);
@@ -4404,6 +4430,9 @@ function powerDistBarColor(value) {
   return '#ff5b5b';
 }
 function renderPowerPanel() {
+  const power = ensurePlayerPower();
+  const profile = getActorPowerProfile();
+  const telemetry = power.telemetry || { generation: profile.reactorOutput, consumption: 0, net: profile.reactorOutput };
   const max = getPowerMaxEnergy();
   const energy = Math.round(clamp(finiteNumber(state.power?.energy, max), 0, max));
   const pct = Math.round((energy / Math.max(1, max)) * 100);
@@ -4424,29 +4453,60 @@ function renderPowerPanel() {
   const total = POWER_DIST_KEYS.reduce((sum, k) => sum + getPowerDist(k), 0);
   return `<div class="panel-head">Power Distribution (OPS) Control</div>`
     + `<div class="meta">Energy ${energy}/${max} (${pct}%) | Budget ${total}/${POWER_DIST_BUDGET} | Drag a tank or use -/+</div>`
+    + `<div class="meta" data-power-readout>Reactor ${profile.reactorOutput.toFixed(1)} EU/s · Draw ${telemetry.consumption.toFixed(1)} EU/s · ${telemetry.net >= 0 ? (energy >= max ? 'Surplus' : 'Recovering') : 'Draining'} ${Math.abs(telemetry.net).toFixed(1)} EU/s</div>`
+    + `<div class="meta">Draw includes a one-second average of weapon bursts. Reserve leaves power uncommitted; it does not increase reactor output.</div>`
     + `<div class="power-tanks">${tanks}</div>`
     + `<div class="ship-actions"><button data-top-action="close-panel">Close</button></div>`;
 }
-function updatePowerSystems(frameScale = 1) {
-  if (state.gameOver || !state.gameStarted) return;
-  const max = getPowerMaxEnergy();
-  const dt = Math.max(0, finiteNumber(frameScale, 1)) / 60;
-  let energy = clamp(finiteNumber(state.power?.energy, max), 0, max);
-  energy = clamp(energy + 4 * getPowerReserveFactor() * dt, 0, max);
-  if (state.cloak?.active) {
-    energy -= 6 * dt;
-    if (energy <= 0) {
-      energy = 0;
-      state.power.energy = energy;
-      setPlayerCloak(false, performance.now());
-      setLog('Warning: Power Failure.');
-      updateStats();
-      return;
+function advanceActorPower(npc, frameScale, now) {
+  const power = npc ? ensureNpcPower(npc) : ensurePlayerPower();
+  const profile = getActorPowerProfile(npc);
+  const dt = clamp(finiteNumber(frameScale, 1) / 60, 0, 1);
+  const maximum = npc ? npc.maxCombatShields : 100;
+  const current = npc ? npc.combatShields : state.shields;
+  const shieldFraction = maximum > 0 ? clamp(current / maximum, 0, 1) : 1;
+  if (npc) managePowerCrew(power, profile, npc, { combat: Boolean(power.combat), shieldFraction }, dt);
+  const stopped = npc ? (npc.waitUntil > now || isNpcTractorHeld(npc, now) || isNpcEngineDisabled(npc, now)
+    || npc.trafficWarp?.phase === 'away' || npc.securityObjective?.holding)
+    : state.docked;
+  const moving = npc ? !!npc.destination && Math.hypot(npc.destination.x - npc.x, npc.destination.y - npc.y) >= 34
+    : state.ship.velocity > 0 || keys.has('w') || keys.has('arrowup');
+  const result = stepShipPower(power, profile, dt, {
+    throttle: !stopped && moving ? 1 : 0,
+    engineBoost: 1 + clamp(finiteNumber((npc || state.ship).systemWarpIntensity, 0), 0, 1) * 2,
+    shieldMissing: 1 - shieldFraction,
+    shieldReady: now - ((npc || state).lastShieldHitAt || 0) >= SHIELD_REGEN_DELAY_MS,
+    cloaked: !npc && Boolean(state.cloak?.active),
+  });
+  if (npc) npc.combatShields = Math.min(maximum, current + maximum * result.shieldFraction);
+  else {
+    state.shields = Math.min(100, current + 100 * result.shieldFraction);
+    if (result.cloakFailed) {
+      setPlayerCloak(false, now);
+      setLog('Cloak disengaged: insufficient reactor power and reserves.');
     }
   }
-  const before = Math.round(clamp(finiteNumber(state.power?.energy, max), 0, max));
-  state.power.energy = energy;
-  if (state.topLeftPanelOpen && state.topLeftTab === 'power' && Math.round(energy) !== before) updateStats();
+}
+function updatePowerSystems(frameScale = 1) {
+  if (state.gameOver || !state.gameStarted) return;
+  const now = performance.now();
+  const previousShieldPercent = Math.floor(state.shields);
+  advanceActorPower(null, frameScale, now);
+  if (Math.floor(state.shields) !== previousShieldPercent) updateStats();
+  for (const npc of state.npcShips || []) {
+    if (npc.destroyed) continue;
+    ensureNpcCombatStats(npc);
+    advanceActorPower(npc, frameScale, now);
+  }
+  // Fleet records own their power snapshot even if another action wipes scene caches.
+  for (const npc of state.npcShips || []) {
+    const fleet = !npc.destroyed && npc.fleetId && state.playerFleet.find(f => f.id === npc.fleetId);
+    if (fleet) Object.assign(fleet, { power: npc.power, crewSkill: npc.crewSkill, crewTemperament: npc.crewTemperament });
+  }
+  if (state.topLeftPanelOpen && state.topLeftTab === 'power' && now - (state.lastPowerUiAt || 0) >= 250) {
+    state.lastPowerUiAt = now;
+    renderTopLeftPanel();
+  }
 }
 function checkSystemFeatUnlocks() {
   if (!state.feats || typeof state.feats !== 'object') state.feats = {};
@@ -5632,6 +5692,7 @@ function captureSecurityParticipants(systemIndex = state.securityLiveSystemIndex
     const npc = (state.npcShips || []).find((entry) => entry && entry.securityInstanceId === order.visitorInstanceId && !entry.destroyed);
     if (!npc) continue;
     ledger.participants[order.visitorInstanceId] = {
+      power: powerSnapshot(ensureNpcPower(npc)), crewSkill: npc.crewSkill, crewTemperament: npc.crewTemperament,
       instanceId: order.visitorInstanceId, npcId: npc.id, shipId: npc.shipId, seed: npc.seed, name: npc.name, faction: npc.faction, sideId: npc.sideId, role: npc.role,
       x: npc.x, y: npc.y, heading: npc.heading, speed: npc.speed, turnRate: npc.turnRate, systemWarpMultiplier: npc.systemWarpMultiplier, scale: npc.scale, leg: npc.leg,
       combatHull: npc.combatHull, maxCombatHull: npc.maxCombatHull, combatShields: npc.combatShields, maxCombatShields: npc.maxCombatShields,
@@ -5660,6 +5721,7 @@ function reconcileSecurityParticipants(systemIndex) {
     const npc = snap ? (state.npcShips || []).find((entry) => entry && entry.id === snap.npcId && !entry.destroyed && !isPlayerSideNpc(entry) && !getSecurityOrderForVisitor(ledger, entry.securityInstanceId)) : null;
     if (!snap || !npc) { resolveSecurityOrder(ledger, order, 'contact_lost', 'participant not restored', { silent: true }); continue; }
     Object.assign(npc, {
+      power: snap.power ? cloneJson(snap.power) : null, crewSkill: snap.crewSkill, crewTemperament: snap.crewTemperament,
       securityInstanceId: snap.instanceId, identityLocked: true, shipId: snap.shipId, seed: snap.seed, name: snap.name, faction: snap.faction, sideId: snap.sideId, role: snap.role,
       x: snap.x, y: snap.y, heading: snap.heading, speed: snap.speed, turnRate: snap.turnRate, systemWarpMultiplier: snap.systemWarpMultiplier, scale: snap.scale, leg: snap.leg,
       combatHull: snap.combatHull, maxCombatHull: snap.maxCombatHull, combatShields: snap.combatShields, maxCombatShields: snap.maxCombatShields,
@@ -5729,6 +5791,8 @@ function sanitizeSecurityEncountersRecord(raw) {
       const num = (value, fallback) => (Number.isFinite(Number(value)) ? Number(value) : fallback);
       const pool = (value) => (value === null || value === undefined ? null : num(value, null));
       ledger.participants[id] = {
+        power: snap.power ? powerSnapshot(ensurePowerState(cloneJson(snap.power), shipPowerProfile(getShipStats(num(snap.shipId, 1))))) : null,
+        ...assignPowerCrew({ seed: snap.seed, faction: snap.faction, role: snap.role, crewSkill: snap.crewSkill, crewTemperament: snap.crewTemperament }),
         instanceId: id, npcId: snap.npcId, shipId: num(snap.shipId, 1), seed: num(snap.seed, 1), name: String(snap.name || ''), faction: normalizeFactionKey(snap.faction || 'neutral'),
         sideId: typeof snap.sideId === 'string' ? snap.sideId : null, role: snap.role === 'localTraffic' ? 'localTraffic' : 'traffic',
         x: Number(snap.x), y: Number(snap.y), heading: num(snap.heading, 0), speed: clamp(num(snap.speed, 1), 0.3, 3), turnRate: clamp(num(snap.turnRate, 0.5), 0.1, 3), systemWarpMultiplier: clamp(num(snap.systemWarpMultiplier, 1.5), 1, 4), scale: clamp(num(snap.scale, 1), 0.2, 4), leg: num(snap.leg, 0),
@@ -8589,6 +8653,7 @@ function getPlayerFleetNpcShips(systemIndex = state.currentPlanet, now = perform
         ? fleetShip.name
         : generateShipName({ shipId: fleetShip.shipId, faction: state.playerFaction, seed, role: 'playerFleet', id: fleetShip.id }),
     });
+    restoreFleetPower(ship, fleetShip);
     ship.lastShotAt = now + 300 + seeded(seed + 13) * 900;
     return ship;
   });
@@ -8634,6 +8699,7 @@ function getPlayerEscortNpcShips(now = performance.now()) {
         ? fleetShip.name
         : generateShipName({ shipId: fleetShip.shipId, faction: state.playerFaction, seed, role: 'playerEscort', id: fleetShip.id }),
     });
+    restoreFleetPower(ship, fleetShip);
     ship.escortIndex = index;
     ship.lastShotAt = now + 250 + seeded(seed + 13) * 700;
     ship.speed = Math.max(ship.speed, 1.25);
@@ -9774,6 +9840,7 @@ function getShipPurchaseSummary(shipId) {
     ['Role', ship.role || formatShipClass(ship.shipClass || getShipVisualClass(shipId))],
     ['Required standing', `${ship.purchaseRequirements?.factionStanding ?? getConfiguredPurchaseTierThresholds()[ship.purchaseTier] ?? 'Unavailable'} ${ship.faction === 'neutral' ? 'independent trade' : ship.faction}`],
     ['Your standing', String(getFactionStanding(ship.purchaseRequirements?.faction || ship.faction))],
+    ['Reactor / reserve', `${shipPowerProfile(ship).reactorOutput} EU/s / ${shipPowerProfile(ship).energyCapacity} EU`],
     ['Equipment', Array.isArray(ship.defaultWeaponSlots) && !ship.defaultWeaponSlots.some(Boolean) ? '3 empty slots — can be armed' : '3 weapon / device slots'],
     ['Starting fit', getOriginalShipWeaponSlots(shipId).map(id => id ? getWeapon(id).name : 'Empty').join(' / ')],
     ['Class', formatShipClass(ship.shipClass || getShipVisualClass(shipId))],
@@ -10224,6 +10291,7 @@ function updateMenu(menu = state.mymenu, panel = state.cargopanel) {
 }
 
 function saveGame(slot = state.currentSaveSlot || 1) {
+  captureShipPowerState();
   syncFuelToAntimatter();
   normalizePlayerFleetNames();
   const saveSlot = clamp(Math.round(Number(slot) || 1), 1, SAVE_SLOT_COUNT);
@@ -10293,7 +10361,7 @@ function saveGame(slot = state.currentSaveSlot || 1) {
     fleetStance: state.fleetStance || 'follow',
     auxLaunched: Boolean(state.auxLaunched),
     spawnProtectionUntil: 0,
-    power: { energy: finiteNumber(state.power?.energy, getPowerMaxEnergy()), dist: { reserve: getPowerDist('reserve'), engines: getPowerDist('engines'), weapons: getPowerDist('weapons'), shields: getPowerDist('shields') } },
+    power: powerSnapshot(ensurePlayerPower()),
     gameOver: state.gameOver,
     victory: state.victory,
   };
@@ -10417,6 +10485,7 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   state.dockedPlanetIndex = null;
   state.dockedStationId = null;
   state.systemStates = {};
+  state.npcShips = [];
   state.activeFleetAttack = null;
   state.fleetAttackControlSince = 0;
   rebuildTravelRoutes();
@@ -13483,6 +13552,10 @@ function firePlayerWeapon(slot = 1) {
     return;
   }
   const weapon = getWeapon(weaponId);
+  if (weapon.passiveEffect === 'secondary-reactor') {
+    setLog('Secondary Warp Core is active while fitted. Additional cores do not stack.');
+    return;
+  }
   const lastFiredAt = state.weaponLastFiredAt[slotIndex] || 0;
   const cooldown = getScaledWeaponCooldown(state.playership, weapon);
   if (isCloakingDevice(weapon)) {
@@ -13498,20 +13571,21 @@ function firePlayerWeapon(slot = 1) {
     return;
   }
   if (now - lastFiredAt < cooldown) return;
-  if (isPlayerCloaked(now)) setPlayerCloak(false, now, true);
   if (isEngineDisruptorWeapon(weapon)) {
+    if (!consumeWeaponEnergy(getWeaponEnergyCost(weapon))) return;
+    if (isPlayerCloaked(now)) setPlayerCloak(false, now, true);
     state.lastPlayerShotAt = now;
     state.weaponLastFiredAt[slotIndex] = now;
     playWeaponSound(weapon, { sourceId: `player:${slotIndex}`, volume: 1.02 });
-    if (!consumeWeaponEnergy(getWeaponEnergyCost(weapon))) return;
     applyPlayerEngineDisruptorPulse(weapon, slotIndex, now);
     return;
   }
   if (isThaleronGeneratorWeapon(weapon)) {
+    if (!consumeWeaponEnergy(getWeaponEnergyCost(weapon))) return;
+    if (isPlayerCloaked(now)) setPlayerCloak(false, now, true);
     state.lastPlayerShotAt = now;
     state.weaponLastFiredAt[slotIndex] = now;
     playWeaponSound(weapon, { sourceId: `player:${slotIndex}`, volume: 1.05 });
-    if (!consumeWeaponEnergy(getWeaponEnergyCost(weapon))) return;
     applyPlayerThaleronCloud(weapon, slotIndex, now);
     return;
   }
@@ -13525,12 +13599,13 @@ function firePlayerWeapon(slot = 1) {
     return;
   }
   ensureCombatTargetStats(target);
-  if (!consumeWeaponEnergy(getWeaponEnergyCost(weapon))) return;
   if (isTractorBeamWeapon(weapon) && target.stationTypeId) {
     setLog('Tractor beams cannot lock onto station mass. Target a ship.');
     state.weaponLastFiredAt[slotIndex] = now;
     return;
   }
+  if (!consumeWeaponEnergy(getWeaponEnergyCost(weapon))) return;
+  if (isPlayerCloaked(now)) setPlayerCloak(false, now, true);
   if (target.attitude === 'friendly') {
     setLog(`You attacked a friendly ${formatFaction(target.faction)} ${target.stationTypeId ? 'station' : 'ship'}. They are now hostile.`);
   }
@@ -13638,6 +13713,9 @@ function fireNpcWeapon(npc, target = playerWorldPosition(), targetType = 'player
   const weapon = getWeapon(weaponId);
   const cooldown = getScaledWeaponCooldown(npc.shipId, weapon, NPC_WEAPON_COOLDOWN_SCALE, NPC_WEAPON_FLOOR_SCALE);
   if (now - (npc.lastShotAt || 0) < cooldown) return;
+  const power = ensureNpcPower(npc);
+  const cost = getWeaponEnergyCost(weapon, npc);
+  if (!crewAllowsShot(power, getActorPowerProfile(npc), cost) || !spendPower(power, cost)) return;
   npc.lastShotAt = now;
   // Observed aggression: firing on someone makes this ship an attacker of that side for a while,
   // whatever flag it flies. Defenders classify relative to themselves (isNpcSystemAttacker).
@@ -13653,7 +13731,7 @@ function fireNpcWeapon(npc, target = playerWorldPosition(), targetType = 'player
   const heading = visualKind === 'beam' || tracksTarget ? targetHeading : finiteNumber(npc.heading, targetHeading);
   const radians = heading * Math.PI / 180;
   const damageScale = targetType === 'player' ? NPC_WEAPON_DAMAGE_SCALE : NPC_STATION_DAMAGE_SCALE;
-  const damage = getScaledWeaponDamage(npc.shipId, weapon, weapon.damage || NPC_WEAPON_DAMAGE, damageScale);
+  const damage = getScaledWeaponDamage(npc.shipId, weapon, weapon.damage || NPC_WEAPON_DAMAGE, damageScale, npc);
   playWeaponSound(weapon, { sourceId: `npc:${npc.id}`, volume: targetType === 'player' ? 0.82 : 0.58 });
   if (visualKind === 'beam') {
     const origin = weapon.type === 'Beam'
@@ -14494,6 +14572,9 @@ function syncAmbientTrafficVariant(npc) {
   systemShip.sideId = npc.sideId;
   systemShip.identityLocked = true;
   systemShip.securityInstanceId = npc.securityInstanceId || null;
+  systemShip.power = powerSnapshot(ensureNpcPower(npc));
+  systemShip.crewSkill = npc.crewSkill;
+  systemShip.crewTemperament = npc.crewTemperament;
 }
 
 function beginAmbientTrafficArrival(npc, now = performance.now()) {
@@ -14544,6 +14625,7 @@ function beginAmbientTrafficArrival(npc, now = performance.now()) {
       startedAt: now,
       endsAt: now + AMBIENT_TRAFFIC_WARP_IN_MS,
     },
+    power: null, crewSkill: null, crewTemperament: null,
     // A replacement is a different vessel. Nothing the previous occupant of this slot did or had
     // done to it carries over: no attack evidence, no aggro, no standing escort order, no raid
     // membership, no open hail, no damage record.
@@ -14586,7 +14668,7 @@ function updateAmbientTrafficWarp(npc, now = performance.now(), frameScale = 1) 
     const radians = warp.heading * Math.PI / 180;
     npc.heading = warp.heading;
     npc.systemWarpIntensity = 1;
-    const speed = npc.speed * (5 + progress * 5);
+    const speed = npc.speed * powerEngineFactor(ensureNpcPower(npc).dist) * npc.power.engineSupply * (5 + progress * 5);
     npc.x += Math.sin(radians) * speed * frameScale;
     npc.y -= Math.cos(radians) * speed * frameScale;
     if (now >= warp.endsAt) {
@@ -14609,7 +14691,7 @@ function updateAmbientTrafficWarp(npc, now = performance.now(), frameScale = 1) 
     npc.heading = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
     npc.systemWarpIntensity = Math.max(0.2, 1 - progress * 0.8);
     const radians = npc.heading * Math.PI / 180;
-    const speed = npc.speed * (3.8 - progress * 1.8);
+    const speed = npc.speed * powerEngineFactor(ensureNpcPower(npc).dist) * npc.power.engineSupply * (3.8 - progress * 1.8);
     npc.x += Math.sin(radians) * speed * frameScale;
     npc.y -= Math.cos(radians) * speed * frameScale;
     if (now >= warp.endsAt || distance < 36) {
@@ -14664,6 +14746,7 @@ function updateNpcShips(frameScale = 1) {
     const targetPlayer = npc.hostile && shouldNpcTargetPlayer(npc, playerDistance, stationTarget, now);
     const defenseTarget = getNpcDefenseTarget(npc);
     const escortTarget = isPlayerEscortNpc(npc) ? getPlayerEscortPriorityTarget(npc, now) : null;
+    ensureNpcPower(npc).combat = Boolean(escortTarget || defenseTarget || targetPlayer || stationTarget);
     let combatActive = false;
     if (escortTarget) {
       const target = escortTarget.target;
@@ -14739,8 +14822,9 @@ function updateNpcShips(frameScale = 1) {
     const radians = npc.heading * Math.PI / 180;
     const combatSpeed = combatActive ? clamp(distance / 220, 0.72, 1.58) : 1;
     const cruiseWarp = 1 + (Math.max(1, finiteNumber(npc.systemWarpMultiplier, 1.8)) - 1) * warpEase;
-    npc.x += Math.sin(radians) * npc.speed * combatSpeed * cruiseWarp * frameScale;
-    npc.y -= Math.cos(radians) * npc.speed * combatSpeed * cruiseWarp * frameScale;
+    const powerSpeed = powerEngineFactor(npc.power.dist) * npc.power.engineSupply;
+    npc.x += Math.sin(radians) * npc.speed * combatSpeed * cruiseWarp * powerSpeed * frameScale;
+    npc.y -= Math.cos(radians) * npc.speed * combatSpeed * cruiseWarp * powerSpeed * frameScale;
   }
 }
 
@@ -14816,12 +14900,12 @@ function tick(frameScale = 1) {
   updateAsteroids(frameScale);
   updateStationDebris(frameScale);
   updateFleetAttacks();
+  updatePowerSystems(frameScale);
   updateNpcShips(frameScale);
   updateFleetAttacks();
   updateStationDefenses();
   updateProjectiles(frameScale);
   updateShieldRegeneration(frameScale);
-  updatePowerSystems(frameScale);
   processHeldWeaponInputs();
   const s = state.ship;
   const up = keys.has('w') || keys.has('arrowup');
@@ -14845,7 +14929,7 @@ function tick(frameScale = 1) {
   const warpApproach = (wantsSystemWarp ? 0.034 : 0.052) * frameScale;
   s.systemWarpIntensity = approachValue(clamp(finiteNumber(s.systemWarpIntensity, 0), 0, 1), wantsSystemWarp ? 1 : 0, warpApproach);
   const warpEase = s.systemWarpIntensity * s.systemWarpIntensity * (3 - 2 * s.systemWarpIntensity);
-  const dynamicMaxSpeed = baseMaxSpeed * (1 + (Math.max(1, finiteNumber(s.systemWarpMultiplier, 3)) - 1) * warpEase);
+  const dynamicMaxSpeed = baseMaxSpeed * getPowerEnginesFactor() * (1 + (Math.max(1, finiteNumber(s.systemWarpMultiplier, 3)) - 1) * warpEase);
   s.maxSpeed = dynamicMaxSpeed;
   const speedRatio = clamp(s.velocity / Math.max(1, dynamicMaxSpeed), 0, 1);
   const speedTurnPenalty = clamp(1 - speedRatio * 0.3, 0.58, 1);
@@ -14861,7 +14945,7 @@ function tick(frameScale = 1) {
   s.rotation = (s.rotation + s.turnVelocity * frameScale + 360) % 360;
 
   if (up) {
-    s.velocity += s.acceleration * (1 + warpEase * 2.25) * frameScale;
+    s.velocity += s.acceleration * getPowerEnginesFactor() * (1 + warpEase * 2.25) * frameScale;
   }
   if (down) {
     s.velocity -= s.brake * (1 + warpEase * 0.8) * frameScale;

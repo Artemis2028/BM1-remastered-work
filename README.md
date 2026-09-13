@@ -8,6 +8,8 @@ BM1 systems ported in: Episode 1 Imperial War intro crawl, reviewed BM1/BM2 flee
 
 See [the ship integration and balance review](docs/SHIP-ECONOMY-REVIEW.md) for faction-standing gates, the added hulls and the current validation commands.
 
+The [ship power and crew review](docs/power/POWER-AND-CREWS.md) documents per-hull reactors, shared energy costs and the four AI power-management skills.
+
 The [game roadmap](docs/BM1-GAME-ROADMAP.md) records implemented features, agreed next work, and open design decisions across ships, boarding, equipment, stations, security and politics.
 
 ## Play Locally

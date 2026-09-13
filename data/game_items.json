@@ -1,6 +1,6 @@
 {
   "schema": "bm2.game_items.v1",
-  "version": "20260710-cutting-beam-v1",
+  "version": "20260913-ship-power-v1",
   "settings": {
     "weaponInventoryLimit": 9,
     "factionFlags": {
@@ -644,6 +644,27 @@
       "stockFactions": [
         "promelli"
       ]
+    },
+    {
+      "id": 31,
+      "name": "Secondary Warp Core",
+      "type": "Device",
+      "passiveEffect": "secondary-reactor",
+      "damage": 0,
+      "cooldown": 900,
+      "range": 1,
+      "speed": 0,
+      "price": 12000,
+      "minMass": 1,
+      "color": "#61dcff",
+      "icon": "",
+      "stockFactions": [
+        "terran",
+        "vulcan",
+        "ferengi",
+        "neutral"
+      ],
+      "description": "Doubles reactor generation while installed in a weapon/device slot. Does not increase stored energy capacity. Additional cores do not stack."
     }
   ]
 }
