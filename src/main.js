@@ -4927,14 +4927,22 @@ function getCounterfireCue(entity) {
     .impactAt)[0] || null;
 }
 
+const collisionBodyPool=[];
 function sensorCollisionTargets(sourceKey) {
-  const bodies=[];
-  for(const a of [state,...state.npcShips,...state.stations]){
-    if(a.destroyed||a.underConstruction)continue;
-    const key=sensorKey(a);if(key===sourceKey)continue;
+  const bodies=collisionBodyPool;
+  let n=0;
+  const take=a=>{
+    if(a.destroyed||a.underConstruction)return;
+    const key=sensorKey(a);if(key===sourceKey)return;
     const p=sensorPosition(a),info=sensorHullInfo(a,ensureActorSensors(a));
-    bodies.push({x:p.x,y:p.y,key,entity:a,radius:info.radius*(a.stationTypeId?.58:1)});
-  }
+    const body=bodies[n]||(bodies[n]={});
+    body.x=p.x;body.y=p.y;body.key=key;body.entity=a;body.radius=info.radius*(a.stationTypeId?.58:1);
+    n++;
+  };
+  take(state);
+  for(const a of state.npcShips)take(a);
+  for(const a of state.stations)take(a);
+  bodies.length=n;
   return bodies;
 }
 
@@ -4951,18 +4959,27 @@ function applyPointImpact(hit, shot) {
 }
 
 // Local incarnation keys never survive a new object or a replacement hull/power state.
-const hojIncarnations=new WeakMap();let hojIncarnationSequence=0;
+const hojIncarnations=new WeakMap();let hojIncarnationSequence=0;const hojActorMap=new Map();
 function hojEmitterKey(entity){const a=sensorEntity(entity),object=a===state?ensurePlayerPower():a;
-  if(!hojIncarnations.has(object))hojIncarnations.set(object,++hojIncarnationSequence);
-  return `${sensorKey(a)}:inc:${hojIncarnations.get(object)}:hull:${a===state?state.playership:a.shipId||a.stationTypeId}`;
+  let rec=hojIncarnations.get(object);
+  const hull=a===state?state.playership:a.shipId||a.stationTypeId,system=state.currentPlanet;
+  if(!rec){rec={n:++hojIncarnationSequence,hull,system,key:''};hojIncarnations.set(object,rec);}
+  if(rec.key&&rec.hull===hull&&rec.system===system)return rec.key;
+  rec.hull=hull;rec.system=system;rec.key=`${sensorKey(a)}:inc:${rec.n}:hull:${hull}`;
+  return rec.key;
 }
+const liveJammerScratch={key:'',system:0,x:0,y:0,emitting:true};
 // An emission is a targeting opportunity, never permission to attack.
 function liveJammerSignal(entity) {
   const a=sensorEntity(entity);
   if(a.destroyed||a.underConstruction||a.trafficWarp?.phase==='away'||
     (a===state ? state.docked||state.warp.active||isPlayerCloaked() : a.cloaked||a.cloak?.active))return null;
   const e=ensureActorEW(a);
-  return e.transmitting&&e.funded>0&&e.radius>0 ? {key:hojEmitterKey(a),system:state.currentPlanet,...sensorPosition(a),emitting:true} : null;
+  if(!(e.transmitting&&e.funded>0&&e.radius>0))return null;
+  const p=sensorPosition(a);
+  liveJammerScratch.key=hojEmitterKey(a);liveJammerScratch.system=state.currentPlanet;
+  liveJammerScratch.x=p.x;liveJammerScratch.y=p.y;liveJammerScratch.emitting=true;
+  return liveJammerScratch;
 }
 function hasHojLaunchTrack(source,target) {
   const c=sensorContact(source,target);
@@ -5010,7 +5027,8 @@ function updateHojProjectile(shot,frameScale,bodies=null,readSignal=null) {
   while(frames>1e-7&&!shot.dead){const step=Math.min(1,frames),segment=stepHojFlight(shot,step/60,read);
     const hit=pointImpact(segment.from,segment.to,bodies||sensorCollisionTargets(shot.attack.key),shot.attack.key);
     if(hit){shot.x=hit.x;shot.y=hit.y;applyPointImpact(hit,shot);shot.dead=true;
-      addWeaponEffect({kind:'burst',x:hit.x,y:hit.y,color:shot.color,radius:54,ttl:260});}
+      addWeaponEffect({kind:'burst',x:hit.x,y:hit.y,color:shot.color,radius:54,ttl:260});
+      const prof=globalThis.__ewSeekProf;if(prof){const k=hit.target.entity===state?'player':hit.target.entity.stationTypeId?'station':'ship';prof[k]=(prof[k]||0)+1;}}
     frames-=step;
   }
 }
@@ -14826,8 +14844,17 @@ function updateProjectiles(frameScale = 1) {
   const now = performance.now();
   const player = playerWorldPosition();
   const playerCloaked = isPlayerCloaked(now);
-  let collisionBodies=null,hojActors=null;
-  const readHojSignal=key=>{hojActors ||= new Map([state,...state.npcShips,...state.stations].map(a=>[hojEmitterKey(a),a]));const a=hojActors.get(key);return a?liveJammerSignal(a):null;};
+  let collisionBodies=null,hojActorsReady=false;
+  const readHojSignal=key=>{
+    if(!hojActorsReady){
+      hojActorMap.clear();
+      hojActorMap.set(hojEmitterKey(state),state);
+      for(const a of state.npcShips)hojActorMap.set(hojEmitterKey(a),a);
+      for(const a of state.stations)hojActorMap.set(hojEmitterKey(a),a);
+      hojActorsReady=true;
+    }
+    const a=hojActorMap.get(key);return a?liveJammerSignal(a):null;
+  };
   for (const shot of state.projectiles) {
     if(shot.guidance==='home-on-jam'){collisionBodies ||= sensorCollisionTargets(null);updateHojProjectile(shot,frameScale,collisionBodies,readHojSignal);continue;}
     if (shot.pointAim) {
@@ -14915,7 +14942,9 @@ function updateProjectiles(frameScale = 1) {
       }
     }
   }
-  state.projectiles = state.projectiles.filter((shot) => !shot.dead);
+  let living=0;
+  for(let i=0;i<state.projectiles.length;i++)if(!state.projectiles[i].dead)state.projectiles[living++]=state.projectiles[i];
+  state.projectiles.length=living;
 }
 
 function isNpcStationTarget(npc, station) {

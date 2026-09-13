@@ -230,13 +230,18 @@ export class SensorWorld {
     const jamEmissionReach=Math.max(0,...actors.filter(a=>a.jammerEmitting).map(a=>a.jammerRadius*2));
     for(const j of jammers){const k=`${Math.floor(j.x/cell)},${Math.floor(j.y/cell)}`;if(!jamBuckets.has(k))jamBuckets.set(k,[]);jamBuckets.get(k).push(j);}
     let jammerPairs=0;
+    const nearby=[];
     for (const o of actors) {
       if (this.observerSides.has(o.key) && this.observerSides.get(o.key) !== o.side) this.contacts.delete(o.key);
       this.observerSides.set(o.key, o.side);
-      const nearby=[];
+      nearby.length=0;
       if(jammers.length)for(let x=Math.floor((o.x-maxJamRadius)/cell);x<=Math.floor((o.x+maxJamRadius)/cell);x++)
-        for(let y=Math.floor((o.y-maxJamRadius)/cell);y<=Math.floor((o.y+maxJamRadius)/cell);y++)nearby.push(...(jamBuckets.get(`${x},${y}`)||[]));
-      nearby.sort((a,b)=>a.key.localeCompare(b.key));jammerPairs+=nearby.length;
+        for(let y=Math.floor((o.y-maxJamRadius)/cell);y<=Math.floor((o.y+maxJamRadius)/cell);y++){
+          const cellJammers=jamBuckets.get(`${x},${y}`);
+          if(cellJammers)for(const j of cellJammers)nearby.push(j);
+        }
+      if(nearby.length>1)nearby.sort((a,b)=>a.key.localeCompare(b.key));
+      jammerPairs+=nearby.length;
       o.ewReception=receiverEW(o,nearby);
       const quality=o.ewReception.quality, rf=Math.sqrt(quality);
       const map = this.map(o.key);
