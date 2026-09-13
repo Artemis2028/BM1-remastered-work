@@ -7,14 +7,19 @@ Review commit (code, harness, labeled receipts):
 Base (do not merge to main):
   feat/electronic-warfare-review  75a721ec30b831e4ba2cc21338df1d08c35c2899
 
-Format-patch (7 commits, apply onto the base):
-  git checkout 75a721ec30b831e4ba2cc21338df1d08c35c2899
-  git am docs/ew/receipts/ew-correctness-gate-1edb.format-patch
-  git rev-parse HEAD   # expect 61ce9b5a1032f95a73e125e826a116d68149de55
+Review tree:
+  git rev-parse 61ce9b5^{tree}
 
-Bundle (requires the same base object):
+Bundle (preserves the exact commit; requires the base object):
   git fetch docs/ew/receipts/ew-correctness-gate-1edb.bundle HEAD:ew-correctness-verify
-  git rev-parse ew-correctness-verify   # expect 61ce9b5a1032f95a73e125e826a116d68149de55
+  git rev-parse ew-correctness-verify
+  # expect 61ce9b5a1032f95a73e125e826a116d68149de55
+
+Format-patch (7 commits, apply onto the base; new commit SHAs, same tree):
+  git checkout --detach 75a721ec30b831e4ba2cc21338df1d08c35c2899
+  git am docs/ew/receipts/ew-correctness-gate-1edb.format-patch
+  git rev-parse HEAD^{tree}
+  # expect the same tree as 61ce9b5^{tree}
 
 Rerun the pinned harness against the four pinned trees:
   scripts/ew-four-tree.sh
