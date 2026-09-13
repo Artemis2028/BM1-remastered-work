@@ -21,7 +21,9 @@
     "test:power:ingame": "node scripts/ship-power-probe.mjs",
     "test:sensors": "node scripts/ship-sensors-test.mjs",
     "test:sensors:ingame": "node scripts/ship-sensors-probe.mjs",
-    "test:sensors:performance": "node scripts/sensor-frame-benchmark.mjs --passes"
+    "test:sensors:performance": "node scripts/sensor-frame-benchmark.mjs --passes",
+    "test:ew": "node scripts/ship-ew-test.mjs",
+    "test:ew:ingame": "node scripts/ship-ew-probe.mjs"
   },
   "license": "SEE LICENSE IN LICENSE.md",
   "devDependencies": {

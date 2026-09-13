@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'bm2-pwa-20260913-sensors-v1';
+const CACHE_VERSION = 'bm2-pwa-20260913-ew-v1';
 const APP_CACHE = `${CACHE_VERSION}-app`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_ASSET_MANIFEST = './offline-assets.json';

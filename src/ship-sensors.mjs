@@ -1,3 +1,4 @@
+import { receiverEW } from './ship-ew.mjs';
 // Observer-scoped knowledge. This module receives physical snapshots, never game globals.
 export const SENSOR_RULES = Object.freeze({
   version: 1,
@@ -224,14 +225,25 @@ export class SensorWorld {
     const direct = new Map(),
       directCues = new Map();
     const byKey = new Map(actors.map(a => [a.key, a]));
+    const jammers=actors.filter(a=>a.jammerStrength>0).sort((a,b)=>a.key.localeCompare(b.key));
+    const jamBuckets=new Map(), maxJamRadius=Math.max(0,...jammers.map(a=>a.jammerRadius));
+    const jamEmissionReach=Math.max(0,...actors.filter(a=>a.jammerEmitting).map(a=>a.jammerRadius*2));
+    for(const j of jammers){const k=`${Math.floor(j.x/cell)},${Math.floor(j.y/cell)}`;if(!jamBuckets.has(k))jamBuckets.set(k,[]);jamBuckets.get(k).push(j);}
+    let jammerPairs=0;
     for (const o of actors) {
       if (this.observerSides.has(o.key) && this.observerSides.get(o.key) !== o.side) this.contacts.delete(o.key);
       this.observerSides.set(o.key, o.side);
+      const nearby=[];
+      if(jammers.length)for(let x=Math.floor((o.x-maxJamRadius)/cell);x<=Math.floor((o.x+maxJamRadius)/cell);x++)
+        for(let y=Math.floor((o.y-maxJamRadius)/cell);y<=Math.floor((o.y+maxJamRadius)/cell);y++)nearby.push(...(jamBuckets.get(`${x},${y}`)||[]));
+      nearby.sort((a,b)=>a.key.localeCompare(b.key));jammerPairs+=nearby.length;
+      o.ewReception=receiverEW(o,nearby);
+      const quality=o.ewReception.quality, rf=Math.sqrt(quality);
       const map = this.map(o.key);
       if (!o.observer) continue;
-      const found = new Set();
+      const found = new Set(), eligible = new Set();
       const range = Math.max(o.visual + maxRadius, o.passive * maxSignature, o.active, o.coverage || 0, 2400,
-        maxEmission * (o.passive / 1200));
+        maxEmission * (o.passive / 1200), jamEmissionReach*(o.passive/1200));
       const x0 = Math.floor((o.x - range) / cell),
         x1 = Math.floor((o.x + range) / cell),
         y0 = Math.floor((o.y - range) / cell),
@@ -255,13 +267,15 @@ export class SensorWorld {
             }
             const visual = dist <= o.visual + (t.radius || 0),
               coverage = o.coverage > 0 && dist <= o.coverage;
-            const passive = o.passive > 0 && dist <= o.passive * t.signature;
-            const active = o.emitting && dist <= o.active;
-            const emission = t.emitting && o.passive > 0 && dist <= t.active * 2 * (o.passive / 1200);
-            if (visual || coverage || passive || active || emission) {
-              c.acquire += dt;
-              if (visual || coverage || active || c.acquire >= 1) {
-                this.observe(o, t, now, visual ? 'visual' : coverage ? 'checkpoint' : active ? 'active' : 'passive');
+            const passive = o.passive > 0 && dist <= o.passive * t.signature * rf;
+            const active = o.emitting && dist <= o.active * rf;
+            const emission = t.emitting && o.passive > 0 && dist <= t.active * 2 * (o.passive / 1200) * rf;
+            const jamEmission=t.jammerEmitting&&o.passive>0&&dist<=t.jammerRadius*2*(o.passive/1200);
+            if (visual || coverage || passive || active || emission || jamEmission) {
+              eligible.add(t.key); c.acquire += dt;
+              if (visual || coverage || active || (jamEmission && c.acquire>=1) || (quality>0 && c.acquire >= 1/quality)) {
+                this.observe(o, t, now, visual ? 'visual' : coverage ? 'checkpoint' : active ? 'active' : jamEmission?'jammer':'passive');
+                if(jamEmission)c.jammerAt=now;
                 found.add(t.key);
               }
             } else c.acquire = 0;
@@ -269,7 +283,7 @@ export class SensorWorld {
       for (const [key, c] of map) {
         if (!found.has(key) && c.sourceObserver === o.key) {
           c.valid = false;
-          c.acquire = 0;
+          if(!eligible.has(key))c.acquire = 0;
         }
       }
       directCues.set(o.key, [...map.values()].filter(c => c.cue && c.cue.victimKey === o.key && c.cue.expiresAt >=
@@ -329,7 +343,7 @@ export class SensorWorld {
     this.metrics = {
       observers: actors.filter(a => a.observer).length,
       actors: actors.length,
-      pairs
+      pairs, jammerPairs
     };
     return this.metrics;
   }

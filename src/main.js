@@ -1,3 +1,4 @@
+import { EW_MODULES, sanitizeEW, snapshotEW, stopEW, rollEW, manageEW, fundElectronics } from './ship-ew.mjs';
 import { SENSOR_RULES, SENSOR_SUITES, SensorWorld, sensorProfile, ensureSensorEquipment, defaultTransponder, fundSensors, sensorDistance, visualReach, freshTrack, receivedDeclaration, pointImpact } from './ship-sensors.mjs';
 import {
   loadGameShipCatalog,
@@ -1491,7 +1492,7 @@ function createNpcShip({
   sideId = null,
   crewSkill = null,
   crewTemperament = null,
-  sensors = null, broadcastSource = null, broadcastFaction = null,
+  ew = undefined, sensors = null, broadcastSource = null, broadcastFaction = null,
 } = {}) {
   const spawn = from || {
     x: state.systemStar.x + (seeded(seed + 1) - 0.5) * 1400,
@@ -1536,6 +1537,7 @@ function createNpcShip({
     sideId: sideId || deriveNpcSideId(faction, id),
     ...assignPowerCrew({ seed, faction, role, crewSkill, crewTemperament }),
     sensors: ensureSensorEquipment(sensors, defaultTransponder({ faction, side: sideId || faction, role, broadcastSource, broadcastFaction, command: role === "playerEscort" || role === "playerFleet", flag: getPlayerFlag() })),
+    ew: ew === undefined ? rollEW({seed,role,faction,major:isRecognizedFactionKey(faction)&&!['neutral','pirate','borg'].includes(faction),command:!!fleetId||role==='playerEscort'||role==='playerFleet'}) : sanitizeEW(ew),
     broadcastSource, broadcastFaction,
     identityLocked: true, // an explicitly constructed ship is never re-fitted on restoration
   };
@@ -4399,6 +4401,61 @@ function sensorPosition(entity) {
   return sensorEntity(entity) === state ? playerWorldPosition() : entity;
 }
 
+function ensureActorEW(entity = state) {
+  const a=sensorEntity(entity), side=sensorSide(a);
+  if(!a.ew || a.ew.version!==1) a.ew=sanitizeEW(a.ew);
+  if(a.ew.owner && a.ew.owner!==side){stopEW(a.ew,true);a.ew.eccmOrder='off';}
+  if(a===state&&a.ew.system!==undefined&&a.ew.system!==state.currentPlanet)stopEW(a.ew,true);
+  a.ew.system=state.currentPlanet;
+  a.ew.owner=side;
+  return a.ew;
+}
+function stationElectronicProfile(station) {
+  const type=getShipStats(station.stationTypeId);
+  const enhanced=/defen[sc]e.*platform|weapons platform|shipyard|science|university|maintenance|starbase/i.test(type.name||'');
+  return {passive:enhanced?1500:1200,processing:enhanced?1.25:1};
+}
+function setEWOrder(entity,dimension,value) {
+  const a=sensorEntity(entity);
+  if(a!==state&&(!state.npcShips.includes(a)||!isPlayerSideNpc(a)||a.destroyed||sensorDistance(playerWorldPosition(),a)>2400))return false;
+  const e=ensureActorEW(a), jammer=dimension==='jammer';
+  if(!['off',jammer?'on':'boost','auto'].includes(value))return false;
+  if(jammer&&value!=='off'&&(!e.module||(a===state?state.docked||isPlayerCloaked():a.cloaked||a.cloak?.active)))return false;
+  e[jammer?'jammerOrder':'eccmOrder']=value;
+  if(jammer&&value==='off')stopEW(e);
+  captureShipPowerState();renderTopLeftPanel();return true;
+}
+function getEWUpgradeDecision(id,entity=state) {
+  const u=EW_MODULES[id],a=sensorEntity(entity),st=getCurrentDockedStation();
+  const owner=st?getStationOwner(st):getSystemFaction(state.currentPlanet)||'neutral';
+  const faction=owner===PLAYER_SIDE?getPlayerFlag():owner.startsWith('private:')?'neutral':owner;
+  const requirement=getConfiguredPurchaseTierThresholds()?.[u?.tier]??PURCHASE_TIER_STANDING[u?.tier]??0;
+  const standing=getFactionStanding(faction),blocked=getSecurityDockingBlock(owner);
+  const service=!st||(!st.destroyed&&!st.underConstruction&&/shipyard|science|university|maintenance|starbase/i.test(getShipStats(st.stationTypeId).name||st.name||''));
+  const reason=!u?'Unknown module':!state.docked?'Dock for refit':blocked?String(blocked):!service?'No electronic refit service':
+    a!==state&&(!state.npcShips.includes(a)||!isPlayerSideNpc(a)||a.destroyed||a.trafficWarp?.phase==='away'||sensorDistance(playerWorldPosition(),a)>2400)?'Ship is not locally commanded':
+    ensureActorEW(a).module===id?'Already installed':standing<requirement?`Requires ${requirement} ${formatFaction(faction)} standing; yours ${standing}`:state.latinum<u.price?'Insufficient latinum':null;
+  return {canBuy:!reason,reason,requirement,standing,faction,price:u?.price||0};
+}
+function buyEWModule(id,entity=state) {
+  const a=sensorEntity(entity),d=getEWUpgradeDecision(id,a);if(!d.canBuy){setLog(d.reason);return false;}
+  state.latinum-=d.price;stopEW(ensureActorEW(a),true);a.ew.module=id;
+  captureShipPowerState();updateStats();renderTopLeftPanel();return true;
+}
+function renderEWPanel() {
+  const controls=a=>{
+    const e=ensureActorEW(a),key=sensorKey(a),m=EW_MODULES[e.module];
+    const buttons=(dim,values)=>values.map(v=>`<button data-ew-order="${dim}:${v}" data-ew-ship="${escapeHtml(key)}" class="${e[dim==='jammer'?'jammerOrder':'eccmOrder']===v?'active':''}">${dim==='jammer'?'Jammer':'ECCM'} ${v}</button>`).join('');
+    return `<div class="meta">${a===state?'Captain’s ship':escapeHtml(getTargetName(a))} · ${m?escapeHtml(m.name):'EW slot empty'} · ${e.operating?'Operating':e.transmitting?'Spinning up':e.cooldownRemaining>0?'Cooling down':'Off'}${e.funded<.99&&e.transmitting?' · Power limited':''}</div><div class="sensor-actions">${buttons('jammer',['off','on','auto'])}${buttons('eccm',['off','boost','auto'])}</div>`;
+  };
+  const refit=a=>EW_MODULES.slice(1).map(m=>{const d=getEWUpgradeDecision(m.id,a);return `<button data-ew-buy="${m.id}" data-ew-ship="${escapeHtml(sensorKey(a))}" ${d.canBuy?'':'disabled'}>${escapeHtml(m.name)} · ${m.price} L</button><div class="meta">${escapeHtml(d.reason||'Available')}</div>`;}).join('');
+  const q=state.ewReception||{quality:1,noise:0,own:[]},t=state.power?.telemetry||{};
+  const names=(q.own||[]).map(k=>sensorActors.get(k)?.entity).filter(n=>n&&isPlayerSideNpc(n)&&sensorDistance(playerWorldPosition(),n)<=2400).map(n=>getTargetName(n));
+  const own=names.length>0,self=q.selfNoise>0,foreign=q.noise**2>(q.ownNoise||0)**2+(q.selfNoise||0)**2+1e-8;
+  const label=q.noise===0?'Clear':own?`Own fleet jammer${foreign?' + other/unattributed':''}: ${names.join(', ')}`:self?`Own jammer${foreign?' + other/unattributed':''}`:'Other/unattributed';
+  return `<details data-sensor-details="ew"><summary>Electronic warfare</summary>${controls(state)}<div class="meta">Interference: ${escapeHtml(label)} · RF range ${(Math.sqrt(q.quality)*100).toFixed(0)}% · Scan rate ${(q.quality*100).toFixed(0)}%</div><div class="meta">Electronics ${(t.electronics||0).toFixed(1)} EU/s · Jammer ${(t.jammer||0).toFixed(1)} · ECCM ${(t.eccm||0).toFixed(1)}. Fleet jammer: detectable around 3,000 units by standard sensors at 5 points. Nearby friendly receivers are affected.</div>${state.docked?refit(state):''}${state.npcShips.filter(n=>!n.destroyed&&isPlayerSideNpc(n)&&sensorDistance(playerWorldPosition(),n)<=2400).map(n=>controls(n)+(state.docked?refit(n):'')).join('')}</details>`;
+}
+
 function sensorSnapshotActor(entity, zone = null) {
   const a = sensorEntity(entity),
     e = ensureActorSensors(a),
@@ -4412,13 +4469,16 @@ function sensorSnapshotActor(entity, zone = null) {
   const points = station ? 5 : normalizePowerDist(a.power?.dist).sensors;
   const powered = station ? 1 : e.funded || 0,
     mult = points > 0 ? (.5 + .1 * points) * powered : 0;
-  const base = station ? (/shipyard|science|university|maintenance|starbase/i.test(a.name || '') ? 1500 : 1200) :
-    profile.passive;
+  const base = station ? stationElectronicProfile(a).passive : profile.passive;
+  const ew=ensureActorEW(a);
+  if(a.destroyed||a.underConstruction||(a===state&&(state.docked||state.warp.active||isPlayerCloaked()))||a.cloaked||a.cloak?.active||a.trafficWarp?.phase==='away')stopEW(ew,true);
   const issuer = zone && String(zone.anchorStationId) === String(a.id);
   const cloaked = a === state ? isPlayerCloaked() : !!(a.cloaked || a.cloak?.active);
   const boost = (a === state ? state.ship.systemWarpIntensity : a.systemWarpIntensity) || 0;
   return {
     key: sensorKey(a),
+    jammerStrength: ew.strength, jammerRadius: ew.radius, jammerEmitting: ew.transmitting,
+    rejection: (station?stationElectronicProfile(a).processing:profile.processing)*mult*(1+ew.boost),
     entity: a,
     side: sensorSide(a),
     x: p.x,
@@ -4558,7 +4618,7 @@ function advanceSensorScan(entity, dt) {
   }
   const profile = sensorProfile(getShipStats(a === state ? state.playership : a.shipId), e.suite),
     points = normalizePowerDist(a.power?.dist).sensors;
-  const rate = points / 5 * e.funded * profile.processing;
+  const rate = points / 5 * e.funded * profile.processing * (a.ewReception?.quality ?? 1);
   if (e.mode === 'sweep') {
     if (e.emitting) e.progress += dt;
     if (e.progress >= 2) {
@@ -4600,6 +4660,7 @@ function advanceSensorScan(entity, dt) {
       condition: hullFraction > .7 ? 'Light damage' : hullFraction > .3 ? 'Damaged' : 'Critical',
       reactor: output === null ? 'Station supply' : output < 8 ? 'Compact reactor' : output < 20 ?
         'Standard reactor' : 'High-output reactor',
+      ewModule: EW_MODULES[ensureActorEW(target).module]?.name || 'None',
       cargo: 'Cargo manifest unavailable',
       crew: sensorSide(a) === sensorSide(target) ? (target.crewSkill || 'Captain-directed') + ' (command telemetry)' :
         sensorCrewEstimate(rec),
@@ -4658,6 +4719,7 @@ function sensorPursuitPoint(npc, target, type = 'ship') {
 }
 
 function updateSensorSystems(frameScale = 1) {
+  const sensorUpdateStart=performance.now();
   const dt = clamp(frameScale / 60, 0, 1);
   sensorClock += dt;
   sensorAccumulator += dt;
@@ -4689,6 +4751,7 @@ function updateSensorSystems(frameScale = 1) {
         delete a.entity.sensorReports;
       }
     sensorWorld.pass(actors, sensorClock, elapsed);
+    for(const a of actors) a.entity.ewReception=a.ewReception;
     for (const a of actors) {
       const equip = ensureActorSensors(a.entity);
       if (a.entity !== state && !a.station) {
@@ -4712,6 +4775,7 @@ function updateSensorSystems(frameScale = 1) {
   }
   for (const a of sensorActors.values())
     if (!a.station) advanceSensorScan(a.entity, dt);
+  sensorWorld.metrics.elapsedMs=performance.now()-sensorUpdateStart;
 }
 
 function snapshotActorSensors(entity, systemIndex = state.currentPlanet) {
@@ -4722,6 +4786,7 @@ function snapshotActorSensors(entity, systemIndex = state.currentPlanet) {
       funded: 0,
       emitting: false
     },
+    ew: snapshotEW(ensureActorEW(a)),
     sensorReports: sensorWorld.snapshot(sensorKey(a, systemIndex), sensorClock)
   };
 }
@@ -4815,7 +4880,7 @@ function renderSensorPanelMarkup() {
  <div class="meta">Rated passive ${Math.round(profile.passive)} / active ${Math.round(profile.active)} units at 5 points. Active transmissions reveal your presence.</div>
  <div class="sensor-actions"><button data-sensor-action="toggle">Transponder: ${e.transponder?'On':'Off'}</button><button data-sensor-action="sweep">Active sweep</button><button data-sensor-action="focus">Focused scan</button><button data-sensor-action="cancel">Cancel scan</button></div>
  <div class="meta">Declared: ${escapeHtml(e.declaration)} · ${isPlayerCloaked()?'Suppressed by cloak':e.transponder?'Transmitting':'Running dark'}</div>
- <details class="sensor-contact-list" data-sensor-details="contacts"><summary>Contact reports (${reports.length})</summary>${reports.slice(-12).map(c=>`<div class="meta">${escapeHtml(c.report?.hull||receivedDeclaration(c,sensorClock)||'Unidentified contact')} — ${freshTrack(c,sensorClock)?'Tracked':c.cue?.expiresAt>=sensorClock?'Attack origin':c.position?'Last known position':'Broadcast only'} · ${Math.max(0,sensorClock-(c.report?.assessedAt??(c.cue?.expiresAt>=sensorClock?c.cue.launchedAt:c.position?c.observedAt:c.declaredAt))).toFixed(1)}s old${c.report?.weapons?'<br>Weapons: '+escapeHtml(c.report.weapons.join(', ')||'None')+'<br>'+escapeHtml(c.report.condition)+' · '+escapeHtml(c.report.reactor||'Reactor unknown')+' · '+escapeHtml(c.report.crew)+'<br>'+escapeHtml(c.report.cargo):''}</div>`).join('')}</details>
+ <details class="sensor-contact-list" data-sensor-details="contacts"><summary>Contact reports (${reports.length})</summary>${reports.slice(-12).map(c=>`<div class="meta">${escapeHtml(c.report?.hull||receivedDeclaration(c,sensorClock)||'Unidentified contact')} — ${freshTrack(c,sensorClock)?'Tracked':c.cue?.expiresAt>=sensorClock?'Attack origin':c.position?'Last known position':'Broadcast only'} · ${Math.max(0,sensorClock-(c.report?.assessedAt??(c.cue?.expiresAt>=sensorClock?c.cue.launchedAt:c.position?c.observedAt:c.declaredAt))).toFixed(1)}s old${c.report?.weapons?'<br>Weapons: '+escapeHtml(c.report.weapons.join(', ')||'None')+'<br>'+escapeHtml(c.report.condition)+' · EW: '+escapeHtml(c.report.ewModule||'Unknown')+' · '+escapeHtml(c.report.reactor||'Reactor unknown')+' · '+escapeHtml(c.report.crew)+'<br>'+escapeHtml(c.report.cargo):''}</div>`).join('')}</details>
  ${localFleet.length?'<details data-sensor-details="fleet"><summary>Local fleet sensors & crew</summary>'+localFleet.map(n=>`<div class="meta">${escapeHtml(getTargetName(n))} — ${escapeHtml(n.crewSkill)} / ${escapeHtml(n.crewTemperament)} · ${escapeHtml(SENSOR_SUITES[ensureActorSensors(n).suite].name)}${state.docked?refit(n):''}</div>`).join('')+'</details>':''}
  ${state.docked?'<details data-sensor-details="refit"><summary>Sensor refit — captain’s ship</summary>'+refit(state)+'</details>':''}`;
 }
@@ -5023,6 +5088,7 @@ function captureShipPowerState(systemIndex = state.securityLiveSystemIndex) {
   }
 }
 function restoreFleetPower(ship, fleetShip) {
+  ship.ew = sanitizeEW(fleetShip.ew);
   ship.sensors = fleetShip.sensors ? ensureSensorEquipment(fleetShip.sensors) : null;
   ship.sensorReports = fleetShip.sensorReports || [];
   ship.power = fleetShip.power ? cloneJson(fleetShip.power) : null;
@@ -5092,7 +5158,7 @@ function renderPowerPanel() {
     + `<div class="power-tanks">${tanks}</div>`
     + `<div class="meta" data-power-effects>Impulse ${(powerEngineFactor(power.dist) * 100).toFixed(0)}% · Weapon damage ${(powerWeaponFactor(power.dist) * 100).toFixed(0)}% · Shield recovery ${(getPowerDist('shields') / 5 * 100).toFixed(0)}%</div>`
     + `<div class="meta">Relative to normal allocation (5 points). Stronger shots cost more energy; stronger engines and faster shield recovery draw more power. Weapon recharge stays unchanged. Recent shield hits and available energy still limit recovery.</div>`
-    + renderSensorPanelMarkup()
+    + renderSensorPanelMarkup() + renderEWPanel()
     + `<div class="ship-actions"><button data-top-action="close-panel">Close</button></div>`;
 }
 function advanceActorPower(npc, frameScale, now) {
@@ -5115,7 +5181,14 @@ function advanceActorPower(npc, frameScale, now) {
     shieldReady: now - ((npc || state).lastShieldHitAt || 0) >= SHIELD_REGEN_DELAY_MS,
     cloaked: !npc && Boolean(state.cloak?.active),
   });
-  fundSensors(power, ensureActorSensors(npc), sensorProfile(getShipStats(npc ? npc.shipId : state.playership), ensureActorSensors(npc).suite), dt, !npc && isPlayerCloaked(now));
+  const actor=npc||state, ew=ensureActorEW(actor), sensors=ensureActorSensors(actor);
+  const electronics=sensorProfile(getShipStats(npc?npc.shipId:state.playership),sensors.suite);
+  const raw=getShipStats(npc?npc.shipId:state.playership).sensorProfile||{};
+  manageEW(ew,power,npc||{crewSkill:'regular'},dt,{combat:power.combat||(!npc&&now-state.lastPlayerShotAt<5000),searching:power.searching,
+    externalNoise:actor.ewReception?.externalNoise||0,capacity:profile.energyCapacity,proposedDraw:(EW_MODULES[ew.module]?.draw||0)+electronics.draw*4});
+  const cloaked=npc?!!(npc.cloaked||npc.cloak?.active):isPlayerCloaked(now);
+  fundElectronics(power,sensors,electronics,ew,dt,{capacity:profile.energyCapacity,nativeEfficiency:raw.efficiency||1,cloaked,
+    blocked:actor.destroyed||cloaked||(!npc&&(state.docked||state.warp.active))||npc?.trafficWarp?.phase==='away'});
   if (npc) npc.combatShields = Math.min(maximum, current + maximum * result.shieldFraction);
   else {
     state.shields = Math.min(100, current + 100 * result.shieldFraction);
@@ -5139,7 +5212,7 @@ function updatePowerSystems(frameScale = 1) {
   // Fleet records own their power snapshot even if another action wipes scene caches.
   for (const npc of state.npcShips || []) {
     const fleet = !npc.destroyed && npc.fleetId && state.playerFleet.find(f => f.id === npc.fleetId);
-    if (fleet) Object.assign(fleet, { sensors: npc.sensors, power: npc.power, crewSkill: npc.crewSkill, crewTemperament: npc.crewTemperament });
+    if (fleet) Object.assign(fleet, { ew: snapshotEW(ensureActorEW(npc)), sensors: npc.sensors, power: npc.power, crewSkill: npc.crewSkill, crewTemperament: npc.crewTemperament });
   }
   if (state.topLeftPanelOpen && state.topLeftTab === 'power' && now - (state.lastPowerUiAt || 0) >= 250) {
     state.lastPowerUiAt = now;
@@ -6370,7 +6443,7 @@ function reconcileSecurityParticipants(systemIndex) {
       x: snap.x, y: snap.y, heading: snap.heading, speed: snap.speed, turnRate: snap.turnRate, systemWarpMultiplier: snap.systemWarpMultiplier, scale: snap.scale, leg: snap.leg,
       combatHull: snap.combatHull, maxCombatHull: snap.maxCombatHull, combatShields: snap.combatShields, maxCombatShields: snap.maxCombatShields,
       destination: snap.destination ? { ...snap.destination } : npc.destination, destinationName: snap.destinationName || npc.destinationName,
-      sensors: snap.sensors ? ensureSensorEquipment(snap.sensors) : null, sensorReports: snap.sensorReports || [],
+      ew: sanitizeEW(snap.ew), sensors: snap.sensors ? ensureSensorEquipment(snap.sensors) : null, sensorReports: snap.sensorReports || [],
       broadcastSource: snap.broadcastSource || null, broadcastFaction: snap.broadcastFaction || null,
       attitude: getFactionAttitude(snap.faction), hostile: false, trafficWarp: null, waitUntil: 0, systemWarpIntensity: 0,
       ambientWarpAt: performance.now() + 20000,
@@ -6445,7 +6518,7 @@ function sanitizeSecurityEncountersRecord(raw) {
         destination: snap.destination && Number.isFinite(Number(snap.destination.x)) && Number.isFinite(Number(snap.destination.y)) ? { x: Number(snap.destination.x), y: Number(snap.destination.y) } : null,
         destinationName: String(snap.destinationName || ''),
         objective: snap.objective && typeof snap.objective === 'object' ? { orderId: String(snap.objective.orderId || ''), phase: snap.objective.phase === 'withdraw' ? 'withdraw' : 'approach', holding: false } : null,
-        sensors: snap.sensors ? ensureSensorEquipment(snap.sensors) : null, sensorReports: Array.isArray(snap.sensorReports) ? snap.sensorReports : [],
+        ew: sanitizeEW(snap.ew), sensors: snap.sensors ? ensureSensorEquipment(snap.sensors) : null, sensorReports: Array.isArray(snap.sensorReports) ? snap.sensorReports : [],
         broadcastSource: ['declared', 'none'].includes(snap.broadcastSource) ? snap.broadcastSource : null,
         broadcastFaction: typeof snap.broadcastFaction === 'string' ? snap.broadcastFaction.slice(0, 80) : null,
       };
@@ -8120,6 +8193,7 @@ function isPlayerCloaked(now = performance.now()) {
 }
 
 function setPlayerCloak(active, now = performance.now(), silent = false) {
+  if(active)stopEW(ensureActorEW(state),true);
   const cloakSettings = getCloakItemSettings();
   state.cloak.active = Boolean(active);
   state.cloak.startedAt = active ? now : 0;
@@ -10610,6 +10684,7 @@ function completeShipPurchase(shipId) {
   const ship = status.ship;
   const price = status.price;
   state.latinum -= price;
+  state.ew = sanitizeEW();
   state.playership = Number(shipId);
   state.hull = 100;
   applyCurrentShipStats(true);
@@ -11084,6 +11159,7 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   state.power = { energy: finiteNumber(s.power?.energy, 200), dist: normalizePowerDist(s.power?.dist) };
   state.sensorArchives = s.sensorVersion === 1 ? restoreSensorArchives(s.sensorArchives) : {};
   state.sensors = s.sensorVersion === 1 ? ensureSensorEquipment(s.sensors) : null;
+  state.ew = sanitizeEW(s.ew);
   state.sensorReports = s.sensorVersion === 1 ? s.sensorReports || [] : [];
   sensorWorld.clear(null); sensorActors.clear();
   state.captainName = sanitizePlayerName(s.captainName, 'Captain');
@@ -15246,7 +15322,7 @@ function beginAmbientTrafficArrival(npc, now = performance.now()) {
     scheduleAmbientTrafficWarp(npc, now);
     return;
   }
-  npc.sensors = null; npc.sensorReports = []; npc.sensorLastFireAt = null; npc.sensorNextDecision = null; npc.sensorPursuitKey = null; npc.broadcastSource = null; npc.broadcastFaction = null;
+  npc.ew = null; npc.sensors = null; npc.sensorReports = []; npc.sensorLastFireAt = null; npc.sensorNextDecision = null; npc.sensorPursuitKey = null; npc.broadcastSource = null; npc.broadcastFaction = null;
   const faction = getShipFaction(shipId);
   const attitude = getFactionAttitude(faction);
   const destination = pickTrafficDestination(state.trafficDestinations, replacementSeed + 19, npc.destinationName);
@@ -15304,6 +15380,7 @@ function beginAmbientTrafficArrival(npc, now = performance.now()) {
     securityInstanceId: nextSecurityInstanceId(), // a different vessel, so a different visitor
     securityObjective: null,
   });
+  npc.ew=rollEW({seed:npc.seed,role:npc.role,faction:npc.faction,major:isRecognizedFactionKey(npc.faction),command:!!npc.fleetId});
   syncAmbientTrafficVariant(npc);
 }
 
@@ -19000,7 +19077,7 @@ function resetRunState() {
   state.factionStanding = {};
   state.shipPurchaseTierThresholds = { ...PURCHASE_TIER_STANDING };
   state.feats = {};
-  state.sensors = null; state.sensorArchives = {}; state.sensorReports = []; sensorWorld.clear(null); sensorActors.clear();
+  state.ew = sanitizeEW(); state.sensors = null; state.sensorArchives = {}; state.sensorReports = []; sensorWorld.clear(null); sensorActors.clear();
   state.power = { energy: 200, dist: { engines: 5, weapons: 5, shields: 5, sensors: 5 } };
   state.autoTarget = true;
   state.fleetStance = 'follow';
@@ -19168,7 +19245,7 @@ function startWithFaction(key, options = {}) {
   state.playerFlags = [state.playerFaction];
   state.factionStanding = {};
   state.feats = {};
-  state.sensors = null; state.sensorArchives = {}; state.sensorReports = []; sensorWorld.clear(null); sensorActors.clear();
+  state.ew = sanitizeEW(); state.sensors = null; state.sensorArchives = {}; state.sensorReports = []; sensorWorld.clear(null); sensorActors.clear();
   state.power = { energy: 200, dist: { engines: 5, weapons: 5, shields: 5, sensors: 5 } };
   normalizePlayerFlags();
   state.captainName = sanitizePlayerName(options.captainName, 'Captain');
@@ -19388,6 +19465,10 @@ loadShipManifest();
 loop();
 
 document.addEventListener('click', event => {
+ const ewButton=event.target.closest('[data-ew-order],[data-ew-buy]');
+ if(ewButton){const a=ewButton.dataset.ewShip==='player'?state:state.npcShips.find(n=>sensorKey(n)===ewButton.dataset.ewShip);if(!a)return;
+   if(ewButton.dataset.ewOrder){const [dim,value]=ewButton.dataset.ewOrder.split(':');if(!setEWOrder(a,dim,value))setLog('EW order unavailable: check equipment, command, docking or cloak.');}
+   else buyEWModule(Number(ewButton.dataset.ewBuy),a);return;}
  const action=event.target.closest('[data-sensor-action]');if(action){startSensorAction(action.dataset.sensorAction);return;}
  const buy=event.target.closest('[data-sensor-buy]');if(buy){const a=buy.dataset.sensorShip==='player'?state:state.npcShips.find(n=>sensorKey(n)===buy.dataset.sensorShip);if(a)buySensorSuite(Number(buy.dataset.sensorBuy),a);}
 });
