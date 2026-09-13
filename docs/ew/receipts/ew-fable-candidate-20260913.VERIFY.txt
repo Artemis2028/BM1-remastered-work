@@ -1,0 +1,40 @@
+Fable acceptance freeze — do not move this tip
+==============================================
+
+Tag (annotated, pushed):
+  ew-fable-candidate-20260913
+
+Commit:
+  077a9cedaa5a6cb858b200addb115d862ab238e6
+
+Tree:
+  6f22de07e0339b7ba078d0e0b68d9cc20658f199
+
+Pinned harness (already in this commit):
+  scripts/ew-frame-benchmark.mjs
+  sha256 e79876004ea9b8846ed6f31ca040fc1ff2452db43f77ba744837d9fb6b8b115d
+
+Branch pinned at the tag (must not advance):
+  cursor/ew-fable-candidate-1edb
+
+Base (do not merge to main):
+  feat/electronic-warfare-review  75a721ec30b831e4ba2cc21338df1d08c35c2899
+
+Three items on this commit:
+  1. seed and securityInstanceId compared independently for HOJ cache invalidation
+  2. in-place same-hull beginAmbientTrafficArrival fixture; live paid jammer asserted
+  3. lazy unfiltered collision bodies once per updateProjectiles; exclusion in pointImpact
+
+These downloadable artifacts are on cursor/ew-fable-artifacts-1edb, not in the frozen tree.
+
+Bundle (requires the base object):
+  git fetch docs/ew/receipts/ew-fable-candidate-20260913.bundle \
+    refs/heads/cursor/ew-fable-candidate-1edb:ew-fable-candidate
+  git rev-parse ew-fable-candidate
+  # expect 077a9cedaa5a6cb858b200addb115d862ab238e6
+
+Format-patch (apply onto the base; new SHAs, same tree):
+  git checkout --detach 75a721ec30b831e4ba2cc21338df1d08c35c2899
+  git am docs/ew/receipts/ew-fable-candidate-20260913.format-patch
+  git rev-parse HEAD^{tree}
+  # expect 6f22de07e0339b7ba078d0e0b68d9cc20658f199
