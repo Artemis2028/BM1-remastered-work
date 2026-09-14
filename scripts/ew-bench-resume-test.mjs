@@ -10,6 +10,7 @@ import {
   campaignPlan,
   classifyExistingReceipt,
   expectedCampaignMeasurement,
+  fixtureReceipt,
   inspectWorktree,
   isBrowserExecutable,
   selectRecordedArgv,
@@ -30,6 +31,9 @@ assert(JSON.parse(astra.stdout).ok === true, 'Astra synthetic suite ok');
 const r5 = spawnSync(process.execPath, [path.join(process.cwd(), 'scripts/ew-bench-r5-repro.mjs')], {encoding: 'utf8'});
 assert(r5.status === 0, `r5 repro suite exits 0 (${r5.stderr || r5.stdout})`);
 assert(JSON.parse(r5.stdout).ok === true, 'r5 repro suite ok');
+const r6 = spawnSync(process.execPath, [path.join(process.cwd(), 'scripts/ew-bench-r6-repro.mjs')], {encoding: 'utf8'});
+assert(r6.status === 0, `r6 repro suite exits 0 (${r6.stderr || r6.stdout})`);
+assert(JSON.parse(r6.stdout).ok === true, 'r6 repro suite ok');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ew-resume-'));
 const hashes = {harnessSha256: 'a'.repeat(64), helperSha256: 'b'.repeat(64)};
@@ -47,70 +51,20 @@ function rankedSeries(n, p95, p99) {
 }
 
 function validReceipt({label = 'C2', sequence = 1, passed = true, p95 = 1.5, p99 = 2.0, extras = {}} = {}) {
-  const passSamples = PROTOCOL.passSamples;
-  const tickSamples = 8;
-  const applicable = label !== 'A';
-  const elec = applicable ? rankedSeries(passSamples, p95, p99) : [];
-  const tickP95 = label === 'A' ? 0.8 : 1.4;
-  const tickP99 = tickP95;
-  const tickVals = rankedSeries(tickSamples, tickP95, tickP99);
-  const pin = PROTOCOL.pinned[label];
-  return {
-    treeLabel: label,
+  return fixtureReceipt({
+    label,
     sequence,
-    diagnostics: false,
-    profiled: false,
-    starved: false,
-    acceptanceEligible: true,
-    errors: [],
-    measuredTree: {commit: PROTOCOL.trees[label], tree: pin.tree, dirty: ''},
-    sources: {...pin.sources},
-    harness: {sha256: hashes.harnessSha256, helperSha256: hashes.helperSha256},
-    workload: {
-      passWarmup: PROTOCOL.passWarmup,
-      passSamples,
-      warmupTicks: PROTOCOL.tickWarmup,
-      measuredTicks: tickSamples,
-      passCadenceMs: PROTOCOL.passCadenceMs
-    },
-    launch: {
-      extraArgs: [],
-      exposeGcFlag: false,
-      verified: true,
-      recordedArgv: {pid: 1, argv: ['/usr/bin/chromium'], selected: 'playwright-browser-process', verified: true}
-    },
-    gc: {
-      placement: 'none',
-      gcFunctionPresent: false,
-      calledBeforeMeasuredWindow: false,
-      calledAfterMeasuredWindow: false,
-      calledInsideMeasuredWindow: false,
-      forcedGcThisRun: false
-    },
-    frameCPU: {samples: tickSamples, p95: tickP95, p99: tickP99},
-    electronicsPass: applicable
-      ? {applicable: true, samples: passSamples, p95, p99, passed}
-      : {applicable: false, samples: null, p95: null, p99: null, passed: null},
-    detectionPass: applicable ? {applicable: true, p95, p99} : {applicable: false},
-    updateMs: applicable ? {applicable: true, p95, p99} : {applicable: false},
-    seekerCPU: applicable ? {applicable: true, p95: 0.2, p99: 0.2} : {applicable: false},
-    samples: {
-      ticks: {
-        dtMs: tickVals,
-        tRelMs: tickVals.map((_, i) => i)
-      },
-      passes: applicable ? elec.map((electronicsMs, i) => ({
-        i,
-        tEpochMs: 1e12 + i,
-        tRelMs: i,
-        electronicsMs,
-        detectionMs: electronicsMs,
-        updateMs: electronicsMs,
-        projectileMs: 0.2
-      })) : null
-    },
-    ...extras
-  };
+    commit: PROTOCOL.trees[label],
+    harnessSha256: hashes.harnessSha256,
+    helperSha256: hashes.helperSha256,
+    tickSamples: 8,
+    electronicsP95: p95,
+    electronicsP99: p99,
+    electronicsPassed: passed,
+    tickP95: label === 'A' ? 0.8 : 1.4,
+    tickP99: label === 'A' ? 0.8 : 1.4,
+    extras
+  });
 }
 
 function expected(label, sequence) {
@@ -126,6 +80,13 @@ const passFile = write('seq1-C2.json', validReceipt({passed: true}));
 const passClass = classifyExistingReceipt(passFile, expected('C2', 1));
 assert(passClass.action === 'skip' && passClass.status === 'complete-valid', 'skip complete valid pass');
 assert(passClass.electronicsPassed === true, 'pass recorded');
+
+const bPass = write('seq1-B.json', validReceipt({label: 'B', sequence: 1}));
+assert(classifyExistingReceipt(bPass, expected('B', 1)).action === 'skip', 'resume skips realistic B with null updateMs');
+assert(validReceipt({label: 'B'}).samples.passes.every(p => p.updateMs === null), 'B fixtures keep updateMs exactly null');
+assert(validReceipt({label: 'B'}).updateMs.applicable === false, 'B fixtures use N/A updateMs summary');
+const c1Pass = write('seq1-C1.json', validReceipt({label: 'C1', sequence: 1}));
+assert(classifyExistingReceipt(c1Pass, expected('C1', 1)).action === 'skip', 'resume skips realistic C1 with null updateMs');
 
 const failFile = write('seq1-C2-fail.json', validReceipt({passed: false, p95: 3.7, p99: 9.2}));
 const failClass = classifyExistingReceipt(failFile, expected('C2', 1));
@@ -347,7 +308,6 @@ const failReceipt = validReceipt({passed: false, p95: 3.7, p99: 9.2});
 failReceipt.harness = {sha256: realHashes.harnessSha256, helperSha256: realHashes.helperSha256};
 failReceipt.workload.measuredTicks = PROTOCOL.tickSamples;
 failReceipt.frameCPU = {samples: PROTOCOL.tickSamples, p95: 1, p99: 1};
-failReceipt.seekerCPU = {applicable: true, p95: 0.2, p99: 0.2};
 failReceipt.samples.ticks = {
   dtMs: Array.from({length: PROTOCOL.tickSamples}, () => 1),
   tRelMs: Array.from({length: PROTOCOL.tickSamples}, (_, i) => i)
@@ -375,6 +335,35 @@ assert(resumeCheck.status === 0, 'valid gate-failing receipt is skipped, not rer
 assert(JSON.parse(resumeCheck.stdout).action === 'skip', 'resume action skip');
 assert(JSON.parse(resumeCheck.stdout).electronicsPassed === false, 'retained failure stays a failure');
 assert(fs.readFileSync(path.join(reportDir, 'campaign-pending-seq1-C2.json'), 'utf8').includes('3.7'), 'failing receipt preserved');
+
+const passDir = path.join(tmp, 'report-pass');
+fs.mkdirSync(passDir);
+for (const seq of [1, 2, 3]) {
+  for (const label of ['A', 'B', 'C1', 'C2']) {
+    fs.writeFileSync(path.join(passDir, `campaign-pending-seq${seq}-${label}.json`), JSON.stringify(fixtureReceipt({
+      label,
+      sequence: seq,
+      harnessSha256: realHashes.harnessSha256,
+      helperSha256: realHashes.helperSha256,
+      tickP95: label === 'A' ? 1 : 1.4,
+      tickP99: label === 'A' ? 1 : 1.4
+    })));
+  }
+}
+const passReport = spawnSync(process.execPath, [path.join(repoRoot, 'scripts/ew-bench-report.mjs'), passDir, 'campaign-pending'], {encoding: 'utf8'});
+assert(passReport.status === 0, `full realistic B/C1 campaign report exits 0 (${passReport.stderr || ''})`);
+const passJson = JSON.parse(passReport.stdout);
+assert(passJson.campaignPassed === true, 'full realistic campaign report passes');
+assert(passJson.perRun[0].trees.B.updateMsP95 == null && passJson.perRun[0].trees.C1.updateMsP95 == null, 'report B/C1 updateMs N/A');
+assert(passJson.perRun[0].trees.C2.updateMsP95 != null, 'report C2 updateMs present');
+const bResume = spawnSync(process.execPath, [
+  path.join(repoRoot, 'scripts/ew-resume-check.mjs'), 'receipt',
+  '--file', path.join(passDir, 'campaign-pending-seq1-B.json'),
+  '--expected', JSON.stringify(expectedCampaignMeasurement({
+    sequence: 1, label: 'B', treeSha: PROTOCOL.trees.B, ...realHashes
+  }))
+], {encoding: 'utf8'});
+assert(bResume.status === 0 && JSON.parse(bResume.stdout).action === 'skip', 'resume-check skips complete B');
 
 fs.rmSync(tmp, {recursive: true, force: true});
 console.log(JSON.stringify({ok: true, checks}, null, 2));

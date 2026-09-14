@@ -186,4 +186,5 @@ for individual samples / 1,000-pass / interleaved sequences is in
 Prior freezes `ew-fable-protocol-20260914-r2` (`6d4c01d`) and
 `ew-fable-protocol-20260914-r3` (`c0b42b0`) and `ew-fable-protocol-20260914-r4`
 (`70f47cc`) stay put. Current
-protocol freeze is `ew-fable-protocol-20260914-r5`.
+protocol freeze is `ew-fable-protocol-20260914-r6`.
+Prior freeze `ew-fable-protocol-20260914-r5` (`b76547d`) stays put.

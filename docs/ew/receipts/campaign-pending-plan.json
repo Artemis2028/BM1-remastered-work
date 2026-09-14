@@ -1,10 +1,10 @@
 {
   "protocol": "ew-benchmark-protocol-20260914",
   "status": "awaiting independent protocol review \u2014 long campaign not started",
-  "protocolTag": "ew-fable-protocol-20260914-r5",
+  "protocolTag": "ew-fable-protocol-20260914-r6",
   "previousProtocolTag": {
-    "name": "ew-fable-protocol-20260914-r4",
-    "commit": "70f47cc96bf37f6df3625a1bcc00f089dfccbb1e",
+    "name": "ew-fable-protocol-20260914-r5",
+    "commit": "b76547d509ae69fc955966d2c3473263ab41c3c8",
     "note": "prior reporting/validation freeze; do not move"
   },
   "historicalProtocolTag": {
@@ -224,13 +224,13 @@
     "Report every run absolute p95/p99 including detection, updateMs, and projectile. Campaign-level cumulative-frame verdict is required. No best-run selection. No median delta as the gate.",
     "Current Platinum evidence for 51738ca is Astra C2 3.70/9.20 and 2.00/4.30 (both failures). Historical 2.50/6.90 and supplementary 1.60/2.20 stay labeled historical.",
     "Missing or invalid runs must not yield an overall pass. Plan trees and runs come from one validated configuration. Non-approved acceptance overrides are rejected.",
-    "Do not start this campaign until the tagged protocol is authorized. Historical tag ew-fable-protocol-20260914 stays at e556a380. Prior freezes r2@6d4c01d r3@c0b42b0 r4@70f47cc stay put. None of those tags are moved."
+    "Do not start this campaign until the tagged protocol is authorized. Historical tag ew-fable-protocol-20260914 stays at e556a380. Prior freezes r2@6d4c01d r3@c0b42b0 r4@70f47cc r5@b76547d stay put. None of those tags are moved."
   ],
   "harness": {
     "file": "scripts/ew-frame-benchmark.mjs",
     "sha256": "1015baad1ba3163fbc556dc0c56cfcac4c169368603e1b9beee002b289d4e079",
-    "helperSha256": "be8285c8906f3ae5f37ec3da2c69fec63f3def25391573edec16d99ba1bc7298",
-    "libSha256": "be8285c8906f3ae5f37ec3da2c69fec63f3def25391573edec16d99ba1bc7298"
+    "helperSha256": "2de68639769e47c8c7c793e2ea3531aef784e47247bfbe72465475102e42ad57",
+    "libSha256": "2de68639769e47c8c7c793e2ea3531aef784e47247bfbe72465475102e42ad57"
   },
   "acceptanceNeverPassesDiagnostics": true
 }

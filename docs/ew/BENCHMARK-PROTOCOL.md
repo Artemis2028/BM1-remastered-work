@@ -5,8 +5,9 @@
 Historical protocol tag `ew-fable-protocol-20260914` stays at `e556a380` and
 **must not move**. Prior freezes `ew-fable-protocol-20260914-r2` (`6d4c01d`)
 and `ew-fable-protocol-20260914-r3` (`c0b42b0`) **must not move**. Prior freeze
-`ew-fable-protocol-20260914-r4` (`70f47cc`) **must not move**. The current
-immutable tag is `ew-fable-protocol-20260914-r5`.
+`ew-fable-protocol-20260914-r4` (`70f47cc`) **must not move**. Prior freeze
+`ew-fable-protocol-20260914-r5` (`b76547d`) **must not move**. The current
+immutable tag is `ew-fable-protocol-20260914-r6`.
 
 This document specifies the benchmark-only follow-up. It does not change
 gameplay, budgets, freeze tags, or the 2 / 4 ms **measurement boundaries and
@@ -14,7 +15,8 @@ thresholds**. The harness *file* is allowed to change so it can emit
 per-sample series and launch flags; a **new harness hash is expected**. The
 old helper is preserved. Historical tag `ew-fable-protocol-20260914` stays
 at `e556a380`. Prior freezes `r2` (`6d4c01d`), `r3` (`c0b42b0`), and `r4`
-(`70f47cc`) stay put. This revision freezes as `ew-fable-protocol-20260914-r5`
+(`70f47cc`) stay put. Prior freeze `r5` (`b76547d`) stays put. This revision
+freezes as `ew-fable-protocol-20260914-r6`
 and that tag must **not** move after delivery.
 
 It does not start the 1,000-pass campaign. Existing receipts stay on disk.
@@ -99,7 +101,7 @@ recording actual browser launch flags **requires** changing that file.
 | Harness | Where | sha256 |
 | --- | --- | --- |
 | **Old** (preserved) | git `e02235c:scripts/ew-frame-benchmark.mjs` and copy `docs/ew/receipts/harness-e02235c.mjs` | `e79876004ea9b8846ed6f31ca040fc1ff2452db43f77ba744837d9fb6b8b115d` |
-| **New** (this PR; freeze as protocol tag `ew-fable-protocol-20260914-r5`) | `scripts/ew-frame-benchmark.mjs` | see `docs/ew/receipts/campaign-pending-plan.json` |
+| **New** (this PR; freeze as protocol tag `ew-fable-protocol-20260914-r6`) | `scripts/ew-frame-benchmark.mjs` | see `docs/ew/receipts/campaign-pending-plan.json` |
 
 Old receipts that used `e7987600…` stay on disk and are not rewritten. Do not
 point those families at the new hash.
@@ -172,6 +174,8 @@ Specified **upfront** (not started in this PR):
 | Measured passes | **1,000** per sensor-bearing tree (B, C1, C2) |
 | Tick warm-up / measured | 600 / 3,600 (all trees, including A) |
 | Tree A contract | `samples.passes` **null**; electronics/detection/updateMs/seekerCPU **N/A**; tick array complete and finite |
+| B / C1 `updateMs` | key required on every pass sample; value **exactly `null`**; summary `applicable: false`. Never substitute 0. |
+| C2 / F `updateMs` | key required; value **finite**; summary applicable with p95/p99 |
 | Browser | one process per run, identified by **process ownership**; process exit between runs (not forced GC) |
 
 **Duration arithmetic** (200 ms cadence):
@@ -355,5 +359,6 @@ Until then the execute path refuses. Do not merge to main. Do not move
 move historical tag `ew-fable-protocol-20260914` (`e556a380`), prior freezes
 `ew-fable-protocol-20260914-r2` (`6d4c01d`) and
 `ew-fable-protocol-20260914-r3` (`c0b42b0`), `ew-fable-protocol-20260914-r4`
-(`70f47cc`), or the current `ew-fable-protocol-20260914-r5` after delivery.
+(`70f47cc`), `ew-fable-protocol-20260914-r5` (`b76547d`), or the current
+`ew-fable-protocol-20260914-r6` after delivery.
 **Campaign not started.**

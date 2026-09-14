@@ -11,10 +11,10 @@ import {fileURLToPath} from 'node:url';
 export const PROTOCOL = {
   id: 'ew-benchmark-protocol-20260914',
   status: 'awaiting independent protocol review — long campaign not started',
-  protocolTag: 'ew-fable-protocol-20260914-r5',
+  protocolTag: 'ew-fable-protocol-20260914-r6',
   previousProtocolTag: {
-    name: 'ew-fable-protocol-20260914-r4',
-    commit: '70f47cc96bf37f6df3625a1bcc00f089dfccbb1e',
+    name: 'ew-fable-protocol-20260914-r5',
+    commit: 'b76547d509ae69fc955966d2c3473263ab41c3c8',
     note: 'prior reporting/validation freeze; do not move'
   },
   historicalProtocolTag: {
@@ -264,6 +264,28 @@ export function rankedSeries(n, p95, p99) {
 export function pinnedIdentity(labelOrCommit) {
   if (PROTOCOL.pinned[labelOrCommit]) return PROTOCOL.pinned[labelOrCommit];
   return Object.values(PROTOCOL.pinned).find(p => p.commit === labelOrCommit) || null;
+}
+
+/** C2 and F record engine updateMs. B and C1 do not; A has no pass samples. Never substitute 0. */
+export function pinRecordsUpdateMs(labelOrCommit) {
+  if (labelOrCommit === 'C2' || labelOrCommit === 'F') return true;
+  if (labelOrCommit === 'A' || labelOrCommit === 'B' || labelOrCommit === 'C1') return false;
+  const pin = pinnedIdentity(labelOrCommit);
+  if (!pin) return false;
+  const label = Object.keys(PROTOCOL.pinned).find(k => PROTOCOL.pinned[k].commit === pin.commit);
+  return label === 'C2' || label === 'F';
+}
+
+function recordsUpdateMs(j, expected = {}) {
+  if (typeof expected.updateMsApplicable === 'boolean') return expected.updateMsApplicable;
+  const label = expected.label || j?.treeLabel;
+  if (label === 'C2' || label === 'F') return true;
+  if (label === 'A' || label === 'B' || label === 'C1') return false;
+  return pinRecordsUpdateMs(j?.measuredTree?.commit);
+}
+
+function hasUpdateMsKey(p) {
+  return !!p && Object.prototype.hasOwnProperty.call(p, 'updateMs');
 }
 
 export function argvExposesGc(argv) {
@@ -598,7 +620,7 @@ export function campaignPlan(config = {}) {
       'Report every run absolute p95/p99 including detection, updateMs, and projectile. Campaign-level cumulative-frame verdict is required. No best-run selection. No median delta as the gate.',
       'Current Platinum evidence for 51738ca is Astra C2 3.70/9.20 and 2.00/4.30 (both failures). Historical 2.50/6.90 and supplementary 1.60/2.20 stay labeled historical.',
       'Missing or invalid runs must not yield an overall pass. Plan trees and runs come from one validated configuration. Non-approved acceptance overrides are rejected.',
-      'Do not start this campaign until the tagged protocol is authorized. Historical tag ew-fable-protocol-20260914 stays at e556a380. Prior freezes r2@6d4c01d r3@c0b42b0 r4@70f47cc stay put. None of those tags are moved.'
+      'Do not start this campaign until the tagged protocol is authorized. Historical tag ew-fable-protocol-20260914 stays at e556a380. Prior freezes r2@6d4c01d r3@c0b42b0 r4@70f47cc r5@b76547d stay put. None of those tags are moved.'
     ]
   };
 }
@@ -776,6 +798,7 @@ export function expectedCampaignMeasurement({
     gcPlacement: 'none',
     extraArgs: [],
     sensorApplicable: label !== 'A',
+    updateMsApplicable: label === 'C2' || label === 'F',
     treeObject: PROTOCOL.pinned[label]?.tree,
     sources: PROTOCOL.pinned[label]?.sources
   };
@@ -876,9 +899,16 @@ function completenessProblems(j, expected = {}) {
         || !Number.isFinite(p.tEpochMs)
         || !Number.isFinite(p.tRelMs)
         || !Number.isFinite(p.detectionMs)
-        || !Number.isFinite(p.updateMs)
         || !Number.isFinite(p.projectileMs))) {
         problems.push('samples.passes missing complete per-sample timing fields');
+      } else if (passes.some(p => !hasUpdateMsKey(p))) {
+        problems.push('samples.passes missing updateMs key');
+      } else if (recordsUpdateMs(j, expected)) {
+        if (passes.some(p => !Number.isFinite(p.updateMs))) {
+          problems.push('C2/F samples.passes.updateMs must be finite');
+        }
+      } else if (passes.some(p => p.updateMs !== null)) {
+        problems.push('B/C1 samples.passes.updateMs must be exactly null (never zero)');
       }
     }
     for (const [key, obj] of [['detectionPass', j.detectionPass], ['updateMs', j.updateMs], ['seekerCPU', j.seekerCPU]]) {
@@ -886,8 +916,11 @@ function completenessProblems(j, expected = {}) {
         problems.push(`missing ${key}`);
         continue;
       }
-      if (obj.applicable === true && (obj.p95 == null || obj.p99 == null)) {
+      if (key !== 'updateMs' && obj.applicable === true && (obj.p95 == null || obj.p99 == null)) {
         problems.push(`${key} applicable but missing p95/p99`);
+      }
+      if (key === 'updateMs' && obj.applicable === true && (obj.p95 == null || obj.p99 == null)) {
+        problems.push('updateMs applicable but missing p95/p99');
       }
     }
   } else if (preSensor) {
@@ -934,6 +967,30 @@ function mismatchProblems(j, expected = {}) {
   }
   if (expected.sequence != null && j.sequence !== expected.sequence) {
     problems.push(`sequence ${j.sequence} != expected ${expected.sequence}`);
+  }
+  const sensor = (label && label !== 'A') || expected.sensorApplicable === true;
+  const preSensor = label === 'A' || expected.sensorApplicable === false;
+  if (sensor && !preSensor && j.updateMs) {
+    const recorded = recordsUpdateMs(j, expected);
+    const passes = asArray(j.samples?.passes) || [];
+    const keyed = passes.filter(hasUpdateMsKey);
+    const allNull = keyed.length > 0 && keyed.every(p => p.updateMs === null);
+    const allFinite = keyed.length > 0 && keyed.every(p => Number.isFinite(p.updateMs));
+    if (recorded) {
+      if (j.updateMs.applicable === false) {
+        problems.push('C2/F updateMs summary is N/A but this pin records updateMs');
+      }
+      if (j.updateMs.applicable === true && keyed.length && !allFinite) {
+        problems.push('C2/F updateMs summary applicable disagrees with sample availability');
+      }
+    } else {
+      if (j.updateMs.applicable === true) {
+        problems.push('B/C1 updateMs summary is applicable but this pin does not record updateMs');
+      }
+      if (j.updateMs.applicable === false && keyed.length && !allNull) {
+        problems.push('B/C1 N/A updateMs summary disagrees with sample availability');
+      }
+    }
   }
   if (expected.harnessSha256 && j.harness?.sha256 && j.harness.sha256 !== expected.harnessSha256) {
     problems.push('harness sha256 mismatch');
@@ -1133,7 +1190,7 @@ export function sampleVerificationProblems(j, expected, recomputed = recomputeRe
       problems.push(`stale electronicsPass.passed=${claimed.passed} but samples/gate are ${actualGate}`);
     }
     check('detectionPass', j.detectionPass, recomputed.detection);
-    check('updateMs', j.updateMs, recomputed.updateMs);
+    if (j.updateMs?.applicable !== false) check('updateMs', j.updateMs, recomputed.updateMs);
     check('seekerCPU', j.seekerCPU, recomputed.projectile);
   }
   if (recomputed.tick?.samples) {
@@ -1432,6 +1489,7 @@ export function supportingHashes(repoRoot) {
     'scripts/ew-bench-resume-test.mjs',
     'scripts/ew-bench-astra-synthetics.mjs',
     'scripts/ew-bench-r5-repro.mjs',
+    'scripts/ew-bench-r6-repro.mjs',
     'docs/ew/BENCHMARK-PROTOCOL.md'
   ];
   return Object.fromEntries(files.filter(f => fs.existsSync(path.join(repoRoot, f))).map(f => [f, sha256File(path.join(repoRoot, f))]));
@@ -1460,9 +1518,11 @@ export function fixtureReceipt({
   if (electronicsP99 < electronicsP95) electronicsP99 = electronicsP95;
   if (tickP99 < tickP95) tickP99 = tickP95;
   const pin = pinnedIdentity(label) || pinnedIdentity(commit);
+  const recordsUpdate = pinRecordsUpdateMs(label);
   const elec = applicable ? rankedSeries(passSamples, electronicsP95, electronicsP99) : [];
   const ticks = rankedSeries(tickSamples, tickP95, tickP99);
   const projectile = applicable ? rankedSeries(passSamples, 0.2, 0.3) : [];
+  const updateNa = {applicable: false, samples: null, p95: null, p99: null, passed: null, series: 'not applicable', reason: 'this tree does not record updateMs'};
   return {
     treeLabel: label,
     sequence,
@@ -1503,8 +1563,10 @@ export function fixtureReceipt({
       ? {applicable: true, p95: electronicsP95, p99: electronicsP99}
       : {applicable: false},
     updateMs: applicable
-      ? {applicable: true, p95: electronicsP95, p99: electronicsP99}
-      : {applicable: false},
+      ? (recordsUpdate
+        ? {applicable: true, p95: electronicsP95, p99: electronicsP99}
+        : {...updateNa})
+      : {applicable: false, samples: null, p95: null, p99: null, passed: null},
     seekerCPU: applicable
       ? {applicable: true, p95: 0.2, p99: 0.3}
       : {applicable: false},
@@ -1516,7 +1578,7 @@ export function fixtureReceipt({
         tRelMs: i,
         electronicsMs,
         detectionMs: electronicsMs,
-        updateMs: electronicsMs,
+        updateMs: recordsUpdate ? electronicsMs : null,
         projectileMs: projectile[i]
       })) : null
     },
@@ -1744,7 +1806,42 @@ export function selfTest() {
   twelveA.harness = {sha256: 'h'.repeat(64), helperSha256: 'l'.repeat(64)};
   twelveA.runs = twelveA.runs.map(r => ({...r, label: 'A', sequence: 1, sha: PROTOCOL.trees.A}));
   assert(validatePlan(twelveA, {harnessSha256: 'h'.repeat(64), helperSha256: 'l'.repeat(64)}).ok === false, '12× A/seq1 is not the matrix');
-  return {ok: true, checks: 67};
+  const bExpected = expectedCampaignMeasurement({
+    label: 'B', sequence: 1, treeSha: PROTOCOL.trees.B,
+    harnessSha256: 'h'.repeat(64), helperSha256: 'l'.repeat(64)
+  });
+  const bValid = fixtureReceipt({label: 'B', sequence: 1, commit: PROTOCOL.trees.B});
+  assert(bValid.samples.passes.every(p => Object.prototype.hasOwnProperty.call(p, 'updateMs') && p.updateMs === null), 'B updateMs samples are exactly null');
+  assert(bValid.updateMs.applicable === false, 'B updateMs summary is N/A');
+  assert(validateReceipt(bValid, bExpected).ok === true, 'realistic B with null updateMs is valid');
+  const c1Expected = expectedCampaignMeasurement({
+    label: 'C1', sequence: 1, treeSha: PROTOCOL.trees.C1,
+    harnessSha256: 'h'.repeat(64), helperSha256: 'l'.repeat(64)
+  });
+  const c1Valid = fixtureReceipt({label: 'C1', sequence: 1, commit: PROTOCOL.trees.C1});
+  assert(c1Valid.samples.passes.every(p => p.updateMs === null) && c1Valid.updateMs.applicable === false, 'C1 updateMs is N/A null');
+  assert(validateReceipt(c1Valid, c1Expected).ok === true, 'realistic C1 with null updateMs is valid');
+  const fExpected = expectedCampaignMeasurement({
+    label: 'F', sequence: 1, treeSha: PROTOCOL.trees.F,
+    harnessSha256: 'h'.repeat(64), helperSha256: 'l'.repeat(64)
+  });
+  const fValid = fixtureReceipt({label: 'F', sequence: 1, commit: PROTOCOL.trees.F});
+  assert(fValid.samples.passes.every(p => Number.isFinite(p.updateMs)) && fValid.updateMs.applicable === true, 'F updateMs is finite and applicable');
+  assert(validateReceipt(fValid, fExpected).ok === true, 'F with finite updateMs is valid');
+  const deletedKey = fixtureReceipt({label: 'B', sequence: 1, commit: PROTOCOL.trees.B});
+  deletedKey.samples.passes = deletedKey.samples.passes.map(({updateMs, ...rest}) => rest);
+  assert(validateReceipt(deletedKey, bExpected).ok === false, 'deleted updateMs key is rejected');
+  const naC2 = fixtureReceipt({label: 'C2', sequence: 1});
+  naC2.updateMs = {applicable: false, samples: null, p95: null, p99: null, passed: null};
+  assert(validateReceipt(naC2, c2Expected).ok === false, 'N/A updateMs on C2 is rejected');
+  const disagreeSummary = fixtureReceipt({label: 'B', sequence: 1, commit: PROTOCOL.trees.B});
+  disagreeSummary.updateMs = {applicable: true, p95: 1, p99: 1};
+  assert(validateReceipt(disagreeSummary, bExpected).ok === false, 'B applicable summary disagrees with null samples');
+  const disagreeSamples = fixtureReceipt({label: 'B', sequence: 1, commit: PROTOCOL.trees.B});
+  disagreeSamples.samples.passes = disagreeSamples.samples.passes.map(p => ({...p, updateMs: 1}));
+  assert(validateReceipt(disagreeSamples, bExpected).ok === false, 'B finite samples disagree with N/A summary');
+  assert(aValid.samples.passes === null, 'tree A pass samples stay null');
+  return {ok: true, checks: 79};
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

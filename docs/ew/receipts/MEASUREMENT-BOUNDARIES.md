@@ -156,7 +156,8 @@ review — long campaign not started.** Historical tag
 `ew-fable-protocol-20260914-r2` (`6d4c01d`) and
 `ew-fable-protocol-20260914-r3` (`c0b42b0`) and `ew-fable-protocol-20260914-r4`
 (`70f47cc`) stay put. Current freeze
-`ew-fable-protocol-20260914-r5`.
+`ew-fable-protocol-20260914-r6`. Prior freeze
+`ew-fable-protocol-20260914-r5` (`b76547d`) stays put.
 
 - **Unchanged** means measurement boundaries and thresholds (electronicsPass
   2/4, cumulative tick ≤2 ms vs A), not the entire harness file. A **new
