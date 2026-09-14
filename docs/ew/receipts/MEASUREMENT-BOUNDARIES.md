@@ -127,3 +127,22 @@ impact-only.
 
 - Earlier failed EW timing on Platinum. Same family as `performance-*.json`.
   Retained; do not substitute for later receipts.
+
+### Long-campaign protocol (not yet executed)
+
+See `docs/ew/BENCHMARK-PROTOCOL.md`. Status: **awaiting Fable protocol
+review — long campaign not started.**
+
+- Same external `electronicsPass` 2 / 4 ms gate and cumulative tick ≤ 2 ms vs
+  A. Thresholds not raised. Detection, `updateMs`, projectile/`seekerCPU`, and
+  whole-frame stay separately labelled.
+- Planned size is ≥1,000 measured passes per sensor/EW run, three serial
+  interleaved sequences A→B→C1→C2→F. F is frozen `077a9ce` as a same-session
+  comparison; tag `ew-fable-candidate-20260913` is **not** moved.
+- C2 stays `51738caf3a1d88492c4fc48a7c0125d4a7e2a355`.
+- Every run reports absolute p95/p99 and both increments. No best-run
+  selection; no median delta as the gate.
+- Naturally occurring GC stays in acceptance samples. `--diagnostics` is
+  labelled separately and is not the gate.
+- Earlier receipt families above remain the historical record. They are not
+  this campaign.

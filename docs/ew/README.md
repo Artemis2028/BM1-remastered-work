@@ -12,4 +12,4 @@ Read DESIGN.md for the complete accepted contract, tuning ledger and cumulative 
 
 Run `npm run test:ew` and `npm run test:ew:ingame`, alongside the sensor, power, behavior and ship/economy suites. EW browser fixtures use real production power, sensing, UI and persistence paths.
 
-See [INTEGRATION.md](INTEGRATION.md) for the launcher, stock rules, incarnation locking and application instructions; see [VALIDATION.md](VALIDATION.md) for measured results.
+See [INTEGRATION.md](INTEGRATION.md) for the launcher, stock rules, incarnation locking and application instructions; see [VALIDATION.md](VALIDATION.md) for measured results. The longer timing campaign is specified in [BENCHMARK-PROTOCOL.md](BENCHMARK-PROTOCOL.md) and is **awaiting Fable protocol review — long campaign not started.**

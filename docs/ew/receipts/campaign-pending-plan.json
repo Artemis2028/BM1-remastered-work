@@ -1,0 +1,144 @@
+{
+  "protocol": "ew-benchmark-protocol-20260914",
+  "status": "awaiting Fable protocol review — long campaign not started",
+  "gate": {
+    "series": "electronicsPass",
+    "p95Ms": 2,
+    "p99Ms": 4,
+    "thresholdsRecalibrated": false
+  },
+  "cumulativeFrameP95Ms": 2,
+  "trees": {
+    "A": "6958f08e73aff55efbf48bae3f9433e5acc270e8",
+    "B": "e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b",
+    "C1": "74caf837c7882a86e3bd7c74f083029453953c1a",
+    "C2": "51738caf3a1d88492c4fc48a7c0125d4a7e2a355",
+    "F": "077a9cedaa5a6cb858b200addb115d862ab238e6"
+  },
+  "freezeTag": "ew-fable-candidate-20260913",
+  "freezeMoved": false,
+  "withFreeze": true,
+  "sequenceOrder": [
+    "A",
+    "B",
+    "C1",
+    "C2",
+    "F"
+  ],
+  "repetitions": 3,
+  "warmup": {
+    "passWarmup": 50,
+    "tickWarmup": 600,
+    "passCadenceMs": 200
+  },
+  "measured": {
+    "passSamples": 1000,
+    "tickSamples": 3600,
+    "renderSamples": 300
+  },
+  "runs": [
+    {
+      "sequence": 1,
+      "label": "A",
+      "sha": "6958f08e73aff55efbf48bae3f9433e5acc270e8",
+      "role": "pre-sensor / OPS frame baseline; sensor-pass N/A"
+    },
+    {
+      "sequence": 1,
+      "label": "B",
+      "sha": "e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b",
+      "role": "sensors, ordinary torpedoes"
+    },
+    {
+      "sequence": 1,
+      "label": "C1",
+      "sha": "74caf837c7882a86e3bd7c74f083029453953c1a",
+      "role": "paid noise/ECCM, ordinary torpedoes"
+    },
+    {
+      "sequence": 1,
+      "label": "C2",
+      "sha": "51738caf3a1d88492c4fc48a7c0125d4a7e2a355",
+      "role": "measured EW candidate (full EW + HOJ)"
+    },
+    {
+      "sequence": 1,
+      "label": "F",
+      "sha": "077a9cedaa5a6cb858b200addb115d862ab238e6",
+      "role": "frozen candidate, same-session comparison only; tag not moved"
+    },
+    {
+      "sequence": 2,
+      "label": "A",
+      "sha": "6958f08e73aff55efbf48bae3f9433e5acc270e8",
+      "role": "pre-sensor / OPS frame baseline; sensor-pass N/A"
+    },
+    {
+      "sequence": 2,
+      "label": "B",
+      "sha": "e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b",
+      "role": "sensors, ordinary torpedoes"
+    },
+    {
+      "sequence": 2,
+      "label": "C1",
+      "sha": "74caf837c7882a86e3bd7c74f083029453953c1a",
+      "role": "paid noise/ECCM, ordinary torpedoes"
+    },
+    {
+      "sequence": 2,
+      "label": "C2",
+      "sha": "51738caf3a1d88492c4fc48a7c0125d4a7e2a355",
+      "role": "measured EW candidate (full EW + HOJ)"
+    },
+    {
+      "sequence": 2,
+      "label": "F",
+      "sha": "077a9cedaa5a6cb858b200addb115d862ab238e6",
+      "role": "frozen candidate, same-session comparison only; tag not moved"
+    },
+    {
+      "sequence": 3,
+      "label": "A",
+      "sha": "6958f08e73aff55efbf48bae3f9433e5acc270e8",
+      "role": "pre-sensor / OPS frame baseline; sensor-pass N/A"
+    },
+    {
+      "sequence": 3,
+      "label": "B",
+      "sha": "e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b",
+      "role": "sensors, ordinary torpedoes"
+    },
+    {
+      "sequence": 3,
+      "label": "C1",
+      "sha": "74caf837c7882a86e3bd7c74f083029453953c1a",
+      "role": "paid noise/ECCM, ordinary torpedoes"
+    },
+    {
+      "sequence": 3,
+      "label": "C2",
+      "sha": "51738caf3a1d88492c4fc48a7c0125d4a7e2a355",
+      "role": "measured EW candidate (full EW + HOJ)"
+    },
+    {
+      "sequence": 3,
+      "label": "F",
+      "sha": "077a9cedaa5a6cb858b200addb115d862ab238e6",
+      "role": "frozen candidate, same-session comparison only; tag not moved"
+    }
+  ],
+  "notes": [
+    "One pinned harness against every tree.",
+    "Serial interleaved sequences; one browser process per run; process exit between runs.",
+    "Naturally occurring GC stays in acceptance samples. No forced collection between measured acceptance samples.",
+    "Forced-GC / tracing only as separately labelled --diagnostics; never the gate.",
+    "Report every run absolute p95/p99. No best-run selection. No median delta as the gate.",
+    "Do not start this campaign until Fable approves the protocol."
+  ],
+  "harness": {
+    "file": "scripts/ew-frame-benchmark.mjs",
+    "sha256": "6fe5fabadb5225b91c7fec2f4977a6d137c42276931a2c138f70fd0a251cf47a",
+    "libSha256": "e46055f297f7d777f1af35964593b0ed84d61179e778dcd4ef04bbb9bce83ae4"
+  }
+}

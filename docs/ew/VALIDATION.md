@@ -95,3 +95,9 @@ Work is on `cursor/ew-perf-followup-8de2` from `077a9ce`. **Freeze tag `ew-fable
 This supplementary host (generic Xeon, concurrency 4, Chromium 153.0.8010.12): unprofiled C2 `electronicsPass` **1.60 / 2.20 pass**, cumulative tick vs pre-sensor **+0.90 ms**. C1 1.70 / 2.40 pass. Profiled C2 (not the gate) 1.70 / 3.00; detect 0.6 / share 0.8. Platinum **2.50 / 6.90 outstanding** and did not measure `077a9ce`.
 
 Suites: EW 20 + 33, seeker 14 + 38 (**105**), sensors 26 + 54, power 21 + 29, behavior 79/79, ships 14 · 11 · smoke · 30 · 23 · 19, both release builders. Receipts: `receipts/perf-followup-20260914-*.json`. **Do not merge to main.**
+
+## Follow-up: benchmark protocol (not executed)
+
+Gameplay optimization is paused. See [BENCHMARK-PROTOCOL.md](BENCHMARK-PROTOCOL.md).
+**Awaiting Fable protocol review — long campaign not started.** Freeze tag
+unchanged. Existing receipts retained.

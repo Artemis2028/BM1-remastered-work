@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# One pinned harness against the four pinned EW review trees.
+# One pinned harness against the four pinned EW review trees (historical
+# 300-sample helper). The ≥1000-pass interleaved campaign is specified in
+# docs/ew/BENCHMARK-PROTOCOL.md and driven by scripts/ew-campaign.sh --plan.
+# Do not start that campaign from this script.
 # Usage: scripts/ew-four-tree.sh [receipt-dir]
 set -euo pipefail
 
