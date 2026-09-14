@@ -159,7 +159,7 @@ const shortSamples = validReceipt({extras: {workload: {
   passCadenceMs: PROTOCOL.passCadenceMs
 }}});
 shortSamples.electronicsPass.samples = 300;
-shortSamples.samples.passes = Array.from({length: 300}, (_, i) => ({i}));
+shortSamples.samples.passes = Array.from({length: 300}, (_, i) => ({i, electronicsMs: 1}));
 assert(classifyExistingReceipt(write('short.json', shortSamples), expected('C2', 1)).status === 'mismatch', '300-sample config mismatch');
 
 const diag = validReceipt({extras: {diagnostics: true}});
@@ -169,6 +169,17 @@ assert(fs.readFileSync(failFile, 'utf8').includes('3.7'), 'failing receipt still
 
 const aFile = write('seq1-A.json', validReceipt({label: 'A', sequence: 1}));
 assert(classifyExistingReceipt(aFile, expected('A', 1)).action === 'skip', 'pre-sensor complete valid skip');
+assert(validReceipt({label: 'A'}).samples.passes === null, 'pre-sensor pass samples are null');
+const aWithPasses = validReceipt({label: 'A'});
+aWithPasses.samples.passes = [{i: 0, electronicsMs: 1}];
+assert(classifyExistingReceipt(write('a-passes.json', aWithPasses), expected('A', 1)).status === 'incomplete', 'pre-sensor pass samples must be null');
+const aDet = validReceipt({label: 'A'});
+aDet.detectionPass = {applicable: true, p95: 1, p99: 2};
+assert(classifyExistingReceipt(write('a-det.json', aDet), expected('A', 1)).status === 'incomplete', 'pre-sensor detectionPass must be N/A');
+const aNoTicks = validReceipt({label: 'A'});
+aNoTicks.samples.ticks.dtMs = [];
+aNoTicks.frameCPU.samples = 0;
+assert(classifyExistingReceipt(write('a-ticks.json', aNoTicks), expected('A', 1)).action === 'stop', 'pre-sensor missing ticks stops');
 
 const cleanRepo = path.join(tmp, 'clean-git');
 fs.mkdirSync(cleanRepo);
@@ -281,6 +292,12 @@ const chromiumArgv = selectRecordedArgv([
   {pid: 3, argv: ['/usr/bin/chromium', '--disable-field-trial-config']}
 ]);
 assert(chromiumArgv.verified === true && chromiumArgv.pid === 3, 'chromium without --type= is verified');
+const parentOf = pid => ({20: 10, 10: 1, 50: 9}[pid] ?? 0);
+const ownedArgv = selectRecordedArgv([
+  {pid: 50, argv: ['/usr/bin/chromium', '--disable-field-trial-config']},
+  {pid: 20, argv: ['/usr/bin/chromium', '--owned']}
+], {ownerPid: 1, parentOf});
+assert(ownedArgv.pid === 20 && ownedArgv.verified === true, 'process ownership ignores unrelated chromium');
 
 const drifted = campaignConfigFromEnv({TREE_C2: '0'.repeat(40)});
 assert(drifted.acceptance === false && drifted.drifts.includes('trees.C2'), 'TREE_C2 override is not acceptance');

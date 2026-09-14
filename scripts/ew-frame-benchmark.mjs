@@ -397,8 +397,8 @@ try {
     try {
       if (typeof browser.process === 'function') launchedPid = browser.process()?.pid ?? null;
     } catch { /* playwright without process() */ }
-    const found = collectProcBrowserCandidates();
-    return selectRecordedArgv(found, {preferPid: launchedPid});
+    const found = collectProcBrowserCandidates({ownerPid: process.pid});
+    return selectRecordedArgv(found, {preferPid: launchedPid, ownerPid: process.pid});
   })();
   const helperPath = path.join(path.dirname(harnessPath), 'ew-bench-lib.mjs');
   const helperSha256 = fs.existsSync(helperPath) ? sha256File(helperPath) : null;
@@ -450,6 +450,7 @@ try {
       recordedArgv,
       verified: recordedArgv?.verified === true,
       playwrightPid: launchedPid,
+      ownerPid: process.pid,
       preloadInjectedFlags: recordedArgv?.verified ? injectedFlags : [],
       preloadInjectedFlagsNote: recordedArgv?.verified
         ? PROTOCOL.preloadInjectedFlags.note

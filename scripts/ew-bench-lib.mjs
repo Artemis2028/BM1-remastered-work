@@ -11,10 +11,10 @@ import {fileURLToPath} from 'node:url';
 export const PROTOCOL = {
   id: 'ew-benchmark-protocol-20260914',
   status: 'awaiting independent protocol review — long campaign not started',
-  protocolTag: 'ew-fable-protocol-20260914-r3',
+  protocolTag: 'ew-fable-protocol-20260914-r4',
   previousProtocolTag: {
-    name: 'ew-fable-protocol-20260914-r2',
-    commit: '6d4c01d7b8af4bf69878c8bf22d63b3bfdfa14dc',
+    name: 'ew-fable-protocol-20260914-r3',
+    commit: 'c0b42b06b0b782a0b7525398600a4a2dcfa9023d',
     note: 'prior reporting/validation freeze; do not move'
   },
   historicalProtocolTag: {
@@ -254,25 +254,73 @@ export function readProcCmdline(pid) {
   }
 }
 
-export function collectProcBrowserCandidates() {
+export function readProcPpid(pid) {
+  try {
+    const st = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const close = st.lastIndexOf(')');
+    if (close < 0) return null;
+    const rest = st.slice(close + 2).trim().split(/\s+/);
+    const ppid = Number(rest[1]);
+    return Number.isInteger(ppid) ? ppid : null;
+  } catch {
+    return null;
+  }
+}
+
+export function processOwnedBy(pid, ownerPid, parentOf = readProcPpid) {
+  const owner = Number(ownerPid);
+  let cur = Number(pid);
+  const seen = new Set();
+  while (Number.isInteger(cur) && cur > 0 && !seen.has(cur)) {
+    if (cur === owner) return true;
+    seen.add(cur);
+    const parent = parentOf(cur);
+    if (parent == null) return false;
+    cur = Number(parent);
+  }
+  return false;
+}
+
+export function collectProcBrowserCandidates({ownerPid = null, parentOf = readProcPpid} = {}) {
   const found = [];
   try {
     for (const pid of fs.readdirSync('/proc')) {
       if (!/^\d+$/.test(pid)) continue;
       const argv = readProcCmdline(pid);
       if (!argv) continue;
-      if (isBrowserExecutable(argv[0])) found.push({pid: Number(pid), argv, kind: browserExecutableKind(argv[0])});
+      if (isBrowserExecutable(argv[0])) {
+        found.push({
+          pid: Number(pid),
+          argv,
+          kind: browserExecutableKind(argv[0]),
+          ppid: parentOf(Number(pid))
+        });
+      }
     }
   } catch { /* no /proc */ }
-  return found;
+  if (ownerPid == null) return found;
+  return found.filter(c => processOwnedBy(c.pid, ownerPid, parentOf));
 }
 
-// Prefer the Playwright-launched PID. Never use /chrome/i on the full path
-// (misses /chromium and can match unrelated processes). extraArgs are not
-// proof of preload-injected flags; unverified launch is not acceptance.
-export function selectRecordedArgv(candidates, {preferPid = null} = {}) {
-  const list = candidates || [];
+// Prefer the Playwright-launched PID if it is owned by this harness.
+// Never use /chrome/i on the full path (misses /chromium and can match
+// unrelated processes). extraArgs are not proof of preload-injected flags;
+// unverified launch is not acceptance.
+export function selectRecordedArgv(candidates, {preferPid = null, ownerPid = null, parentOf = readProcPpid} = {}) {
+  let list = candidates || [];
+  if (ownerPid != null) {
+    list = list.filter(c => processOwnedBy(c.pid, ownerPid, parentOf));
+  }
   if (preferPid != null) {
+    if (ownerPid != null && Number(preferPid) !== Number(ownerPid) && !processOwnedBy(preferPid, ownerPid, parentOf)) {
+      return {
+        pid: Number(preferPid),
+        selected: 'playwright-pid-unverified',
+        verified: false,
+        candidateCount: list.length,
+        reason: 'Playwright pid is not owned by this harness process'
+      };
+    }
     const hit = list.find(c => Number(c.pid) === Number(preferPid));
     if (hit && isBrowserExecutable(hit.argv?.[0]) && !(hit.argv || []).some(a => String(a).startsWith('--type='))) {
       return {
@@ -466,7 +514,7 @@ export function campaignPlan(config = {}) {
       'Report every run absolute p95/p99 including detection, updateMs, and projectile. Campaign-level cumulative-frame verdict is required. No best-run selection. No median delta as the gate.',
       'Current Platinum evidence for 51738ca is Astra C2 3.70/9.20 and 2.00/4.30 (both failures). Historical 2.50/6.90 and supplementary 1.60/2.20 stay labeled historical.',
       'Missing or invalid runs must not yield an overall pass. Plan trees and runs come from one validated configuration. Non-approved acceptance overrides are rejected.',
-      'Do not start this campaign until the tagged protocol is authorized. Historical tag ew-fable-protocol-20260914 stays at e556a380. Prior freeze ew-fable-protocol-20260914-r2 stays at 6d4c01d. Neither is moved.'
+      'Do not start this campaign until the tagged protocol is authorized. Historical tag ew-fable-protocol-20260914 stays at e556a380. Prior freezes r2@6d4c01d and r3@c0b42b0 stay put. None of those tags are moved.'
     ]
   };
 }
@@ -622,7 +670,8 @@ export function expectedCampaignMeasurement({
     profiled: false,
     starved: false,
     gcPlacement: 'none',
-    extraArgs: []
+    extraArgs: [],
+    sensorApplicable: label !== 'A'
   };
 }
 
@@ -662,11 +711,20 @@ function completenessProblems(j, expected = {}) {
   const tickDt = asArray(j.samples?.ticks?.dtMs);
   if (!Number.isInteger(frameSamples) || frameSamples < 1) problems.push('missing frameCPU.samples');
   if (!tickDt) problems.push('missing samples.ticks.dtMs');
-  else if (Number.isInteger(frameSamples) && tickDt.length !== frameSamples) {
-    problems.push(`tick sample count ${tickDt.length} != frameCPU.samples ${frameSamples}`);
+  else {
+    if (Number.isInteger(frameSamples) && tickDt.length !== frameSamples) {
+      problems.push(`tick sample count ${tickDt.length} != frameCPU.samples ${frameSamples}`);
+    }
+    if (tickDt.some(x => !Number.isFinite(x))) {
+      problems.push('samples.ticks.dtMs is not a complete finite array');
+    }
+    if (Number.isInteger(expected.tickSamples) && tickDt.length !== expected.tickSamples) {
+      problems.push(`tick sample count ${tickDt.length} != expected ${expected.tickSamples}`);
+    }
   }
-  const sensorTree = label && label !== 'A';
-  if (sensorTree || j.electronicsPass?.applicable === true) {
+  const sensorTree = (label && label !== 'A') || expected.sensorApplicable === true;
+  const preSensor = label === 'A' || expected.sensorApplicable === false;
+  if (sensorTree && !preSensor) {
     const elec = j.electronicsPass;
     if (!elec || elec.applicable !== true) problems.push('sensor tree missing applicable electronicsPass');
     else {
@@ -677,6 +735,8 @@ function completenessProblems(j, expected = {}) {
       if (!passes) problems.push('missing samples.passes');
       else if (Number.isInteger(elec.samples) && passes.length !== elec.samples) {
         problems.push(`pass sample count ${passes.length} != electronicsPass.samples ${elec.samples}`);
+      } else if (passes.some(p => !p || !Number.isFinite(p.electronicsMs))) {
+        problems.push('samples.passes is not a complete finite electronicsMs array');
       }
     }
     for (const [key, obj] of [['detectionPass', j.detectionPass], ['updateMs', j.updateMs], ['seekerCPU', j.seekerCPU]]) {
@@ -688,8 +748,17 @@ function completenessProblems(j, expected = {}) {
         problems.push(`${key} applicable but missing p95/p99`);
       }
     }
-  } else if (label === 'A') {
+  } else if (preSensor) {
     if (j.electronicsPass?.applicable !== false) problems.push('pre-sensor electronicsPass must be not applicable');
+    if (j.electronicsPass && j.electronicsPass.samples != null) {
+      problems.push('pre-sensor electronicsPass.samples must be null');
+    }
+    if (asArray(j.samples?.passes)) problems.push('pre-sensor samples.passes must be null');
+    for (const key of ['detectionPass', 'updateMs', 'seekerCPU']) {
+      const obj = j[key];
+      if (!obj) problems.push(`missing ${key}`);
+      else if (obj.applicable !== false) problems.push(`pre-sensor ${key} must be not applicable`);
+    }
   }
   return problems;
 }
@@ -761,6 +830,66 @@ function mismatchProblems(j, expected = {}) {
   return problems;
 }
 
+export function validateReceipt(j, expected = {}) {
+  if (!j || typeof j !== 'object' || Array.isArray(j)) {
+    return {ok: false, action: 'stop', status: 'malformed', reason: 'receipt is not a JSON object'};
+  }
+  const incomplete = completenessProblems(j, expected);
+  if (incomplete.length) {
+    return {
+      ok: false,
+      action: 'stop',
+      status: 'incomplete',
+      reason: incomplete.join('; '),
+      problems: incomplete
+    };
+  }
+  const mismatches = mismatchProblems(j, expected);
+  if (mismatches.length) {
+    return {
+      ok: false,
+      action: 'stop',
+      status: 'mismatch',
+      reason: mismatches.join('; '),
+      problems: mismatches
+    };
+  }
+  const ineligible = ineligibleReasons(j, expected);
+  if (ineligible.length) {
+    return {
+      ok: false,
+      action: 'stop',
+      status: 'mismatch',
+      reason: ineligible.join('; '),
+      problems: ineligible
+    };
+  }
+  const recomputed = recomputeReceiptSeries(j);
+  const sampleProblems = sampleVerificationProblems(j, expected, recomputed);
+  if (sampleProblems.length) {
+    return {
+      ok: false,
+      action: 'stop',
+      status: sampleProblems.some(p => p.startsWith('stale')) ? 'mismatch' : 'incomplete',
+      reason: sampleProblems.join('; '),
+      problems: sampleProblems
+    };
+  }
+  const elec = j.electronicsPass;
+  const electronicsPassed = elec?.applicable === false ? null : recomputed.gatePassed === true;
+  return {
+    ok: true,
+    action: 'skip',
+    status: 'complete-valid',
+    gatePassed: electronicsPassed,
+    electronicsPassed,
+    recomputedGatePassed: recomputed.gatePassed,
+    note: electronicsPassed === false
+      ? 'valid gate-failing run stays completed and is never rerolled'
+      : 'complete valid receipt matching expected tree, hashes, sequence, and measurement configuration'
+  };
+}
+
 export function classifyExistingReceipt(file, expected = {}) {
   if (!file) {
     return {action: 'stop', status: 'error', reason: 'receipt path required'};
@@ -792,63 +921,7 @@ export function classifyExistingReceipt(file, expected = {}) {
   } catch (e) {
     return {action: 'stop', status: 'malformed', file, reason: `invalid JSON: ${e.message}`};
   }
-  if (!j || typeof j !== 'object' || Array.isArray(j)) {
-    return {action: 'stop', status: 'malformed', file, reason: 'receipt is not a JSON object'};
-  }
-  const incomplete = completenessProblems(j, expected);
-  if (incomplete.length) {
-    return {
-      action: 'stop',
-      status: 'incomplete',
-      file,
-      reason: incomplete.join('; '),
-      problems: incomplete
-    };
-  }
-  const mismatches = mismatchProblems(j, expected);
-  if (mismatches.length) {
-    return {
-      action: 'stop',
-      status: 'mismatch',
-      file,
-      reason: mismatches.join('; '),
-      problems: mismatches
-    };
-  }
-  const ineligible = ineligibleReasons(j, expected);
-  if (ineligible.length) {
-    return {
-      action: 'stop',
-      status: 'mismatch',
-      file,
-      reason: ineligible.join('; '),
-      problems: ineligible
-    };
-  }
-  const recomputed = recomputeReceiptSeries(j);
-  const sampleProblems = sampleVerificationProblems(j, expected, recomputed);
-  if (sampleProblems.length) {
-    return {
-      action: 'stop',
-      status: sampleProblems.some(p => p.startsWith('stale')) ? 'mismatch' : 'incomplete',
-      file,
-      reason: sampleProblems.join('; '),
-      problems: sampleProblems
-    };
-  }
-  const elec = j.electronicsPass;
-  const electronicsPassed = elec?.applicable === false ? null : recomputed.gatePassed === true;
-  return {
-    action: 'skip',
-    status: 'complete-valid',
-    file,
-    gatePassed: electronicsPassed,
-    electronicsPassed,
-    recomputedGatePassed: recomputed.gatePassed,
-    note: electronicsPassed === false
-      ? 'valid gate-failing run stays completed and is never rerolled'
-      : 'complete valid receipt matching expected tree, hashes, sequence, and measurement configuration'
-  };
+  return {...validateReceipt(j, expected), file};
 }
 
 export function ineligibleReasons(j, expected = {}) {
@@ -1211,7 +1284,7 @@ function fixtureReceipt({
     harness: {sha256: harnessSha256, helperSha256},
     workload: {
       passWarmup: PROTOCOL.passWarmup,
-      passSamples: applicable ? passSamples : 0,
+      passSamples,
       warmupTicks: PROTOCOL.tickWarmup,
       measuredTicks: tickSamples,
       passCadenceMs: PROTOCOL.passCadenceMs
@@ -1341,7 +1414,7 @@ export function selfTest() {
   assert(gcFromCall.forcedGcThisRun === true, 'actual gc() calls set forcedGcThisRun');
   const passingBlock = seq => ({
     sequence: seq,
-    A: fixtureReceipt({label: 'A', sequence: seq, commit: PROTOCOL.trees.A, applicable: false, tickP95: 0.8, passSamples: 0}),
+    A: fixtureReceipt({label: 'A', sequence: seq, commit: PROTOCOL.trees.A, applicable: false, tickP95: 0.8}),
     B: fixtureReceipt({label: 'B', sequence: seq, commit: PROTOCOL.trees.B, electronicsP95: 1.2, electronicsP99: 1.8, tickP95: 1.1}),
     C1: fixtureReceipt({label: 'C1', sequence: seq, commit: PROTOCOL.trees.C1, electronicsP95: 1.3, electronicsP99: 1.9, tickP95: 1.2}),
     C2: fixtureReceipt({label: 'C2', sequence: seq, electronicsP95: 1.5, electronicsP99: 2.0, tickP95: 1.4})
@@ -1397,7 +1470,40 @@ export function selfTest() {
   const empty = summarizeCampaign([]);
   assert(empty.campaignElectronicsPass.allRunsPassed === false && empty.campaignPassed === false, 'empty helper allRunsPassed is false');
   assert(empty.campaignStatus === 'incomplete', 'empty campaign is incomplete');
-  return {ok: true, checks: 55};
+  const parentOf = pid => ({20: 10, 10: 1, 99: 2}[pid] ?? 0);
+  const ownedArgv = selectRecordedArgv([
+    {pid: 99, argv: ['/usr/bin/chromium', '--disable-field-trial-config']},
+    {pid: 20, argv: ['/usr/bin/chromium', '--owned-flag']}
+  ], {ownerPid: 1, parentOf});
+  assert(ownedArgv.pid === 20 && ownedArgv.verified === true, 'ownership prefers descendant browser');
+  const unownedPid = selectRecordedArgv([
+    {pid: 99, argv: ['/usr/bin/chromium', '--disable-field-trial-config']}
+  ], {preferPid: 99, ownerPid: 1, parentOf});
+  assert(unownedPid.verified === false, 'unowned Playwright pid is unverified');
+  const aValid = fixtureReceipt({label: 'A', sequence: 1, commit: PROTOCOL.trees.A});
+  aValid.acceptanceEligible = true;
+  aValid.errors = [];
+  aValid.launch = {extraArgs: [], exposeGcFlag: false, verified: true, recordedArgv: {verified: true}};
+  const aExpected = expectedCampaignMeasurement({
+    label: 'A',
+    sequence: 1,
+    treeSha: PROTOCOL.trees.A,
+    harnessSha256: 'h'.repeat(64),
+    helperSha256: 'l'.repeat(64)
+  });
+  const aCheck = validateReceipt(aValid, aExpected);
+  assert(aCheck.ok === true && aCheck.electronicsPassed === null, 'tree A complete with N/A electronics');
+  const aWithPasses = {...aValid, samples: {...aValid.samples, passes: [{electronicsMs: 1}]}};
+  assert(validateReceipt(aWithPasses, aExpected).status === 'incomplete', 'tree A pass samples must be null');
+  const aWithDetection = {...aValid, detectionPass: {applicable: true, p95: 1, p99: 1}};
+  assert(validateReceipt(aWithDetection, aExpected).status === 'incomplete', 'tree A detectionPass must be N/A');
+  const aShortTicks = {
+    ...aValid,
+    frameCPU: {...aValid.frameCPU, samples: 8},
+    samples: {...aValid.samples, ticks: {dtMs: Array.from({length: 8}, () => 1)}}
+  };
+  assert(validateReceipt(aShortTicks, aExpected).status === 'incomplete', 'tree A tick samples must match campaign count');
+  return {ok: true, checks: 61};
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

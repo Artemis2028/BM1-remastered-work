@@ -3,17 +3,17 @@
 **Status: awaiting independent protocol review — long campaign not started.**
 
 Historical protocol tag `ew-fable-protocol-20260914` stays at `e556a380` and
-**must not move**. Prior freeze `ew-fable-protocol-20260914-r2` stays at
-`6d4c01d` and **must not move**. The current immutable tag is
-`ew-fable-protocol-20260914-r3`.
+**must not move**. Prior freezes `ew-fable-protocol-20260914-r2` (`6d4c01d`)
+and `ew-fable-protocol-20260914-r3` (`c0b42b0`) **must not move**. The
+current immutable tag is `ew-fable-protocol-20260914-r4`.
 
 This document specifies the benchmark-only follow-up. It does not change
 gameplay, budgets, freeze tags, or the 2 / 4 ms **measurement boundaries and
 thresholds**. The harness *file* is allowed to change so it can emit
 per-sample series and launch flags; a **new harness hash is expected**. The
 old helper is preserved. Historical tag `ew-fable-protocol-20260914` stays
-at `e556a380`. Prior freeze `ew-fable-protocol-20260914-r2` stays at
-`6d4c01d`. This revision freezes as `ew-fable-protocol-20260914-r3`
+at `e556a380`. Prior freezes `r2` (`6d4c01d`) and `r3` (`c0b42b0`) stay put.
+This revision freezes as `ew-fable-protocol-20260914-r4`
 and that tag must **not** move after delivery.
 
 It does not start the 1,000-pass campaign. Existing receipts stay on disk.
@@ -98,7 +98,7 @@ recording actual browser launch flags **requires** changing that file.
 | Harness | Where | sha256 |
 | --- | --- | --- |
 | **Old** (preserved) | git `e02235c:scripts/ew-frame-benchmark.mjs` and copy `docs/ew/receipts/harness-e02235c.mjs` | `e79876004ea9b8846ed6f31ca040fc1ff2452db43f77ba744837d9fb6b8b115d` |
-| **New** (this PR; freeze as protocol tag `ew-fable-protocol-20260914-r3`) | `scripts/ew-frame-benchmark.mjs` | see `docs/ew/receipts/campaign-pending-plan.json` |
+| **New** (this PR; freeze as protocol tag `ew-fable-protocol-20260914-r4`) | `scripts/ew-frame-benchmark.mjs` | see `docs/ew/receipts/campaign-pending-plan.json` |
 
 Old receipts that used `e7987600…` stay on disk and are not rewritten. Do not
 point those families at the new hash.
@@ -116,9 +116,10 @@ Required output of the **new** helper (inside the JSON receipt, not a sidecar):
 - `samples.ticks`: whole-frame `dtMs` in original order, with `tRelMs`
 - `launch.extraArgs`: flags **this process** passed to `chromium.launch`
   (`[]` on acceptance)
-- `launch.recordedArgv`: Chromium argv of the **Playwright-launched
-  browser PID** (chrome, **chromium**, or headless_shell). Prefer that
-  process without `--type=`. Do **not** match `/chrome/i` on the full path.
+- `launch.recordedArgv`: Chromium argv of the browser **owned by this
+  harness process** (chrome, **chromium**, or headless_shell). Prefer the
+  Playwright PID if it is a descendant without `--type=`. Do **not** match
+  `/chrome/i` on the full path, and do not pick an unrelated process.
 - `launch.verified`: true only when that PID/argv was captured. extraArgs
   are **not** proof of preload-injected flags. Unverified launch cannot
   qualify as reference acceptance.
@@ -169,7 +170,8 @@ Specified **upfront** (not started in this PR):
 | Pass warm-up | 50 passes at 200 ms (~10 s) per sensor-bearing tree |
 | Measured passes | **1,000** per sensor-bearing tree (B, C1, C2) |
 | Tick warm-up / measured | 600 / 3,600 (all trees, including A) |
-| Browser | one process per run; process exit between runs (not forced GC) |
+| Tree A contract | `samples.passes` **null**; electronics/detection/updateMs/seekerCPU **N/A**; tick array complete and finite |
+| Browser | one process per run, identified by **process ownership**; process exit between runs (not forced GC) |
 
 **Duration arithmetic** (200 ms cadence):
 
@@ -343,7 +345,8 @@ EW_CAMPAIGN_CONFIRMED=1 scripts/ew-campaign.sh --execute --sequence 3 docs/ew/re
 
 Until then the execute path refuses. Do not merge to main. Do not move
 `ew-fable-candidate-20260913` (`077a9ce`) or the `51738ca` pin. Do not
-move historical tag `ew-fable-protocol-20260914` (`e556a380`), prior freeze
-`ew-fable-protocol-20260914-r2` (`6d4c01d`), or the current
-`ew-fable-protocol-20260914-r3` after delivery.
+move historical tag `ew-fable-protocol-20260914` (`e556a380`), prior freezes
+`ew-fable-protocol-20260914-r2` (`6d4c01d`) and
+`ew-fable-protocol-20260914-r3` (`c0b42b0`), or the current
+`ew-fable-protocol-20260914-r4` after delivery.
 **Campaign not started.**

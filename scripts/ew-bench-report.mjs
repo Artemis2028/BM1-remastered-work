@@ -16,6 +16,8 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const harnessSha256 = sha256File(path.join(repoRoot, PROTOCOL.harnessFile));
 const helperSha256 = sha256File(path.join(repoRoot, PROTOCOL.helperFile));
 
+// Same validateReceipt path as resume: incomplete/mismatch/ineligible receipts
+// never enter campaign blocks.
 const {blocks, invalidReceipts} = loadCampaignReceipts(dir, stamp, {harnessSha256, helperSha256});
 const summary = {
   stamp,
