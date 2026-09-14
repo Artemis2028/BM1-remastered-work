@@ -11,8 +11,13 @@ import {fileURLToPath} from 'node:url';
 export const PROTOCOL = {
   id: 'ew-benchmark-protocol-20260914',
   status: 'awaiting independent protocol review — long campaign not started',
-  protocolTag: 'ew-fable-protocol-20260914-r2',
+  protocolTag: 'ew-fable-protocol-20260914-r3',
   previousProtocolTag: {
+    name: 'ew-fable-protocol-20260914-r2',
+    commit: '6d4c01d7b8af4bf69878c8bf22d63b3bfdfa14dc',
+    note: 'prior reporting/validation freeze; do not move'
+  },
+  historicalProtocolTag: {
     name: 'ew-fable-protocol-20260914',
     commit: 'e556a3801848d85062ccecc1dcfec4d8c56620fd',
     note: 'historical; do not move'
@@ -421,6 +426,7 @@ export function campaignPlan(config = {}) {
     status: PROTOCOL.status,
     protocolTag: PROTOCOL.protocolTag,
     previousProtocolTag: PROTOCOL.previousProtocolTag,
+    historicalProtocolTag: PROTOCOL.historicalProtocolTag,
     gate: PROTOCOL.gate,
     cumulativeFrameP95Ms: PROTOCOL.cumulativeFrameP95Ms,
     trees: {...cfg.trees},
@@ -460,7 +466,7 @@ export function campaignPlan(config = {}) {
       'Report every run absolute p95/p99 including detection, updateMs, and projectile. Campaign-level cumulative-frame verdict is required. No best-run selection. No median delta as the gate.',
       'Current Platinum evidence for 51738ca is Astra C2 3.70/9.20 and 2.00/4.30 (both failures). Historical 2.50/6.90 and supplementary 1.60/2.20 stay labeled historical.',
       'Missing or invalid runs must not yield an overall pass. Plan trees and runs come from one validated configuration. Non-approved acceptance overrides are rejected.',
-      'Do not start this campaign until the tagged protocol is authorized. Historical tag ew-fable-protocol-20260914 stays at e556a380 and is not moved.'
+      'Do not start this campaign until the tagged protocol is authorized. Historical tag ew-fable-protocol-20260914 stays at e556a380. Prior freeze ew-fable-protocol-20260914-r2 stays at 6d4c01d. Neither is moved.'
     ]
   };
 }
@@ -1167,6 +1173,7 @@ export function supportingHashes(repoRoot) {
     'scripts/ew-campaign.sh',
     'scripts/ew-resume-check.mjs',
     'scripts/ew-bench-resume-test.mjs',
+    'scripts/ew-bench-astra-synthetics.mjs',
     'docs/ew/BENCHMARK-PROTOCOL.md'
   ];
   return Object.fromEntries(files.filter(f => fs.existsSync(path.join(repoRoot, f))).map(f => [f, sha256File(path.join(repoRoot, f))]));

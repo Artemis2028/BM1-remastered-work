@@ -152,8 +152,9 @@ impact-only.
 
 See `docs/ew/BENCHMARK-PROTOCOL.md`. Status: **awaiting independent protocol
 review — long campaign not started.** Historical tag
-`ew-fable-protocol-20260914` stays at `e556a380`. New freeze
-`ew-fable-protocol-20260914-r2`.
+`ew-fable-protocol-20260914` stays at `e556a380`. Prior freeze
+`ew-fable-protocol-20260914-r2` stays at `6d4c01d`. Current freeze
+`ew-fable-protocol-20260914-r3`.
 
 - **Unchanged** means measurement boundaries and thresholds (electronicsPass
   2/4, cumulative tick ≤2 ms vs A), not the entire harness file. A **new

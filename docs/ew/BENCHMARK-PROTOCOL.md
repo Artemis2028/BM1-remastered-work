@@ -3,15 +3,17 @@
 **Status: awaiting independent protocol review — long campaign not started.**
 
 Historical protocol tag `ew-fable-protocol-20260914` stays at `e556a380` and
-**must not move**. After this Astra reporting/validation fix the new
-immutable tag is `ew-fable-protocol-20260914-r2`.
+**must not move**. Prior freeze `ew-fable-protocol-20260914-r2` stays at
+`6d4c01d` and **must not move**. The current immutable tag is
+`ew-fable-protocol-20260914-r3`.
 
 This document specifies the benchmark-only follow-up. It does not change
 gameplay, budgets, freeze tags, or the 2 / 4 ms **measurement boundaries and
 thresholds**. The harness *file* is allowed to change so it can emit
 per-sample series and launch flags; a **new harness hash is expected**. The
 old helper is preserved. Historical tag `ew-fable-protocol-20260914` stays
-at `e556a380`. This revision freezes as `ew-fable-protocol-20260914-r2`
+at `e556a380`. Prior freeze `ew-fable-protocol-20260914-r2` stays at
+`6d4c01d`. This revision freezes as `ew-fable-protocol-20260914-r3`
 and that tag must **not** move after delivery.
 
 It does not start the 1,000-pass campaign. Existing receipts stay on disk.
@@ -96,7 +98,7 @@ recording actual browser launch flags **requires** changing that file.
 | Harness | Where | sha256 |
 | --- | --- | --- |
 | **Old** (preserved) | git `e02235c:scripts/ew-frame-benchmark.mjs` and copy `docs/ew/receipts/harness-e02235c.mjs` | `e79876004ea9b8846ed6f31ca040fc1ff2452db43f77ba744837d9fb6b8b115d` |
-| **New** (this PR; freeze as protocol tag `ew-fable-protocol-20260914-r2`) | `scripts/ew-frame-benchmark.mjs` | see `docs/ew/receipts/campaign-pending-plan.json` |
+| **New** (this PR; freeze as protocol tag `ew-fable-protocol-20260914-r3`) | `scripts/ew-frame-benchmark.mjs` | see `docs/ew/receipts/campaign-pending-plan.json` |
 
 Old receipts that used `e7987600…` stay on disk and are not rewritten. Do not
 point those families at the new hash.
@@ -341,6 +343,7 @@ EW_CAMPAIGN_CONFIRMED=1 scripts/ew-campaign.sh --execute --sequence 3 docs/ew/re
 
 Until then the execute path refuses. Do not merge to main. Do not move
 `ew-fable-candidate-20260913` (`077a9ce`) or the `51738ca` pin. Do not
-move historical tag `ew-fable-protocol-20260914` (`e556a380`) or the new
-`ew-fable-protocol-20260914-r2` after delivery.
+move historical tag `ew-fable-protocol-20260914` (`e556a380`), prior freeze
+`ew-fable-protocol-20260914-r2` (`6d4c01d`), or the current
+`ew-fable-protocol-20260914-r3` after delivery.
 **Campaign not started.**

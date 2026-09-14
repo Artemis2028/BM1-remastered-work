@@ -24,6 +24,10 @@ function assert(cond, msg) {
   checks++;
 }
 
+const astra = spawnSync(process.execPath, [path.join(process.cwd(), 'scripts/ew-bench-astra-synthetics.mjs')], {encoding: 'utf8'});
+assert(astra.status === 0, `Astra synthetic suite exits 0 (${astra.stderr || astra.stdout})`);
+assert(JSON.parse(astra.stdout).ok === true, 'Astra synthetic suite ok');
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ew-resume-'));
 const hashes = {harnessSha256: 'a'.repeat(64), helperSha256: 'b'.repeat(64)};
 

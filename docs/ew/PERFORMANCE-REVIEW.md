@@ -183,4 +183,5 @@ for individual samples / 1,000-pass / interleaved sequences is in
 `scripts/ew-frame-benchmark.mjs` and `scripts/ew-campaign.sh --plan`.
 **Frozen for Fable final diff review — long campaign not started.** Tag
 `ew-fable-protocol-20260914` at `e556a380` is historical and must not move.
-Follow-up tag `ew-fable-protocol-20260914-r2` is the current protocol freeze.
+Prior freeze `ew-fable-protocol-20260914-r2` stays at `6d4c01d`. Current
+protocol freeze is `ew-fable-protocol-20260914-r3`.
