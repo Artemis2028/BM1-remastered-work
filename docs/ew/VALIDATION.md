@@ -87,3 +87,11 @@ Platinum verification is **outstanding** on this VM. This host is supplementary.
 This-host electronicsPass (300 samples, original timer): B 1.80 / 2.80 (pass), C1 **2.50 / 3.50 fail**, C2 **2.40 / 3.50 fail**. Pre-sensor series are null / not applicable. Tick increments: EW−sensors **+0.80 ms**, EW−pre-sensor **+1.70 ms** (cumulative limit 2 ms). Suites: **20 + 33 + 14 + 35 = 102** EW/seeker, sensors 24/24 · 54/54, power 21/21 · 29/29, behavior 79/79, both release builders.
 
 Pinned harness sha256 `cbe314d8…`. Receipts: `receipts/authority-20260913-*.json`. The `passms-20260913-*` files stay labeled as the superseded experiment.
+
+## Follow-up: detection/sharing (14 September 2026)
+
+Work is on `cursor/ew-perf-followup-8de2` from `077a9ce`. **Freeze tag `ew-fable-candidate-20260913` remains at `077a9ce`.** PR #6 was not edited.
+
+This supplementary host (generic Xeon, concurrency 4, Chromium 153.0.8010.12): unprofiled C2 `electronicsPass` **1.60 / 2.20 pass**, cumulative tick vs pre-sensor **+0.90 ms**. C1 1.70 / 2.40 pass. Profiled C2 (not the gate) 1.70 / 3.00; detect 0.6 / share 0.8. Platinum **2.50 / 6.90 outstanding** and did not measure `077a9ce`.
+
+Suites: EW 20 + 33, seeker 14 + 38 (**105**), sensors 26 + 54, power 21 + 29, behavior 79/79, ships 14 · 11 · smoke · 30 · 23 · 19, both release builders. Receipts: `receipts/perf-followup-20260914-*.json`. **Do not merge to main.**

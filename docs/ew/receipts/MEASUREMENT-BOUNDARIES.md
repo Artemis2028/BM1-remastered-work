@@ -110,6 +110,19 @@ with no hit and no projectile death (`authority-20260913-ew-tip.json`
 i:51) means the expensive-frame cause is **unproven** — do not label it
 impact-only.
 
+### `perf-followup-20260914-*.json` — detection/sharing follow-up (not the freeze)
+
+- Branch `cursor/ew-perf-followup-8de2` from frozen `077a9ce`. Tag
+  `ew-fable-candidate-20260913` was **not** moved.
+- Same pinned harness (`e7987600…`) and original `electronicsPass` 2/4 gate.
+- Unprofiled four-tree plus a **separate** profiled C2 run. Do not substitute
+  the profiled file for the gate.
+- This host (supplementary Xeon, not Platinum): C2 electronicsPass **1.60 / 2.20
+  pass**. Cumulative tick vs pre-sensor **+0.90 ms**. Platinum 2.50 / 6.90
+  remains the failed release authority and was not re-run; that series did not
+  measure `077a9ce`.
+- Keep every receipt, including the profiled file.
+
 ### `prior-attempt-performance-*.json`
 
 - Earlier failed EW timing on Platinum. Same family as `performance-*.json`.

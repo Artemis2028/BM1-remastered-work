@@ -1,0 +1,35 @@
+{
+  "stamp": "perf-followup-20260914",
+  "harnessSha256": "e79876004ea9b8846ed6f31ca040fc1ff2452db43f77ba744837d9fb6b8b115d",
+  "trees": {
+    "A": "6958f08e73aff55efbf48bae3f9433e5acc270e8",
+    "B": "e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b",
+    "C1": "74caf837c7882a86e3bd7c74f083029453953c1a",
+    "C2": "51738caf3a1d88492c4fc48a7c0125d4a7e2a355"
+  },
+  "increments": {
+    "tickP95": {
+      "ewMinusSensors": 0.1,
+      "ewMinusPresensor": 0.9,
+      "cumulativeLimitMs": 2
+    },
+    "electronicsPassP95": {
+      "ewMinusSensors": 0.3,
+      "ewMinusPresensor": null,
+      "note": "pre-sensor electronicsPass is not applicable"
+    }
+  },
+  "thisHostElectronicsPass": {
+    "p95": 1.6,
+    "p99": 2.2,
+    "passed": true
+  },
+  "platinumAuthority": {
+    "p95": 2.5,
+    "p99": 6.9,
+    "passed": false,
+    "series": "same power+sensors full-workload timer"
+  },
+  "decisionRequired": true,
+  "decisionReason": "Unchanged 2/4 full-workload gate failed on Platinum (2.50/6.90) and was not re-run there. Do not merge to main without an explicit decision."
+}

@@ -1,0 +1,29 @@
+# Rerunnable four-tree full-workload timing
+# Host class: supplementary unless cpu matches Platinum 8573C
+# Pinned harness: /workspace/scripts/ew-frame-benchmark.mjs
+# Harness sha256: e79876004ea9b8846ed6f31ca040fc1ff2452db43f77ba744837d9fb6b8b115d
+# Pinned trees:
+#   A  pre-sensor / OPS     6958f08e73aff55efbf48bae3f9433e5acc270e8
+#   B  sensors              e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b
+#   C1 noise/ECCM           74caf837c7882a86e3bd7c74f083029453953c1a
+#   C2 review tip           51738caf3a1d88492c4fc48a7c0125d4a7e2a355
+# Unchanged 2/4 gate: electronicsPass = updatePowerSystems + updateSensorSystems
+#   (Platinum recorded this series as detectionPass: 2.50 / 6.90, failed)
+# Also report: detection-pass, updateMs, whole-frame tick, seekerCPU
+# Increments: EW−sensors and EW−pre-sensor; cumulative tick vs A <= 2ms
+# Pre-sensor + --passes must report sensor-pass metrics as not applicable, never zero.
+
+HARNESS=/workspace/scripts/ew-frame-benchmark.mjs
+RECEIPT_DIR=docs/ew/receipts
+STAMP=perf-followup-20260914
+
+git -C /workspace worktree add --detach /tmp/ew-authority-tree-a 6958f08e73aff55efbf48bae3f9433e5acc270e8
+node $HARNESS --root /tmp/ew-authority-tree-a --passes > $RECEIPT_DIR/${STAMP}-presensor.json
+
+git -C /workspace worktree add --detach /tmp/ew-authority-tree-b e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b
+node $HARNESS --root /tmp/ew-authority-tree-b --passes > $RECEIPT_DIR/${STAMP}-sensors.json
+
+git -C /workspace worktree add --detach /tmp/ew-authority-tree-c1 74caf837c7882a86e3bd7c74f083029453953c1a
+node $HARNESS --root /tmp/ew-authority-tree-c1 --passes > $RECEIPT_DIR/${STAMP}-commit1.json
+
+node $HARNESS --root /workspace --passes > $RECEIPT_DIR/${STAMP}-ew-tip.json

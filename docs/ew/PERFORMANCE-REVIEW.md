@@ -145,3 +145,23 @@ This host (supplementary, 4-core generic Xeon, Chromium 153.0.8010.12) — origi
 | Platinum EW (authority) | 2.00 / 3.30 | **2.50 / 6.90** | — | — | 0.20 / 4.50 | **fail — not re-run** |
 
 Increments: EW−sensors tick **+0.80 ms**, EW−pre-sensor tick **+1.70 ms** (limit 2). electronicsPass EW−sensors **+0.60 ms**. Thresholds were not raised. Receipts: `receipts/authority-20260913-*.json`. Harness sha256 `cbe314d8…`.
+
+## Follow-up: detection/sharing cost (14 September 2026)
+
+Separate branch `cursor/ew-perf-followup-8de2` from frozen `077a9ce`. **Tag `ew-fable-candidate-20260913` was not moved.** PR #6 unchanged. Same pinned harness (`e7987600…`). Thresholds not raised. Grid not redesigned (still 1480 pairs / 228 jammer pairs on Earth).
+
+Profile-first (frozen-tip validate, not a gate): detect 1.1 / share 0.8. This tip’s **separate** profiled C2: detect 0.6 / share 0.8 / fund 0.2 / snapshot 0.2. Profiled electronicsPass 1.70 / 3.00 vs unprofiled **1.60 / 2.20**.
+
+This host (supplementary, 4-core generic Xeon, Chromium 153.0.8010.12) — original timer:
+
+| Tree | Tick p95 / p99 | electronicsPass p95 / p99 | Detection-pass | updateMs | Seeker | Gate 2 / 4 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A pre-sensor `6958f08` | 0.40 / 0.50 | n/a | n/a | n/a | n/a | tick baseline |
+| B sensors `e7aa3c5` | 1.20 / 1.40 | 1.30 / 1.80 | 1.10 / 1.50 | n/a | 0.10 / 0.10 | pass |
+| C1 noise/ECCM `74caf83` | 1.40 / 1.60 | 1.70 / 2.40 | 1.50 / 2.20 | n/a | 0.10 / 0.10 | pass |
+| C2 this tip `51738ca` | 1.30 / 1.50 | **1.60 / 2.20** | 1.40 / 2.10 | 1.40 / 2.10 | 0.20 / 0.20 | **pass on this host** |
+| Platinum EW (authority) | 2.00 / 3.30 | **2.50 / 6.90** | — | — | 0.20 / 4.50 | **fail — not re-run; did not measure 077a9ce** |
+
+Increments: EW−sensors tick **+0.10 ms**, EW−pre-sensor tick **+0.90 ms** (limit 2). electronicsPass EW−sensors **+0.30 ms**. Suites: EW/seeker **105/105**, sensors 26/26 · 54/54, power 21/21 · 29/29, behavior 79/79, ship suites green, both builders. Receipts: `receipts/perf-followup-20260914-*.json`.
+
+**Platinum verification outstanding. Do not merge to main. Do not move the freeze.**
