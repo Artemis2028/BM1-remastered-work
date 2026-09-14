@@ -191,8 +191,11 @@ export function campaignPlan({withFreeze = true, repetitions = PROTOCOL.sequence
     notes: [
       'One pinned harness against every tree.',
       'Serial interleaved sequences; one browser process per run; process exit between runs.',
-      'Naturally occurring GC stays in acceptance samples. No forced collection between measured acceptance samples.',
-      'Forced-GC / tracing only as separately labelled --diagnostics; never the gate.',
+      'Run one sequence at a time (--sequence N). Keep every raw seq*-*.json file.',
+      '1000 passes at 200 ms cadence ≈ 3+ minutes per run; four/five trees × several sequences is multi-hour.',
+      'Acceptance: naturally occurring GC only. No expose-gc. gc() is never called.',
+      'Diagnostics hygiene: --diagnostics --gc-placement=between-blocks (default for --diagnostics). expose-gc; gc() outside the measured window.',
+      'Diagnostics suppression: --diagnostics --gc-placement=inside-window. expose-gc; gc() between measured samples. Not the gate.',
       'Report every run absolute p95/p99. No best-run selection. No median delta as the gate.',
       'Do not start this campaign until Fable approves the protocol.'
     ]

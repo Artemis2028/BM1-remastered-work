@@ -7,48 +7,50 @@
 // those series as not applicable, never zero. Optional --profile times
 // funding / snapshots / detection / sharing / scan separately and must
 // stay off the unprofiled gate run so instrumentation overhead is visible.
-// --diagnostics is a separately labelled forced-GC/tracing path, never the
-// gate. Acceptance does not collect between measured samples.
+import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
+import {createHash} from 'node:crypto';
 import os from 'node:os';
 import http from 'node:http';
 import path from 'node:path';
-import {createRequire} from 'node:module';
 import {
   fileURLToPath
 } from 'node:url';
 import {
   chromium
 } from 'playwright';
-import {
-  PROTOCOL,
-  acceptanceEligible,
-  argFlag,
-  argInt,
-  argValue,
-  gitIdentity,
-  sha256File,
-  sourceHashes,
-  supportingHashes
-} from './ew-bench-lib.mjs';
-const require = createRequire(import.meta.url);
 const harnessPath = fileURLToPath(import.meta.url);
-const harnessHash = sha256File(harnessPath);
-const repoRoot = fileURLToPath(new URL('../', import.meta.url));
-const root = path.resolve(argValue(process.argv, '--root', repoRoot));
-const withPasses = argFlag(process.argv, '--passes');
-const starved = argFlag(process.argv, '--starved');
-const withProfile = argFlag(process.argv, '--profile');
-const diagnostics = argFlag(process.argv, '--diagnostics');
-const recordSamples = argFlag(process.argv, '--record-samples') || withPasses;
-const passWarmup = argInt(process.argv, '--pass-warmup', withPasses ? PROTOCOL.passWarmup : 0);
-const passSamples = argInt(process.argv, '--pass-samples', withPasses ? 300 : 0);
-const tickWarmup = argInt(process.argv, '--tick-warmup', PROTOCOL.tickWarmup);
-const tickSamples = argInt(process.argv, '--tick-samples', PROTOCOL.tickSamples);
-const renderSamples = argInt(process.argv, '--render-samples', PROTOCOL.renderSamples);
-const treeLabel = argValue(process.argv, '--tree-label', null);
-const sequence = argInt(process.argv, '--sequence', null);
-const samplesOut = argValue(process.argv, '--samples-out', null);
+const harnessHash = createHash('sha256').update(fs.readFileSync(harnessPath)).digest('hex');
+const argv = process.argv;
+const argValue = (name, fallback = null) => {
+  const i = argv.indexOf(name);
+  return i < 0 || i + 1 >= argv.length ? fallback : argv[i + 1];
+};
+const argInt = (name, fallback) => {
+  const raw = argValue(name, null);
+  if (raw == null) return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) throw new Error(`${name} requires a non-negative integer`);
+  return n;
+};
+const root = path.resolve(argValue('--root', fileURLToPath(new URL('../', import.meta.url))));
+const withPasses = argv.includes('--passes');
+const starved = argv.includes('--starved');
+const withProfile = argv.includes('--profile');
+const diagnostics = argv.includes('--diagnostics');
+const gcPlacement = argValue('--gc-placement', diagnostics ? 'between-blocks' : 'none');
+if (!['none', 'between-blocks', 'inside-window'].includes(gcPlacement)) {
+  throw new Error('--gc-placement must be none | between-blocks | inside-window');
+}
+if (gcPlacement !== 'none' && !diagnostics) {
+  throw new Error('--gc-placement other than none requires --diagnostics');
+}
+const passWarmup = argInt('--pass-warmup', withPasses ? 50 : 0);
+const passSamples = argInt('--pass-samples', withPasses ? 300 : 0);
+const tickWarmup = argInt('--tick-warmup', 600);
+const tickSamples = argInt('--tick-samples', 3600);
+const treeLabel = argValue('--tree-label', null);
+const sequence = argInt('--sequence', null);
 const shim =
   `window.__bench={createHojFlight:typeof createHojFlight==='function'?createHojFlight:null,hojEmitterKey:typeof hojEmitterKey==='function'?hojEmitterKey:null,liveJammerSignal:typeof liveJammerSignal==='function'?liveJammerSignal:null,sampleHojIfDue:typeof sampleHojIfDue==='function'?sampleHojIfDue:null,sampleDueHojSeekers:typeof sampleDueHojSeekers==='function'?sampleDueHojSeekers:null,ensureActorEW:typeof ensureActorEW==='function'?ensureActorEW:null,state,startWithFaction,applySystemState,getSystemIndexByName,createNpcShip,ensureNpcCombatStats,playerWorldPosition,tick,render,updatePowerSystems,updateProjectiles,updateSensorSystems:typeof updateSensorSystems==='function'?updateSensorSystems:null,sensorWorld:typeof sensorWorld==='undefined'?null:sensorWorld,freeze:()=>new Promise(resolve=>{requestAnimationFrame=cb=>{if(cb.name==='loop')resolve(true);return 0;};})};`;
 const mime = {
@@ -75,27 +77,26 @@ const server = http.createServer((req, res) => {
   else fs.createReadStream(file).pipe(res);
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-const launchOptions = diagnostics ? {args: ['--js-flags=--expose-gc']} : {};
+// Acceptance: no extra flags (same chromium.launch() as the pinned helper).
+// Forced GC needs Chromium --js-flags=--expose-gc; that flag is diagnostics-only.
+const launchExtraArgs = gcPlacement === 'none' ? [] : ['--js-flags=--expose-gc'];
+const launchOptions = launchExtraArgs.length ? {args: launchExtraArgs} : {};
 let browser;
 try {
   browser = await chromium.launch(launchOptions);
   const page = await browser.newPage({
     viewport: {
-      width: PROTOCOL.viewport.width,
-      height: PROTOCOL.viewport.height
+      width: 1280,
+      height: 850
     }
   });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.waitForFunction(() => window.__bench?.state.shipCatalog && window.__bench.state.planets.length > 10);
-  const result = await page.evaluate(async (opts) => {
+  const result = await page.evaluate(async ({withPasses,starved,withProfile,gcPlacement,passWarmup,passSamples,tickWarmup,tickSamples}) => {
     const B = window.__bench,
       s = B.state;
-    const {
-      withPasses, starved, withProfile, diagnostics, recordSamples,
-      passWarmup, passSamples, tickWarmup, tickSamples, renderSamples
-    } = opts;
     B.startWithFaction('terran');
     await B.freeze();
     s.currentPlanet = B.getSystemIndexByName('Earth');
@@ -148,6 +149,19 @@ try {
     };
     const originMs = performance.now();
     const originEpochMs = Date.now();
+    const gcState = {
+      placement: gcPlacement,
+      gcFunctionPresent: typeof gc === 'function',
+      calledBeforeMeasuredWindow: false,
+      calledAfterMeasuredWindow: false,
+      calledInsideMeasuredWindow: false
+    };
+    const forceGc = where => {
+      if (typeof gc !== 'function') return false;
+      gc();
+      gcState[where] = true;
+      return true;
+    };
     for (let i = 0; i < tickWarmup; i++){scene();B.tick(1);}
     const times = [];
     const tickAt = [];
@@ -156,10 +170,10 @@ try {
       const t = performance.now();
       B.tick(1);
       times.push(performance.now() - t);
-      if (recordSamples) tickAt.push(t - originMs);
+      tickAt.push(t - originMs);
     }
     const rendering = [];
-    for (let i = 0; i < renderSamples; i++) {
+    for (let i = 0; i < 300; i++) {
       const t = performance.now();
       B.render();
       rendering.push(performance.now() - t);
@@ -167,12 +181,11 @@ try {
     const stats = a => {
       const sorted = a.slice().sort((x, y) => x - y);
       const n = sorted.length;
-      if (!n) return {samples: 0, p50: null, p95: null, p99: null};
       return {
         samples: n,
-        p50: sorted[Math.floor(n * .5)],
-        p95: sorted[Math.floor(n * .95)],
-        p99: sorted[Math.floor(n * .99)]
+        p50: n ? sorted[Math.floor(n * .5)] : null,
+        p95: n ? sorted[Math.floor(n * .95)] : null,
+        p99: n ? sorted[Math.floor(n * .99)] : null
       };
     };
     const na = reason => ({
@@ -188,7 +201,6 @@ try {
     const hasSensors = !!(B.updateSensorSystems && B.sensorWorld);
     let detectionPass = null, electronicsPass = null, updateMs = null, seekerCPU = null, instrumented = null, detailProfile = null;
     let passRecords = null;
-    let forcedGcBetweenSamples = false;
     if (withPasses && !hasSensors) {
       detectionPass = na('pre-sensor tree has no detection pass');
       electronicsPass = na('pre-sensor tree has no power+sensors full-workload timer');
@@ -211,14 +223,16 @@ try {
       const slices = Object.fromEntries(sliceKeys.map(k => [k, []]));
       let seekerHits = 0, seekerDeaths = 0, seekerMax = 0;
       window.__ewSeekProf = {player: 0, station: 0, ship: 0};
-      if (recordSamples) passRecords = [];
+      passRecords = [];
+      // Diagnostic hygiene: forced GC *outside* the measured window, after warmup.
+      if (gcPlacement === 'between-blocks') forceGc('calledBeforeMeasuredWindow');
       for (let i = 0; i < passSamples; i++) {
         scene();
         const effectsBefore = s.weaponEffects ? s.weaponEffects.length : 0, projBefore = s.projectiles.length;
         if (withProfile) window.__ewProfile = {fundMs:0,snapshotMs:0,passMs:0,scanMs:0,jamSetupMs:0,detectMs:0,shareMs:0};
         else window.__ewProfile = null;
-        const t = performance.now();
         const tEpochMs = Date.now();
+        const t = performance.now();
         B.updateProjectiles(1);
         const afterSeekers = performance.now();
         B.updatePowerSystems(12);
@@ -228,50 +242,46 @@ try {
           const p = window.__ewProfile || {};
           for (const k of sliceKeys) slices[k].push(Number(p[k]) || 0);
         }
-        const projectileMs = afterSeekers - t;
-        const electronicsMs = afterElectronics - afterSeekers;
-        seekers.push(projectileMs);
-        electronics.push(electronicsMs);
+        seekers.push(afterSeekers - t);
+        electronics.push(afterElectronics - afterSeekers);
         const m = B.sensorWorld.metrics || {};
         const detectionMs = Number.isFinite(m.detectionMs) ? m.detectionMs : (Number.isFinite(m.elapsedMs) ? m.elapsedMs : null);
         if (detectionMs != null) detectionOnly.push(detectionMs);
         if (Number.isFinite(m.updateMs)) updates.push(m.updateMs);
+        const dt = seekers[seekers.length - 1];
         const died = projBefore - s.projectiles.length, newEffects = (s.weaponEffects ? s.weaponEffects.length : 0) - effectsBefore;
         seekerHits += Math.max(0, newEffects);
         seekerDeaths += Math.max(0, died);
-        if (projectileMs > seekerMax) seekerMax = projectileMs;
-        if (projectileMs < 0.25) seekerHist.lt0_25++;
-        else if (projectileMs < 0.5) seekerHist.lt0_5++;
-        else if (projectileMs < 1) seekerHist.lt1++;
-        else if (projectileMs < 2) seekerHist.lt2++;
-        else if (projectileMs < 4) seekerHist.lt4++;
+        if (dt > seekerMax) seekerMax = dt;
+        if (dt < 0.25) seekerHist.lt0_25++;
+        else if (dt < 0.5) seekerHist.lt0_5++;
+        else if (dt < 1) seekerHist.lt1++;
+        else if (dt < 2) seekerHist.lt2++;
+        else if (dt < 4) seekerHist.lt4++;
         else seekerHist.ge4++;
-        if (projectileMs >= 1 || newEffects > 0 || died > 0) seekerOutliers.push({i, dt: projectileMs, died, newEffects, live: s.projectiles.length});
-        if (passRecords) {
-          passRecords.push({
-            i,
-            tEpochMs,
-            tRelMs: t - originMs,
-            electronicsMs,
-            detectionMs,
-            updateMs: Number.isFinite(m.updateMs) ? m.updateMs : null,
-            projectileMs,
-            observers: m.observers ?? null,
-            actors: m.actors ?? null,
-            pairs: m.pairs ?? null,
-            jammerPairs: m.jammerPairs ?? null,
-            liveProjectiles: s.projectiles.length,
-            died,
-            newEffects,
-            activeJammers: s.npcShips.filter(n => n.ew?.strength > 0).length
-          });
-        }
-        if (diagnostics && typeof gc === 'function') {
-          forcedGcBetweenSamples = true;
-          gc();
-        }
+        if (dt >= 1 || newEffects > 0 || died > 0) seekerOutliers.push({i, dt, died, newEffects, live: s.projectiles.length});
+        passRecords.push({
+          i,
+          tEpochMs,
+          tRelMs: t - originMs,
+          electronicsMs: electronics[electronics.length - 1],
+          detectionMs,
+          updateMs: Number.isFinite(m.updateMs) ? m.updateMs : null,
+          projectileMs: dt,
+          observers: m.observers ?? null,
+          actors: m.actors ?? null,
+          pairs: m.pairs ?? null,
+          jammerPairs: m.jammerPairs ?? null,
+          liveProjectiles: s.projectiles.length,
+          died,
+          newEffects,
+          activeJammers: s.npcShips.filter(n => n.ew?.strength > 0).length
+        });
+        // Diagnostic suppression: forced GC *inside* the measured window, between samples.
+        if (gcPlacement === 'inside-window') forceGc('calledInsideMeasuredWindow');
         await new Promise(r => setTimeout(r, Math.max(0, 200 - (performance.now() - t))));
       }
+      if (gcPlacement === 'between-blocks') forceGc('calledAfterMeasuredWindow');
       electronicsPass = {
         applicable: true,
         ...stats(electronics),
@@ -339,8 +349,7 @@ try {
       instrumented,
       detailProfile,
       profiled: !!withProfile,
-      diagnostics: !!diagnostics,
-      forcedGcBetweenSamples,
+      gc: gcState,
       sensorOnlyCPU: updateMs,
       activeJammers: s.npcShips.filter(n => n.ew?.strength > 0).length,
       mixedEmitterSides: [...new Set(s.npcShips.slice(0, 6).map(n => n.faction))],
@@ -348,17 +357,17 @@ try {
       starved,
       projectileCount: s.projectiles.length,
       projectileModel: B.createHojFlight ? 'home-on-jam' : 'ordinary torpedo',
-      warmupSeconds: passWarmup * 0.2,
-      simulationSeconds: passSamples * 0.2,
+      warmupSeconds: (withPasses ? passWarmup : 0) * 0.2,
+      simulationSeconds: (withPasses ? passSamples : 0) * 0.2,
       contacts: s.npcShips.length,
       stations: s.stations.length,
       frameCPU: stats(times),
       renderCPU: stats(rendering),
-      samples: recordSamples ? {
+      samples: {
         originEpochMs,
         ticks: {tRelMs: tickAt, dtMs: times},
         passes: passRecords
-      } : null,
+      },
       viewport: {
         width: innerWidth,
         height: innerHeight
@@ -367,73 +376,60 @@ try {
       deviceMemory: navigator.deviceMemory,
       userAgent: navigator.userAgent
     };
-  }, {
-    withPasses, starved, withProfile, diagnostics, recordSamples,
-    passWarmup, passSamples: withPasses ? passSamples : 0, tickWarmup, tickSamples, renderSamples
-  });
-  let playwrightVersion = null;
-  try { playwrightVersion = require('playwright/package.json').version; } catch { /* optional */ }
-  const executablePath = typeof chromium.executablePath === 'function' ? chromium.executablePath() : null;
-  const spawnargs = (() => {
-    try {
-      const proc = typeof browser.process === 'function' ? browser.process() : browser.process;
-      if (proc?.spawnargs) return proc.spawnargs;
-    } catch { /* Playwright versions differ */ }
+  }, {withPasses,starved,withProfile,gcPlacement,passWarmup,passSamples: withPasses ? passSamples : 0,tickWarmup,tickSamples});
+  const git = (cwd, args) => {
+    const r = spawnSync('git', ['-C', cwd, ...args], {encoding: 'utf8'});
+    return r.status === 0 ? (r.stdout || '').trim() : null;
+  };
+  const recordedArgv = (() => {
     const found = [];
     try {
       for (const pid of fs.readdirSync('/proc')) {
         if (!/^\d+$/.test(pid)) continue;
         try {
           const cmd = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean);
-          const exe = cmd[0] || '';
-          if (/chrome/i.test(exe)) found.push({pid: Number(pid), argv: cmd});
-        } catch { /* process raced */ }
+          if (/chrome/i.test(cmd[0] || '')) found.push({pid: Number(pid), argv: cmd});
+        } catch { /* raced */ }
       }
-    } catch { /* /proc unavailable */ }
+    } catch { /* no /proc */ }
     found.sort((a, b) => b.argv.length - a.argv.length);
     return found[0] || null;
   })();
-  const eligible = withPasses && acceptanceEligible({
-    passWarmup, passSamples, tickWarmup, tickSamples, profiled: withProfile, diagnostics, starved
-  });
-  let browserCdp = null;
-  try {
-    const cdp = await browser.newBrowserCDPSession();
-    browserCdp = await cdp.send('Browser.getVersion');
-  } catch { /* optional */ }
   const payload = {
     root,
-    protocol: PROTOCOL.id,
     treeLabel,
     sequence,
-    acceptanceEligible: eligible,
     diagnostics,
-    measuredTree: gitIdentity(root),
-    harnessRepo: gitIdentity(repoRoot),
+    acceptanceEligible: withPasses && passWarmup === 50 && passSamples >= 1000 && tickWarmup === 600 && tickSamples === 3600 && !withProfile && !diagnostics && !starved && gcPlacement === 'none',
+    measuredTree: {
+      cwd: root,
+      commit: git(root, ['rev-parse', 'HEAD']),
+      tree: git(root, ['rev-parse', 'HEAD^{tree}']),
+      dirty: git(root, ['status', '--porcelain']) || ''
+    },
     harness: {
       file: 'scripts/ew-frame-benchmark.mjs',
       sha256: harnessHash,
-      supporting: supportingHashes(repoRoot),
       gate: 'electronicsPass (original full-workload timer) p95<=2ms p99<=4ms',
       sameSeriesAsPlatinum: 'performance-*.json detectionPass was this power+sensors wall-clock',
       platinumAuthority: {p95: 2.5, p99: 6.9, passed: false, host: 'INTEL(R) XEON(R) PLATINUM 8573C'},
       cumulativeFrameGate: 'whole-frame tick p95 vs pre-sensor baseline <=2ms',
       increments: ['EW−sensors', 'EW−pre-sensor'],
-      order: PROTOCOL.order,
-      measurementBoundary: 'electronicsPass is the unchanged 2/4 full-workload timer. detectionPass, updateMs and whole-frame tick are reported separately and are not substitute gates. SeekerCPU is the full projectile update and stays in whole-frame measurements. --profile is optional and is not the gate. --diagnostics is labelled separately and is not the gate.',
+      order: 'updateProjectiles(1) → updatePowerSystems(12) → updateSensorSystems(12)',
+      measurementBoundary: 'electronicsPass is the unchanged 2/4 full-workload timer. detectionPass, updateMs and whole-frame tick are reported separately and are not substitute gates. SeekerCPU is the full projectile update and stays in whole-frame measurements. --profile is optional and is not the gate.',
       thresholdsRecalibrated: false,
       profiled: withProfile,
       diagnostics,
-      percentileMethod: PROTOCOL.percentileMethod
+      gcPlacement
     },
-    sources: sourceHashes(root),
+    sources: Object.fromEntries(['src/main.js', 'src/ship-sensors.mjs', 'src/ship-ew.mjs', 'src/ship-hoj.mjs'].filter(f =>
+      fs.existsSync(path.join(root, f))).map(f => [f, createHash('sha256').update(fs.readFileSync(path.join(root, f))).digest('hex')])),
     browser: await browser.version(),
-    playwrightVersion,
     launch: {
+      extraArgs: launchExtraArgs,
       options: launchOptions,
-      executablePath,
-      spawnargs,
-      browserCdp,
+      exposeGcFlag: launchExtraArgs.includes('--js-flags=--expose-gc'),
+      recordedArgv,
       argv: process.argv.slice(),
       execPath: process.execPath,
       node: process.version
@@ -443,7 +439,6 @@ try {
       arch: os.arch(),
       cpu: os.cpus()[0]?.model,
       logicalCPUs: os.availableParallelism(),
-      cpuCount: os.cpus().length,
       hostnameClass: /8573C/i.test(os.cpus()[0]?.model || '') ? 'platinum-8573C-reference' : 'supplementary-not-platinum'
     },
     workload: {
@@ -456,14 +451,22 @@ try {
       passWarmup: withPasses ? passWarmup : 0,
       passSamples: withPasses ? passSamples : 0,
       passCadenceMs: 200,
-      renderSamples
+      renderSamples: 300
     },
     ...result,
     errors
   };
-  if (samplesOut && payload.samples) {
-    fs.writeFileSync(samplesOut, JSON.stringify(payload.samples));
-  }
+  payload.gc = {
+    ...(result.gc || {}),
+    placement: gcPlacement,
+    diagnostics,
+    exposeGcFlag: launchExtraArgs.includes('--js-flags=--expose-gc'),
+    note: gcPlacement === 'none'
+      ? 'acceptance: naturally occurring GC only; no expose-gc; gc() is never called'
+      : gcPlacement === 'between-blocks'
+        ? 'diagnostics hygiene: expose-gc; gc() after warmup and after the measured loop; never inside the measured window'
+        : 'diagnostics suppression: expose-gc; gc() inside the measured loop between samples; not the gate'
+  };
   console.log(JSON.stringify(payload, null, 2));
   if (errors.length || result.ewEnabled && !result.starved && result.activeJammers < 6 || result.electronicsPass?.applicable && result.electronicsPass.passed === false) process.exitCode = 1;
 } finally {

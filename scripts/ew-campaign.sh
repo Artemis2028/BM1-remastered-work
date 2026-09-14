@@ -2,19 +2,26 @@
 # Pinned-harness campaign driver for the EW timing protocol.
 # Default: write/print the plan and exit.
 # Do NOT start the long ≥1000-pass campaign until Fable approves the protocol.
+# After approval, one sequence at a time is supported; every raw file is kept.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 HARNESS="$REPO/scripts/ew-frame-benchmark.mjs"
-RECEIPT_DIR="${1:-$REPO/docs/ew/receipts}"
-if [[ "${1:-}" == "--plan" || "${1:-}" == "--execute" ]]; then
-  RECEIPT_DIR="${2:-$REPO/docs/ew/receipts}"
-fi
+RECEIPT_DIR="$REPO/docs/ew/receipts"
 STAMP="${EW_RECEIPT_STAMP:-campaign-pending}"
-MODE="${EW_CAMPAIGN_MODE:-}"
-if [[ "${1:-}" == "--plan" ]]; then MODE=plan; fi
-if [[ "${1:-}" == "--execute" ]]; then MODE=execute; fi
-if [[ -z "$MODE" ]]; then MODE=plan; fi
+MODE=plan
+SEQ_FILTER="${EW_CAMPAIGN_SEQUENCE:-}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --plan) MODE=plan; shift ;;
+    --execute) MODE=execute; shift ;;
+    --sequence) SEQ_FILTER="${2:-}"; shift 2 ;;
+    --) shift; break ;;
+    -*) echo "unknown flag $1" >&2; exit 2 ;;
+    *) RECEIPT_DIR="$1"; shift ;;
+  esac
+done
 
 mkdir -p "$RECEIPT_DIR"
 
@@ -37,7 +44,7 @@ PLAN_JSON="$(
   cd "$REPO"
   WITH_FREEZE="$WITH_FREEZE" REPS="$REPS" HARNESS_HASH="$HARNESS_HASH" LIB_HASH="$LIB_HASH" \
   TREE_A="$TREE_A" TREE_B="$TREE_B" TREE_C1="$TREE_C1" TREE_C2="$TREE_C2" TREE_F="$TREE_F" \
-  PASS_SAMPLES="$PASS_SAMPLES" node --input-type=module <<'JS'
+  PASS_SAMPLES="$PASS_SAMPLES" SEQ_FILTER="$SEQ_FILTER" node --input-type=module <<'JS'
 import {campaignPlan, PROTOCOL} from './scripts/ew-bench-lib.mjs';
 const plan = campaignPlan({withFreeze: process.env.WITH_FREEZE !== '0', repetitions: Number(process.env.REPS)});
 plan.trees = {
@@ -51,6 +58,13 @@ plan.measured.passSamples = Number(process.env.PASS_SAMPLES);
 plan.harness = {file: PROTOCOL.harnessFile, sha256: process.env.HARNESS_HASH, libSha256: process.env.LIB_HASH};
 plan.freezeTag = PROTOCOL.freezeTag;
 plan.freezeMoved = false;
+plan.oneSequenceAtATime = {
+  flag: '--sequence N',
+  env: 'EW_CAMPAIGN_SEQUENCE',
+  selected: process.env.SEQ_FILTER || null,
+  keepEveryRawFile: true,
+  note: '1000 passes at 200 ms ≈ 3+ min per run; four/five trees × several sequences is multi-hour. Run one interleaved sequence per invocation. Never delete prior seq*.json files.'
+};
 console.log(JSON.stringify(plan, null, 2));
 JS
 )"
@@ -63,15 +77,15 @@ echo "Lib sha256 $LIB_HASH"
 if [[ "$MODE" != "execute" ]]; then
   echo
   echo "awaiting Fable protocol review — long campaign not started"
-  echo "Re-run with: EW_CAMPAIGN_CONFIRMED=1 $0 --execute [receipt-dir]"
-  echo "after Fable approves docs/ew/BENCHMARK-PROTOCOL.md."
+  echo "After approval, one sequence: EW_CAMPAIGN_CONFIRMED=1 $0 --execute --sequence 1 [receipt-dir]"
+  echo "Raw files are kept. Do not start the long campaign from this PR."
   exit 0
 fi
 
 if [[ "${EW_CAMPAIGN_CONFIRMED:-}" != "1" ]]; then
   echo "Refusing to execute the long campaign."
   echo "Protocol is awaiting Fable review. Long campaign not started."
-  echo "After approval, set EW_CAMPAIGN_CONFIRMED=1."
+  echo "After approval, set EW_CAMPAIGN_CONFIRMED=1 and pass --sequence N to run one sequence."
   exit 2
 fi
 
@@ -112,15 +126,18 @@ for label in "${ORDER[@]}"; do prepare_tree "$label"; done
 
 failed=0
 for seq in $(seq 1 "$REPS"); do
+  if [[ -n "$SEQ_FILTER" && "$seq" != "$SEQ_FILTER" ]]; then
+    echo "==> skip sequence $seq (running --sequence $SEQ_FILTER only; prior/other raw files kept)"
+    continue
+  fi
   for label in "${ORDER[@]}"; do
     dest="$RECEIPT_DIR/${STAMP}-seq${seq}-${label}.json"
-    echo "==> sequence $seq $label $(label_ref "$label")"
+    echo "==> sequence $seq $label $(label_ref "$label") -> $dest"
     set +e
     node "$HARNESS" --root "$WT_ROOT/$label" --passes \
       --tree-label "$label" --sequence "$seq" \
       --pass-warmup "$PASS_WARMUP" --pass-samples "$PASS_SAMPLES" \
       --tick-warmup "$TICK_WARMUP" --tick-samples "$TICK_SAMPLES" \
-      --record-samples \
       | tee "$dest"
     rc=${PIPESTATUS[0]}
     set -e

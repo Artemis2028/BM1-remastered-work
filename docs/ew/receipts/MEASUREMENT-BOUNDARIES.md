@@ -135,14 +135,20 @@ review — long campaign not started.**
 
 - Same external `electronicsPass` 2 / 4 ms gate and cumulative tick ≤ 2 ms vs
   A. Thresholds not raised. Detection, `updateMs`, projectile/`seekerCPU`, and
-  whole-frame stay separately labelled.
+  whole-frame stay separately labelled. The timed clocks in the harness are
+  unchanged.
+- Receipts now include the per-sample series and Chromium launch flags (no
+  outside preload). Forced GC is `--diagnostics` only: `between-blocks` =
+  hygiene outside the measured window; `inside-window` = suppression, not
+  the gate.
 - Planned size is ≥1,000 measured passes per sensor/EW run, three serial
-  interleaved sequences A→B→C1→C2→F. F is frozen `077a9ce` as a same-session
-  comparison; tag `ew-fable-candidate-20260913` is **not** moved.
-- C2 stays `51738caf3a1d88492c4fc48a7c0125d4a7e2a355`.
+  interleaved sequences A→B→C1→C2→F. Run **one sequence at a time**; keep
+  every raw file. 1000 × 200 ms ≈ 3+ min per run; the full matrix is
+  multi-hour.
+- F is frozen `077a9ce` as a same-session comparison; tag
+  `ew-fable-candidate-20260913` is **not** moved. C2 stays
+  `51738caf3a1d88492c4fc48a7c0125d4a7e2a355`.
 - Every run reports absolute p95/p99 and both increments. No best-run
   selection; no median delta as the gate.
-- Naturally occurring GC stays in acceptance samples. `--diagnostics` is
-  labelled separately and is not the gate.
 - Earlier receipt families above remain the historical record. They are not
   this campaign.

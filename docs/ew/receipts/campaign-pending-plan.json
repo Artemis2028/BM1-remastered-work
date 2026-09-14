@@ -131,14 +131,24 @@
   "notes": [
     "One pinned harness against every tree.",
     "Serial interleaved sequences; one browser process per run; process exit between runs.",
-    "Naturally occurring GC stays in acceptance samples. No forced collection between measured acceptance samples.",
-    "Forced-GC / tracing only as separately labelled --diagnostics; never the gate.",
+    "Run one sequence at a time (--sequence N). Keep every raw seq*-*.json file.",
+    "1000 passes at 200 ms cadence ≈ 3+ minutes per run; four/five trees × several sequences is multi-hour.",
+    "Acceptance: naturally occurring GC only. No expose-gc. gc() is never called.",
+    "Diagnostics hygiene: --diagnostics --gc-placement=between-blocks (default for --diagnostics). expose-gc; gc() outside the measured window.",
+    "Diagnostics suppression: --diagnostics --gc-placement=inside-window. expose-gc; gc() between measured samples. Not the gate.",
     "Report every run absolute p95/p99. No best-run selection. No median delta as the gate.",
     "Do not start this campaign until Fable approves the protocol."
   ],
   "harness": {
     "file": "scripts/ew-frame-benchmark.mjs",
-    "sha256": "6fe5fabadb5225b91c7fec2f4977a6d137c42276931a2c138f70fd0a251cf47a",
-    "libSha256": "e46055f297f7d777f1af35964593b0ed84d61179e778dcd4ef04bbb9bce83ae4"
+    "sha256": "dc20a607a697e8274cef1bfa393e8b7bd71b47fc632d7e866262d0159f7d7059",
+    "libSha256": "dff7541a41e0eee8217c23c6b0ee821fa5b8f2302b22dd571c0c52553857e32b"
+  },
+  "oneSequenceAtATime": {
+    "flag": "--sequence N",
+    "env": "EW_CAMPAIGN_SEQUENCE",
+    "selected": null,
+    "keepEveryRawFile": true,
+    "note": "1000 passes at 200 ms ≈ 3+ min per run; four/five trees × several sequences is multi-hour. Run one interleaved sequence per invocation. Never delete prior seq*.json files."
   }
 }

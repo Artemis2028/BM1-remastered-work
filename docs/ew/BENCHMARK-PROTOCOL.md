@@ -35,6 +35,22 @@ Pre-sensor + `--passes` writes sensor-pass series as **not applicable**, never
 zero. Increments to report on every sequence block: **EW−sensors** and
 **EW−pre-sensor**. `electronicsPass` vs pre-sensor is N/A.
 
+The timed boundary in `scripts/ew-frame-benchmark.mjs` is unchanged:
+
+```
+const t = performance.now();
+B.updateProjectiles(1);
+const afterSeekers = performance.now();
+B.updatePowerSystems(12);
+B.updateSensorSystems(12);
+const afterElectronics = performance.now();
+seekers.push(afterSeekers - t);
+electronics.push(afterElectronics - afterSeekers);
+```
+
+`electronicsPass` remains `afterElectronics - afterSeekers`. Projectile timing
+remains `afterSeekers - t` and is not folded into the gate.
+
 ## 2. Pinned trees (full SHAs)
 
 One pinned harness against every tree. Do not retag or move the freeze.
@@ -50,41 +66,57 @@ One pinned harness against every tree. Do not retag or move the freeze.
 This protocol includes F in the planned sequence because the campaign is meant
 to assess `51738ca` against the freeze as well as A/B/C1.
 
-## 3. One pinned harness
+## 3. Check 2 — harness output shape and launch flags in the receipt
 
-File: `scripts/ew-frame-benchmark.mjs` (helpers: `scripts/ew-bench-lib.mjs`).
-The same files time every tree via `--root`; trees are detached worktrees of
-the SHAs above. C2 is always `51738ca`, not the protocol-branch HEAD.
+The previous pinned harness (`e02235c` / sha256 `e7987600…`) emitted
+**percentiles plus a few selected seeker outliers**. It did **not** emit a
+per-sample series. Launch arguments were not written by the harness; they
+came from a preload **outside** the receipt.
 
-Every receipt records:
+This commit changes that file so Fable can inspect **exactly what else
+changed**. Required output (inside the JSON receipt, not a sidecar):
 
-- measured commit SHA, git tree SHA, source file SHA-256 (`main.js`,
-  `ship-sensors.mjs`, `ship-ew.mjs`, `ship-hoj.mjs` when present)
-- harness SHA-256 and helper SHA-256
-- browser version, complete Chromium launch arguments (`spawnargs`), viewport
-- CPU model, logical CPU count, `hardwareConcurrency`
-- full process argv and workload counts actually used
+- `samples.passes[]`: per-pass `electronicsMs`, `detectionMs`, `updateMs`,
+  `projectileMs`, `tEpochMs`, `tRelMs`, and workload counters (`observers`,
+  `actors`, `pairs`, `jammerPairs`, `liveProjectiles`, `died`, `newEffects`,
+  `activeJammers`)
+- `samples.ticks`: whole-frame `dtMs` in original order, with `tRelMs`
+- `launch.extraArgs`: flags **this process** passed to `chromium.launch`
+  (empty on acceptance)
+- `launch.recordedArgv`: Chromium argv observed from `/proc` while the
+  browser is live (Playwright defaults plus any extraArgs)
+- `launch.argv`: node argv
+- measured commit/tree SHA, source hashes, harness hash, browser version,
+  CPU, viewport
 
-Viewport remains **1280×850**. Fixture remains Earth, 20 NPCs, 18 stations, six
-projectiles; EW trees mount the six paid Fleet jammers. Order stays
-`updateProjectiles(1)` → `updatePowerSystems(12)` → `updateSensorSystems(12)`.
+Acceptance still calls `chromium.launch()` with **no extra args**, same as
+the pinned helper. Diagnostics is the only path that adds
+`--js-flags=--expose-gc`, and that path is labelled not-the-gate.
 
-`--profile` stays a separate, labelled instrumentation run and is **not** the
-gate.
+### Every harness diff vs `e02235c` `scripts/ew-frame-benchmark.mjs`
 
-## 4. Samples, warm-up, planned campaign size
+| Change | Why |
+| --- | --- |
+| CLI: `--pass-samples`, `--pass-warmup`, `--tick-samples`, `--tick-warmup`, `--tree-label`, `--sequence`, `--diagnostics`, `--gc-placement` | Campaign size, labels, diagnostics. Defaults remain 50+300 / 600+3600. |
+| `launchExtraArgs` / `launchOptions` recorded on the receipt | Check 2: flags live in the JSON, not a preload. Acceptance extraArgs = `[]`. |
+| `/proc` snapshot of chrome argv (`launch.recordedArgv`) | Complete Chromium command line Playwright actually spawned. |
+| `samples.passes` / `samples.ticks` | Check 2: per-sample series, timestamps, counters. |
+| `stats()` sorts a **copy** | Required so raw series survive. Formula still `sorted[floor(n * p)]`. |
+| Loop bounds use `passWarmup` / `passSamples` / `tickWarmup` / `tickSamples` instead of literals 50 / 300 / 600 / 3600 | Same defaults; campaign can request 1000. |
+| `Date.now()` / `performance.now()` origin next to each measured pass | Timestamps for the series. |
+| `gc` object + `--gc-placement` | Check 5. See §6. Acceptance never calls `gc()`. |
+| `measuredTree` git commit/tree | Pin identity in the receipt. |
+| `acceptanceEligible` | True only at campaign counts, unprofiled, no diagnostics, `gcPlacement=none`. |
+| `warmupSeconds` / `simulationSeconds` derived from actual pass counts | 50+300 still 10s / 60s. |
 
-Harness capability (implemented, not yet executed at campaign size):
+**Not changed (timed boundary / fixture):** Earth 20/18/6 fixture; jammer mount
+on EW only; order `updateProjectiles(1)` → `updatePowerSystems(12)` →
+`updateSensorSystems(12)`; 200 ms cadence; `electronicsPass` clock; gate
+objects `{p95Ms: 2, p99Ms: 4}`; seeker outlier top-12 still present;
+`--profile` still off the gate; viewport 1280×850; N/A pre-sensor contract;
+source SHA-256 of the four production files.
 
-- Individual sample timings, timestamps, and workload counters for each
-  measured pass (`electronicsPass`, detection, `updateMs`, projectile window,
-  observers/actors/pairs/jammerPairs, live projectiles, deaths/hits).
-- Whole-frame tick samples kept in original order (percentile uses a copy).
-- `--pass-samples` / `--pass-warmup` / `--tick-samples` / `--tick-warmup` for
-  the campaign counts below. Default `npm run test:ew:performance` remains the
-  historical 50 + 300 helper and is **not** an acceptance campaign.
-
-Specified beforehand and **not started** in this PR:
+## 4. Samples, warm-up, planned campaign size, logistics
 
 | Item | Value |
 | --- | ---: |
@@ -95,9 +127,26 @@ Specified beforehand and **not started** in this PR:
 | Serial interleaved repetitions | **3** |
 | Browser | one process per run; exit between runs |
 
-A receipt is `acceptanceEligible` only at these campaign counts, unprofiled,
-without `--diagnostics` or `--starved`. Short helper runs stay labelled as
-such.
+**Wall-clock (why one sequence at a time):** 1,000 passes × 200 ms ≈ **200 s
+(3+ min) per run** for the pass loop alone, plus tick warm-up/measure and
+browser start. Four or five trees × several interleaved sequences is
+**multi-hour**. Do not require one invocation to finish the whole campaign.
+
+**One sequence at a time, every raw file kept:**
+
+```sh
+# After Fable approval only — not in this PR:
+EW_CAMPAIGN_CONFIRMED=1 scripts/ew-campaign.sh --execute --sequence 1
+EW_CAMPAIGN_CONFIRMED=1 scripts/ew-campaign.sh --execute --sequence 2
+EW_CAMPAIGN_CONFIRMED=1 scripts/ew-campaign.sh --execute --sequence 3
+```
+
+Each run writes `campaign-pending-seq{N}-{A,B,C1,C2,F}.json` and does **not**
+delete other `seq*.json` files. Matched-block comparison uses sequence *k*
+across trees that share *k*.
+
+Default `npm run test:ew:performance` remains the historical 50 + 300 helper
+and is **not** an acceptance campaign (`acceptanceEligible: false`).
 
 ## 5. Percentile, matched blocks, reporting
 
@@ -116,8 +165,8 @@ printed as variability; they are not the gate.
 2. List **both** increments on every block: EW−sensors and EW−pre-sensor
    (tick and, where defined, `electronicsPass`). Cumulative tick vs A stays
    judged at ≤ 2 ms p95.
-3. Report variability across the three C2 blocks (range of p95 / p99). That
-   is context, not a substitute gate.
+3. Report variability across C2 blocks (range of p95 / p99). That is context,
+   not a substitute gate.
 4. **No best-run selection.** A green block does not retire a red block.
 5. **No median delta substituted for the absolute gate.** A small typical
    increment does not pass a run whose absolute `electronicsPass` is 3.70 /
@@ -129,14 +178,30 @@ printed as variability; they are not the gate.
 
 `scripts/ew-bench-report.mjs` implements those rules after receipts exist.
 
-## 6. GC and diagnostics
+## 6. Check 5 — forced GC placement (verify from code + receipts)
 
-Naturally occurring GC **stays inside** acceptance measurements. Acceptance
-runs do not force a collection between measured samples to clean the tail.
+Forced GC in Chromium only exists if the process was launched with
+`--js-flags=--expose-gc` **and** `typeof gc === 'function'`. Placement
+relative to the measurement window is the whole question:
 
-Forced-GC and tracing exist only behind `--diagnostics`. Those receipts are
-labelled `diagnostics: true` and `acceptanceEligible: false`. They are not
-the gate.
+| Mode | How to run | Launch flag | Where `gc()` is called | Receipt fields to verify |
+| --- | --- | --- | --- | --- |
+| **Acceptance** | default / campaign execute (no `--diagnostics`) | `launch.extraArgs = []` (no expose-gc) | **never** | `gc.placement=none`, `exposeGcFlag=false`, all `called*=false`, `acceptanceEligible` can be true |
+| **Diagnostics hygiene** | `--diagnostics` (defaults to `--gc-placement=between-blocks`) | `--js-flags=--expose-gc` | **Outside** the measured loop: after pass warm-up, before `for (i < passSamples)`; and again after that loop | `calledBeforeMeasuredWindow` / `calledAfterMeasuredWindow` true; `calledInsideMeasuredWindow` false; `acceptanceEligible=false` |
+| **Diagnostics suppression** | `--diagnostics --gc-placement=inside-window` | `--js-flags=--expose-gc` | **Inside** the measured loop, after each sample (cleans the tail) | `calledInsideMeasuredWindow=true`; `acceptanceEligible=false`; **not the gate** |
+
+Acceptance keeps naturally occurring GC. There is no collection between
+measured acceptance samples. Hygiene GC between *campaign* tree runs is the
+process exit between receipts (a new browser each run); optional in-process
+hygiene is the between-blocks diagnostics path above, never mixed into
+acceptance.
+
+Grep anchors in `scripts/ew-frame-benchmark.mjs`:
+
+- `launchExtraArgs = gcPlacement === 'none' ? [] : ['--js-flags=--expose-gc']`
+- `if (gcPlacement === 'between-blocks') forceGc('calledBeforeMeasuredWindow');` immediately **before** the measured `for`
+- `if (gcPlacement === 'inside-window') forceGc('calledInsideMeasuredWindow');` **inside** that `for`, after the timed clocks
+- `if (gcPlacement === 'between-blocks') forceGc('calledAfterMeasuredWindow');` immediately **after** the measured `for`
 
 ## 7. Existing receipts (preserved)
 
@@ -168,11 +233,11 @@ node scripts/ew-bench-lib.mjs
 
 The hashed plan snapshot for this PR is `docs/ew/receipts/campaign-pending-plan.json`.
 
-After written approval, a later run (not this PR):
+After written approval, a later run (not this PR), **one sequence at a time**:
 
 ```sh
-EW_CAMPAIGN_CONFIRMED=1 scripts/ew-campaign.sh --execute docs/ew/receipts
+EW_CAMPAIGN_CONFIRMED=1 scripts/ew-campaign.sh --execute --sequence 1 docs/ew/receipts
 ```
 
 Until then the execute path refuses. Do not merge to main. Do not move
-`ew-fable-candidate-20260913`.
+`ew-fable-candidate-20260913`. **Long campaign not started.**
