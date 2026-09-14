@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Pinned four-tree CPU fixture. The 2/4 ms gate is the original full-workload
 // timer: updatePowerSystems(12) + updateSensorSystems(12) after the seeker
-// window (same series Platinum recorded as detectionPass: 2.50 / 6.90).
+// window. Current Platinum evidence for 51738ca is Astra's rerun family
+// (C2 3.70/9.20 and 2.00/4.30, both failures). Historical performance-*.json
+// 2.50/6.90 is an older tip, kept as evidence, not as current 51738ca results.
 // Do not invent a replacement gate. Report detection-pass, updateMs,
 // electronicsPass and whole-frame separately. Pre-sensor + --passes writes
 // those series as not applicable, never zero. Optional --profile times
@@ -19,6 +21,14 @@ import {
 import {
   chromium
 } from 'playwright';
+import {
+  deriveGcSummary,
+  PLATINUM_EVIDENCE,
+  preloadInjectedFlags,
+  PROTOCOL,
+  selectRecordedArgv,
+  sha256File
+} from './ew-bench-lib.mjs';
 const harnessPath = fileURLToPath(import.meta.url);
 const harnessHash = createHash('sha256').update(fs.readFileSync(harnessPath)).digest('hex');
 const argv = process.argv;
@@ -392,9 +402,11 @@ try {
         } catch { /* raced */ }
       }
     } catch { /* no /proc */ }
-    found.sort((a, b) => b.argv.length - a.argv.length);
-    return found[0] || null;
+    return selectRecordedArgv(found);
   })();
+  const helperPath = path.join(path.dirname(harnessPath), 'ew-bench-lib.mjs');
+  const helperSha256 = fs.existsSync(helperPath) ? sha256File(helperPath) : null;
+  const injectedFlags = preloadInjectedFlags(recordedArgv, launchExtraArgs);
   const payload = {
     root,
     treeLabel,
@@ -410,12 +422,16 @@ try {
     harness: {
       file: 'scripts/ew-frame-benchmark.mjs',
       sha256: harnessHash,
+      helperFile: 'scripts/ew-bench-lib.mjs',
+      helperSha256,
       gate: 'electronicsPass (original full-workload timer) p95<=2ms p99<=4ms',
-      sameSeriesAsPlatinum: 'performance-*.json detectionPass was this power+sensors wall-clock',
-      platinumAuthority: {p95: 2.5, p99: 6.9, passed: false, host: 'INTEL(R) XEON(R) PLATINUM 8573C'},
+      sameSeriesAsPlatinum: 'electronicsPass is the power+sensors wall-clock (historical performance-*.json named that series detectionPass)',
+      platinumEvidence: PLATINUM_EVIDENCE,
       cumulativeFrameGate: 'whole-frame tick p95 vs pre-sensor baseline <=2ms',
       increments: ['EW−sensors', 'EW−pre-sensor'],
       order: 'updateProjectiles(1) → updatePowerSystems(12) → updateSensorSystems(12)',
+      percentile: PROTOCOL.percentile,
+      timer: PROTOCOL.timer,
       measurementBoundary: 'electronicsPass is the unchanged 2/4 full-workload timer. detectionPass, updateMs and whole-frame tick are reported separately and are not substitute gates. SeekerCPU is the full projectile update and stays in whole-frame measurements. --profile is optional and is not the gate.',
       thresholdsRecalibrated: false,
       profiled: withProfile,
@@ -436,6 +452,8 @@ try {
       options: launchOptions,
       exposeGcFlag: launchExtraArgs.includes('--js-flags=--expose-gc'),
       recordedArgv,
+      preloadInjectedFlags: injectedFlags,
+      preloadInjectedFlagsNote: PROTOCOL.preloadInjectedFlags.note,
       argv: process.argv.slice(),
       execPath: process.execPath,
       node: process.version
@@ -459,22 +477,25 @@ try {
       passCadenceMs: 200,
       renderSamples: 300
     },
+    measurementConfig: {
+      passWarmup: withPasses ? passWarmup : 0,
+      passSamples: withPasses ? passSamples : 0,
+      tickWarmup,
+      tickSamples,
+      passCadenceMs: 200,
+      profiled: withProfile,
+      diagnostics,
+      starved,
+      gcPlacement
+    },
     ...result,
     errors
   };
-  payload.gc = {
-    ...(result.gc || {}),
-    placement: gcPlacement,
+  payload.gc = deriveGcSummary(result.gc || {}, {
     diagnostics,
     exposeGcFlag: launchExtraArgs.includes('--js-flags=--expose-gc'),
-    forcedGcInAcceptance: false,
-    forcedGcThisRun: diagnostics,
-    note: gcPlacement === 'none'
-      ? 'acceptance: forced GC is forbidden. No --js-flags=--expose-gc. gc() is never called. Naturally occurring GC stays in the samples. Even between-block forced GC is diagnostics-only because it can shift collection cost out of the results.'
-      : gcPlacement === 'between-blocks'
-        ? 'labelled diagnostics only (not acceptance): expose-gc; gc() after warmup and after the measured loop. Can shift collection costs; never the gate.'
-        : 'labelled diagnostics only (not acceptance): expose-gc; gc() inside the measured loop between samples. Suppression; never the gate'
-  };
+    gcPlacement
+  });
   console.log(JSON.stringify(payload, null, 2));
   if (errors.length || result.ewEnabled && !result.starved && result.activeJammers < 6 || result.electronicsPass?.applicable && result.electronicsPass.passed === false) process.exitCode = 1;
 } finally {

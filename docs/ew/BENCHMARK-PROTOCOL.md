@@ -1,21 +1,24 @@
 # EW long-campaign measurement protocol (Fable review)
 
-**Status: awaiting Fable protocol review — long campaign not started.**
+**Status: frozen for Fable final diff review — long campaign not started.**
 
 This document specifies the benchmark-only follow-up. It does not change
 gameplay, budgets, freeze tags, or the 2 / 4 ms **measurement boundaries and
 thresholds**. The harness *file* is allowed to change so it can emit
 per-sample series and launch flags; a **new harness hash is expected**. The
-old helper is preserved. The new file is **not** frozen until Fable reviews
-this diff.
+old helper is preserved. After this cleanup the protocol is tagged
+`ew-fable-protocol-20260914` and that tag must **not** move.
 
 It does not start the 1,000-pass campaign. Existing receipts stay on disk.
 
-Correctness is already accepted (functional suites + builds). Astra’s Platinum
-rerun of `51738ca` failed `electronicsPass` twice (3.70 / 9.20 and 2.00 / 4.30).
+Correctness is already accepted (functional suites + builds). **Current
+Platinum evidence** for measured tree `51738ca` is Astra’s rerun family:
+C2 **3.70 / 9.20** and **2.00 / 4.30**, both `electronicsPass` failures.
 The sensor baseline also failed p99; cumulative frame increases passed.
-Variability on those short runs prevents reliable attribution. This protocol
-exists so a later campaign can be compared without selecting a lucky run.
+Older `performance-*.json` **2.50 / 6.90** is historical Platinum on an
+**older tip**, not current `51738ca` results. The supplementary 300-sample
+follow-up **1.60 / 2.20** is historical quieter-host evidence, not current
+Platinum. Variability on those short runs is why this campaign exists.
 
 ## 1. Gates (unchanged boundaries and thresholds)
 
@@ -24,11 +27,15 @@ exists so a later campaign can be compared without selecting a lucky run.
 | External electronics gate | `electronicsPass` = harness wall-clock of `updatePowerSystems(12)` + `updateSensorSystems(12)` after the seeker window | **2 ms p95 / 4 ms p99** |
 | Cumulative frame | whole-frame tick p95 vs pre-sensor (tree A) | **≤ 2 ms** |
 
-Same series Platinum recorded as `detectionPass` at **2.50 / 6.90 (failed)**.
-Thresholds are not recalibrated. A later campaign does not invent a replacement
-gate.
+Thresholds are not recalibrated. A later campaign does not invent a
+replacement gate.
 
-Report **separately**, and never as substitute gates:
+**Current Platinum (51738ca):** Astra C2 3.70 / 9.20 and 2.00 / 4.30, both
+failed. **Historical:** `performance-*.json` named this same timer
+`detectionPass` at 2.50 / 6.90 on an older tip (failed). Keep that family on
+disk; do not cite it as the current `51738ca` result.
+
+Report **separately**, and never as substitute gates (p95 **and** p99):
 
 - **detection-pass** — engine `elapsedMs` / `detectionMs` (detection + sharing)
 - **sensor update** — `updateMs` (complete `updateSensorSystems`)
@@ -37,7 +44,8 @@ Report **separately**, and never as substitute gates:
 
 Pre-sensor + `--passes` writes sensor-pass series as **not applicable**, never
 zero. Increments to report on every sequence block: **EW−sensors** and
-**EW−pre-sensor**. `electronicsPass` vs pre-sensor is N/A.
+**EW−pre-sensor**. `electronicsPass` vs pre-sensor is N/A. The summary also
+prints an explicit **campaign-level cumulative-frame verdict**.
 
 The timed boundary in `scripts/ew-frame-benchmark.mjs` is unchanged:
 
@@ -54,6 +62,12 @@ electronics.push(afterElectronics - afterSeekers);
 
 `electronicsPass` remains `afterElectronics - afterSeekers`. Projectile timing
 remains `afterSeekers - t` and is not folded into the gate.
+`Date.now()` is recorded immediately **before** `const t = performance.now()`,
+not inside the deltas.
+
+Timer API is `performance.now()`. Receipts in this family commonly show
+**~0.1 ms steps** (Chromium time resolution). Percentiles use those recorded
+values as-is.
 
 ## 2. Pinned trees (full SHAs)
 
@@ -77,7 +91,7 @@ recording actual browser launch flags **requires** changing that file.
 | Harness | Where | sha256 |
 | --- | --- | --- |
 | **Old** (preserved) | git `e02235c:scripts/ew-frame-benchmark.mjs` and copy `docs/ew/receipts/harness-e02235c.mjs` | `e79876004ea9b8846ed6f31ca040fc1ff2452db43f77ba744837d9fb6b8b115d` |
-| **New** (this PR; freeze **after** Fable reviews the diff) | `scripts/ew-frame-benchmark.mjs` | see `docs/ew/receipts/campaign-pending-plan.json` |
+| **New** (this PR; freeze as protocol tag `ew-fable-protocol-20260914`) | `scripts/ew-frame-benchmark.mjs` | see `docs/ew/receipts/campaign-pending-plan.json` |
 
 Old receipts that used `e7987600…` stay on disk and are not rewritten. Do not
 point those families at the new hash.
@@ -95,10 +109,15 @@ Required output of the **new** helper (inside the JSON receipt, not a sidecar):
 - `samples.ticks`: whole-frame `dtMs` in original order, with `tRelMs`
 - `launch.extraArgs`: flags **this process** passed to `chromium.launch`
   (`[]` on acceptance)
-- `launch.recordedArgv`: Chromium argv observed from `/proc` while the
-  browser is live
+- `launch.recordedArgv`: Chromium argv from `/proc` while the browser is
+  live. Prefer the process **without `--type=`** (the browser process).
+- `launch.preloadInjectedFlags`: `--` flags present in `recordedArgv` that
+  were **not** in `extraArgs`. Playwright injects these; they are not
+  extraArgs.
 - `launch.argv`: node argv
-- `gc.*` collection-call flags and `launch.exposeGcFlag`
+- `gc.*` collection-call flags derived from **actual `gc()` calls**, not
+  from the diagnostics flag. `launch.exposeGcFlag`
+- `harness.helperSha256` of `scripts/ew-bench-lib.mjs`
 - measured commit/tree SHA, source hashes, harness hash, browser version,
   CPU, viewport
 
@@ -110,12 +129,12 @@ Acceptance still calls `chromium.launch()` with **no extra args**.
 | --- | --- |
 | CLI: `--pass-samples`, `--pass-warmup`, `--tick-samples`, `--tick-warmup`, `--tree-label`, `--sequence`, `--diagnostics`, `--gc-placement` | Campaign size, labels, diagnostics-only GC. Defaults remain 50+300 / 600+3600. |
 | `launchExtraArgs` / `launchOptions` recorded on the receipt | Flags live in the JSON, not a preload. Acceptance extraArgs = `[]`. |
-| `/proc` snapshot of chrome argv (`launch.recordedArgv`) | Complete Chromium command line Playwright actually spawned. |
+| `/proc` snapshot of chrome argv (`launch.recordedArgv`) | Prefer the browser process without `--type=`. Record Playwright preload-injected flags separately from extraArgs. |
 | `samples.passes` / `samples.ticks` | Per-sample series, timestamps, counters. |
 | `stats()` sorts a **copy** | Required so raw series survive. Formula still `sorted[floor(n * p)]`. |
 | Loop bounds use `passWarmup` / `passSamples` / `tickWarmup` / `tickSamples` instead of literals 50 / 300 / 600 / 3600 | Same defaults; campaign can request 1000. |
 | `Date.now()` immediately **before** `const t = performance.now()` | Timestamp; not inside the timed deltas. |
-| `gc` object + `--gc-placement` | Diagnostic-only forced GC. See §6. |
+| `gc` object + `--gc-placement` | Diagnostic-only forced GC. `forcedGcThisRun` follows actual `gc()` calls. See §6. |
 | `measuredTree` git commit/tree | Pin identity in the receipt. |
 | `acceptanceEligible` | True only at campaign counts, unprofiled, no diagnostics, `gcPlacement=none`. |
 | `previousHarness` | Points at the preserved `e7987600…` file. |
@@ -154,17 +173,27 @@ Specified **upfront** (not started in this PR):
 
 This specified campaign is **not inherently multi-hour**.
 
+**Worktrees:** reuse a worktree only if it is clean **and** at the expected
+pinned SHA. If a path is dirty, at a different SHA, or exists but is not a
+usable git worktree, **stop with an explanation**. Do **not**
+`git worktree remove --force` or `rm -rf` those trees.
+
 **Resume procedure** (Fable may run one sequence at a time):
 
-1. After approval: `EW_CAMPAIGN_CONFIRMED=1 scripts/ew-campaign.sh --execute --sequence N`
-2. Every raw file is retained. `campaign-pending-seq{N}-{A,B,C1,C2}.json`
-   that already exist and are non-empty are **skipped**, so a stopped
-   sequence resumes at the next missing tree.
-3. Start / skip / complete / fail events append to
+1. After authorization: `EW_CAMPAIGN_CONFIRMED=1 scripts/ew-campaign.sh --execute --sequence N`
+2. Every raw file is retained. Skip a `campaign-pending-seq{N}-{A,B,C1,C2}.json`
+   only when it is **complete and valid** and matches the expected tree SHA,
+   harness hash, helper hash, sequence, label, and measurement configuration
+   (warmup/sample counts, cadence, no diagnostics, extraArgs `[]`, no forced
+   GC). A **valid gate-failing** run stays completed and is **never rerolled**.
+3. If a file is malformed, incomplete, or mismatched, **preserve it and stop**
+   with an explanation. Do not overwrite it. Missing or invalid runs **must
+   not** yield an overall pass.
+4. Start / skip / complete / fail / stop events append to
    `campaign-pending-interruptions.jsonl`. Record operator stops there too.
-4. Do not delete other sequences’ files. Do not pass `--diagnostics` on
+5. Do not delete other sequences’ files. Do not pass `--diagnostics` on
    these runs.
-5. Matched-block comparison uses sequence *k* of C2 only with sequence *k*
+6. Matched-block comparison uses sequence *k* of C2 only with sequence *k*
    of A/B/C1.
 
 Default `npm run test:ew:performance` remains the historical 50 + 300 helper
@@ -176,6 +205,9 @@ Default `npm run test:ew:performance` remains the historical 50 + 300 helper
 1,000: p50 = index 500, p95 = 950, p99 = 990. Same method as the historical
 300-sample receipts (those used n = 300). Mean / stdev / min / max may be
 printed as variability; they are not the gate.
+
+**Timer:** `performance.now()` for the timed deltas. Receipts commonly
+quantize at **~0.1 ms**. `Date.now()` is only the epoch stamp before `t`.
 
 **Matched-block comparison:** sequence *k* of C2 is compared only to sequence
 *k* of A, B, and C1. Do not pair a later C2 block with an earlier B block.
@@ -195,8 +227,13 @@ printed as variability; they are not the gate.
    9.20.
 6. The campaign fails the electronics gate if **any** listed C2 acceptance
    run fails 2 / 4. The summary also prints the worst absolute p95 / p99.
-7. Platinum 2.50 / 6.90 remains failed release authority until a Platinum
-   campaign using this protocol says otherwise. Supplementary hosts say so.
+7. The summary prints an explicit **campaign-level cumulative-frame verdict**
+   (every sequence’s C2 tick p95 − A tick p95 ≤ 2 ms). The campaign fails
+   that verdict if any matched block fails or is missing.
+8. Missing or invalid runs **cannot** yield `campaignPassed: true`.
+9. Current Platinum evidence for `51738ca` is Astra 3.70 / 9.20 and
+   2.00 / 4.30 (both failed). Historical 2.50 / 6.90 and supplementary
+   1.60 / 2.20 stay labeled historical.
 
 `scripts/ew-bench-report.mjs` implements those rules after receipts exist.
 
@@ -219,7 +256,7 @@ receipt, not from prose:
 | --- | --- |
 | `launch.extraArgs` | `[]` |
 | `launch.exposeGcFlag` | `false` |
-| `gc.forcedGcThisRun` | `false` |
+| `gc.forcedGcThisRun` | `false` (derived from actual `gc()` calls, not the diagnostics flag) |
 | `gc.forcedGcInAcceptance` | `false` |
 | `gc.gcFunctionPresent` | `false` (no expose-gc) |
 | `gc.calledBeforeMeasuredWindow` | `false` |
@@ -248,13 +285,18 @@ campaign. They keep the **old** harness hash `e7987600…`.
 
 | Family | What it is |
 | --- | --- |
-| `performance-*.json` | Platinum 8573C authority, failed 2.50 / 6.90 |
-| `review-20260913-*.json` | 4-core supplementary |
-| `fix-20260913-*.json` | correctness-gate timings |
+| `performance-*.json` | **Historical** Platinum 8573C, older tip, failed 2.50 / 6.90. Not current `51738ca` results. |
+| `review-20260913-*.json` | 4-core supplementary (historical) |
+| `fix-20260913-*.json` | correctness-gate timings (historical) |
 | `passms-20260913-*.json` | superseded passMs-as-gate experiment |
-| `authority-20260913-*.json` | restored original timer |
-| `perf-followup-20260914-*.json` | 300-sample follow-up of `51738ca` on a supplementary host |
+| `authority-20260913-*.json` | restored original timer (historical supplementary) |
+| `perf-followup-20260914-*.json` | **Historical** 300-sample follow-up of `51738ca` on a quieter supplementary host (C2 1.60 / 2.20). Not current Platinum. |
 | `harness-e02235c.mjs` | preserved old helper (`e7987600…`) |
+
+Astra’s `51738ca` Platinum rerun (C2 3.70 / 9.20 and 2.00 / 4.30, both
+failures; sensor baseline p99 failed; cumulative frame increments passed)
+is the **current** Platinum evidence for this measured tree. Those runs are
+not this 1,000-pass campaign.
 
 Projectile spikes on sensor-only / ordinary-torpedo trees show stalls are
 **not unique to seekers**. They do not establish cause and they do not
@@ -263,16 +305,18 @@ newEffects 0, live 6) remains unproven.
 
 ## 8. How to run — after Fable approval only
 
-Plan only (this PR’s verification):
+Plan and helpers only (this PR’s verification; no long campaign):
 
 ```sh
 scripts/ew-campaign.sh --plan
 node scripts/ew-bench-lib.mjs
+node scripts/ew-bench-resume-test.mjs
 ```
 
 The hashed plan snapshot for this PR is `docs/ew/receipts/campaign-pending-plan.json`.
 
-After written approval, **one sequence at a time** (not this PR):
+After Fable’s written authorization of the tagged protocol, **one sequence
+at a time** (not this PR):
 
 ```sh
 EW_CAMPAIGN_CONFIRMED=1 scripts/ew-campaign.sh --execute --sequence 1 docs/ew/receipts
@@ -281,5 +325,6 @@ EW_CAMPAIGN_CONFIRMED=1 scripts/ew-campaign.sh --execute --sequence 3 docs/ew/re
 ```
 
 Until then the execute path refuses. Do not merge to main. Do not move
-`ew-fable-candidate-20260913` or the `51738ca` pin. Do not freeze the new
-harness until Fable reviews this diff. **Campaign not started.**
+`ew-fable-candidate-20260913` (`077a9ce`) or the `51738ca` pin. Do not
+move protocol tag `ew-fable-protocol-20260914` after delivery.
+**Campaign not started.**

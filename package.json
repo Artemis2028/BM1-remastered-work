@@ -28,6 +28,7 @@
     "test:ew:seeker:ingame": "node scripts/ship-hoj-probe.mjs",
     "test:ew:performance": "node scripts/ew-frame-benchmark.mjs --passes",
     "test:ew:bench-lib": "node scripts/ew-bench-lib.mjs",
+    "test:ew:bench-resume": "node scripts/ew-bench-resume-test.mjs",
     "test:ew:performance:plan": "scripts/ew-campaign.sh --plan"
   },
   "license": "SEE LICENSE IN LICENSE.md",

@@ -1,6 +1,7 @@
 {
   "protocol": "ew-benchmark-protocol-20260914",
-  "status": "awaiting Fable protocol review — long campaign not started",
+  "status": "frozen for Fable final diff review — long campaign not started",
+  "protocolTag": "ew-fable-protocol-20260914",
   "gate": {
     "series": "electronicsPass",
     "p95Ms": 2,
@@ -55,14 +56,79 @@
     "warmupPerSensorTreeSec": 10,
     "plus": "tree A ticks, 600+3600 tick measure, browser setup; optional F or --diagnostics add time"
   },
+  "percentile": {
+    "method": "nearest-rank floor(n * p) on a sorted copy",
+    "n1000": {
+      "p50Index": 500,
+      "p95Index": 950,
+      "p99Index": 990
+    },
+    "note": "Copy is required so raw sample order is kept. Same method as historical 300-sample receipts (those used n = 300). Mean / stdev / min / max are variability, not the gate."
+  },
+  "timer": {
+    "api": "performance.now()",
+    "epochApi": "Date.now() immediately before const t = performance.now(); not inside the timed deltas",
+    "observedQuantizationMs": 0.1,
+    "note": "Receipts in this family commonly show ~0.1 ms steps (Chromium time resolution). Percentiles use the recorded values as-is."
+  },
+  "preloadInjectedFlags": {
+    "extraArgs": "flags this process passed to chromium.launch ([] on acceptance)",
+    "recordedArgv": "live Chromium argv from /proc; prefer the browser process without --type=",
+    "note": "Playwright injects additional Chromium flags that appear in recordedArgv but not extraArgs. Those are preload-injected; they are not extraArgs."
+  },
+  "platinumEvidence": {
+    "measuredTree": "51738caf3a1d88492c4fc48a7c0125d4a7e2a355",
+    "current": {
+      "source": "Astra 51738ca Platinum rerun family",
+      "series": "electronicsPass",
+      "c2": [
+        {
+          "p95": 3.7,
+          "p99": 9.2,
+          "passed": false
+        },
+        {
+          "p95": 2,
+          "p99": 4.3,
+          "passed": false
+        }
+      ],
+      "sensorBaselineP99Failed": true,
+      "cumulativeFrameIncrementsPassed": true,
+      "note": "Current Platinum evidence for 51738ca. Both C2 runs failed electronicsPass 2/4. Sensor baseline also failed p99; cumulative frame increments passed."
+    },
+    "historical": {
+      "performanceJson": {
+        "family": "performance-*.json",
+        "host": "INTEL(R) XEON(R) PLATINUM 8573C",
+        "p95": 2.5,
+        "p99": 6.9,
+        "passed": false,
+        "note": "Older EW tip, not 51738ca. Kept as historical evidence; not current 51738ca results."
+      },
+      "supplementaryFollowup": {
+        "family": "perf-followup-20260914-*.json",
+        "p95": 1.6,
+        "p99": 2.2,
+        "passed": true,
+        "note": "300-sample quieter supplementary host of 51738ca. Not current Platinum authority."
+      }
+    }
+  },
   "resume": {
+    "oneSequenceFlag": "--sequence N",
+    "keepEveryRawFile": true,
+    "skipOnlyCompleteValidReceipts": true,
+    "neverRerollValidGateFailure": true,
+    "stopOnMalformedIncompleteOrMismatch": true,
+    "reuseCleanExpectedWorktrees": true,
+    "stopOnDirtyOrUnexpectedWorktrees": true,
+    "neverForceDeleteWorktrees": true,
+    "interruptionsLog": "campaign-pending-interruptions.jsonl",
+    "note": "Skip only complete valid receipts matching expected tree SHA, harness/helper hashes, sequence, and measurement configuration. A valid gate-failing run stays completed and is never rerolled. Preserve malformed/incomplete/mismatched files and stop with an explanation. Reuse clean worktrees at the expected SHA; stop on dirty or unexpected trees without deleting them.",
     "flag": "--sequence N",
     "env": "EW_CAMPAIGN_SEQUENCE",
-    "selected": "1",
-    "keepEveryRawFile": true,
-    "skipExistingReceipts": true,
-    "interruptionsLog": "campaign-pending-interruptions.jsonl",
-    "note": "Resume the same --sequence N after a stop. Existing seqN-*.json files are kept and skipped. Append interruptions to the JSONL log. Do not pass --diagnostics on acceptance."
+    "selected": "1"
   },
   "runs": [
     {
@@ -142,14 +208,16 @@
     "One pinned harness against every tree. New harness hash is expected; old e02235c / e7987600 file is preserved.",
     "Finite campaign: 3 sequences, order A→B→C1→C2. Optional F is extra and is not in the 30-minute estimate.",
     "1000 passes × 200 ms = 3 min 20 s per sensor-bearing tree (B, C1, C2). Three sequences × those three trees = ~30 min of timed sensor passes, plus A ticks, warm-up, and setup — not inherently multi-hour.",
-    "Acceptance never uses forced GC or --js-flags=--expose-gc. Forced GC exists only on separately labelled --diagnostics runs.",
-    "Report every run absolute p95/p99. No best-run selection. No median delta as the gate.",
-    "Do not start this campaign until Fable approves the protocol. Do not freeze the new harness until that review."
+    "Acceptance never uses forced GC or --js-flags=--expose-gc. Forced GC exists only on separately labelled --diagnostics runs. GC summary fields come from actual gc() calls.",
+    "Report every run absolute p95/p99 including detection, updateMs, and projectile. Campaign-level cumulative-frame verdict is required. No best-run selection. No median delta as the gate.",
+    "Current Platinum evidence for 51738ca is Astra C2 3.70/9.20 and 2.00/4.30 (both failures). Historical 2.50/6.90 and supplementary 1.60/2.20 stay labeled historical.",
+    "Missing or invalid runs must not yield an overall pass. Do not start this campaign until Fable authorizes it after the tagged protocol review."
   ],
   "harness": {
     "file": "scripts/ew-frame-benchmark.mjs",
-    "sha256": "42b30c781e53b20c158e3c555a9a9fef9fdb2a4f0a36da9a08702734d186eab9",
-    "libSha256": "12b70bb0cd23435433ff6c9cf25e79234604815aaa71b91ac48374aedc083603"
+    "sha256": "4658c76553752025ecbb2db82fa5824d66676d75830fd7bfc8326770416af2f7",
+    "helperSha256": "c3752d2f7672adcf4f1852f3dfc46415dafad3f1acef5f60306d6742eb1a9872",
+    "libSha256": "c3752d2f7672adcf4f1852f3dfc46415dafad3f1acef5f60306d6742eb1a9872"
   },
   "acceptanceNeverPassesDiagnostics": true
 }
