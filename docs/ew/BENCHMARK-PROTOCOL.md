@@ -10,8 +10,9 @@ This document specifies the benchmark-only follow-up. It does not change
 gameplay, budgets, freeze tags, or the 2 / 4 ms **measurement boundaries and
 thresholds**. The harness *file* is allowed to change so it can emit
 per-sample series and launch flags; a **new harness hash is expected**. The
-old helper is preserved. After this cleanup the protocol is tagged
-`ew-fable-protocol-20260914` and that tag must **not** move.
+old helper is preserved. Historical tag `ew-fable-protocol-20260914` stays
+at `e556a380`. This revision freezes as `ew-fable-protocol-20260914-r2`
+and that tag must **not** move after delivery.
 
 It does not start the 1,000-pass campaign. Existing receipts stay on disk.
 
@@ -95,7 +96,7 @@ recording actual browser launch flags **requires** changing that file.
 | Harness | Where | sha256 |
 | --- | --- | --- |
 | **Old** (preserved) | git `e02235c:scripts/ew-frame-benchmark.mjs` and copy `docs/ew/receipts/harness-e02235c.mjs` | `e79876004ea9b8846ed6f31ca040fc1ff2452db43f77ba744837d9fb6b8b115d` |
-| **New** (this PR; freeze as protocol tag `ew-fable-protocol-20260914`) | `scripts/ew-frame-benchmark.mjs` | see `docs/ew/receipts/campaign-pending-plan.json` |
+| **New** (this PR; freeze as protocol tag `ew-fable-protocol-20260914-r2`) | `scripts/ew-frame-benchmark.mjs` | see `docs/ew/receipts/campaign-pending-plan.json` |
 
 Old receipts that used `e7987600…` stay on disk and are not rewritten. Do not
 point those families at the new hash.

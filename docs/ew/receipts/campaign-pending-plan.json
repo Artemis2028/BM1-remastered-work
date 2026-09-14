@@ -223,7 +223,7 @@
   ],
   "harness": {
     "file": "scripts/ew-frame-benchmark.mjs",
-    "sha256": "2a573456ab48b7da42065810c9661a1cb7dbd8f4d8258ae1f2e994422a3d0b6d",
+    "sha256": "73e462198b72b715e708c9ea8e695700ff4c13f69e199a0ece55f264d7dbbd2d",
     "helperSha256": "78f3ebb9e68397b9184ed6c5d853b068793b009360a29736d9e82d78036abfad",
     "libSha256": "78f3ebb9e68397b9184ed6c5d853b068793b009360a29736d9e82d78036abfad"
   },
