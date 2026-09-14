@@ -28,6 +28,22 @@ export const PROTOCOL = {
   sequenceOrder: ['A', 'B', 'C1', 'C2'],
   optionalFifthPin: 'F',
   sequenceRepetitions: 3,
+  previousHarness: {
+    commit: 'e02235caea7e23296f827d8519330c664e84e241',
+    file: 'docs/ew/receipts/harness-e02235c.mjs',
+    sha256: 'e79876004ea9b8846ed6f31ca040fc1ff2452db43f77ba744837d9fb6b8b115d',
+    note: 'Preserved. New harness hash is expected; freeze the new file only after Fable reviews the diff.'
+  },
+  duration: {
+    perSensorTreePassLoopSec: 200,
+    perSensorTreePassLoop: '3 min 20 s',
+    sensorBearingTrees: ['B', 'C1', 'C2'],
+    sequences: 3,
+    timedSensorPassesSec: 1800,
+    timedSensorPasses: '~30 min',
+    warmupPerSensorTreeSec: 10,
+    plus: 'tree A ticks, 600+3600 tick measure, browser setup; optional F or --diagnostics add time'
+  },
   trees: {
     A: '6958f08e73aff55efbf48bae3f9433e5acc270e8',
     B: 'e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b',
@@ -153,7 +169,7 @@ export function rnd(n) {
   return n == null || Number.isNaN(n) ? null : Math.round(n * 100) / 100;
 }
 
-export function campaignPlan({withFreeze = true, repetitions = PROTOCOL.sequenceRepetitions} = {}) {
+export function campaignPlan({withFreeze = false, repetitions = PROTOCOL.sequenceRepetitions} = {}) {
   const order = withFreeze ? [...PROTOCOL.sequenceOrder, PROTOCOL.optionalFifthPin] : [...PROTOCOL.sequenceOrder];
   const sequences = [];
   for (let seq = 1; seq <= repetitions; seq++) {
@@ -187,17 +203,23 @@ export function campaignPlan({withFreeze = true, repetitions = PROTOCOL.sequence
     repetitions,
     warmup: {passWarmup: PROTOCOL.passWarmup, tickWarmup: PROTOCOL.tickWarmup, passCadenceMs: PROTOCOL.passCadenceMs},
     measured: {passSamples: PROTOCOL.passSamples, tickSamples: PROTOCOL.tickSamples, renderSamples: PROTOCOL.renderSamples},
+    previousHarness: PROTOCOL.previousHarness,
+    duration: PROTOCOL.duration,
+    resume: {
+      oneSequenceFlag: '--sequence N',
+      keepEveryRawFile: true,
+      skipExistingReceipts: true,
+      interruptionsLog: '${STAMP}-interruptions.jsonl',
+      note: 'Re-run the same --sequence N after a stop; existing seqN-*.json files are kept and skipped. Record the stop in the interruptions log.'
+    },
     runs: sequences,
     notes: [
-      'One pinned harness against every tree.',
-      'Serial interleaved sequences; one browser process per run; process exit between runs.',
-      'Run one sequence at a time (--sequence N). Keep every raw seq*-*.json file.',
-      '1000 passes at 200 ms cadence ≈ 3+ minutes per run; four/five trees × several sequences is multi-hour.',
-      'Acceptance: naturally occurring GC only. No expose-gc. gc() is never called.',
-      'Diagnostics hygiene: --diagnostics --gc-placement=between-blocks (default for --diagnostics). expose-gc; gc() outside the measured window.',
-      'Diagnostics suppression: --diagnostics --gc-placement=inside-window. expose-gc; gc() between measured samples. Not the gate.',
+      'One pinned harness against every tree. New harness hash is expected; old e02235c / e7987600 file is preserved.',
+      'Finite campaign: 3 sequences, order A→B→C1→C2. Optional F is extra and is not in the 30-minute estimate.',
+      '1000 passes × 200 ms = 3 min 20 s per sensor-bearing tree (B, C1, C2). Three sequences × those three trees = ~30 min of timed sensor passes, plus A ticks, warm-up, and setup — not inherently multi-hour.',
+      'Acceptance never uses forced GC or --js-flags=--expose-gc. Forced GC exists only on separately labelled --diagnostics runs.',
       'Report every run absolute p95/p99. No best-run selection. No median delta as the gate.',
-      'Do not start this campaign until Fable approves the protocol.'
+      'Do not start this campaign until Fable approves the protocol. Do not freeze the new harness until that review.'
     ]
   };
 }
@@ -337,6 +359,9 @@ export function selfTest() {
   assert(acceptanceEligible({
     passWarmup: 50, passSamples: 1000, tickWarmup: 600, tickSamples: 3600, diagnostics: true
   }) === false, 'diagnostics ineligible');
+  const finite = campaignPlan();
+  assert(finite.runs.length === 12, 'finite campaign is 3 × A/B/C1/C2');
+  assert(finite.duration.timedSensorPassesSec === 1800, '30 min sensor passes');
   const plan = campaignPlan({withFreeze: true, repetitions: 3});
   assert(plan.runs.length === 15, '3 sequences × 5 trees');
   assert(plan.runs[4].label === 'F' && plan.runs[4].sha === PROTOCOL.trees.F, 'freeze pin');

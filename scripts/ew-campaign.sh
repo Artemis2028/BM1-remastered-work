@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Pinned-harness campaign driver for the EW timing protocol.
 # Default: write/print the plan and exit.
-# Do NOT start the long ≥1000-pass campaign until Fable approves the protocol.
-# After approval, one sequence at a time is supported; every raw file is kept.
+# Finite campaign: 3 × A→B→C1→C2. Forced GC is never passed here (acceptance).
+# Do NOT start the campaign until Fable approves the protocol.
+# After approval, one sequence at a time; existing raw files are kept/skipped.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -30,7 +31,7 @@ TREE_B="${TREE_B:-e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b}"
 TREE_C1="${TREE_C1:-74caf837c7882a86e3bd7c74f083029453953c1a}"
 TREE_C2="${TREE_C2:-51738caf3a1d88492c4fc48a7c0125d4a7e2a355}"
 TREE_F="${TREE_F:-077a9cedaa5a6cb858b200addb115d862ab238e6}"
-WITH_FREEZE="${WITH_FREEZE:-1}"
+WITH_FREEZE="${WITH_FREEZE:-0}"
 REPS="${EW_CAMPAIGN_REPS:-3}"
 PASS_SAMPLES="${EW_PASS_SAMPLES:-1000}"
 PASS_WARMUP="${EW_PASS_WARMUP:-50}"
@@ -44,7 +45,7 @@ PLAN_JSON="$(
   cd "$REPO"
   WITH_FREEZE="$WITH_FREEZE" REPS="$REPS" HARNESS_HASH="$HARNESS_HASH" LIB_HASH="$LIB_HASH" \
   TREE_A="$TREE_A" TREE_B="$TREE_B" TREE_C1="$TREE_C1" TREE_C2="$TREE_C2" TREE_F="$TREE_F" \
-  PASS_SAMPLES="$PASS_SAMPLES" SEQ_FILTER="$SEQ_FILTER" node --input-type=module <<'JS'
+  PASS_SAMPLES="$PASS_SAMPLES" SEQ_FILTER="$SEQ_FILTER" STAMP="$STAMP" node --input-type=module <<'JS'
 import {campaignPlan, PROTOCOL} from './scripts/ew-bench-lib.mjs';
 const plan = campaignPlan({withFreeze: process.env.WITH_FREEZE !== '0', repetitions: Number(process.env.REPS)});
 plan.trees = {
@@ -58,13 +59,18 @@ plan.measured.passSamples = Number(process.env.PASS_SAMPLES);
 plan.harness = {file: PROTOCOL.harnessFile, sha256: process.env.HARNESS_HASH, libSha256: process.env.LIB_HASH};
 plan.freezeTag = PROTOCOL.freezeTag;
 plan.freezeMoved = false;
-plan.oneSequenceAtATime = {
+plan.previousHarness = PROTOCOL.previousHarness;
+plan.duration = PROTOCOL.duration;
+plan.resume = {
   flag: '--sequence N',
   env: 'EW_CAMPAIGN_SEQUENCE',
   selected: process.env.SEQ_FILTER || null,
   keepEveryRawFile: true,
-  note: '1000 passes at 200 ms ≈ 3+ min per run; four/five trees × several sequences is multi-hour. Run one interleaved sequence per invocation. Never delete prior seq*.json files.'
+  skipExistingReceipts: true,
+  interruptionsLog: `${process.env.STAMP || 'campaign-pending'}-interruptions.jsonl`,
+  note: 'Resume the same --sequence N after a stop. Existing seqN-*.json files are kept and skipped. Append interruptions to the JSONL log. Do not pass --diagnostics on acceptance.'
 };
+plan.acceptanceNeverPassesDiagnostics = true;
 console.log(JSON.stringify(plan, null, 2));
 JS
 )"
@@ -78,7 +84,7 @@ if [[ "$MODE" != "execute" ]]; then
   echo
   echo "awaiting Fable protocol review — long campaign not started"
   echo "After approval, one sequence: EW_CAMPAIGN_CONFIRMED=1 $0 --execute --sequence 1 [receipt-dir]"
-  echo "Raw files are kept. Do not start the long campaign from this PR."
+  echo "Finite campaign is 3 × A→B→C1→C2 (~30 min timed sensor passes). Do not start it from this PR."
   exit 0
 fi
 
@@ -124,16 +130,35 @@ ORDER=(A B C1 C2)
 if [[ "$WITH_FREEZE" != "0" ]]; then ORDER+=(F); fi
 for label in "${ORDER[@]}"; do prepare_tree "$label"; done
 
+log_event() {
+  python3 - "$RECEIPT_DIR/${STAMP}-interruptions.jsonl" "$1" <<'PY'
+import json, sys, datetime
+path, payload = sys.argv[1], json.loads(sys.argv[2])
+payload["at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+with open(path, "a", encoding="utf-8") as f:
+    f.write(json.dumps(payload) + "\n")
+PY
+}
+
 failed=0
 for seq in $(seq 1 "$REPS"); do
   if [[ -n "$SEQ_FILTER" && "$seq" != "$SEQ_FILTER" ]]; then
     echo "==> skip sequence $seq (running --sequence $SEQ_FILTER only; prior/other raw files kept)"
+    log_event "{\"event\":\"skip-sequence\",\"sequence\":$seq,\"reason\":\"filter\"}"
     continue
   fi
+  log_event "{\"event\":\"sequence-start\",\"sequence\":$seq,\"order\":$(printf '%s\n' "${ORDER[@]}" | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))')}"
   for label in "${ORDER[@]}"; do
     dest="$RECEIPT_DIR/${STAMP}-seq${seq}-${label}.json"
+    if [[ -s "$dest" ]]; then
+      echo "==> resume keep $dest"
+      log_event "{\"event\":\"resume-keep\",\"sequence\":$seq,\"label\":\"$label\",\"file\":\"$dest\"}"
+      continue
+    fi
     echo "==> sequence $seq $label $(label_ref "$label") -> $dest"
+    log_event "{\"event\":\"run-start\",\"sequence\":$seq,\"label\":\"$label\",\"file\":\"$dest\"}"
     set +e
+    # Acceptance only: never --diagnostics, never --gc-placement, never expose-gc.
     node "$HARNESS" --root "$WT_ROOT/$label" --passes \
       --tree-label "$label" --sequence "$seq" \
       --pass-warmup "$PASS_WARMUP" --pass-samples "$PASS_SAMPLES" \
@@ -143,9 +168,13 @@ for seq in $(seq 1 "$REPS"); do
     set -e
     if [[ $rc -ne 0 ]]; then
       echo "harness exit $rc for seq $seq $label (receipts kept)"
+      log_event "{\"event\":\"run-fail\",\"sequence\":$seq,\"label\":\"$label\",\"file\":\"$dest\",\"exit\":$rc}"
       failed=1
+    else
+      log_event "{\"event\":\"run-complete\",\"sequence\":$seq,\"label\":\"$label\",\"file\":\"$dest\"}"
     fi
   done
+  log_event "{\"event\":\"sequence-end\",\"sequence\":$seq}"
 done
 
 node "$REPO/scripts/ew-bench-report.mjs" "$RECEIPT_DIR" "$STAMP"

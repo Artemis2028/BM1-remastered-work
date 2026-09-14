@@ -17,13 +17,12 @@
   },
   "freezeTag": "ew-fable-candidate-20260913",
   "freezeMoved": false,
-  "withFreeze": true,
+  "withFreeze": false,
   "sequenceOrder": [
     "A",
     "B",
     "C1",
-    "C2",
-    "F"
+    "C2"
   ],
   "repetitions": 3,
   "warmup": {
@@ -35,6 +34,35 @@
     "passSamples": 1000,
     "tickSamples": 3600,
     "renderSamples": 300
+  },
+  "previousHarness": {
+    "commit": "e02235caea7e23296f827d8519330c664e84e241",
+    "file": "docs/ew/receipts/harness-e02235c.mjs",
+    "sha256": "e79876004ea9b8846ed6f31ca040fc1ff2452db43f77ba744837d9fb6b8b115d",
+    "note": "Preserved. New harness hash is expected; freeze the new file only after Fable reviews the diff."
+  },
+  "duration": {
+    "perSensorTreePassLoopSec": 200,
+    "perSensorTreePassLoop": "3 min 20 s",
+    "sensorBearingTrees": [
+      "B",
+      "C1",
+      "C2"
+    ],
+    "sequences": 3,
+    "timedSensorPassesSec": 1800,
+    "timedSensorPasses": "~30 min",
+    "warmupPerSensorTreeSec": 10,
+    "plus": "tree A ticks, 600+3600 tick measure, browser setup; optional F or --diagnostics add time"
+  },
+  "resume": {
+    "flag": "--sequence N",
+    "env": "EW_CAMPAIGN_SEQUENCE",
+    "selected": "1",
+    "keepEveryRawFile": true,
+    "skipExistingReceipts": true,
+    "interruptionsLog": "campaign-pending-interruptions.jsonl",
+    "note": "Resume the same --sequence N after a stop. Existing seqN-*.json files are kept and skipped. Append interruptions to the JSONL log. Do not pass --diagnostics on acceptance."
   },
   "runs": [
     {
@@ -62,12 +90,6 @@
       "role": "measured EW candidate (full EW + HOJ)"
     },
     {
-      "sequence": 1,
-      "label": "F",
-      "sha": "077a9cedaa5a6cb858b200addb115d862ab238e6",
-      "role": "frozen candidate, same-session comparison only; tag not moved"
-    },
-    {
       "sequence": 2,
       "label": "A",
       "sha": "6958f08e73aff55efbf48bae3f9433e5acc270e8",
@@ -92,12 +114,6 @@
       "role": "measured EW candidate (full EW + HOJ)"
     },
     {
-      "sequence": 2,
-      "label": "F",
-      "sha": "077a9cedaa5a6cb858b200addb115d862ab238e6",
-      "role": "frozen candidate, same-session comparison only; tag not moved"
-    },
-    {
       "sequence": 3,
       "label": "A",
       "sha": "6958f08e73aff55efbf48bae3f9433e5acc270e8",
@@ -120,35 +136,20 @@
       "label": "C2",
       "sha": "51738caf3a1d88492c4fc48a7c0125d4a7e2a355",
       "role": "measured EW candidate (full EW + HOJ)"
-    },
-    {
-      "sequence": 3,
-      "label": "F",
-      "sha": "077a9cedaa5a6cb858b200addb115d862ab238e6",
-      "role": "frozen candidate, same-session comparison only; tag not moved"
     }
   ],
   "notes": [
-    "One pinned harness against every tree.",
-    "Serial interleaved sequences; one browser process per run; process exit between runs.",
-    "Run one sequence at a time (--sequence N). Keep every raw seq*-*.json file.",
-    "1000 passes at 200 ms cadence ≈ 3+ minutes per run; four/five trees × several sequences is multi-hour.",
-    "Acceptance: naturally occurring GC only. No expose-gc. gc() is never called.",
-    "Diagnostics hygiene: --diagnostics --gc-placement=between-blocks (default for --diagnostics). expose-gc; gc() outside the measured window.",
-    "Diagnostics suppression: --diagnostics --gc-placement=inside-window. expose-gc; gc() between measured samples. Not the gate.",
+    "One pinned harness against every tree. New harness hash is expected; old e02235c / e7987600 file is preserved.",
+    "Finite campaign: 3 sequences, order A→B→C1→C2. Optional F is extra and is not in the 30-minute estimate.",
+    "1000 passes × 200 ms = 3 min 20 s per sensor-bearing tree (B, C1, C2). Three sequences × those three trees = ~30 min of timed sensor passes, plus A ticks, warm-up, and setup — not inherently multi-hour.",
+    "Acceptance never uses forced GC or --js-flags=--expose-gc. Forced GC exists only on separately labelled --diagnostics runs.",
     "Report every run absolute p95/p99. No best-run selection. No median delta as the gate.",
-    "Do not start this campaign until Fable approves the protocol."
+    "Do not start this campaign until Fable approves the protocol. Do not freeze the new harness until that review."
   ],
   "harness": {
     "file": "scripts/ew-frame-benchmark.mjs",
-    "sha256": "dc20a607a697e8274cef1bfa393e8b7bd71b47fc632d7e866262d0159f7d7059",
-    "libSha256": "dff7541a41e0eee8217c23c6b0ee821fa5b8f2302b22dd571c0c52553857e32b"
+    "sha256": "42b30c781e53b20c158e3c555a9a9fef9fdb2a4f0a36da9a08702734d186eab9",
+    "libSha256": "12b70bb0cd23435433ff6c9cf25e79234604815aaa71b91ac48374aedc083603"
   },
-  "oneSequenceAtATime": {
-    "flag": "--sequence N",
-    "env": "EW_CAMPAIGN_SEQUENCE",
-    "selected": null,
-    "keepEveryRawFile": true,
-    "note": "1000 passes at 200 ms ≈ 3+ min per run; four/five trees × several sequences is multi-hour. Run one interleaved sequence per invocation. Never delete prior seq*.json files."
-  }
+  "acceptanceNeverPassesDiagnostics": true
 }

@@ -7,7 +7,6 @@
 // those series as not applicable, never zero. Optional --profile times
 // funding / snapshots / detection / sharing / scan separately and must
 // stay off the unprofiled gate run so instrumentation overhead is visible.
-import {spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import {createHash} from 'node:crypto';
 import os from 'node:os';
@@ -21,36 +20,8 @@ import {
 } from 'playwright';
 const harnessPath = fileURLToPath(import.meta.url);
 const harnessHash = createHash('sha256').update(fs.readFileSync(harnessPath)).digest('hex');
-const argv = process.argv;
-const argValue = (name, fallback = null) => {
-  const i = argv.indexOf(name);
-  return i < 0 || i + 1 >= argv.length ? fallback : argv[i + 1];
-};
-const argInt = (name, fallback) => {
-  const raw = argValue(name, null);
-  if (raw == null) return fallback;
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 0) throw new Error(`${name} requires a non-negative integer`);
-  return n;
-};
-const root = path.resolve(argValue('--root', fileURLToPath(new URL('../', import.meta.url))));
-const withPasses = argv.includes('--passes');
-const starved = argv.includes('--starved');
-const withProfile = argv.includes('--profile');
-const diagnostics = argv.includes('--diagnostics');
-const gcPlacement = argValue('--gc-placement', diagnostics ? 'between-blocks' : 'none');
-if (!['none', 'between-blocks', 'inside-window'].includes(gcPlacement)) {
-  throw new Error('--gc-placement must be none | between-blocks | inside-window');
-}
-if (gcPlacement !== 'none' && !diagnostics) {
-  throw new Error('--gc-placement other than none requires --diagnostics');
-}
-const passWarmup = argInt('--pass-warmup', withPasses ? 50 : 0);
-const passSamples = argInt('--pass-samples', withPasses ? 300 : 0);
-const tickWarmup = argInt('--tick-warmup', 600);
-const tickSamples = argInt('--tick-samples', 3600);
-const treeLabel = argValue('--tree-label', null);
-const sequence = argInt('--sequence', null);
+const root = path.resolve(process.argv.includes('--root') ? process.argv[process.argv.indexOf('--root') + 1] :
+  fileURLToPath(new URL('../', import.meta.url)));
 const shim =
   `window.__bench={createHojFlight:typeof createHojFlight==='function'?createHojFlight:null,hojEmitterKey:typeof hojEmitterKey==='function'?hojEmitterKey:null,liveJammerSignal:typeof liveJammerSignal==='function'?liveJammerSignal:null,sampleHojIfDue:typeof sampleHojIfDue==='function'?sampleHojIfDue:null,sampleDueHojSeekers:typeof sampleDueHojSeekers==='function'?sampleDueHojSeekers:null,ensureActorEW:typeof ensureActorEW==='function'?ensureActorEW:null,state,startWithFaction,applySystemState,getSystemIndexByName,createNpcShip,ensureNpcCombatStats,playerWorldPosition,tick,render,updatePowerSystems,updateProjectiles,updateSensorSystems:typeof updateSensorSystems==='function'?updateSensorSystems:null,sensorWorld:typeof sensorWorld==='undefined'?null:sensorWorld,freeze:()=>new Promise(resolve=>{requestAnimationFrame=cb=>{if(cb.name==='loop')resolve(true);return 0;};})};`;
 const mime = {
@@ -77,13 +48,9 @@ const server = http.createServer((req, res) => {
   else fs.createReadStream(file).pipe(res);
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-// Acceptance: no extra flags (same chromium.launch() as the pinned helper).
-// Forced GC needs Chromium --js-flags=--expose-gc; that flag is diagnostics-only.
-const launchExtraArgs = gcPlacement === 'none' ? [] : ['--js-flags=--expose-gc'];
-const launchOptions = launchExtraArgs.length ? {args: launchExtraArgs} : {};
 let browser;
 try {
-  browser = await chromium.launch(launchOptions);
+  browser = await chromium.launch();
   const page = await browser.newPage({
     viewport: {
       width: 1280,
@@ -94,7 +61,7 @@ try {
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.waitForFunction(() => window.__bench?.state.shipCatalog && window.__bench.state.planets.length > 10);
-  const result = await page.evaluate(async ({withPasses,starved,withProfile,gcPlacement,passWarmup,passSamples,tickWarmup,tickSamples}) => {
+  const result = await page.evaluate(async ({withPasses,starved,withProfile}) => {
     const B = window.__bench,
       s = B.state;
     B.startWithFaction('terran');
@@ -147,30 +114,13 @@ try {
           attack:{key:'benchmark-source',side:'ferengi',system:s.currentPlanet,x,y,time:0,eventId:`benchmark:${shotSequence}`}});
       }
     };
-    const originMs = performance.now();
-    const originEpochMs = Date.now();
-    const gcState = {
-      placement: gcPlacement,
-      gcFunctionPresent: typeof gc === 'function',
-      calledBeforeMeasuredWindow: false,
-      calledAfterMeasuredWindow: false,
-      calledInsideMeasuredWindow: false
-    };
-    const forceGc = where => {
-      if (typeof gc !== 'function') return false;
-      gc();
-      gcState[where] = true;
-      return true;
-    };
-    for (let i = 0; i < tickWarmup; i++){scene();B.tick(1);}
+    for (let i = 0; i < 600; i++){scene();B.tick(1);}
     const times = [];
-    const tickAt = [];
-    for (let i = 0; i < tickSamples; i++) {
+    for (let i = 0; i < 3600; i++) {
       scene();
       const t = performance.now();
       B.tick(1);
       times.push(performance.now() - t);
-      tickAt.push(t - originMs);
     }
     const rendering = [];
     for (let i = 0; i < 300; i++) {
@@ -179,13 +129,12 @@ try {
       rendering.push(performance.now() - t);
     }
     const stats = a => {
-      const sorted = a.slice().sort((x, y) => x - y);
-      const n = sorted.length;
+      a.sort((a, b) => a - b);
       return {
-        samples: n,
-        p50: n ? sorted[Math.floor(n * .5)] : null,
-        p95: n ? sorted[Math.floor(n * .95)] : null,
-        p99: n ? sorted[Math.floor(n * .99)] : null
+        samples: a.length,
+        p50: a[Math.floor(a.length * .5)],
+        p95: a[Math.floor(a.length * .95)],
+        p99: a[Math.floor(a.length * .99)]
       };
     };
     const na = reason => ({
@@ -200,7 +149,6 @@ try {
     });
     const hasSensors = !!(B.updateSensorSystems && B.sensorWorld);
     let detectionPass = null, electronicsPass = null, updateMs = null, seekerCPU = null, instrumented = null, detailProfile = null;
-    let passRecords = null;
     if (withPasses && !hasSensors) {
       detectionPass = na('pre-sensor tree has no detection pass');
       electronicsPass = na('pre-sensor tree has no power+sensors full-workload timer');
@@ -210,7 +158,7 @@ try {
       detailProfile = na(withProfile ? 'pre-sensor tree has no sensor slices' : 'run without --profile');
     } else if (withPasses) {
       // Same order as the Platinum receipts: projectiles, then power+sensors.
-      for (let i = 0; i < passWarmup; i++) {
+      for (let i = 0; i < 50; i++) {
         scene();
         B.updateProjectiles(1);
         B.updatePowerSystems(12);
@@ -223,15 +171,11 @@ try {
       const slices = Object.fromEntries(sliceKeys.map(k => [k, []]));
       let seekerHits = 0, seekerDeaths = 0, seekerMax = 0;
       window.__ewSeekProf = {player: 0, station: 0, ship: 0};
-      passRecords = [];
-      // Diagnostic hygiene: forced GC *outside* the measured window, after warmup.
-      if (gcPlacement === 'between-blocks') forceGc('calledBeforeMeasuredWindow');
-      for (let i = 0; i < passSamples; i++) {
+      for (let i = 0; i < 300; i++) {
         scene();
         const effectsBefore = s.weaponEffects ? s.weaponEffects.length : 0, projBefore = s.projectiles.length;
         if (withProfile) window.__ewProfile = {fundMs:0,snapshotMs:0,passMs:0,scanMs:0,jamSetupMs:0,detectMs:0,shareMs:0};
         else window.__ewProfile = null;
-        const tEpochMs = Date.now();
         const t = performance.now();
         B.updateProjectiles(1);
         const afterSeekers = performance.now();
@@ -245,8 +189,9 @@ try {
         seekers.push(afterSeekers - t);
         electronics.push(afterElectronics - afterSeekers);
         const m = B.sensorWorld.metrics || {};
-        const detectionMs = Number.isFinite(m.detectionMs) ? m.detectionMs : (Number.isFinite(m.elapsedMs) ? m.elapsedMs : null);
-        if (detectionMs != null) detectionOnly.push(detectionMs);
+        if (Number.isFinite(m.detectionMs) || Number.isFinite(m.elapsedMs)) {
+          detectionOnly.push(Number.isFinite(m.detectionMs) ? m.detectionMs : m.elapsedMs);
+        }
         if (Number.isFinite(m.updateMs)) updates.push(m.updateMs);
         const dt = seekers[seekers.length - 1];
         const died = projBefore - s.projectiles.length, newEffects = (s.weaponEffects ? s.weaponEffects.length : 0) - effectsBefore;
@@ -260,28 +205,8 @@ try {
         else if (dt < 4) seekerHist.lt4++;
         else seekerHist.ge4++;
         if (dt >= 1 || newEffects > 0 || died > 0) seekerOutliers.push({i, dt, died, newEffects, live: s.projectiles.length});
-        passRecords.push({
-          i,
-          tEpochMs,
-          tRelMs: t - originMs,
-          electronicsMs: electronics[electronics.length - 1],
-          detectionMs,
-          updateMs: Number.isFinite(m.updateMs) ? m.updateMs : null,
-          projectileMs: dt,
-          observers: m.observers ?? null,
-          actors: m.actors ?? null,
-          pairs: m.pairs ?? null,
-          jammerPairs: m.jammerPairs ?? null,
-          liveProjectiles: s.projectiles.length,
-          died,
-          newEffects,
-          activeJammers: s.npcShips.filter(n => n.ew?.strength > 0).length
-        });
-        // Diagnostic suppression: forced GC *inside* the measured window, between samples.
-        if (gcPlacement === 'inside-window') forceGc('calledInsideMeasuredWindow');
         await new Promise(r => setTimeout(r, Math.max(0, 200 - (performance.now() - t))));
       }
-      if (gcPlacement === 'between-blocks') forceGc('calledAfterMeasuredWindow');
       electronicsPass = {
         applicable: true,
         ...stats(electronics),
@@ -349,7 +274,6 @@ try {
       instrumented,
       detailProfile,
       profiled: !!withProfile,
-      gc: gcState,
       sensorOnlyCPU: updateMs,
       activeJammers: s.npcShips.filter(n => n.ew?.strength > 0).length,
       mixedEmitterSides: [...new Set(s.npcShips.slice(0, 6).map(n => n.faction))],
@@ -357,17 +281,12 @@ try {
       starved,
       projectileCount: s.projectiles.length,
       projectileModel: B.createHojFlight ? 'home-on-jam' : 'ordinary torpedo',
-      warmupSeconds: (withPasses ? passWarmup : 0) * 0.2,
-      simulationSeconds: (withPasses ? passSamples : 0) * 0.2,
+      warmupSeconds: 10,
+      simulationSeconds: 60,
       contacts: s.npcShips.length,
       stations: s.stations.length,
       frameCPU: stats(times),
       renderCPU: stats(rendering),
-      samples: {
-        originEpochMs,
-        ticks: {tRelMs: tickAt, dtMs: times},
-        passes: passRecords
-      },
       viewport: {
         width: innerWidth,
         height: innerHeight
@@ -376,37 +295,9 @@ try {
       deviceMemory: navigator.deviceMemory,
       userAgent: navigator.userAgent
     };
-  }, {withPasses,starved,withProfile,gcPlacement,passWarmup,passSamples: withPasses ? passSamples : 0,tickWarmup,tickSamples});
-  const git = (cwd, args) => {
-    const r = spawnSync('git', ['-C', cwd, ...args], {encoding: 'utf8'});
-    return r.status === 0 ? (r.stdout || '').trim() : null;
-  };
-  const recordedArgv = (() => {
-    const found = [];
-    try {
-      for (const pid of fs.readdirSync('/proc')) {
-        if (!/^\d+$/.test(pid)) continue;
-        try {
-          const cmd = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean);
-          if (/chrome/i.test(cmd[0] || '')) found.push({pid: Number(pid), argv: cmd});
-        } catch { /* raced */ }
-      }
-    } catch { /* no /proc */ }
-    found.sort((a, b) => b.argv.length - a.argv.length);
-    return found[0] || null;
-  })();
+  }, {withPasses:process.argv.includes('--passes'),starved:process.argv.includes('--starved'),withProfile:process.argv.includes('--profile')});
   const payload = {
     root,
-    treeLabel,
-    sequence,
-    diagnostics,
-    acceptanceEligible: withPasses && passWarmup === 50 && passSamples >= 1000 && tickWarmup === 600 && tickSamples === 3600 && !withProfile && !diagnostics && !starved && gcPlacement === 'none',
-    measuredTree: {
-      cwd: root,
-      commit: git(root, ['rev-parse', 'HEAD']),
-      tree: git(root, ['rev-parse', 'HEAD^{tree}']),
-      dirty: git(root, ['status', '--porcelain']) || ''
-    },
     harness: {
       file: 'scripts/ew-frame-benchmark.mjs',
       sha256: harnessHash,
@@ -418,28 +309,11 @@ try {
       order: 'updateProjectiles(1) → updatePowerSystems(12) → updateSensorSystems(12)',
       measurementBoundary: 'electronicsPass is the unchanged 2/4 full-workload timer. detectionPass, updateMs and whole-frame tick are reported separately and are not substitute gates. SeekerCPU is the full projectile update and stays in whole-frame measurements. --profile is optional and is not the gate.',
       thresholdsRecalibrated: false,
-      profiled: withProfile,
-      diagnostics,
-      gcPlacement,
-      previousHarness: {
-        commit: 'e02235caea7e23296f827d8519330c664e84e241',
-        file: 'docs/ew/receipts/harness-e02235c.mjs',
-        sha256: 'e79876004ea9b8846ed6f31ca040fc1ff2452db43f77ba744837d9fb6b8b115d',
-        note: 'Preserved old helper. This file is the new harness; freeze it only after Fable reviews the diff. Unchanged means measurement boundaries and thresholds, not the entire file.'
-      }
+      profiled: process.argv.includes('--profile')
     },
     sources: Object.fromEntries(['src/main.js', 'src/ship-sensors.mjs', 'src/ship-ew.mjs', 'src/ship-hoj.mjs'].filter(f =>
       fs.existsSync(path.join(root, f))).map(f => [f, createHash('sha256').update(fs.readFileSync(path.join(root, f))).digest('hex')])),
     browser: await browser.version(),
-    launch: {
-      extraArgs: launchExtraArgs,
-      options: launchOptions,
-      exposeGcFlag: launchExtraArgs.includes('--js-flags=--expose-gc'),
-      recordedArgv,
-      argv: process.argv.slice(),
-      execPath: process.execPath,
-      node: process.version
-    },
     environment: {
       platform: os.platform(),
       arch: os.arch(),
@@ -452,28 +326,15 @@ try {
       contacts: 20,
       stations: result.stations,
       projectiles: 6,
-      warmupTicks: tickWarmup,
-      measuredTicks: tickSamples,
-      passWarmup: withPasses ? passWarmup : 0,
-      passSamples: withPasses ? passSamples : 0,
+      warmupTicks: 600,
+      measuredTicks: 3600,
+      passWarmup: process.argv.includes('--passes') ? 50 : 0,
+      passSamples: process.argv.includes('--passes') ? 300 : 0,
       passCadenceMs: 200,
       renderSamples: 300
     },
     ...result,
     errors
-  };
-  payload.gc = {
-    ...(result.gc || {}),
-    placement: gcPlacement,
-    diagnostics,
-    exposeGcFlag: launchExtraArgs.includes('--js-flags=--expose-gc'),
-    forcedGcInAcceptance: false,
-    forcedGcThisRun: diagnostics,
-    note: gcPlacement === 'none'
-      ? 'acceptance: forced GC is forbidden. No --js-flags=--expose-gc. gc() is never called. Naturally occurring GC stays in the samples. Even between-block forced GC is diagnostics-only because it can shift collection cost out of the results.'
-      : gcPlacement === 'between-blocks'
-        ? 'labelled diagnostics only (not acceptance): expose-gc; gc() after warmup and after the measured loop. Can shift collection costs; never the gate.'
-        : 'labelled diagnostics only (not acceptance): expose-gc; gc() inside the measured loop between samples. Suppression; never the gate'
   };
   console.log(JSON.stringify(payload, null, 2));
   if (errors.length || result.ewEnabled && !result.starved && result.activeJammers < 6 || result.electronicsPass?.applicable && result.electronicsPass.passed === false) process.exitCode = 1;
