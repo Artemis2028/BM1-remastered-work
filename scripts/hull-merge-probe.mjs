@@ -63,7 +63,7 @@ check('five variant pairs and the requested unique BM2 hulls remain active',()=>
 });
 
 const shim=`window.__merge={state,startWithFaction,createNpcShip,getNpcSideId,getShipStats,
- getShipyardStock,getShipPurchaseStatus,completeShipPurchase,canBuyEscortShip,canBuyFleetShip,
+ getShipyardStock,fleetShipStock,getShipPurchaseStatus,completeShipPurchase,canBuyEscortShip,canBuyFleetShip,
  buyEscortShip,buyFleetShip,getGodModeShips,getOriginalShipWeaponSlots,getDefaultWeaponId,
  applyShipDefaultWeapons,getWeapon,getShipVisualProfile,getScaledWeaponDamage,getScaledWeaponCooldown,
  getStationOwner,playerWorldPosition,render,renderPlanetMenu,NPC_WEAPON_COOLDOWN_SCALE,NPC_WEAPON_FLOOR_SCALE,
@@ -106,6 +106,8 @@ try{
   s.factionStanding.terran=100;
   const before=s.latinum;B.completeShipPurchase(34);
   test('buying the old Defiant reference charges 62500 and stores hull #326',s.playership===326&&before-s.latinum===62500,{ship:s.playership,paid:before-s.latinum});
+  // Alias coverage needs two more units after the personal purchase; stock depletion has its own fleet fixture.
+  B.fleetShipStock(34).quantity=2;
   B.buyEscortShip(34);B.buyFleetShip(34);
   test('escort and garrison commissioning store canonical IDs',s.playerFleet.length===2&&s.playerFleet.every(x=>x.shipId===326),s.playerFleet);
   test('the current ship cannot be repurchased through its old alias',!B.getShipPurchaseStatus(34).ok);

@@ -129,7 +129,7 @@ try {
     const platforms=Object.values(s.shipStatsById).filter(t=>/defen[sc]e.*platform/i.test(t.name||''));
     test('real station type records give military platforms enhanced arrays',platforms.length>0&&platforms.every(t=>B.stationElectronicProfile({stationTypeId:t.id}).passive===1500&&B.stationElectronicProfile({stationTypeId:t.id}).processing===1.25),platforms.map(t=>({id:t.id,name:t.name})));
     s.stations=stations;s.docked=true;s.latinum=1e6;s.factionStanding.terran=100;s.cargo=0;
-    const vendor=stations.find(st=>!st.destroyed&&!st.underConstruction);s.dockedStationId=vendor?.id||null;
+    const vendor=stations.find(st=>!st.destroyed&&!st.underConstruction&&B.getShipyardStock(st).length>0);s.dockedStationId=vendor?.id||null;
     B.ensureActorEW().module=3;
     const stock=(vendor?B.getShipyardStock(vendor):[]).find(ship=>B.getShipPurchaseStatus(ship.id)?.ok);
     const warn=B.installedJammerDiscardWarning();

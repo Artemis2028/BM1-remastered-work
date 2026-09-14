@@ -4275,3 +4275,9 @@ button:disabled {
 .sensor-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 8px 0; }
 .sensor-contact-list { max-height: 220px; overflow-y: auto; }
 .sensor-contact-list .meta { border-bottom: 1px solid #ffffff28; padding: 5px 0; }
+
+.fleet-manager {color:#d9eaff;background:#101b2a;border:1px solid #6384a2;width:min(900px,94vw);max-height:86vh;overflow:auto;padding:20px;z-index:10000;}
+.fleet-manager::backdrop {background:#0009;}
+.fleet-manager details {padding:10px;border-bottom:1px solid #456;}
+.fleet-manager button,.fleet-manager select {margin:5px;padding:6px;color:#e5f2ff;background:#253d56;border:1px solid #66829c;}
+.fleet-manager label {display:inline-block;margin:6px;}

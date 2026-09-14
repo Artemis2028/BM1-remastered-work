@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'bm2-pwa-20260913-ew-v1';
+const CACHE_VERSION = 'bm1-pwa-20260914-fleet-v1';
 const APP_CACHE = `${CACHE_VERSION}-app`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_ASSET_MANIFEST = './offline-assets.json';
@@ -15,6 +15,7 @@ const APP_SHELL = [
   './src/ship-sensors.mjs',
   './src/ship-ew.mjs',
   './src/ship-hoj.mjs',
+  './src/ship-fleet.mjs',
   './data/game_items.json',
   './bm-ships/catalog.mjs',
   './bm-ships/ships.json',
@@ -26,6 +27,7 @@ const APP_SHELL = [
   './data/itemtext.json',
   './data/mapnames.json',
   './data/planetData.json',
+  './data/fleet-traffic.json',
   './data/planet_manifest.json',
   './data/pod_manifest.json',
   './data/ship_size_config.json',
