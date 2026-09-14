@@ -1,7 +1,7 @@
 {
   "stamp": "campaign-r6-20260914T1309Z",
-  "status": "awaiting independent protocol review — long campaign not started",
-  "receiptsFound": 8,
+  "status": "awaiting independent protocol review \u2014 long campaign not started",
+  "receiptsFound": 12,
   "protocol": "ew-benchmark-protocol-20260914",
   "gate": {
     "series": "electronicsPass",
@@ -17,8 +17,8 @@
     "detectionUpdateProjectileP95P99": true,
     "campaignLevelCumulativeFrameVerdict": true,
     "increments": [
-      "EW−sensors",
-      "EW−pre-sensor"
+      "EW\u2212sensors",
+      "EW\u2212pre-sensor"
     ],
     "variabilityReported": true,
     "missingOrInvalidCannotPass": true,
@@ -31,27 +31,10 @@
     "C1",
     "C2"
   ],
-  "missing": [
-    {
-      "sequence": 3,
-      "label": "A"
-    },
-    {
-      "sequence": 3,
-      "label": "B"
-    },
-    {
-      "sequence": 3,
-      "label": "C1"
-    },
-    {
-      "sequence": 3,
-      "label": "C2"
-    }
-  ],
+  "missing": [],
   "ineligible": [],
   "invalidReceipts": [],
-  "campaignStatus": "incomplete",
+  "campaignStatus": "passed",
   "perRun": [
     {
       "sequence": 1,
@@ -220,22 +203,106 @@
         "p99": 2.3,
         "passed": true
       }
+    },
+    {
+      "sequence": 3,
+      "trees": {
+        "A": {
+          "commit": "6958f08e73aff55efbf48bae3f9433e5acc270e8",
+          "ineligible": null,
+          "tickP95": 0.5,
+          "tickP99": 0.6,
+          "electronicsP95": null,
+          "electronicsP99": null,
+          "electronicsPassed": null,
+          "detectionP95": null,
+          "detectionP99": null,
+          "updateMsP95": null,
+          "updateMsP99": null,
+          "projectileP95": null,
+          "projectileP99": null
+        },
+        "B": {
+          "commit": "e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b",
+          "ineligible": null,
+          "tickP95": 1.2,
+          "tickP99": 1.4,
+          "electronicsP95": 1.3,
+          "electronicsP99": 1.7,
+          "electronicsPassed": true,
+          "detectionP95": 1.2,
+          "detectionP99": 1.6,
+          "updateMsP95": null,
+          "updateMsP99": null,
+          "projectileP95": 0.1,
+          "projectileP99": 0.1
+        },
+        "C1": {
+          "commit": "74caf837c7882a86e3bd7c74f083029453953c1a",
+          "ineligible": null,
+          "tickP95": 1.3,
+          "tickP99": 1.6,
+          "electronicsP95": 1.6,
+          "electronicsP99": 2,
+          "electronicsPassed": true,
+          "detectionP95": 1.4,
+          "detectionP99": 1.8,
+          "updateMsP95": null,
+          "updateMsP99": null,
+          "projectileP95": 0.1,
+          "projectileP99": 0.1
+        },
+        "C2": {
+          "commit": "51738caf3a1d88492c4fc48a7c0125d4a7e2a355",
+          "ineligible": null,
+          "tickP95": 1.3,
+          "tickP99": 1.6,
+          "electronicsP95": 1.6,
+          "electronicsP99": 2.5,
+          "electronicsPassed": true,
+          "detectionP95": 1.4,
+          "detectionP99": 2.3,
+          "updateMsP95": 1.4,
+          "updateMsP99": 2.3,
+          "projectileP95": 0.2,
+          "projectileP99": 0.2
+        }
+      },
+      "increments": {
+        "tickP95": {
+          "ewMinusSensors": 0.1,
+          "ewMinusPresensor": 0.8,
+          "cumulativeLimitMs": 2,
+          "cumulativePassed": true
+        },
+        "electronicsPassP95": {
+          "ewMinusSensors": 0.3,
+          "ewMinusPresensor": null,
+          "note": "pre-sensor electronicsPass is not applicable"
+        },
+        "freezeComparison": null
+      },
+      "electronicsPassAbsolute": {
+        "p95": 1.6,
+        "p99": 2.5,
+        "passed": true
+      }
     }
   ],
   "variability": {
     "electronicsPassP95": {
-      "samples": 2,
+      "samples": 3,
       "min": 1.6000000000931323,
       "max": 1.7000000000698492,
-      "mean": 1.6500000000814907,
-      "stdev": 0.04999999998835847,
-      "p50": 1.7000000000698492,
+      "mean": 1.6333333334187046,
+      "stdev": 0.04714045206812743,
+      "p50": 1.6000000000931323,
       "p95": 1.7000000000698492,
       "p99": 1.7000000000698492,
       "method": "nearest-rank floor(n * p) on a sorted copy"
     },
     "tickP95": {
-      "samples": 2,
+      "samples": 3,
       "min": 1.3000000000465661,
       "max": 1.3000000000465661,
       "mean": 1.3000000000465661,
@@ -249,7 +316,7 @@
   },
   "campaignElectronicsPass": {
     "anyRunFailed": false,
-    "allRunsPassed": false,
+    "allRunsPassed": true,
     "worstP95": 1.7000000000698492,
     "worstP99": 2.8
   },
@@ -257,7 +324,7 @@
     "limitMs": 2,
     "series": "whole-frame tick p95 vs pre-sensor (tree A)",
     "anyRunFailed": false,
-    "allRunsPassed": false,
+    "allRunsPassed": true,
     "worstEwMinusPresensorP95": 0.9,
     "perRun": [
       {
@@ -269,10 +336,15 @@
         "sequence": 2,
         "ewMinusPresensor": 0.9,
         "passed": true
+      },
+      {
+        "sequence": 3,
+        "ewMinusPresensor": 0.8,
+        "passed": true
       }
     ]
   },
-  "campaignPassed": false,
+  "campaignPassed": true,
   "platinumEvidence": {
     "measuredTree": "51738caf3a1d88492c4fc48a7c0125d4a7e2a355",
     "current": {
@@ -313,5 +385,14 @@
     }
   },
   "decisionRequired": true,
-  "doNotMergeToMain": true
+  "doNotMergeToMain": true,
+  "authorityLabel": "SUPPLEMENTARY",
+  "notes": [
+    "SUPPLEMENTARY host: Intel(R) Xeon(R) Processor (KVM), 4 logical CPUs, navigator.hardwareConcurrency 4. Documented Platinum reference is Intel 8573C class (8 logical CPUs / hardwareConcurrency ~9 historically). Do not present this campaign as authoritative Platinum.",
+    "Measurement only. Do not merge to main. Protocol, engine, freeze tags, harness, and helper were not changed. r6 tag ew-fable-protocol-20260914-r6 still peels to 347a78abc4f7dfae8aca5f7e0f8297fbb3d89ae8.",
+    "Driver exits: sequence 1 = 1, sequence 2 = 1, sequence 3 = 0. Independent report_rc after all 12 receipts = 0 with campaignPassed true / campaignStatus passed.",
+    "Sequence 1 and 2 non-zero driver exits are the incomplete-campaign report (missing later sequences after --sequence filter). They are not harness/IO errors and are not the known baseline-failure discrepancy. Interruptions.jsonl shows run-complete (not run-fail) for every tree.",
+    "Known baseline-failure discrepancy did NOT appear on this host: B and C1 electronicsPass also passed p95<=2 / p99<=4, so each harness process exited 0. That discrepancy is when sensor/baseline trees fail the 2/4 gate (harness exit 1) while C2 campaignPassed can still be true because campaign electronics is evaluated on C2 only. Preserve both driver exits and report verdicts; do not treat unrelated harness/IO errors as the same issue.",
+    "launch.extraArgs=[] on every receipt; launch.verified true; launch.recordedArgv.verified true; Playwright-injected Chromium flags are preloadInjectedFlags, not extraArgs. Viewport 1280x850. Concurrency 1. WITH_FREEZE=0. No diagnostics/gc/profiling/expose-gc."
+  ]
 }

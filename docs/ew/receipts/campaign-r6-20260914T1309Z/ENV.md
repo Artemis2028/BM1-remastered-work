@@ -69,6 +69,19 @@ EW_CAMPAIGN_CONFIRMED=1 EW_RECEIPT_STAMP=campaign-r6-20260914T1309Z \
 
 No `TREE_*` / sample / tick overrides. No favourable reruns.
 
+## Launch flags (from receipts; all 12 agree)
+
+- `launch.extraArgs`: `[]`
+- `launch.verified`: true
+- `launch.recordedArgv.verified`: true
+- Browser process: Playwright `chromium_headless_shell` 153.0.8010.12
+- Preload-injected flags (not extraArgs): Playwright Chromium defaults including `--headless`, `--no-sandbox`, `--disable-dev-shm-usage`, etc.
+
+## Campaign outcome (SUPPLEMENTARY)
+
+All 12 receipts complete and acceptance-eligible. `campaignPassed` true on this host.
+**Still not Platinum.** Do not merge to main.
+
 ## Measurement only
 
 This pack does not authorize a main merge, engine changes, budget changes, or

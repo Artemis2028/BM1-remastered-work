@@ -1,0 +1,4 @@
+# local tee duplicates of harness JSON (not committed; receipts are canonical)
+66348ae9e95264387b2235cabb98c48a375cca9ffe0a621fb9d396008ac9dd79  sequence-1-driver.log
+56091e5dfc753cf14b917b8efb3b5cf256bfdbc95d55160150f32fbf0b9749ad  sequence-2-driver.log
+a997e2ca2f706d85aa7f36bd076d25e51ce89607b13eb4b0235c3335276efaa7  sequence-3-driver.log

@@ -22,3 +22,15 @@
 {"event": "run-complete", "sequence": 2, "label": "C2", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-C2.json", "at": "2026-09-14T13:34:48.709287+00:00"}
 {"event": "sequence-end", "sequence": 2, "at": "2026-09-14T13:34:48.726636+00:00"}
 {"event": "skip-sequence", "sequence": 3, "reason": "filter", "at": "2026-09-14T13:34:48.743888+00:00"}
+{"event": "skip-sequence", "sequence": 1, "reason": "filter", "at": "2026-09-14T13:35:28.848592+00:00"}
+{"event": "skip-sequence", "sequence": 2, "reason": "filter", "at": "2026-09-14T13:35:28.863184+00:00"}
+{"event": "sequence-start", "sequence": 3, "order": ["A", "B", "C1", "C2"], "at": "2026-09-14T13:35:28.892390+00:00"}
+{"event": "run-start", "sequence": 3, "label": "A", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq3-A.json", "at": "2026-09-14T13:35:28.922589+00:00"}
+{"event": "run-complete", "sequence": 3, "label": "A", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq3-A.json", "at": "2026-09-14T13:35:31.548128+00:00"}
+{"event": "run-start", "sequence": 3, "label": "B", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq3-B.json", "at": "2026-09-14T13:35:31.579917+00:00"}
+{"event": "run-complete", "sequence": 3, "label": "B", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq3-B.json", "at": "2026-09-14T13:39:05.486448+00:00"}
+{"event": "run-start", "sequence": 3, "label": "C1", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq3-C1.json", "at": "2026-09-14T13:39:05.518210+00:00"}
+{"event": "run-complete", "sequence": 3, "label": "C1", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq3-C1.json", "at": "2026-09-14T13:42:39.239180+00:00"}
+{"event": "run-start", "sequence": 3, "label": "C2", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq3-C2.json", "at": "2026-09-14T13:42:39.270958+00:00"}
+{"event": "run-complete", "sequence": 3, "label": "C2", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq3-C2.json", "at": "2026-09-14T13:46:13.245820+00:00"}
+{"event": "sequence-end", "sequence": 3, "at": "2026-09-14T13:46:13.263341+00:00"}
