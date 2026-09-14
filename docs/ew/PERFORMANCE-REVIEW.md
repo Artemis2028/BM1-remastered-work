@@ -164,4 +164,27 @@ This host (supplementary, 4-core generic Xeon, Chromium 153.0.8010.12) — origi
 
 Increments: EW−sensors tick **+0.10 ms**, EW−pre-sensor tick **+0.90 ms** (limit 2). electronicsPass EW−sensors **+0.30 ms**. Suites: EW/seeker **105/105**, sensors 26/26 · 54/54, power 21/21 · 29/29, behavior 79/79, ship suites green, both builders. Receipts: `receipts/perf-followup-20260914-*.json`.
 
-**Platinum verification outstanding. Do not merge to main. Do not move the freeze.**
+**Platinum verification outstanding. Do not merge to main. Do not move the freeze.** Historical Platinum 2.50 / 6.90 in the table above is the older `performance-*.json` tip, not current `51738ca` Platinum.
+
+## Follow-up: measurement protocol only (14 September 2026)
+
+Engine/gameplay optimization is paused. Gates, freeze tag
+`ew-fable-candidate-20260913` @ `077a9ce`, and measured candidate `51738ca`
+are unchanged. **Current Platinum evidence for `51738ca`** is Astra’s rerun:
+C2 `electronicsPass` **3.70 / 9.20** and **2.00 / 4.30**, both failures;
+sensor baseline p99 also failed; cumulative frame increments passed. The
+300-sample quieter-host 1.60 / 2.20 and historical Platinum 2.50 / 6.90
+remain on disk as historical evidence and are not current `51738ca` results.
+Short-run variability is why a longer pinned campaign is specified before
+further attribution.
+
+Protocol: [BENCHMARK-PROTOCOL.md](BENCHMARK-PROTOCOL.md). Harness capability
+for individual samples / 1,000-pass / interleaved sequences is in
+`scripts/ew-frame-benchmark.mjs` and `scripts/ew-campaign.sh --plan`.
+**Frozen for Fable final diff review — long campaign not started.** Tag
+`ew-fable-protocol-20260914` at `e556a380` is historical and must not move.
+Prior freezes `ew-fable-protocol-20260914-r2` (`6d4c01d`) and
+`ew-fable-protocol-20260914-r3` (`c0b42b0`) and `ew-fable-protocol-20260914-r4`
+(`70f47cc`) stay put. Current
+protocol freeze is `ew-fable-protocol-20260914-r6`.
+Prior freeze `ew-fable-protocol-20260914-r5` (`b76547d`) stays put.

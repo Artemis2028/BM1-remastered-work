@@ -92,6 +92,26 @@ Pinned harness sha256 `cbe314d8…`. Receipts: `receipts/authority-20260913-*.js
 
 Work is on `cursor/ew-perf-followup-8de2` from `077a9ce`. **Freeze tag `ew-fable-candidate-20260913` remains at `077a9ce`.** PR #6 was not edited.
 
-This supplementary host (generic Xeon, concurrency 4, Chromium 153.0.8010.12): unprofiled C2 `electronicsPass` **1.60 / 2.20 pass**, cumulative tick vs pre-sensor **+0.90 ms**. C1 1.70 / 2.40 pass. Profiled C2 (not the gate) 1.70 / 3.00; detect 0.6 / share 0.8. Platinum **2.50 / 6.90 outstanding** and did not measure `077a9ce`.
+This supplementary host (generic Xeon, concurrency 4, Chromium 153.0.8010.12): unprofiled C2 `electronicsPass` **1.60 / 2.20 pass**, cumulative tick vs pre-sensor **+0.90 ms**. C1 1.70 / 2.40 pass. Profiled C2 (not the gate) 1.70 / 3.00; detect 0.6 / share 0.8. **These numbers are historical quieter-host evidence**, not current Platinum for `51738ca`. Historical Platinum `performance-*.json` 2.50 / 6.90 is an older tip and did not measure `077a9ce`.
 
 Suites: EW 20 + 33, seeker 14 + 38 (**105**), sensors 26 + 54, power 21 + 29, behavior 79/79, ships 14 · 11 · smoke · 30 · 23 · 19, both release builders. Receipts: `receipts/perf-followup-20260914-*.json`. **Do not merge to main.**
+
+## Follow-up: benchmark protocol (not executed)
+
+Gameplay optimization is paused. See [BENCHMARK-PROTOCOL.md](BENCHMARK-PROTOCOL.md).
+**Frozen for Fable final diff review — long campaign not started.** Protocol
+tag `ew-fable-protocol-20260914` at `e556a380` is historical and must not
+move. Prior freezes `ew-fable-protocol-20260914-r2` (`6d4c01d`) and
+`ew-fable-protocol-20260914-r3` (`c0b42b0`) and `ew-fable-protocol-20260914-r4`
+(`70f47cc`) stay put.
+The current reporting/validation freeze is
+`ew-fable-protocol-20260914-r6`. Prior freeze
+`ew-fable-protocol-20260914-r5` (`b76547d`) stays put. Freeze tag
+`ew-fable-candidate-20260913` unchanged at `077a9ce`. Existing receipts
+retained as historical evidence.
+
+**Current Platinum evidence for `51738ca`:** Astra’s rerun family, C2
+**3.70 / 9.20** and **2.00 / 4.30**, both `electronicsPass` failures. Sensor
+baseline also failed p99; cumulative frame increments passed. Do not treat
+historical 2.50 / 6.90 or supplementary 1.60 / 2.20 as the current
+`51738ca` Platinum result.

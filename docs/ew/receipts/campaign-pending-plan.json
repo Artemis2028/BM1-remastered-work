@@ -1,0 +1,236 @@
+{
+  "protocol": "ew-benchmark-protocol-20260914",
+  "status": "awaiting independent protocol review \u2014 long campaign not started",
+  "protocolTag": "ew-fable-protocol-20260914-r6",
+  "previousProtocolTag": {
+    "name": "ew-fable-protocol-20260914-r5",
+    "commit": "b76547d509ae69fc955966d2c3473263ab41c3c8",
+    "note": "prior reporting/validation freeze; do not move"
+  },
+  "historicalProtocolTag": {
+    "name": "ew-fable-protocol-20260914",
+    "commit": "e556a3801848d85062ccecc1dcfec4d8c56620fd",
+    "note": "historical; do not move"
+  },
+  "gate": {
+    "series": "electronicsPass",
+    "p95Ms": 2,
+    "p99Ms": 4,
+    "thresholdsRecalibrated": false
+  },
+  "cumulativeFrameP95Ms": 2,
+  "trees": {
+    "A": "6958f08e73aff55efbf48bae3f9433e5acc270e8",
+    "B": "e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b",
+    "C1": "74caf837c7882a86e3bd7c74f083029453953c1a",
+    "C2": "51738caf3a1d88492c4fc48a7c0125d4a7e2a355",
+    "F": "077a9cedaa5a6cb858b200addb115d862ab238e6"
+  },
+  "freezeTag": "ew-fable-candidate-20260913",
+  "freezeMoved": false,
+  "withFreeze": false,
+  "sequenceOrder": [
+    "A",
+    "B",
+    "C1",
+    "C2"
+  ],
+  "repetitions": 3,
+  "warmup": {
+    "passWarmup": 50,
+    "tickWarmup": 600,
+    "passCadenceMs": 200
+  },
+  "measured": {
+    "passSamples": 1000,
+    "tickSamples": 3600,
+    "renderSamples": 300
+  },
+  "previousHarness": {
+    "commit": "e02235caea7e23296f827d8519330c664e84e241",
+    "file": "docs/ew/receipts/harness-e02235c.mjs",
+    "sha256": "e79876004ea9b8846ed6f31ca040fc1ff2452db43f77ba744837d9fb6b8b115d",
+    "note": "Preserved. New harness hash is expected; freeze the new file only after Fable reviews the diff."
+  },
+  "duration": {
+    "perSensorTreePassLoopSec": 200,
+    "perSensorTreePassLoop": "3 min 20 s",
+    "sensorBearingTrees": [
+      "B",
+      "C1",
+      "C2"
+    ],
+    "sequences": 3,
+    "timedSensorPassesSec": 1800,
+    "timedSensorPasses": "~30 min",
+    "warmupPerSensorTreeSec": 10,
+    "plus": "tree A ticks, 600+3600 tick measure, browser setup; optional F or --diagnostics add time"
+  },
+  "percentile": {
+    "method": "nearest-rank floor(n * p) on a sorted copy",
+    "n1000": {
+      "p50Index": 500,
+      "p95Index": 950,
+      "p99Index": 990
+    },
+    "note": "Copy is required so raw sample order is kept. Same method as historical 300-sample receipts (those used n = 300). Mean / stdev / min / max are variability, not the gate."
+  },
+  "timer": {
+    "api": "performance.now()",
+    "epochApi": "Date.now() immediately before const t = performance.now(); not inside the timed deltas",
+    "observedQuantizationMs": 0.1,
+    "note": "Receipts in this family commonly show ~0.1 ms steps (Chromium time resolution). Percentiles use the recorded values as-is."
+  },
+  "preloadInjectedFlags": {
+    "extraArgs": "flags this process passed to chromium.launch ([] on acceptance)",
+    "recordedArgv": "live Chromium argv from /proc; prefer the browser process without --type=",
+    "note": "Playwright injects additional Chromium flags that appear in recordedArgv but not extraArgs. Those are preload-injected; they are not extraArgs."
+  },
+  "platinumEvidence": {
+    "measuredTree": "51738caf3a1d88492c4fc48a7c0125d4a7e2a355",
+    "current": {
+      "source": "Astra 51738ca Platinum rerun family",
+      "series": "electronicsPass",
+      "c2": [
+        {
+          "p95": 3.7,
+          "p99": 9.2,
+          "passed": false
+        },
+        {
+          "p95": 2,
+          "p99": 4.3,
+          "passed": false
+        }
+      ],
+      "sensorBaselineP99Failed": true,
+      "cumulativeFrameIncrementsPassed": true,
+      "note": "Current Platinum evidence for 51738ca. Both C2 runs failed electronicsPass 2/4. Sensor baseline also failed p99; cumulative frame increments passed."
+    },
+    "historical": {
+      "performanceJson": {
+        "family": "performance-*.json",
+        "host": "INTEL(R) XEON(R) PLATINUM 8573C",
+        "p95": 2.5,
+        "p99": 6.9,
+        "passed": false,
+        "note": "Older EW tip, not 51738ca. Kept as historical evidence; not current 51738ca results."
+      },
+      "supplementaryFollowup": {
+        "family": "perf-followup-20260914-*.json",
+        "p95": 1.6,
+        "p99": 2.2,
+        "passed": true,
+        "note": "300-sample quieter supplementary host of 51738ca. Not current Platinum authority."
+      }
+    }
+  },
+  "acceptanceOverridesRejected": true,
+  "resume": {
+    "oneSequenceFlag": "--sequence N",
+    "keepEveryRawFile": true,
+    "skipOnlyCompleteValidReceipts": true,
+    "neverRerollValidGateFailure": true,
+    "stopOnMalformedIncompleteOrMismatch": true,
+    "reuseCleanExpectedWorktrees": true,
+    "stopOnDirtyOrUnexpectedWorktrees": true,
+    "neverForceDeleteWorktrees": true,
+    "validatePlanBeforeOverwrite": true,
+    "interruptionsLog": "campaign-pending-interruptions.jsonl",
+    "note": "Skip only complete valid receipts matching expected tree SHA, harness/helper hashes, sequence, and measurement configuration. A valid gate-failing run stays completed and is never rerolled. Preserve malformed/incomplete/mismatched files and stop with an explanation. Reuse clean worktrees at the expected SHA; stop on dirty or unexpected trees without deleting them. Validate an existing plan before writing a new one on resume.",
+    "flag": "--sequence N",
+    "env": "EW_CAMPAIGN_SEQUENCE",
+    "selected": null
+  },
+  "runs": [
+    {
+      "sequence": 1,
+      "label": "A",
+      "sha": "6958f08e73aff55efbf48bae3f9433e5acc270e8",
+      "role": "pre-sensor / OPS frame baseline; sensor-pass N/A"
+    },
+    {
+      "sequence": 1,
+      "label": "B",
+      "sha": "e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b",
+      "role": "sensors, ordinary torpedoes"
+    },
+    {
+      "sequence": 1,
+      "label": "C1",
+      "sha": "74caf837c7882a86e3bd7c74f083029453953c1a",
+      "role": "paid noise/ECCM, ordinary torpedoes"
+    },
+    {
+      "sequence": 1,
+      "label": "C2",
+      "sha": "51738caf3a1d88492c4fc48a7c0125d4a7e2a355",
+      "role": "measured EW candidate (full EW + HOJ)"
+    },
+    {
+      "sequence": 2,
+      "label": "A",
+      "sha": "6958f08e73aff55efbf48bae3f9433e5acc270e8",
+      "role": "pre-sensor / OPS frame baseline; sensor-pass N/A"
+    },
+    {
+      "sequence": 2,
+      "label": "B",
+      "sha": "e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b",
+      "role": "sensors, ordinary torpedoes"
+    },
+    {
+      "sequence": 2,
+      "label": "C1",
+      "sha": "74caf837c7882a86e3bd7c74f083029453953c1a",
+      "role": "paid noise/ECCM, ordinary torpedoes"
+    },
+    {
+      "sequence": 2,
+      "label": "C2",
+      "sha": "51738caf3a1d88492c4fc48a7c0125d4a7e2a355",
+      "role": "measured EW candidate (full EW + HOJ)"
+    },
+    {
+      "sequence": 3,
+      "label": "A",
+      "sha": "6958f08e73aff55efbf48bae3f9433e5acc270e8",
+      "role": "pre-sensor / OPS frame baseline; sensor-pass N/A"
+    },
+    {
+      "sequence": 3,
+      "label": "B",
+      "sha": "e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b",
+      "role": "sensors, ordinary torpedoes"
+    },
+    {
+      "sequence": 3,
+      "label": "C1",
+      "sha": "74caf837c7882a86e3bd7c74f083029453953c1a",
+      "role": "paid noise/ECCM, ordinary torpedoes"
+    },
+    {
+      "sequence": 3,
+      "label": "C2",
+      "sha": "51738caf3a1d88492c4fc48a7c0125d4a7e2a355",
+      "role": "measured EW candidate (full EW + HOJ)"
+    }
+  ],
+  "notes": [
+    "One pinned harness against every tree. New harness hash is expected; old e02235c / e7987600 file is preserved.",
+    "Finite campaign: 3 sequences, order A\u2192B\u2192C1\u2192C2. Optional F is extra and is not in the 30-minute estimate.",
+    "1000 passes \u00d7 200 ms = 3 min 20 s per sensor-bearing tree (B, C1, C2). Three sequences \u00d7 those three trees = ~30 min of timed sensor passes, plus A ticks, warm-up, and setup \u2014 not inherently multi-hour.",
+    "Acceptance never uses forced GC or --js-flags=--expose-gc. Forced GC exists only on separately labelled --diagnostics runs. GC summary fields come from actual gc() calls.",
+    "Report every run absolute p95/p99 including detection, updateMs, and projectile. Campaign-level cumulative-frame verdict is required. No best-run selection. No median delta as the gate.",
+    "Current Platinum evidence for 51738ca is Astra C2 3.70/9.20 and 2.00/4.30 (both failures). Historical 2.50/6.90 and supplementary 1.60/2.20 stay labeled historical.",
+    "Missing or invalid runs must not yield an overall pass. Plan trees and runs come from one validated configuration. Non-approved acceptance overrides are rejected.",
+    "Do not start this campaign until the tagged protocol is authorized. Historical tag ew-fable-protocol-20260914 stays at e556a380. Prior freezes r2@6d4c01d r3@c0b42b0 r4@70f47cc r5@b76547d stay put. None of those tags are moved."
+  ],
+  "harness": {
+    "file": "scripts/ew-frame-benchmark.mjs",
+    "sha256": "1015baad1ba3163fbc556dc0c56cfcac4c169368603e1b9beee002b289d4e079",
+    "helperSha256": "2de68639769e47c8c7c793e2ea3531aef784e47247bfbe72465475102e42ad57",
+    "libSha256": "2de68639769e47c8c7c793e2ea3531aef784e47247bfbe72465475102e42ad57"
+  },
+  "acceptanceNeverPassesDiagnostics": true
+}

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# One pinned harness against the four pinned EW review trees.
+# One pinned harness against the four pinned EW review trees (historical
+# 300-sample helper). The ≥1000-pass interleaved campaign is specified in
+# docs/ew/BENCHMARK-PROTOCOL.md and driven by scripts/ew-campaign.sh --plan.
+# Do not start that campaign from this script.
 # Usage: scripts/ew-four-tree.sh [receipt-dir]
 set -euo pipefail
 
@@ -28,7 +31,8 @@ cat > "$COMMANDS" <<EOF
 #   C1 noise/ECCM           $TREE_C1
 #   C2 review tip           $TREE_C2
 # Unchanged 2/4 gate: electronicsPass = updatePowerSystems + updateSensorSystems
-#   (Platinum recorded this series as detectionPass: 2.50 / 6.90, failed)
+#   Current 51738ca Platinum evidence: Astra C2 3.70/9.20 and 2.00/4.30 (both fail).
+#   Historical performance-*.json named this series detectionPass at 2.50/6.90 on an older tip.
 # Also report: detection-pass, updateMs, whole-frame tick, seekerCPU
 # Increments: EW−sensors and EW−pre-sensor; cumulative tick vs A <= 2ms
 # Pre-sensor + --passes must report sensor-pass metrics as not applicable, never zero.
@@ -106,9 +110,12 @@ const summary = {
     }
   },
   thisHostElectronicsPass: elec(C2) ? {p95: rnd(elec(C2).p95), p99: rnd(elec(C2).p99), passed: elec(C2).passed} : null,
-  platinumAuthority: {p95: 2.5, p99: 6.9, passed: false, series: 'same power+sensors full-workload timer'},
+  platinumEvidence: {
+    current: {source: 'Astra 51738ca Platinum rerun', c2: [{p95: 3.7, p99: 9.2, passed: false}, {p95: 2.0, p99: 4.3, passed: false}]},
+    historical: {performanceJson: {p95: 2.5, p99: 6.9, passed: false, note: 'older tip, not 51738ca'}}
+  },
   decisionRequired: true,
-  decisionReason: 'Unchanged 2/4 full-workload gate failed on Platinum (2.50/6.90) and was not re-run there. Do not merge to main without an explicit decision.'
+  decisionReason: 'Current 51738ca Platinum evidence is Astra C2 3.70/9.20 and 2.00/4.30 (both failed). Historical 2.50/6.90 is an older tip. Do not merge to main without an explicit decision.'
 };
 fs.writeFileSync(path.join(dir, `${stamp}-increments.json`), JSON.stringify(summary, null, 2));
 console.log(JSON.stringify(summary, null, 2));

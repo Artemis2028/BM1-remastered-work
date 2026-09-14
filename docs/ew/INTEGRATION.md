@@ -46,4 +46,10 @@ npm run build:python
 
 `scripts/ew-frame-benchmark.mjs --root CHECKOUT` runs a matched Earth scene. Add `--passes` on sensor/EW checkouts for the 5 Hz cadence measurement; `--starved` exercises the power-limited emitter case. Run pre-sensor, sensor-only and EW checkouts **serially**, with identical browser/CPU configuration. Keep the raw timing receipts and calculate the cumulative EW-minus-pre-sensor tick p95, rather than granting EW a new two-millisecond allowance.
 
+The ≥1,000-pass interleaved campaign is specified in
+[BENCHMARK-PROTOCOL.md](BENCHMARK-PROTOCOL.md). Print the plan with
+`scripts/ew-campaign.sh --plan`. Do not execute it until Fable approves the
+protocol. `npm run test:ew:performance` remains the historical 300-sample
+helper and is not that campaign.
+
 The full-pass measurement includes power/electronics funding and the entire sensor update including scan advancement. Projectile execution is additionally reported separately and is included in whole-tick timings. The pre-sensor/sensor trees carry the same six host hulls and six ordinary torpedoes; EW equips those hosts and runs the new guidance branch.
