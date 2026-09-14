@@ -128,7 +128,7 @@
     "note": "Skip only complete valid receipts matching expected tree SHA, harness/helper hashes, sequence, and measurement configuration. A valid gate-failing run stays completed and is never rerolled. Preserve malformed/incomplete/mismatched files and stop with an explanation. Reuse clean worktrees at the expected SHA; stop on dirty or unexpected trees without deleting them.",
     "flag": "--sequence N",
     "env": "EW_CAMPAIGN_SEQUENCE",
-    "selected": "1"
+    "selected": null
   },
   "runs": [
     {
