@@ -1,0 +1,12 @@
+{"event": "sequence-start", "sequence": 1, "order": ["A", "B", "C1", "C2"], "at": "2026-09-14T13:11:44.141062+00:00"}
+{"event": "run-start", "sequence": 1, "label": "A", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq1-A.json", "at": "2026-09-14T13:11:44.175104+00:00"}
+{"event": "run-complete", "sequence": 1, "label": "A", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq1-A.json", "at": "2026-09-14T13:11:46.924445+00:00"}
+{"event": "run-start", "sequence": 1, "label": "B", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq1-B.json", "at": "2026-09-14T13:11:46.956651+00:00"}
+{"event": "run-complete", "sequence": 1, "label": "B", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq1-B.json", "at": "2026-09-14T13:15:21.056472+00:00"}
+{"event": "run-start", "sequence": 1, "label": "C1", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq1-C1.json", "at": "2026-09-14T13:15:21.087637+00:00"}
+{"event": "run-complete", "sequence": 1, "label": "C1", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq1-C1.json", "at": "2026-09-14T13:18:54.855045+00:00"}
+{"event": "run-start", "sequence": 1, "label": "C2", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq1-C2.json", "at": "2026-09-14T13:18:54.885235+00:00"}
+{"event": "run-complete", "sequence": 1, "label": "C2", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq1-C2.json", "at": "2026-09-14T13:22:28.897904+00:00"}
+{"event": "sequence-end", "sequence": 1, "at": "2026-09-14T13:22:28.913630+00:00"}
+{"event": "skip-sequence", "sequence": 2, "reason": "filter", "at": "2026-09-14T13:22:28.929347+00:00"}
+{"event": "skip-sequence", "sequence": 3, "reason": "filter", "at": "2026-09-14T13:22:28.943892+00:00"}

@@ -3,3 +3,6 @@
 
 # Sequence 1 started 2026-09-14T13:10:36Z (will be updated after each sequence).
 # EW_CAMPAIGN_CONFIRMED=1 EW_RECEIPT_STAMP=campaign-r6-20260914T1309Z scripts/ew-campaign.sh --execute --sequence 1 docs/ew/receipts/campaign-r6-20260914T1309Z
+=== SEQ1 START 2026-09-14T13:11:39Z ===
+EW_CAMPAIGN_CONFIRMED=1 EW_RECEIPT_STAMP=campaign-r6-20260914T1309Z scripts/ew-campaign.sh --execute --sequence 1 docs/ew/receipts/campaign-r6-20260914T1309Z
+=== SEQ1 END 2026-09-14T13:22:29Z driver_exit=1 ===
