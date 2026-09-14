@@ -1,0 +1,177 @@
+=== Live EW ===
+
+> broken-mirror-1@0.0.1 test:ew:ingame
+> node scripts/ship-ew-probe.mjs
+
+PASS real engine freezes
+PASS new captain starts empty without changing three weapon slots
+PASS module 1 rejects below faction standing
+PASS module 1 purchases at tier and charges once
+PASS module 1 cannot be rebought
+PASS module 2 rejects below faction standing
+PASS module 2 purchases at tier and charges once
+PASS module 2 cannot be rebought
+PASS module 3 rejects below faction standing
+PASS module 3 purchases at tier and charges once
+PASS module 3 cannot be rebought
+PASS docked transmit order refused
+PASS real jammer control enables requested module
+PASS paid field begins after spin-up and consumes energy
+PASS foreign receiver measures paid interference
+PASS jamming changes no weapons, standing or attack evidence
+PASS Off removes field immediately
+PASS own fleet interference is named in real panel
+PASS ECCM raises local quality and records actual draw
+PASS foreign refit rejected
+PASS local escort and garrison use same standing gate
+PASS remote commanded ship refit rejected
+PASS save restores player module, manual ECCM and energy
+PASS fleet save restores equipment and order without refill
+PASS pre-EW save gets empty captain/fleet equipment
+PASS Fleet emission is detected beyond comms without identity
+PASS cloak switches captain jammer Off
+PASS capture retains module but clears former operating orders
+PASS ambient replacement drops old equipment and operating state
+PASS actual DOM jammer order works
+PASS actual DOM ECCM order works
+PASS real station type records give military platforms enhanced arrays
+PASS command-hull purchase warns, then discards the jammer without carry-over or price changes
+33/33 live EW checks passed
+=== Live seeker ===
+
+> broken-mirror-1@0.0.1 test:ew:seeker:ingame
+> node scripts/ship-hoj-probe.mjs
+
+PASS real engine freezes
+PASS paid Fleet emission produces real launch track beyond Photon range
+PASS real player fire launches in one slot and charges normal weapon energy
+PASS cooldown rejects repeat without duplicate energy charge
+PASS standoff torpedo physically hits with player attribution and aggression evidence
+PASS actual launch gate rejects beyond 1800 despite fresh emission
+PASS normal visual track is insufficient without a jamming emission
+PASS empty reactor refuses launch with no aggression or cooldown
+PASS silence changes to ballistic at next sample and keeps projectile alive
+PASS ballistic flight ignores silent entity motion
+PASS original incarnation reacquires without renewing lifetime
+PASS even a reused ID and seed cannot redirect onto replacement object
+PASS silent moved target survives a finite-life miss
+PASS intervening body takes physical impact with credit on actual victim
+PASS emission alone is not ROE permission for escort
+PASS escort real weapon path launches against legal hostile emitter
+PASS escort impact keeps playerEscort credit
+PASS foreign NPC weapon path credits NPC instead of player
+PASS station real weapon path launches with station credit
+PASS station impact credits station
+PASS player cloak leaves incoming seeker projectile intact
+PASS cloaked emitter cannot feed seeker steering
+PASS captain can launch from fresh direct shared emission report
+PASS shared emission really launches
+PASS stale shared emission cannot authorize another launch
+PASS seeker observations never update shooter contact reports
+PASS same-object same-hull ambient replacement cannot reacquire even if the replacement jams
+PASS later HOJ still collides after positional counterfire rebuilt the shared body list
+PASS Daystrom explicit stock contains new torpedo
+PASS authored limited stock is not silently expanded
+PASS respected boundary refuses 29 standing
+PASS respected boundary allows 30 standing
+PASS real store purchase charges 9000 once and loads an existing weapon slot
+PASS direct purchase handler cannot bypass standing gate
+PASS defense platform does not become a weapon shop
+35/35 live seeker checks passed
+=== Live sensors ===
+
+> broken-mirror-1@0.0.1 test:sensors:ingame
+> node scripts/ship-sensors-probe.mjs
+
+PASS real engine main loop freezes
+PASS all 172 native sensor profiles reach runtime
+PASS dark on-screen contact is visible with sensors offline
+PASS radio-only declaration at zero sensors has no firing track
+PASS radio-only contact cannot be fired on
+PASS declaration expires without sensor reidentification
+PASS dark contact outside nominal passive reach is untracked
+PASS funded sweep acquires a previously unseen contact and spends power
+PASS focused scan builds actual equipment assessment with unknown cargo/crew
+PASS underfunded active scan pauses rather than transmitting for free
+PASS Survey upgrade is denied below economy standing 30
+PASS Survey upgrade uses shared tier and charges once
+PASS suite 1 enforces faction standing 15
+PASS suite 2 enforces faction standing 30
+PASS suite 3 enforces faction standing 75
+PASS suite and transponder selection persist through save/load
+PASS actual pre-sensor save migrates deterministically without charge refill
+PASS locally commanded fleet ship can refit independently
+PASS fleet restoration preserves own suite and exact crew
+PASS foreign visitor cannot consume a fleet refit
+PASS checkpoint issuer fixture exists
+PASS Unknown is physically trackable and enforceable under Closed
+PASS closed dark visitor gets a real withdrawal order
+PASS own-side exemption survives player dark mode
+PASS issuer shares a live positional track with its same-side patrol
+PASS issuer loss stops shared tracking and keeps the last position frozen
+PASS issuer reacquisition restores the same-side track
+PASS attack-origin evidence is labeled in OPS
+PASS hit cue freezes launch origin instead of following hidden movement
+PASS point beam hits physical source and credits player damage
+PASS empty-origin point beam spends energy but cannot damage moved source
+PASS point torpedo is ballistic and preserves impact attribution
+PASS point beam collateral kills actual intervening ship and rewards once
+PASS counterfire kill reward is not duplicated by another update
+PASS ballistic torpedo into empty origin misses moved source
+PASS hit-origin counterfire permission expires
+PASS npc point counterfire preserves kill credit
+PASS escort point counterfire preserves kill credit
+PASS station point counterfire preserves kill credit
+PASS dark player at foreign same-flag checkpoint obeys Unknown open
+PASS dark player at foreign same-flag checkpoint obeys Unknown challenge
+PASS dark challenged player remains incomplete and denied services
+PASS fresh hostile declaration revises incomplete order without deadline reset
+PASS dark player at foreign same-flag checkpoint obeys Unknown closed
+PASS five real system geometries load, with remote secret installations
+PASS unscanned target label does not disclose its actual hull or faction
+PASS inexperienced searches a frozen last position, not hidden coordinates
+PASS regular searches a frozen last position, not hidden coordinates
+PASS veteran searches a frozen last position, not hidden coordinates
+PASS elite searches a frozen last position, not hidden coordinates
+PASS ambient slot reuse changes contact identity and resets equipment
+PASS returning to a system restores dated reports without granting a fresh track
+PASS OPS contains sensor allocation and explicit transponder UI
+PASS live OPS refresh preserves expanded contact reports
+{"browser":"153.0.8010.12","environment":{"platform":"linux","arch":"x64","cpu":"Intel(R) Xeon(R) Processor","logicalCPUs":4},"errors":[]}
+54/54 live sensor checks passed
+=== Live power ===
+
+> broken-mirror-1@0.0.1 test:power:ingame
+> node scripts/ship-power-probe.mjs
+
+PASS main loop freezes for deterministic engine scenarios
+PASS every authored hull power profile reaches the actual engine
+PASS player and NPC on identical hull/fit/allocations pay the same weapon cost
+PASS player allocation cannot leak into an NPC flying the same hull
+PASS weapon allocation increases actual player damage and shot cost without changing recharge
+PASS NPC weapon allocation increases its own damage and shot cost
+PASS depleted NPC emits no shot, cooldown or aggression evidence
+PASS successful NPC shot debits exactly once and records attribution
+PASS depleted player emits no shot and does not spend cooldown
+PASS failed disruptive device activations do not spend cooldown or create player attack evidence
+PASS equal ships recover the same shield percentage for the same energy despite legacy durability units
+PASS legacy regeneration path does not refill ship shields a second time
+PASS two fitted secondary cores double output once, never capacity or stored energy
+PASS removing core removes output bonus immediately
+PASS insufficient continuous power disengages the real player cloak
+PASS real flight tick respects engine allocation and accelerates only with supplied propulsion
+PASS all four crew profiles fight through the real weapon path
+PASS veteran and elite crews preserve more reserve and spend less time near exhaustion than inexperienced crews
+PASS fleet creation restores energy and independently assigned skill/temperament
+PASS escort energy and crew survive system travel
+PASS cached foreign ship keeps energy and crew across return and change of holder
+PASS ambient replacement gets its own full initial power and valid crew, with a different seed
+PASS save/reload preserves player and fleet energy without stale live state overwriting the save
+PASS checkpoint snapshot sanitation preserves power and crew fields
+PASS OPS displays generation, demand, reserves and recovery/drain label
+PASS OPS has four functional sliders and a read-only unused-allocation count
+PASS raising a system spends spare points before reducing other systems
+PASS a full allocation budget redistributes without exceeding twenty points
+PASS all twenty points can be unused and the removed reserve control cannot change allocation
+{"encounters":{"inexperienced":{"min":0.010000000000008166,"shots":74,"low":1145,"recovered":false},"regular":{"min":0.1200916666666765,"shots":75,"low":0,"recovered":false},"veteran":{"min":0.2201583333333214,"shots":79,"low":0,"recovered":false},"elite":{"min":0.3000249999999866,"shots":81,"low":0,"recovered":false}}}
+29/29 live power checks passed

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {EW_MODULES,sanitizeEW,snapshotEW,stopEW,rollEW,manageEW,fundElectronics,receiverEW} from '../src/ship-ew.mjs';
+import {EW_MODULES,sanitizeEW,snapshotEW,stopEW,rollEW,manageEW,fundElectronics,receiverEW,CLEAR_RECEPTION} from '../src/ship-ew.mjs';
 import {sensorProfile,ensureSensorEquipment,SensorWorld,freshTrack} from '../src/ship-sensors.mjs';
 import {stepShipPower,ensurePowerState,shipPowerProfile,managePowerCrew,crewAllowsShot,spendPower} from '../src/ship-power.mjs';
 let count=0;const test=(name,f)=>{f();count++;console.log('PASS '+name);};
@@ -31,7 +31,11 @@ w.pass([a,visual,checkpoint,radio,...Array.from({length:30},(_,i)=>({...jam(Stri
 assert.equal(a.ewReception.quality,0);assert.ok(freshTrack(w.contact('a','v'),1));assert.ok(freshTrack(w.contact('a','c'),1));assert.equal(w.contact('a','r').declaration,'claimed-terran');assert.ok(!freshTrack(w.contact('a','r'),1));});
 test('new jammer emission needs its own one-second acquisition even on a visually tracked hull',()=>{const w=new SensorWorld();w.clear(0);const a={...obs,observer:true,visual:600,passive:1200,active:1800,signature:1},b={...jam(),signature:1,jammerEmitting:false};
 for(let i=0;i<10;i++)w.pass([a,b],i*.2,.2);b.jammerEmitting=true;w.pass([a,b],2,.2);assert.equal(w.contact('a','j').jammerAt,undefined);
-for(let i=1;i<5;i++)w.pass([a,b],2+i*.2,.2);assert.ok(w.contact('a','j').jammerAt>=2.8-1e-8);});
+for(let i=1;i<5;i++)w.pass([a,b],2+i*.2,.2);assert.ok(w.contact('a','j').jammerAt>=2.8-1e-8);
+b.jammerEmitting=false;b.jammerStrength=0;w.pass([a,b],4,.2);
+assert.equal(a.ewReception,CLEAR_RECEPTION);assert.equal(w.contact('a','j').jamAcquire,0);
+b.jammerEmitting=true;b.jammerStrength=1.8;w.pass([a,b],4.2,.2);
+assert.ok((w.contact('a','j').jamAcquire||0)<.200001);});
 test('identical paid hardware produces four distinct crew reserve traces',()=>{const traces={};for(const crewSkill of ['inexperienced','regular','veteran','elite']){
  const r=rig({module:3,jammerOrder:'auto',eccmOrder:'auto'}),crew={crewSkill,crewTemperament:'disciplined'},values=[];r.p.energy=100;
  for(let i=0;i<300;i++){managePowerCrew(r.p,r.profile,crew,{combat:true,shieldFraction:1},.2);manageEW(r.e,r.p,crew,.2,{combat:true,externalNoise:1,capacity:200,proposedDraw:13});if(i%5===0&&crewAllowsShot(r.p,r.profile,6))spendPower(r.p,6);step(r,.2);if(i%10===0)values.push(+r.p.energy.toFixed(2));}

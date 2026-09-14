@@ -1,0 +1,18 @@
+
+> broken-mirror-1@0.0.1 test:ew:seeker
+> node scripts/ship-hoj-test.mjs
+
+PASS catalog is Photon baseline with 1800 range, 9000 price and one respected-tier slot
+PASS private seeker reads only at five Hz, not every movement update
+PASS turning is bounded by Photon turn rate
+PASS an explicit silent sample makes flight ballistic immediately
+PASS motion between samples uses the stored point, never the live object
+PASS seeker rejects another incarnation, another system, and a neighbouring jammer
+PASS 120 degree cone and 2400-unit seeker reach are enforced
+PASS original transmitter can be reacquired, without lifetime or path renewal
+PASS silence/cloak never deletes the coasting projectile
+PASS miss expires after three simulated seconds / 1800 total path units
+PASS turning cannot extend the total path or lifetime
+PASS stale private sample does not steer even if sampling is delayed
+PASS direct same-side emission reports share within 2400 without relay
+13/13 seeker model checks passed

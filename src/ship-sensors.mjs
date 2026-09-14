@@ -1,4 +1,4 @@
-import { receiverEW } from './ship-ew.mjs';
+import { receiverEW, CLEAR_RECEPTION } from './ship-ew.mjs';
 // Observer-scoped knowledge. This module receives physical snapshots, never game globals.
 export const SENSOR_RULES = Object.freeze({
   version: 1,
@@ -174,14 +174,32 @@ function record(map, key) {
   }
   return c;
 }
+const CELL = 2400;
+const COMMS2 = 2400 * 2400;
+const cellId = (x, y) => x * 1000003 + y;
+const dist2 = (a, b) => {
+  const dx = a.x - b.x,
+    dy = a.y - b.y;
+  return dx * dx + dy * dy;
+};
 // Spatial buckets avoid quadratic detection against far-away objects; sharing never relays.
 export class SensorWorld {
   constructor() {
     this.contacts = new Map();
     this.observerSides = new Map();
+    this.observerJam = new Map();
     this.now = 0;
     this.system = null;
     this.metrics = {};
+    this.passId = 0;
+    this._buckets = new Map();
+    this._jamBuckets = new Map();
+    this._nearby = [];
+    this._direct = new Map();
+    this._directCues = new Map();
+    this._byKey = new Map();
+    this._observersBySide = new Map();
+    this._jammers = [];
   }
   map(key) {
     if (!this.contacts.has(key)) this.contacts.set(key, new Map());
@@ -193,6 +211,15 @@ export class SensorWorld {
   clear(system) {
     this.contacts.clear();
     this.observerSides.clear();
+    this.observerJam.clear();
+    this._buckets.clear();
+    this._jamBuckets.clear();
+    this._nearby.length = 0;
+    this._direct.clear();
+    this._directCues.clear();
+    this._byKey.clear();
+    this._observersBySide.clear();
+    this._jammers.length = 0;
     this.system = system;
   }
   observe(o, t, now, source = 'visual') {
@@ -211,96 +238,185 @@ export class SensorWorld {
   }
   pass(actors, now, dt = .2) {
     this.now = now;
+    const profile = globalThis.__ewProfile;
+    const jamStart = profile ? performance.now() : 0;
     let pairs = 0;
-    const cell = 2400,
-      buckets = new Map();
+    const buckets = this._buckets,
+      jamBuckets = this._jamBuckets,
+      nearby = this._nearby,
+      direct = this._direct,
+      directCues = this._directCues,
+      byKey = this._byKey,
+      observersBySide = this._observersBySide,
+      jammers = this._jammers;
+    buckets.clear();
+    jamBuckets.clear();
+    nearby.length = 0;
+    direct.clear();
+    directCues.clear();
+    byKey.clear();
+    observersBySide.clear();
+    jammers.length = 0;
+    let maxSignature = 1,
+      maxRadius = 0,
+      maxEmission = 0,
+      jamEmissionReach = 0,
+      maxJamRadius = 0,
+      jammerPairs = 0,
+      observerCount = 0;
     for (const a of actors) {
-      const k = `${Math.floor(a.x/cell)},${Math.floor(a.y/cell)}`;
-      if (!buckets.has(k)) buckets.set(k, []);
-      buckets.get(k).push(a);
+      const k = cellId(Math.floor(a.x / CELL), Math.floor(a.y / CELL));
+      let cell = buckets.get(k);
+      if (!cell) {
+        cell = [];
+        buckets.set(k, cell);
+      }
+      cell.push(a);
+      byKey.set(a.key, a);
+      if (a.signature > maxSignature) maxSignature = a.signature;
+      if ((a.radius || 0) > maxRadius) maxRadius = a.radius || 0;
+      if (a.emitting) maxEmission = Math.max(maxEmission, a.active * 2);
+      if (a.jammerStrength > 0) {
+        jammers.push(a);
+        if (a.jammerRadius > maxJamRadius) maxJamRadius = a.jammerRadius;
+      }
+      if (a.jammerEmitting) jamEmissionReach = Math.max(jamEmissionReach, a.jammerRadius * 2);
     }
-    const maxSignature = Math.max(1, ...actors.map(a => a.signature)),
-      maxRadius = Math.max(0, ...actors.map(a => a.radius || 0)),
-      maxEmission = Math.max(0, ...actors.filter(a => a.emitting).map(a => a.active * 2));
-    const direct = new Map(),
-      directCues = new Map();
-    const byKey = new Map(actors.map(a => [a.key, a]));
-    const jammers=actors.filter(a=>a.jammerStrength>0).sort((a,b)=>a.key.localeCompare(b.key));
-    const jamBuckets=new Map(), maxJamRadius=Math.max(0,...jammers.map(a=>a.jammerRadius));
-    const jamEmissionReach=Math.max(0,...actors.filter(a=>a.jammerEmitting).map(a=>a.jammerRadius*2));
-    for(const j of jammers){const k=`${Math.floor(j.x/cell)},${Math.floor(j.y/cell)}`;if(!jamBuckets.has(k))jamBuckets.set(k,[]);jamBuckets.get(k).push(j);}
-    let jammerPairs=0;
+    if (jammers.length > 1) jammers.sort((a, b) => a.key.localeCompare(b.key));
+    if (jammers.length) {
+      for (const j of jammers) {
+        const k = cellId(Math.floor(j.x / CELL), Math.floor(j.y / CELL));
+        let cell = jamBuckets.get(k);
+        if (!cell) {
+          cell = [];
+          jamBuckets.set(k, cell);
+        }
+        cell.push(j);
+      }
+    }
+    this.passId++;
+    const passId = this.passId;
+    if (profile) profile.jamSetupMs = (profile.jamSetupMs || 0) + performance.now() - jamStart;
+    const detectStart = profile ? performance.now() : 0;
     for (const o of actors) {
       if (this.observerSides.has(o.key) && this.observerSides.get(o.key) !== o.side) this.contacts.delete(o.key);
       this.observerSides.set(o.key, o.side);
-      const nearby=[];
-      if(jammers.length)for(let x=Math.floor((o.x-maxJamRadius)/cell);x<=Math.floor((o.x+maxJamRadius)/cell);x++)
-        for(let y=Math.floor((o.y-maxJamRadius)/cell);y<=Math.floor((o.y+maxJamRadius)/cell);y++)nearby.push(...(jamBuckets.get(`${x},${y}`)||[]));
-      nearby.sort((a,b)=>a.key.localeCompare(b.key));jammerPairs+=nearby.length;
-      o.ewReception=receiverEW(o,nearby);
-      const quality=o.ewReception.quality, rf=Math.sqrt(quality);
+      if (jammers.length) {
+        nearby.length = 0;
+        for (let x = Math.floor((o.x - maxJamRadius) / CELL); x <= Math.floor((o.x + maxJamRadius) / CELL); x++)
+          for (let y = Math.floor((o.y - maxJamRadius) / CELL); y <= Math.floor((o.y + maxJamRadius) / CELL); y++) {
+            const cellJammers = jamBuckets.get(cellId(x, y));
+            if (cellJammers)
+              for (const j of cellJammers) nearby.push(j);
+          }
+        if (nearby.length > 1) nearby.sort((a, b) => a.key.localeCompare(b.key));
+        jammerPairs += nearby.length;
+        o.ewReception = receiverEW(o, nearby);
+      } else o.ewReception = CLEAR_RECEPTION;
+      const quality = o.ewReception.quality,
+        rf = Math.sqrt(quality);
       const map = this.map(o.key);
       if (!o.observer) continue;
-      const found = new Set(), eligible = new Set(), jamEligible = new Set();
+      let sawJam = false;
       const range = Math.max(o.visual + maxRadius, o.passive * maxSignature, o.active, o.coverage || 0, 2400,
-        maxEmission * (o.passive / 1200), jamEmissionReach*(o.passive/1200));
-      const x0 = Math.floor((o.x - range) / cell),
-        x1 = Math.floor((o.x + range) / cell),
-        y0 = Math.floor((o.y - range) / cell),
-        y1 = Math.floor((o.y + range) / cell);
+        maxEmission * (o.passive / 1200), jamEmissionReach * (o.passive / 1200));
+      const x0 = Math.floor((o.x - range) / CELL),
+        x1 = Math.floor((o.x + range) / CELL),
+        y0 = Math.floor((o.y - range) / CELL),
+        y1 = Math.floor((o.y + range) / CELL);
+      const vis = o.visual,
+        cov2 = o.coverage > 0 ? o.coverage * o.coverage : 0,
+        pasRf = o.passive * rf,
+        act2 = o.emitting && o.active > 0 ? (o.active * rf) * (o.active * rf) : 0,
+        emitScale = o.passive > 0 ? 2 * (o.passive / 1200) * rf : 0,
+        jamScale = o.passive > 0 ? 2 * (o.passive / 1200) : 0;
       for (let x = x0; x <= x1; x++)
-        for (let y = y0; y <= y1; y++)
-          for (const t of buckets.get(`${x},${y}`) || []) {
+        for (let y = y0; y <= y1; y++) {
+          const cell = buckets.get(cellId(x, y));
+          if (!cell) continue;
+          for (const t of cell) {
             if (o.key === t.key) continue;
             pairs++;
-            const dist = sensorDistance(o, t),
-              c = record(map, t.key);
-            if (t.broadcast && !t.cloaked && dist <= 2400) {
-              if (now - (c.declaredAt ?? -1e9) >= .999999) {
-                c.declaration = t.declaration;
-                c.declaredAt = now;
-              }
-            }
+            const d2 = dist2(o, t);
+            const broadcast = t.broadcast && !t.cloaked && d2 <= COMMS2;
             if (t.cloaked) {
-              c.acquire = 0;
+              const existing = map.get(t.key);
+              if (existing) existing.acquire = 0;
               continue;
             }
-            const visual = dist <= o.visual + (t.radius || 0),
-              coverage = o.coverage > 0 && dist <= o.coverage;
-            const passive = o.passive > 0 && dist <= o.passive * t.signature * rf;
-            const active = o.emitting && dist <= o.active * rf;
-            const emission = t.emitting && o.passive > 0 && dist <= t.active * 2 * (o.passive / 1200) * rf;
-            const jamEmission=t.jammerEmitting&&o.passive>0&&dist<=t.jammerRadius*2*(o.passive/1200);
-            if(jamEmission){jamEligible.add(t.key);c.jamAcquire=(c.jamAcquire||0)+dt;}
+            const visR = vis + (t.radius || 0);
+            const visual = d2 <= visR * visR;
+            const coverage = cov2 > 0 && d2 <= cov2;
+            const passive = pasRf > 0 && d2 <= (pasRf * t.signature) * (pasRf * t.signature);
+            const active = act2 > 0 && d2 <= act2;
+            const emission = emitScale > 0 && t.emitting && d2 <= (t.active * emitScale) * (t.active * emitScale);
+            const jamEmission = jamScale > 0 && t.jammerEmitting && d2 <= (t.jammerRadius * jamScale) * (
+              t.jammerRadius * jamScale);
+            if (!(broadcast || visual || coverage || passive || active || emission || jamEmission)) {
+              const existing = map.get(t.key);
+              if (existing) existing.acquire = 0;
+              continue;
+            }
+            const c = record(map, t.key);
+            if (broadcast && now - (c.declaredAt ?? -1e9) >= .999999) {
+              c.declaration = t.declaration;
+              c.declaredAt = now;
+            }
+            if (jamEmission) {
+              c.jamPass = passId;
+              c.jamAcquire = (c.jamAcquire || 0) + dt;
+              sawJam = true;
+            }
             if (visual || coverage || passive || active || emission || jamEmission) {
-              eligible.add(t.key); c.acquire += dt;
-              if (visual || coverage || active || (jamEmission && c.jamAcquire>=.999999) || ((passive||emission) && quality>0 && c.acquire >= 1/quality)) {
-                this.observe(o, t, now, visual ? 'visual' : coverage ? 'checkpoint' : active ? 'active' : jamEmission?'jammer':'passive');
-                if(jamEmission&&c.jamAcquire>=.999999)c.jammerAt=now;
-                found.add(t.key);
+              c.eligiblePass = passId;
+              c.acquire += dt;
+              if (visual || coverage || active || (jamEmission && c.jamAcquire >= .999999) || ((passive || emission) &&
+                  quality > 0 && c.acquire >= 1 / quality)) {
+                this.observe(o, t, now, visual ? 'visual' : coverage ? 'checkpoint' : active ? 'active' :
+                  jamEmission ? 'jammer' : 'passive');
+                if (jamEmission && c.jamAcquire >= .999999) c.jammerAt = now;
+                c.foundPass = passId;
               }
             } else c.acquire = 0;
           }
-      for (const [key, c] of map) {
-        if (!found.has(key) && c.sourceObserver === o.key) {
-          c.valid = false;
-          if(!eligible.has(key))c.acquire = 0;
         }
+      const local = new Map(),
+        clearJam = sawJam || this.observerJam.get(o.key),
+        cues = [];
+      for (const [key, c] of map) {
+        if (c.foundPass === passId) local.set(key, c);
+        if (c.foundPass !== passId && c.sourceObserver === o.key) {
+          c.valid = false;
+          if (c.eligiblePass !== passId) c.acquire = 0;
+        }
+        if (clearJam && c.jamPass !== passId) c.jamAcquire = 0;
+        if (c.cue && c.cue.victimKey === o.key && c.cue.expiresAt >= now) cues.push({
+          ...c.cue
+        });
       }
-      directCues.set(o.key, [...map.values()].filter(c => c.cue && c.cue.victimKey === o.key && c.cue.expiresAt >=
-        now).map(c => ({
-        ...c.cue
-      })));
-      for(const [key,c] of map)if(!jamEligible.has(key))c.jamAcquire=0;
-      const local = new Map();
-      for (const key of found) local.set(key, map.get(key));
+      this.observerJam.set(o.key, sawJam);
+      directCues.set(o.key, cues);
       direct.set(o.key, local);
+    }
+    if (profile) profile.detectMs = (profile.detectMs || 0) + performance.now() - detectStart;
+    const shareStart = profile ? performance.now() : 0;
+    for (const a of actors) {
+      if (!a.observer) continue;
+      observerCount++;
+      let list = observersBySide.get(a.side);
+      if (!list) {
+        list = [];
+        observersBySide.set(a.side, list);
+      }
+      list.push(a);
     }
     for (const o of actors) {
       if (!o.observer) continue;
       const map = this.map(o.key);
-      const peers = actors.filter(source => source.observer && source.key !== o.key &&
-        source.side === o.side && sensorDistance(o, source) <= 2400);
+      const peers = [];
+      for (const source of observersBySide.get(o.side) || []) {
+        if (source.key !== o.key && dist2(o, source) <= COMMS2) peers.push(source);
+      }
       for (const source of peers) {
         for (const cue of directCues.get(source.key) || []) {
           if (cue.sourceKey === o.key) continue;
@@ -310,15 +426,19 @@ export class SensorWorld {
           };
         }
       }
-      // Local observations already have this pass's newest position. For each missing
-      // target, the first direct peer report suffices; shared reports never relay.
+      // Local observations already have this pass's newest position. Walk peers
+      // in actor order so the first direct report still wins; do not scan every
+      // actor, and do not write into `direct` (that would relay).
       const ownReports = direct.get(o.key);
-      for (const target of actors) {
-        if (target.key === o.key || ownReports.has(target.key)) continue;
-        for (const source of peers) {
-          const report = direct.get(source.key)?.get(target.key);
-          if (!report) continue;
-          const c = record(map, target.key);
+      const have = new Set(ownReports.keys());
+      have.add(o.key);
+      for (const source of peers) {
+        const reports = direct.get(source.key);
+        if (!reports) continue;
+        for (const [key, report] of reports) {
+          if (have.has(key)) continue;
+          have.add(key);
+          const c = record(map, key);
           c.position ||= {
             x: 0,
             y: 0
@@ -330,23 +450,24 @@ export class SensorWorld {
           c.jammerAt = report.jammerAt;
           c.source = 'shared';
           c.sourceObserver = source.key;
-          break;
         }
       }
       for (const [key, c] of map) {
         if (c.source === 'shared') {
           const source = byKey.get(c.sourceObserver);
-          if (!source || source.side !== o.side || sensorDistance(o, source) > 2400 || !direct.get(source.key)?.has(
+          if (!source || source.side !== o.side || dist2(o, source) > COMMS2 || !direct.get(source.key)?.has(
               key)) c.valid = false;
         }
         if (!c.acquire && now - c.observedAt > 300 && !c.report && !receivedDeclaration(c, now) && (!c.cue || c.cue
             .expiresAt < now)) map.delete(key);
       }
     }
+    if (profile) profile.shareMs = (profile.shareMs || 0) + performance.now() - shareStart;
     this.metrics = {
-      observers: actors.filter(a => a.observer).length,
+      observers: observerCount,
       actors: actors.length,
-      pairs, jammerPairs
+      pairs,
+      jammerPairs
     };
     return this.metrics;
   }

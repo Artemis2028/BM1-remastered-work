@@ -1,6 +1,6 @@
 # Electronic warfare
 
-**Review candidate, not performance-cleared:** functional suites and both release builds pass, and the cumulative tick increment passes. The full 5 Hz pass still exceeds its p95/p99 limits on the recorded runner. See VALIDATION.md before release.
+**Review candidate:** functional suites (105 EW/seeker) pass. The 2 / 4 ms gate is the **original full-workload timer** (`electronicsPass` = power+sensors). On this supplementary host the follow-up tip (`51738ca`) **passes** that timer (C2 1.60 / 2.20; C1 1.70 / 2.40). Cumulative tick vs pre-sensor is +0.90 ms. **Platinum 2.50 / 6.90 failed (not re-run; did not measure `077a9ce`). Freeze tag `ew-fable-candidate-20260913` stays at `077a9ce`.** Explicit decision required before merge. Do not merge to main. See VALIDATION.md and `receipts/MEASUREMENT-BOUNDARIES.md`.
 
 Base: sensors commit `758665eef8cc001973529a23e9cd556aeb98c68e`.
 

@@ -1,0 +1,73 @@
+{
+  "root": "/workspace",
+  "sources": {
+    "src/main.js": "6bf49b8d589502d3a8ad0dc635650ded8ac42aa95386e7e20338f7f96a0fcf4f",
+    "src/ship-sensors.mjs": "4ae98ae692a74a3a8ce4be4fa2546618302a32aead9c233216d799f66be01ca7",
+    "src/ship-ew.mjs": "77b6f145d98f99964b497093c1a5dc75f28cb066298d57eea77ed1c7a0d2e75c",
+    "src/ship-hoj.mjs": "02f318604d399905a2c0ffaa3f4f1c2e2fd0acdb1e42b6833e08193f09023b2e"
+  },
+  "browser": "153.0.8010.12",
+  "environment": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "logicalCPUs": 4
+  },
+  "detectionPass": {
+    "samples": 300,
+    "p50": 1.3000000000465661,
+    "p95": 1.900000000023283,
+    "p99": 2.199999999953434,
+    "observers": 39,
+    "actors": 39,
+    "pairs": 1480,
+    "jammerPairs": 228,
+    "elapsedMs": 1.2999999999883585,
+    "passed": true
+  },
+  "seekerCPU": {
+    "samples": 300,
+    "p50": 0.1000000000349246,
+    "p95": 0.29999999998835847,
+    "p99": 0.29999999998835847
+  },
+  "sensorOnlyCPU": {
+    "samples": 300,
+    "p50": 1.2000000000116415,
+    "p95": 1.7000000000116415,
+    "p99": 1.900000000023283
+  },
+  "activeJammers": 6,
+  "mixedEmitterSides": [
+    "ferengi",
+    "terran"
+  ],
+  "ewEnabled": true,
+  "starved": false,
+  "projectileCount": 6,
+  "projectileModel": "home-on-jam",
+  "warmupSeconds": 10,
+  "simulationSeconds": 60,
+  "contacts": 20,
+  "stations": 18,
+  "frameCPU": {
+    "samples": 3600,
+    "p50": 0.5999999999767169,
+    "p95": 1.599999999976717,
+    "p99": 2.2000000000116415
+  },
+  "renderCPU": {
+    "samples": 300,
+    "p50": 0.7000000000116415,
+    "p95": 1,
+    "p99": 1.900000000023283
+  },
+  "viewport": {
+    "width": 1280,
+    "height": 850
+  },
+  "hardwareConcurrency": 4,
+  "deviceMemory": 16,
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36",
+  "errors": []
+}

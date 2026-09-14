@@ -1,0 +1,180 @@
+=== units ===
+
+> broken-mirror-1@0.0.1 test:ew
+> node scripts/ship-ew-test.mjs
+
+PASS catalog uses existing 15/30/75 tiers and reviewed prices
+PASS noise-free and zero receiver cases remain finite
+PASS single and stacked Fleet jammer figures, without old ceiling
+PASS fourth and subsequent emitter contribute; ordering does not change quality
+PASS friendly interference is real and attributable; cancellation is self only
+PASS edge and beyond have no interference
+PASS better ECCM recovers range; military platform burns through
+PASS spin-up spends energy and emits before interference
+PASS all electronics receive the same fraction without order theft
+PASS capacity overflow pays same-step electronics; no free generation
+PASS frame subdivisions have equal energy and activation
+PASS Off has two-second restart delay plus paid spin-up
+PASS cloak/docking block forces Off, zero Sensors cannot transmit
+PASS snapshot carries orders/timers but no paid live field
+PASS seeded equipment independent of faction skill; civilians and command start empty
+PASS four crew skills use power/recovery rather than hardware discounts
+PASS jammed reacquisition completes after a prior local track is lost
+PASS maximum interference preserves visual edges, checkpoint coverage and radio declarations
+PASS new jammer emission needs its own one-second acquisition even on a visually tracked hull
+crew-energy-traces {"inexperienced":[94.12,83.32,72.52,61.72,50.92,40.12,29.32,18.52,7.72,2.92,4.12,5.32,6.52,7.72,2.92,4.12,5.32,6.52,7.72,2.92,4.12,5.32,6.52,7.72,2.92,4.12,5.32,6.52,7.72,2.92],"regular":[94.12,83.32,72.52,61.72,50.92,40.12,29.32,30.52,25.72,26.92,28.12,29.32,24.52,25.72,26.92,28.12,29.32,24.52,25.72,26.92,28.12,29.32,24.52,25.72,26.92,28.12,29.32,24.52,25.72,26.92],"veteran":[94.12,83.32,72.52,61.72,59.56,57.4,61,58.84,56.68,60.28,58.12,55.96,59.56,57.4,55.24,58.84,55.24,58.84,55.24,58.84,55.24,58.84,55.24,58.84,55.24,58.84,55.24,58.84,55.24,58.84],"elite":[94.12,90.52,89.8,91.96,91.24,89.08,91.24,90.52,89.8,91.96,91.24,89.08,91.24,90.52,89.8,91.96,91.24,89.08,91.24,90.52,89.8,91.96,91.24,89.08,91.24,90.52,89.8,91.96,91.24,89.08]}
+PASS identical paid hardware produces four distinct crew reserve traces
+20/20 EW model checks passed
+
+> broken-mirror-1@0.0.1 test:ew:seeker
+> node scripts/ship-hoj-test.mjs
+
+PASS catalog is Photon baseline with 1800 range, 9000 price and one respected-tier slot
+PASS private seeker reads only at five Hz, not every movement update
+PASS an explicit due sample is not counted again on the next flight step
+PASS turning is bounded by Photon turn rate
+PASS an explicit silent sample makes flight ballistic immediately
+PASS motion between samples uses the stored point, never the live object
+PASS seeker rejects another incarnation, another system, and a neighbouring jammer
+PASS 120 degree cone and 2400-unit seeker reach are enforced
+PASS original transmitter can be reacquired, without lifetime or path renewal
+PASS silence/cloak never deletes the coasting projectile
+PASS miss expires after three simulated seconds / 1800 total path units
+PASS turning cannot extend the total path or lifetime
+PASS stale private sample does not steer even if sampling is delayed
+PASS direct same-side emission reports share within 2400 without relay
+14/14 seeker model checks passed
+
+> broken-mirror-1@0.0.1 test:sensors
+> node scripts/ship-sensors-test.mjs
+
+PASS old reserve 0/5/10 always migrates to five sensor points
+PASS largest remainder allocation is deterministic
+PASS new zero sensors survives and malformed totals stay bounded
+PASS upgrades multiply native science hardware and use economy tiers
+PASS ordinary roles broadcast, pirate/covert default dark, authored overrides win
+PASS commanded captured pirate gets command identity, custom polity stays exact
+PASS passive detection acquires after one second without emission
+PASS quiet contact evades passive at same distance
+PASS transponder heard at zero sensors gives identity not a track
+PASS viewport floor includes corners and sprite edges, not just 250 units
+PASS visual track works with zero sensors and no broadcast
+PASS active sweep discovers selected-nothing and emits beyond passive range
+PASS cloak blocks visual, ordinary active, broadcasts and checkpoint array
+PASS all sides share directly but allied/spoofed different sides do not
+PASS one missed pass age 0.4 accepted, two missed age 0.6 rejected
+PASS source loss invalidates shared track, retains frozen last position
+PASS power is paid, shortage pauses active emissions and zero remains zero
+PASS restored intelligence is stale, not free track/broadcast refresh
+PASS hit cue uses launch origin, expires and cannot cross systems
+PASS point beam/projectile collision selects nearest physical body and misses empty space
+PASS unidentified passive acquisition survives multiple passes without a radio report
+PASS shared hit origins keep their original expiry and cannot relay
+PASS a captured observer cannot inherit the previous side’s private reports
+PASS one damage event cannot refresh an origin cue every effect tick
+24/24 sensor model checks passed
+
+> broken-mirror-1@0.0.1 test:power
+> node scripts/ship-power-test.mjs
+
+PASS all active hulls carry finite positive authored power values; generation is distinct from storage
+PASS bad or over-budget allocations and malformed power are bounded without recharging zero
+PASS more system allocation improves damage, shield recovery or speed and increases energy demand
+PASS idle regeneration conserves energy and caps reserves; reserve allocation does not multiply output
+PASS propulsion plus shield recovery uses the same budget and full shields draw nothing
+PASS shield delay prevents recovery and its power cost
+PASS underpowered drives slow down; shield recovery sheds without producing unpaid shields
+PASS low and high engine allocations affect both speed ceiling and real demand
+PASS powered in-system warp costs more than normal cruise
+PASS cloak must be sustained from the real budget and switches off if unaffordable
+PASS identical fitted weapons have identical costs regardless of actor; shot debit is atomic
+PASS weapons allocation changes output and cost together
+PASS secondary core doubles generation only; capacity and all energy costs stay fixed
+PASS one second and sixty small idle/continuous steps agree
+PASS exactly four skill levels; actor can explicitly retain skill independently of temperament
+PASS seeded generation gives both pirate and government exceptions without per-frame rerolls
+PASS same reserves cause a veteran to preserve energy while a novice keeps firing
+PASS skill changes reserve discipline, not the reactor or weapon cost
+PASS reckless elite and cautious novice remain independent combinations
+PASS reaction latency and hysteresis avoid instantaneous repeated allocation changes
+PASS snapshot preserves depleted reserves, allocations and recovery with relative timers
+21/21 power model checks passed
+=== live ew/seeker ===
+
+> broken-mirror-1@0.0.1 test:ew:ingame
+> node scripts/ship-ew-probe.mjs
+
+PASS real engine freezes
+PASS new captain starts empty without changing three weapon slots
+PASS module 1 rejects below faction standing
+PASS module 1 purchases at tier and charges once
+PASS module 1 cannot be rebought
+PASS module 2 rejects below faction standing
+PASS module 2 purchases at tier and charges once
+PASS module 2 cannot be rebought
+PASS module 3 rejects below faction standing
+PASS module 3 purchases at tier and charges once
+PASS module 3 cannot be rebought
+PASS docked transmit order refused
+PASS real jammer control enables requested module
+PASS paid field begins after spin-up and consumes energy
+PASS foreign receiver measures paid interference
+PASS jamming changes no weapons, standing or attack evidence
+PASS Off removes field immediately
+PASS own fleet interference is named in real panel
+PASS ECCM raises local quality and records actual draw
+PASS foreign refit rejected
+PASS local escort and garrison use same standing gate
+PASS remote commanded ship refit rejected
+PASS save restores player module, manual ECCM and energy
+PASS fleet save restores equipment and order without refill
+PASS pre-EW save gets empty captain/fleet equipment
+PASS Fleet emission is detected beyond comms without identity
+PASS cloak switches captain jammer Off
+PASS capture retains module but clears former operating orders
+PASS ambient replacement drops old equipment and operating state
+PASS actual DOM jammer order works
+PASS actual DOM ECCM order works
+PASS real station type records give military platforms enhanced arrays
+PASS command-hull purchase warns, then discards the jammer without carry-over or price changes
+33/33 live EW checks passed
+
+> broken-mirror-1@0.0.1 test:ew:seeker:ingame
+> node scripts/ship-hoj-probe.mjs
+
+PASS real engine freezes
+PASS paid Fleet emission produces real launch track beyond Photon range
+PASS real player fire launches in one slot and charges normal weapon energy
+PASS cooldown rejects repeat without duplicate energy charge
+PASS standoff torpedo physically hits with player attribution and aggression evidence
+PASS actual launch gate rejects beyond 1800 despite fresh emission
+PASS normal visual track is insufficient without a jamming emission
+PASS empty reactor refuses launch with no aggression or cooldown
+PASS silence changes to ballistic at next sample and keeps projectile alive
+PASS ballistic flight ignores silent entity motion
+PASS original incarnation reacquires without renewing lifetime
+PASS even a reused ID and seed cannot redirect onto replacement object
+PASS silent moved target survives a finite-life miss
+PASS intervening body takes physical impact with credit on actual victim
+PASS emission alone is not ROE permission for escort
+PASS escort real weapon path launches against legal hostile emitter
+PASS escort impact keeps playerEscort credit
+PASS foreign NPC weapon path credits NPC instead of player
+PASS station real weapon path launches with station credit
+PASS station impact credits station
+PASS player cloak leaves incoming seeker projectile intact
+PASS cloaked emitter cannot feed seeker steering
+PASS captain can launch from fresh direct shared emission report
+PASS shared emission really launches
+PASS stale shared emission cannot authorize another launch
+PASS seeker observations never update shooter contact reports
+PASS same-object same-hull ambient replacement cannot reacquire even if the replacement jams
+PASS later HOJ still collides after positional counterfire rebuilt the shared body list
+PASS Daystrom explicit stock contains new torpedo
+PASS authored limited stock is not silently expanded
+PASS respected boundary refuses 29 standing
+PASS respected boundary allows 30 standing
+PASS real store purchase charges 9000 once and loads an existing weapon slot
+PASS direct purchase handler cannot bypass standing gate
+PASS defense platform does not become a weapon shop
+35/35 live seeker checks passed

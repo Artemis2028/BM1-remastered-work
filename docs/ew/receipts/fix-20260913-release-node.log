@@ -1,0 +1,6 @@
+
+> broken-mirror-1@0.0.1 build
+> node scripts/build-release.mjs
+
+Release written to /workspace/dist
+Chrome extension app written to /workspace/dist-chrome-extension

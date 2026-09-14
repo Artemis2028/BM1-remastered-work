@@ -1,0 +1,36 @@
+=== build node ===
+
+> broken-mirror-1@0.0.1 build
+> node scripts/build-release.mjs
+
+Release written to /workspace/dist
+Chrome extension app written to /workspace/dist-chrome-extension
+=== build python ===
+
+> broken-mirror-1@0.0.1 build:python
+> python3 scripts/build_release.py
+
+Release written to /workspace/dist
+Chrome extension app written to /workspace/dist-chrome-extension
+=== dist inventory ===
+main.js
+pwa-register.js
+ship-catalog-integration.mjs
+ship-economy.mjs
+ship-ew.mjs
+ship-hoj.mjs
+ship-power.mjs
+ship-sensors.mjs
+--- node dist modules ---
+dist/src/ship-catalog-integration.mjs
+dist/src/ship-economy.mjs
+dist/src/ship-ew.mjs
+dist/src/ship-hoj.mjs
+dist/src/ship-power.mjs
+dist/src/ship-sensors.mjs
+--- python dist ---
+dist-chrome-extension/src/ship-hoj.mjs
+dist-chrome-extension/src/ship-sensors.mjs
+dist-chrome-extension/src/ship-ew.mjs
+dist has ['ship-ew.mjs', 'ship-hoj.mjs', 'ship-sensors.mjs']
+dist-chrome-extension has ['ship-ew.mjs', 'ship-hoj.mjs', 'ship-sensors.mjs']

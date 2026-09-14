@@ -365,6 +365,52 @@ check('unidentified passive acquisition survives multiple passes without a radio
   for (let i = 1; i <= 5; i++) w.pass([a, b], i * .2);
   assert(freshTrack(w.contact('a', 'b'), 1));
 });
+check('first same-side peer in actor order donates the shared report', () => {
+  const w = new SensorWorld(),
+    t = actor('t', {
+      x: 400,
+      broadcast: false
+    }),
+    a = actor('a', {
+      side: 'team'
+    }),
+    b = actor('b', {
+      side: 'team',
+      x: 80
+    }),
+    p = actor('p', {
+      side: 'team',
+      x: -1000,
+      passive: 0,
+      visual: 0
+    });
+  w.pass([a, b, t, p], 0);
+  assert.equal(w.contact('p', 't').source, 'shared');
+  assert.equal(w.contact('p', 't').sourceObserver, 'a');
+  w.pass([b, a, t, p], .2);
+  assert.equal(w.contact('p', 't').sourceObserver, 'b');
+});
+check('comms declaration is heard at 2400 and not beyond', () => {
+  const w = new SensorWorld(),
+    a = actor('a', {
+      passive: 0,
+      visual: 0,
+      active: 0
+    }),
+    edge = actor('edge', {
+      x: 2400,
+      broadcast: true,
+      declaration: 'edge'
+    }),
+    beyond = actor('beyond', {
+      x: 2401,
+      broadcast: true,
+      declaration: 'beyond'
+    });
+  w.pass([a, edge, beyond], 0);
+  assert.equal(receivedDeclaration(w.contact('a', 'edge'), 0), 'edge');
+  assert.equal(receivedDeclaration(w.contact('a', 'beyond'), 0), null);
+});
 check('shared hit origins keep their original expiry and cannot relay', () => {
   const w = new SensorWorld();
   w.clear(0);
