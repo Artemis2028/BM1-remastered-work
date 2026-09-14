@@ -97,3 +97,60 @@ integration tip match `51738ca`. Harness / campaign scripts match r6
 Not in scope for this PR: merge to `main`, retagging, touching
 `Artemis2028/BM1-remastered`, threshold changes, or re-running the long
 r6 campaign.
+
+## Integration-tip validation (14 September 2026)
+
+Run on this integration branch after the acceptance documentation commit.
+Engine `src/` still matches `51738ca`. Harness/scripts still match
+`347a78a`. Campaign JSON still matches PR #11. **Remeasurement: no.**
+
+| Suite | Result |
+| --- | --- |
+| `test:ew` | **20/20** |
+| `test:ew:ingame` | **33/33** |
+| `test:ew:seeker` | **14/14** |
+| `test:ew:seeker:ingame` | **38/38** |
+| EW/seeker total | **105/105** |
+| `test:sensors` / `test:sensors:ingame` | **26/26** · **54/54** |
+| `test:power` / `test:power:ingame` | **21/21** · **29/29** |
+| `probe` (S1–S5) | **79/79** |
+| `test:ships` | **11/11** |
+| `validate:ships` | **14/14** |
+| `check:ship-manifest` | passed |
+| `test:ships:ingame` | passed |
+| `test:ships:economy` | **30/30** |
+| `test:ships:merges` | **23/23** |
+| `test:ships:balance` | **19/19** |
+| `test:ew:bench-lib` / resume / astra / r5 / r6 | **79** · **81** · **19** · **29** · **30** (all ok) |
+| `npm run build` (node) | passed → `/workspace/dist` and `dist-chrome-extension` |
+| `npm run build:python` | passed → same `dist/` convention |
+
+### Playable build
+
+Both builders write the playable tree to **`dist/`** (node first, then
+python; both succeeded). `dist/src/ship-ew.mjs`, `ship-hoj.mjs`, and
+`ship-sensors.mjs` match source. Also `dist-chrome-extension/`.
+
+```sh
+python3 -m http.server 8001 --directory dist
+# or: npm run release:serve
+# open http://127.0.0.1:8001/
+```
+
+### Smoke checklist (release `dist/`, 14 September 2026)
+
+Exercised headed Chromium against `dist/` on localhost:8001:
+
+1. Load `/` — title and start menu render (skip intro crawl if shown).
+2. Play Game → Terran Rebel → Start Game — Earth orbit, HUD, minimap, no page/console errors.
+3. Bottom dock **PWR** → POWER (OPS): engines/weapons/shields/sensors sliders; Sensors & Communications (transponder, sweep, scans).
+4. Expand **Electronic warfare**: captain slot empty / Off; Jammer Off/On/Auto; ECCM Off/Boost/Auto; interference Clear.
+5. HOJ is weapon 46 (Anti-emitter Torpedo) at respected standing — not on the starter Miranda; live HOJ is covered by **38/38** `test:ew:seeker:ingame`, not this visual start-game path.
+6. No page errors, no console errors on that path.
+
+### Known limitations
+
+- Actual iPad/Safari performance remains unverified.
+- Visual smoke did not buy a jammer or fire a HOJ (live suites did).
+- r6 campaign remains SUPPLEMENTARY host-class evidence; historical Platinum failures keep their original fail labels.
+- This tree is **not** merged to `main`. Freeze tags were not moved. `Artemis2028/BM1-remastered` was not touched.
