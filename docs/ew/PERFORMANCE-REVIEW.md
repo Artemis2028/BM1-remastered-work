@@ -1,7 +1,16 @@
 # EW performance release-gate review
 
+**Milestone acceptance (14 September 2026):** PR #11 r6 supplementary
+campaign is accepted as sufficient performance evidence for this
+milestone. Platinum-only gate **removed**. Thresholds **unchanged**
+(2 ms p95 / 4 ms p99 `electronicsPass`; cumulative frame ≤ 2 ms).
+Historical Platinum failures keep their original labels (Astra `51738ca`
+3.70/9.20 and 2.00/4.30; older `performance-*.json` 2.50/6.90). Freeze
+tags stay put. This PR prepares integration; **merge to `main` is a
+separate later decision.** Full text: [ACCEPTANCE.md](ACCEPTANCE.md).
+
 Review branch: `cursor/ew-perf-gate-23f3` on top of `feat/electronic-warfare-review` (`75a721e`).
-This machine is **not** the recorded Platinum 8573C reference runner. Absolute times here are quieter; the original failed receipts stay authoritative for that host. Thresholds were not raised.
+This machine is **not** the recorded Platinum 8573C reference runner. Absolute times here are quieter; the original failed receipts stay labeled as that host’s failures. Thresholds were not raised.
 
 ## Trees measured
 
@@ -188,3 +197,22 @@ Prior freezes `ew-fable-protocol-20260914-r2` (`6d4c01d`) and
 (`70f47cc`) stay put. Current
 protocol freeze is `ew-fable-protocol-20260914-r6`.
 Prior freeze `ew-fable-protocol-20260914-r5` (`b76547d`) stays put.
+
+## Milestone acceptance (14 September 2026)
+
+The independently audited r6 campaign in PR #11
+(`docs/ew/receipts/campaign-r6-20260914T1309Z/`) is **accepted as
+sufficient performance evidence for this milestone**. The pack remains
+labeled SUPPLEMENTARY host-class evidence; that JSON is not rewritten.
+The Platinum-only requirement is **removed**. Thresholds stay 2/4 ms
+`electronicsPass` and cumulative frame ≤ 2 ms.
+
+Historical Platinum failures remain labeled as such:
+
+- Astra `51738ca` C2 **3.70 / 9.20** and **2.00 / 4.30**
+- older `performance-*.json` **2.50 / 6.90** (different tip)
+
+Frozen tags (`ew-fable-candidate-20260913`,
+`ew-fable-protocol-20260914` through `…-r6`, and the correctness freeze)
+remain immutable. This review file does not authorize merge to `main`.
+See [ACCEPTANCE.md](ACCEPTANCE.md).

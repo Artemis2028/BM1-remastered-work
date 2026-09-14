@@ -1,5 +1,11 @@
 # Electronic warfare validation
 
+**Milestone acceptance (14 September 2026):** PR #11 r6 campaign accepted
+as sufficient performance evidence for this milestone; Platinum-only gate
+removed; 2/4 and ≤2 ms thresholds unchanged; historical Platinum failures
+keep original labels; freeze tags immutable; merge to `main` is a separate
+later decision. See [ACCEPTANCE.md](ACCEPTANCE.md).
+
 Base: `758665eef8cc001973529a23e9cd556aeb98c68e`. Two commits: paid noise/ECCM, then actual anti-emitter guidance and integration checks. No remote push was performed.
 
 ## Functional checks
@@ -96,9 +102,12 @@ This supplementary host (generic Xeon, concurrency 4, Chromium 153.0.8010.12): u
 
 Suites: EW 20 + 33, seeker 14 + 38 (**105**), sensors 26 + 54, power 21 + 29, behavior 79/79, ships 14 · 11 · smoke · 30 · 23 · 19, both release builders. Receipts: `receipts/perf-followup-20260914-*.json`. **Do not merge to main.**
 
-## Follow-up: benchmark protocol (not executed)
+## Follow-up: benchmark protocol (historical; campaign later executed)
 
 Gameplay optimization is paused. See [BENCHMARK-PROTOCOL.md](BENCHMARK-PROTOCOL.md).
+**This paragraph is the r6 freeze-era note.** The campaign was later
+executed and audited in PR #11; see [ACCEPTANCE.md](ACCEPTANCE.md).
+Protocol tags from that freeze remain immutable. Original freeze-era text:
 **Frozen for Fable final diff review — long campaign not started.** Protocol
 tag `ew-fable-protocol-20260914` at `e556a380` is historical and must not
 move. Prior freezes `ew-fable-protocol-20260914-r2` (`6d4c01d`) and
@@ -110,8 +119,10 @@ The current reporting/validation freeze is
 `ew-fable-candidate-20260913` unchanged at `077a9ce`. Existing receipts
 retained as historical evidence.
 
-**Current Platinum evidence for `51738ca`:** Astra’s rerun family, C2
-**3.70 / 9.20** and **2.00 / 4.30**, both `electronicsPass` failures. Sensor
-baseline also failed p99; cumulative frame increments passed. Do not treat
-historical 2.50 / 6.90 or supplementary 1.60 / 2.20 as the current
-`51738ca` Platinum result.
+**Historical Platinum evidence for `51738ca` (labels unchanged):** Astra’s
+rerun family, C2 **3.70 / 9.20** and **2.00 / 4.30**, both
+`electronicsPass` failures. Sensor baseline also failed p99; cumulative
+frame increments passed. Do not treat historical 2.50 / 6.90 or
+supplementary 1.60 / 2.20 as Platinum results. Those JSON files were not
+rewritten. For this milestone the accepted evidence is the PR #11 r6
+pack; see [ACCEPTANCE.md](ACCEPTANCE.md).

@@ -1,6 +1,19 @@
 # Electronic warfare
 
-**Review candidate:** functional suites (105 EW/seeker) pass. The 2 / 4 ms gate is the **original full-workload timer** (`electronicsPass` = power+sensors). **Current Platinum evidence for `51738ca`** is Astra’s rerun family: C2 **3.70 / 9.20** and **2.00 / 4.30**, both failures. The sensor baseline also failed p99; cumulative frame increments passed. The quieter-host 300-sample follow-up (C2 1.60 / 2.20) and older Platinum `performance-*.json` 2.50 / 6.90 are **historical** receipts, not current `51738ca` Platinum results. Freeze tag `ew-fable-candidate-20260913` stays at `077a9ce`. Explicit decision required before merge. Do not merge to main. See VALIDATION.md and `receipts/MEASUREMENT-BOUNDARIES.md`.
+**Milestone acceptance (14 September 2026):** the independently audited r6
+campaign in PR #11 is **sufficient performance evidence for this
+milestone**. The Platinum-only gate is **removed**. Thresholds stay
+**2 ms p95 / 4 ms p99** `electronicsPass` and cumulative frame **≤ 2 ms**.
+Canonical note: [ACCEPTANCE.md](ACCEPTANCE.md). This tree **prepares
+integration**; merge to `main` is a separate later decision.
+
+Historical Platinum failures keep their original labels (not rewritten):
+Astra `51738ca` C2 **3.70 / 9.20** and **2.00 / 4.30**, and older
+`performance-*.json` **2.50 / 6.90**. The quieter-host 300-sample follow-up
+(C2 1.60 / 2.20) remains historical supplementary evidence. Freeze tags
+including `ew-fable-candidate-20260913` @ `077a9ce` and
+`ew-fable-protocol-20260914` through `…-r6` stay immutable. See
+VALIDATION.md and `receipts/MEASUREMENT-BOUNDARIES.md`.
 
 Base: sensors commit `758665eef8cc001973529a23e9cd556aeb98c68e`.
 
@@ -12,4 +25,4 @@ Read DESIGN.md for the complete accepted contract, tuning ledger and cumulative 
 
 Run `npm run test:ew` and `npm run test:ew:ingame`, alongside the sensor, power, behavior and ship/economy suites. EW browser fixtures use real production power, sensing, UI and persistence paths.
 
-See [INTEGRATION.md](INTEGRATION.md) for the launcher, stock rules, incarnation locking and application instructions; see [VALIDATION.md](VALIDATION.md) for measured results. The longer timing campaign is specified in [BENCHMARK-PROTOCOL.md](BENCHMARK-PROTOCOL.md) and is **awaiting independent protocol review — long campaign not started.**
+See [INTEGRATION.md](INTEGRATION.md) for the launcher, stock rules, incarnation locking and application instructions; see [VALIDATION.md](VALIDATION.md) for measured results. The longer timing campaign is specified in [BENCHMARK-PROTOCOL.md](BENCHMARK-PROTOCOL.md). The r6 execution pack is `receipts/campaign-r6-20260914T1309Z/` (PR #11); see [ACCEPTANCE.md](ACCEPTANCE.md).

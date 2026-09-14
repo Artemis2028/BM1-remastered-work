@@ -3,6 +3,13 @@
 Keep every earlier receipt. This file labels what each family actually timed so later
 reviews do not treat them as the same series.
 
+**Milestone acceptance (14 September 2026):** the PR #11 r6 pack
+(`campaign-r6-20260914T1309Z/`) is accepted as sufficient performance
+evidence for this milestone and remains SUPPLEMENTARY host-class evidence.
+Platinum-only gate removed; 2/4 and ≤2 ms thresholds unchanged. Do not
+relabel or rewrite generated JSON. Decision text:
+[ACCEPTANCE.md](../ACCEPTANCE.md).
+
 ## Current 51738ca Platinum evidence
 
 **Current Platinum evidence for measured tree `51738ca`** is Astra’s rerun

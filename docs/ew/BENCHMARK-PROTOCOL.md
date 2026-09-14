@@ -1,6 +1,11 @@
 # EW long-campaign measurement protocol (Fable review)
 
-**Status: awaiting independent protocol review — long campaign not started.**
+**Status (protocol text frozen at r6):** this document is the r6 measurement
+protocol. **Do not retag** `ew-fable-protocol-20260914-r6` or amend
+`347a78a`. The r6 campaign has since been executed and independently
+audited (PR #11). Milestone evidence acceptance, Platinum-only gate
+removal, and unchanged thresholds:
+[ACCEPTANCE.md](ACCEPTANCE.md).
 
 Historical protocol tag `ew-fable-protocol-20260914` stays at `e556a380` and
 **must not move**. Prior freezes `ew-fable-protocol-20260914-r2` (`6d4c01d`)

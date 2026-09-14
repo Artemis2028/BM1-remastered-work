@@ -1,5 +1,13 @@
 # EW integration and tuning ledger
 
+**Milestone integration candidate (14 September 2026).** This tree prepares
+the reviewed EW implementation (`51738ca`), r6 validation tooling
+(`347a78a` / `ew-fable-protocol-20260914-r6`), and the accepted PR #11
+campaign pack for `main`. **Merge to `main` is a separate later
+decision.** Performance-evidence decision, Platinum-only gate removal,
+unchanged 2/4 and ≤2 ms thresholds, historical Platinum labels, and
+immutable freeze tags: [ACCEPTANCE.md](ACCEPTANCE.md).
+
 This series builds on sensor commit `758665eef8cc001973529a23e9cd556aeb98c68e`. Apply both commits, in order. It preserves the reviewed ship roster, artwork, prices, standing gates, native power/sensor profiles, and the three weapon slots.
 
 ## Equipment and authority
@@ -48,8 +56,9 @@ npm run build:python
 
 The ≥1,000-pass interleaved campaign is specified in
 [BENCHMARK-PROTOCOL.md](BENCHMARK-PROTOCOL.md). Print the plan with
-`scripts/ew-campaign.sh --plan`. Do not execute it until Fable approves the
-protocol. `npm run test:ew:performance` remains the historical 300-sample
-helper and is not that campaign.
+`scripts/ew-campaign.sh --plan`. The accepted r6 execution (PR #11) is
+`docs/ew/receipts/campaign-r6-20260914T1309Z/`; do not rewrite those JSON
+receipts. `npm run test:ew:performance` remains the historical 300-sample
+helper and is not that campaign. See [ACCEPTANCE.md](ACCEPTANCE.md).
 
 The full-pass measurement includes power/electronics funding and the entire sensor update including scan advancement. Projectile execution is additionally reported separately and is included in whole-tick timings. The pre-sensor/sensor trees carry the same six host hulls and six ordinary torpedoes; EW equips those hosts and runs the new guidance branch.
