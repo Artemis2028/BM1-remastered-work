@@ -1,0 +1,15 @@
+keeping validated plan docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-plan.json
+Harness sha256 1015baad1ba3163fbc556dc0c56cfcac4c169368603e1b9beee002b289d4e079
+Lib sha256 2de68639769e47c8c7c793e2ea3531aef784e47247bfbe72465475102e42ad57
+reusing clean worktree /tmp/ew-campaign-trees/A at 6958f08e73aff55efbf48bae3f9433e5acc270e8
+reusing clean worktree /tmp/ew-campaign-trees/B at e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b
+reusing clean worktree /tmp/ew-campaign-trees/C1 at 74caf837c7882a86e3bd7c74f083029453953c1a
+reusing clean worktree /tmp/ew-campaign-trees/C2 at 51738caf3a1d88492c4fc48a7c0125d4a7e2a355
+==> skip sequence 1 (running --sequence 2 only; prior/other raw files kept)
+==> sequence 2 A 6958f08e73aff55efbf48bae3f9433e5acc270e8 -> docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-A.json
+==> sequence 2 B e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b -> docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-B.json
+==> sequence 2 C1 74caf837c7882a86e3bd7c74f083029453953c1a -> docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-C1.json
+==> sequence 2 C2 51738caf3a1d88492c4fc48a7c0125d4a7e2a355 -> docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-C2.json
+==> skip sequence 3 (running --sequence 2 only; prior/other raw files kept)
+Wrote /workspace/docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-summary.json
+campaign gate status is not passed (missing/invalid/electronics/cumulative). Deriving failure from all validated receipts.

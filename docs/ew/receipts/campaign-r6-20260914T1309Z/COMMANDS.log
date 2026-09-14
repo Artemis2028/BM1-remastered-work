@@ -1,0 +1,21 @@
+# Exact campaign driver invocations (UTC).
+
+# Sequence 1
+# START 2026-09-14T13:11:39Z
+EW_CAMPAIGN_CONFIRMED=1 EW_RECEIPT_STAMP=campaign-r6-20260914T1309Z scripts/ew-campaign.sh --execute --sequence 1 docs/ew/receipts/campaign-r6-20260914T1309Z
+# END 2026-09-14T13:22:29Z driver_exit=1
+# driver_exit=1 is incomplete campaign report (sequences 2 and 3 not yet present). All four harness runs were run-complete.
+
+# Sequence 2
+# PRECHECK 2026-09-14T13:24:04Z worktrees clean at pinned SHAs
+# START 2026-09-14T13:24:04Z
+EW_CAMPAIGN_CONFIRMED=1 EW_RECEIPT_STAMP=campaign-r6-20260914T1309Z scripts/ew-campaign.sh --execute --sequence 2 docs/ew/receipts/campaign-r6-20260914T1309Z
+# END 2026-09-14T13:34:48Z driver_exit=1
+# driver_exit=1 is incomplete campaign report (sequence 3 not yet present). Seq1 resume-skipped; seq2 run-complete.
+
+# Sequence 3
+# PRECHECK 2026-09-14T13:35:28Z worktrees clean at pinned SHAs
+# START 2026-09-14T13:35:28Z
+EW_CAMPAIGN_CONFIRMED=1 EW_RECEIPT_STAMP=campaign-r6-20260914T1309Z scripts/ew-campaign.sh --execute --sequence 3 docs/ew/receipts/campaign-r6-20260914T1309Z
+# END 2026-09-14T13:46:13Z driver_exit=0
+# Full pack present. Independent report_rc=0, campaignPassed=true. SUPPLEMENTARY host, not Platinum.

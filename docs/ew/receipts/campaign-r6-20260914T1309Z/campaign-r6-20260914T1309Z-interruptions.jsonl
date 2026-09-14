@@ -1,0 +1,36 @@
+{"event": "sequence-start", "sequence": 1, "order": ["A", "B", "C1", "C2"], "at": "2026-09-14T13:11:44.141062+00:00"}
+{"event": "run-start", "sequence": 1, "label": "A", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq1-A.json", "at": "2026-09-14T13:11:44.175104+00:00"}
+{"event": "run-complete", "sequence": 1, "label": "A", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq1-A.json", "at": "2026-09-14T13:11:46.924445+00:00"}
+{"event": "run-start", "sequence": 1, "label": "B", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq1-B.json", "at": "2026-09-14T13:11:46.956651+00:00"}
+{"event": "run-complete", "sequence": 1, "label": "B", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq1-B.json", "at": "2026-09-14T13:15:21.056472+00:00"}
+{"event": "run-start", "sequence": 1, "label": "C1", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq1-C1.json", "at": "2026-09-14T13:15:21.087637+00:00"}
+{"event": "run-complete", "sequence": 1, "label": "C1", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq1-C1.json", "at": "2026-09-14T13:18:54.855045+00:00"}
+{"event": "run-start", "sequence": 1, "label": "C2", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq1-C2.json", "at": "2026-09-14T13:18:54.885235+00:00"}
+{"event": "run-complete", "sequence": 1, "label": "C2", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq1-C2.json", "at": "2026-09-14T13:22:28.897904+00:00"}
+{"event": "sequence-end", "sequence": 1, "at": "2026-09-14T13:22:28.913630+00:00"}
+{"event": "skip-sequence", "sequence": 2, "reason": "filter", "at": "2026-09-14T13:22:28.929347+00:00"}
+{"event": "skip-sequence", "sequence": 3, "reason": "filter", "at": "2026-09-14T13:22:28.943892+00:00"}
+{"event": "skip-sequence", "sequence": 1, "reason": "filter", "at": "2026-09-14T13:24:04.579607+00:00"}
+{"event": "sequence-start", "sequence": 2, "order": ["A", "B", "C1", "C2"], "at": "2026-09-14T13:24:04.607550+00:00"}
+{"event": "run-start", "sequence": 2, "label": "A", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-A.json", "at": "2026-09-14T13:24:04.636662+00:00"}
+{"event": "run-complete", "sequence": 2, "label": "A", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-A.json", "at": "2026-09-14T13:24:07.104302+00:00"}
+{"event": "run-start", "sequence": 2, "label": "B", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-B.json", "at": "2026-09-14T13:24:07.136640+00:00"}
+{"event": "run-complete", "sequence": 2, "label": "B", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-B.json", "at": "2026-09-14T13:27:40.989263+00:00"}
+{"event": "run-start", "sequence": 2, "label": "C1", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-C1.json", "at": "2026-09-14T13:27:41.022070+00:00"}
+{"event": "run-complete", "sequence": 2, "label": "C1", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-C1.json", "at": "2026-09-14T13:31:14.654233+00:00"}
+{"event": "run-start", "sequence": 2, "label": "C2", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-C2.json", "at": "2026-09-14T13:31:14.687845+00:00"}
+{"event": "run-complete", "sequence": 2, "label": "C2", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-C2.json", "at": "2026-09-14T13:34:48.709287+00:00"}
+{"event": "sequence-end", "sequence": 2, "at": "2026-09-14T13:34:48.726636+00:00"}
+{"event": "skip-sequence", "sequence": 3, "reason": "filter", "at": "2026-09-14T13:34:48.743888+00:00"}
+{"event": "skip-sequence", "sequence": 1, "reason": "filter", "at": "2026-09-14T13:35:28.848592+00:00"}
+{"event": "skip-sequence", "sequence": 2, "reason": "filter", "at": "2026-09-14T13:35:28.863184+00:00"}
+{"event": "sequence-start", "sequence": 3, "order": ["A", "B", "C1", "C2"], "at": "2026-09-14T13:35:28.892390+00:00"}
+{"event": "run-start", "sequence": 3, "label": "A", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq3-A.json", "at": "2026-09-14T13:35:28.922589+00:00"}
+{"event": "run-complete", "sequence": 3, "label": "A", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq3-A.json", "at": "2026-09-14T13:35:31.548128+00:00"}
+{"event": "run-start", "sequence": 3, "label": "B", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq3-B.json", "at": "2026-09-14T13:35:31.579917+00:00"}
+{"event": "run-complete", "sequence": 3, "label": "B", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq3-B.json", "at": "2026-09-14T13:39:05.486448+00:00"}
+{"event": "run-start", "sequence": 3, "label": "C1", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq3-C1.json", "at": "2026-09-14T13:39:05.518210+00:00"}
+{"event": "run-complete", "sequence": 3, "label": "C1", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq3-C1.json", "at": "2026-09-14T13:42:39.239180+00:00"}
+{"event": "run-start", "sequence": 3, "label": "C2", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq3-C2.json", "at": "2026-09-14T13:42:39.270958+00:00"}
+{"event": "run-complete", "sequence": 3, "label": "C2", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq3-C2.json", "at": "2026-09-14T13:46:13.245820+00:00"}
+{"event": "sequence-end", "sequence": 3, "at": "2026-09-14T13:46:13.263341+00:00"}
