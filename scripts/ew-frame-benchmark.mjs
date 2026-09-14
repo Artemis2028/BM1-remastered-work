@@ -22,6 +22,7 @@ import {
   chromium
 } from 'playwright';
 import {
+  collectProcBrowserCandidates,
   deriveGcSummary,
   PLATINUM_EVIDENCE,
   preloadInjectedFlags,
@@ -391,18 +392,13 @@ try {
     const r = spawnSync('git', ['-C', cwd, ...args], {encoding: 'utf8'});
     return r.status === 0 ? (r.stdout || '').trim() : null;
   };
+  let launchedPid = null;
   const recordedArgv = (() => {
-    const found = [];
     try {
-      for (const pid of fs.readdirSync('/proc')) {
-        if (!/^\d+$/.test(pid)) continue;
-        try {
-          const cmd = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean);
-          if (/chrome/i.test(cmd[0] || '')) found.push({pid: Number(pid), argv: cmd});
-        } catch { /* raced */ }
-      }
-    } catch { /* no /proc */ }
-    return selectRecordedArgv(found);
+      if (typeof browser.process === 'function') launchedPid = browser.process()?.pid ?? null;
+    } catch { /* playwright without process() */ }
+    const found = collectProcBrowserCandidates();
+    return selectRecordedArgv(found, {preferPid: launchedPid});
   })();
   const helperPath = path.join(path.dirname(harnessPath), 'ew-bench-lib.mjs');
   const helperSha256 = fs.existsSync(helperPath) ? sha256File(helperPath) : null;
@@ -412,7 +408,7 @@ try {
     treeLabel,
     sequence,
     diagnostics,
-    acceptanceEligible: withPasses && passWarmup === 50 && passSamples >= 1000 && tickWarmup === 600 && tickSamples === 3600 && !withProfile && !diagnostics && !starved && gcPlacement === 'none',
+    acceptanceEligible: false,
     measuredTree: {
       cwd: root,
       commit: git(root, ['rev-parse', 'HEAD']),
@@ -452,8 +448,12 @@ try {
       options: launchOptions,
       exposeGcFlag: launchExtraArgs.includes('--js-flags=--expose-gc'),
       recordedArgv,
-      preloadInjectedFlags: injectedFlags,
-      preloadInjectedFlagsNote: PROTOCOL.preloadInjectedFlags.note,
+      verified: recordedArgv?.verified === true,
+      playwrightPid: launchedPid,
+      preloadInjectedFlags: recordedArgv?.verified ? injectedFlags : [],
+      preloadInjectedFlagsNote: recordedArgv?.verified
+        ? PROTOCOL.preloadInjectedFlags.note
+        : 'unverified launch state; extraArgs are not proof of preload-injected flags; not reference acceptance',
       argv: process.argv.slice(),
       execPath: process.execPath,
       node: process.version
@@ -496,6 +496,20 @@ try {
     exposeGcFlag: launchExtraArgs.includes('--js-flags=--expose-gc'),
     gcPlacement
   });
+  payload.acceptanceEligible = !!(
+    withPasses
+    && passWarmup === 50
+    && passSamples >= 1000
+    && tickWarmup === 600
+    && tickSamples === 3600
+    && !withProfile
+    && !diagnostics
+    && !starved
+    && gcPlacement === 'none'
+    && payload.launch.verified
+    && payload.gc.forcedGcThisRun === false
+    && !(payload.errors || []).length
+  );
   console.log(JSON.stringify(payload, null, 2));
   if (errors.length || result.ewEnabled && !result.starved && result.activeJammers < 6 || result.electronicsPass?.applicable && result.electronicsPass.passed === false) process.exitCode = 1;
 } finally {

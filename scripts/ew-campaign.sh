@@ -43,27 +43,25 @@ TICK_WARMUP="${EW_TICK_WARMUP:-600}"
 
 HARNESS_HASH="$(sha256sum "$HARNESS" | awk '{print $1}')"
 LIB_HASH="$(sha256sum "$LIB" | awk '{print $1}')"
+PLAN_FILE="$RECEIPT_DIR/${STAMP}-plan.json"
 
-PLAN_JSON="$(
+PLAN_BUNDLE="$(
   cd "$REPO"
-  WITH_FREEZE="$WITH_FREEZE" REPS="$REPS" HARNESS_HASH="$HARNESS_HASH" LIB_HASH="$LIB_HASH" \
+  HARNESS_HASH="$HARNESS_HASH" LIB_HASH="$LIB_HASH" SEQ_FILTER="$SEQ_FILTER" STAMP="$STAMP" \
   TREE_A="$TREE_A" TREE_B="$TREE_B" TREE_C1="$TREE_C1" TREE_C2="$TREE_C2" TREE_F="$TREE_F" \
-  PASS_SAMPLES="$PASS_SAMPLES" SEQ_FILTER="$SEQ_FILTER" STAMP="$STAMP" node --input-type=module <<'JS'
-import {campaignPlan, PROTOCOL} from './scripts/ew-bench-lib.mjs';
-const plan = campaignPlan({withFreeze: process.env.WITH_FREEZE !== '0', repetitions: Number(process.env.REPS)});
-plan.trees = {
-  A: process.env.TREE_A,
-  B: process.env.TREE_B,
-  C1: process.env.TREE_C1,
-  C2: process.env.TREE_C2,
-  F: process.env.TREE_F
+  WITH_FREEZE="$WITH_FREEZE" EW_CAMPAIGN_REPS="$REPS" \
+  EW_PASS_SAMPLES="$PASS_SAMPLES" EW_PASS_WARMUP="$PASS_WARMUP" \
+  EW_TICK_SAMPLES="$TICK_SAMPLES" EW_TICK_WARMUP="$TICK_WARMUP" \
+  node --input-type=module <<'JS'
+import {campaignConfigFromEnv, campaignPlan, PROTOCOL} from './scripts/ew-bench-lib.mjs';
+const parsed = campaignConfigFromEnv(process.env);
+const plan = campaignPlan(parsed.approved);
+plan.harness = {
+  file: PROTOCOL.harnessFile,
+  sha256: process.env.HARNESS_HASH,
+  helperSha256: process.env.LIB_HASH,
+  libSha256: process.env.LIB_HASH
 };
-plan.measured.passSamples = Number(process.env.PASS_SAMPLES);
-plan.harness = {file: PROTOCOL.harnessFile, sha256: process.env.HARNESS_HASH, helperSha256: process.env.LIB_HASH, libSha256: process.env.LIB_HASH};
-plan.freezeTag = PROTOCOL.freezeTag;
-plan.freezeMoved = false;
-plan.previousHarness = PROTOCOL.previousHarness;
-plan.duration = PROTOCOL.duration;
 plan.resume = {
   ...plan.resume,
   flag: '--sequence N',
@@ -72,18 +70,24 @@ plan.resume = {
   interruptionsLog: `${process.env.STAMP || 'campaign-pending'}-interruptions.jsonl`
 };
 plan.acceptanceNeverPassesDiagnostics = true;
-console.log(JSON.stringify(plan, null, 2));
+console.log(JSON.stringify({parsed, plan}));
 JS
 )"
 
-echo "$PLAN_JSON" > "$RECEIPT_DIR/${STAMP}-plan.json"
-echo "Wrote $RECEIPT_DIR/${STAMP}-plan.json"
-echo "Harness sha256 $HARNESS_HASH"
-echo "Lib sha256 $LIB_HASH"
+PLAN_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["plan"], indent=2))' <<<"$PLAN_BUNDLE")"
+ACCEPTANCE="$(python3 -c 'import json,sys; print("true" if json.load(sys.stdin)["parsed"]["acceptance"] else "false")' <<<"$PLAN_BUNDLE")"
+DRIFTS="$(python3 -c 'import json,sys; print(",".join(json.load(sys.stdin)["parsed"]["drifts"]))' <<<"$PLAN_BUNDLE")"
 
 if [[ "$MODE" != "execute" ]]; then
+  echo "$PLAN_JSON" > "$PLAN_FILE"
+  echo "Wrote $PLAN_FILE"
+  echo "Harness sha256 $HARNESS_HASH"
+  echo "Lib sha256 $LIB_HASH"
+  if [[ "$ACCEPTANCE" != "true" ]]; then
+    echo "Note: env overrides ($DRIFTS) are not acceptance; this snapshot is the approved configuration."
+  fi
   echo
-  echo "frozen for Fable final diff review — long campaign not started"
+  echo "awaiting independent protocol review — long campaign not started"
   echo "After authorization, one sequence: EW_CAMPAIGN_CONFIRMED=1 $0 --execute --sequence 1 [receipt-dir]"
   echo "Finite campaign is 3 × A→B→C1→C2 (~30 min timed sensor passes). Do not start it from this PR."
   exit 0
@@ -91,10 +95,35 @@ fi
 
 if [[ "${EW_CAMPAIGN_CONFIRMED:-}" != "1" ]]; then
   echo "Refusing to execute the long campaign."
-  echo "Protocol is frozen for Fable final diff review. Long campaign not started."
+  echo "Protocol is awaiting independent review. Long campaign not started."
   echo "After authorization, set EW_CAMPAIGN_CONFIRMED=1 and pass --sequence N to run one sequence."
   exit 2
 fi
+
+if [[ "$ACCEPTANCE" != "true" ]]; then
+  echo "Refusing to execute: non-approved acceptance overrides: $DRIFTS" >&2
+  echo "Generate everything from the approved configuration only (no TREE_*/sample/tick overrides, WITH_FREEZE=0, 3 sequences)." >&2
+  exit 2
+fi
+
+if [[ -e "$PLAN_FILE" ]]; then
+  EXPECTED_PLAN="$(python3 -c 'import json,sys; print(json.dumps({"harnessSha256":sys.argv[1],"helperSha256":sys.argv[2]}))' "$HARNESS_HASH" "$LIB_HASH")"
+  set +e
+  PLAN_CHECK="$(node "$RESUME_CHECK" plan --file "$PLAN_FILE" --expected "$EXPECTED_PLAN")"
+  PLAN_RC=$?
+  set -e
+  if [[ $PLAN_RC -ne 0 ]]; then
+    echo "$PLAN_CHECK" >&2
+    echo "Stopping: existing $PLAN_FILE does not match the approved configuration. Not overwriting." >&2
+    exit 3
+  fi
+  echo "keeping validated plan $PLAN_FILE"
+else
+  echo "$PLAN_JSON" > "$PLAN_FILE"
+  echo "Wrote $PLAN_FILE"
+fi
+echo "Harness sha256 $HARNESS_HASH"
+echo "Lib sha256 $LIB_HASH"
 
 label_ref() {
   case "$1" in
@@ -231,13 +260,19 @@ for seq in $(seq 1 "$REPS"); do
   log_event "{\"event\":\"sequence-end\",\"sequence\":$seq}"
 done
 
+set +e
 node "$REPO/scripts/ew-bench-report.mjs" "$RECEIPT_DIR" "$STAMP"
+report_rc=$?
+set -e
 summary="$RECEIPT_DIR/${STAMP}-summary.json"
 if [[ -f "$summary" ]]; then
-  passed="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("campaignPassed"))' "$summary")"
+  passed="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("campaignPassed") is True and d.get("campaignStatus")=="passed")' "$summary")"
   if [[ "$passed" != "True" ]]; then
-    echo "campaignPassed is not true (missing/invalid/gate/cumulative)."
+    echo "campaign gate status is not passed (missing/invalid/electronics/cumulative). Deriving failure from all validated receipts."
     failed=1
   fi
+fi
+if [[ $report_rc -ne 0 ]]; then
+  failed=1
 fi
 exit "$failed"

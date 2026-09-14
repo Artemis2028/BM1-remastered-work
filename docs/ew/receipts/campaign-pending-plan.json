@@ -1,7 +1,12 @@
 {
   "protocol": "ew-benchmark-protocol-20260914",
-  "status": "frozen for Fable final diff review — long campaign not started",
-  "protocolTag": "ew-fable-protocol-20260914",
+  "status": "awaiting independent protocol review \u2014 long campaign not started",
+  "protocolTag": "ew-fable-protocol-20260914-r2",
+  "previousProtocolTag": {
+    "name": "ew-fable-protocol-20260914",
+    "commit": "e556a3801848d85062ccecc1dcfec4d8c56620fd",
+    "note": "historical; do not move"
+  },
   "gate": {
     "series": "electronicsPass",
     "p95Ms": 2,
@@ -115,6 +120,7 @@
       }
     }
   },
+  "acceptanceOverridesRejected": true,
   "resume": {
     "oneSequenceFlag": "--sequence N",
     "keepEveryRawFile": true,
@@ -124,8 +130,9 @@
     "reuseCleanExpectedWorktrees": true,
     "stopOnDirtyOrUnexpectedWorktrees": true,
     "neverForceDeleteWorktrees": true,
+    "validatePlanBeforeOverwrite": true,
     "interruptionsLog": "campaign-pending-interruptions.jsonl",
-    "note": "Skip only complete valid receipts matching expected tree SHA, harness/helper hashes, sequence, and measurement configuration. A valid gate-failing run stays completed and is never rerolled. Preserve malformed/incomplete/mismatched files and stop with an explanation. Reuse clean worktrees at the expected SHA; stop on dirty or unexpected trees without deleting them.",
+    "note": "Skip only complete valid receipts matching expected tree SHA, harness/helper hashes, sequence, and measurement configuration. A valid gate-failing run stays completed and is never rerolled. Preserve malformed/incomplete/mismatched files and stop with an explanation. Reuse clean worktrees at the expected SHA; stop on dirty or unexpected trees without deleting them. Validate an existing plan before writing a new one on resume.",
     "flag": "--sequence N",
     "env": "EW_CAMPAIGN_SEQUENCE",
     "selected": null
@@ -206,18 +213,19 @@
   ],
   "notes": [
     "One pinned harness against every tree. New harness hash is expected; old e02235c / e7987600 file is preserved.",
-    "Finite campaign: 3 sequences, order A→B→C1→C2. Optional F is extra and is not in the 30-minute estimate.",
-    "1000 passes × 200 ms = 3 min 20 s per sensor-bearing tree (B, C1, C2). Three sequences × those three trees = ~30 min of timed sensor passes, plus A ticks, warm-up, and setup — not inherently multi-hour.",
+    "Finite campaign: 3 sequences, order A\u2192B\u2192C1\u2192C2. Optional F is extra and is not in the 30-minute estimate.",
+    "1000 passes \u00d7 200 ms = 3 min 20 s per sensor-bearing tree (B, C1, C2). Three sequences \u00d7 those three trees = ~30 min of timed sensor passes, plus A ticks, warm-up, and setup \u2014 not inherently multi-hour.",
     "Acceptance never uses forced GC or --js-flags=--expose-gc. Forced GC exists only on separately labelled --diagnostics runs. GC summary fields come from actual gc() calls.",
     "Report every run absolute p95/p99 including detection, updateMs, and projectile. Campaign-level cumulative-frame verdict is required. No best-run selection. No median delta as the gate.",
     "Current Platinum evidence for 51738ca is Astra C2 3.70/9.20 and 2.00/4.30 (both failures). Historical 2.50/6.90 and supplementary 1.60/2.20 stay labeled historical.",
-    "Missing or invalid runs must not yield an overall pass. Do not start this campaign until Fable authorizes it after the tagged protocol review."
+    "Missing or invalid runs must not yield an overall pass. Plan trees and runs come from one validated configuration. Non-approved acceptance overrides are rejected.",
+    "Do not start this campaign until the tagged protocol is authorized. Historical tag ew-fable-protocol-20260914 stays at e556a380 and is not moved."
   ],
   "harness": {
     "file": "scripts/ew-frame-benchmark.mjs",
-    "sha256": "4658c76553752025ecbb2db82fa5824d66676d75830fd7bfc8326770416af2f7",
-    "helperSha256": "c3752d2f7672adcf4f1852f3dfc46415dafad3f1acef5f60306d6742eb1a9872",
-    "libSha256": "c3752d2f7672adcf4f1852f3dfc46415dafad3f1acef5f60306d6742eb1a9872"
+    "sha256": "2a573456ab48b7da42065810c9661a1cb7dbd8f4d8258ae1f2e994422a3d0b6d",
+    "helperSha256": "78f3ebb9e68397b9184ed6c5d853b068793b009360a29736d9e82d78036abfad",
+    "libSha256": "78f3ebb9e68397b9184ed6c5d853b068793b009360a29736d9e82d78036abfad"
   },
   "acceptanceNeverPassesDiagnostics": true
 }

@@ -100,7 +100,9 @@ Suites: EW 20 + 33, seeker 14 + 38 (**105**), sensors 26 + 54, power 21 + 29, be
 
 Gameplay optimization is paused. See [BENCHMARK-PROTOCOL.md](BENCHMARK-PROTOCOL.md).
 **Frozen for Fable final diff review — long campaign not started.** Protocol
-tag `ew-fable-protocol-20260914` must not move after delivery. Freeze tag
+tag `ew-fable-protocol-20260914` at `e556a380` is historical and must not
+move. The follow-up reporting/validation freeze is
+`ew-fable-protocol-20260914-r2`. Freeze tag
 `ew-fable-candidate-20260913` unchanged at `077a9ce`. Existing receipts
 retained as historical evidence.
 

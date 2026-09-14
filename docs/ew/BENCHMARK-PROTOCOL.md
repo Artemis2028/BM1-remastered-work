@@ -1,6 +1,10 @@
 # EW long-campaign measurement protocol (Fable review)
 
-**Status: frozen for Fable final diff review — long campaign not started.**
+**Status: awaiting independent protocol review — long campaign not started.**
+
+Historical protocol tag `ew-fable-protocol-20260914` stays at `e556a380` and
+**must not move**. After this Astra reporting/validation fix the new
+immutable tag is `ew-fable-protocol-20260914-r2`.
 
 This document specifies the benchmark-only follow-up. It does not change
 gameplay, budgets, freeze tags, or the 2 / 4 ms **measurement boundaries and
@@ -109,8 +113,12 @@ Required output of the **new** helper (inside the JSON receipt, not a sidecar):
 - `samples.ticks`: whole-frame `dtMs` in original order, with `tRelMs`
 - `launch.extraArgs`: flags **this process** passed to `chromium.launch`
   (`[]` on acceptance)
-- `launch.recordedArgv`: Chromium argv from `/proc` while the browser is
-  live. Prefer the process **without `--type=`** (the browser process).
+- `launch.recordedArgv`: Chromium argv of the **Playwright-launched
+  browser PID** (chrome, **chromium**, or headless_shell). Prefer that
+  process without `--type=`. Do **not** match `/chrome/i` on the full path.
+- `launch.verified`: true only when that PID/argv was captured. extraArgs
+  are **not** proof of preload-injected flags. Unverified launch cannot
+  qualify as reference acceptance.
 - `launch.preloadInjectedFlags`: `--` flags present in `recordedArgv` that
   were **not** in `extraArgs`. Playwright injects these; they are not
   extraArgs.
@@ -182,13 +190,19 @@ usable git worktree, **stop with an explanation**. Do **not**
 
 1. After authorization: `EW_CAMPAIGN_CONFIRMED=1 scripts/ew-campaign.sh --execute --sequence N`
 2. Every raw file is retained. Skip a `campaign-pending-seq{N}-{A,B,C1,C2}.json`
-   only when it is **complete and valid** and matches the expected tree SHA,
-   harness hash, helper hash, sequence, label, and measurement configuration
-   (warmup/sample counts, cadence, no diagnostics, extraArgs `[]`, no forced
-   GC). A **valid gate-failing** run stays completed and is **never rerolled**.
+   only after **validating** it: approved tree SHA, harness/helper hashes,
+   sequence, label, measurement configuration, actual sample counts,
+   `acceptanceEligible`, empty errors, GC/launch state (`launch.verified`,
+   no forced GC), and percentiles/gate recomputed from the recorded samples.
+   Diagnostic, short, mismatched, or malformed receipts are **not**
+   acceptance. A **valid gate-failing** run stays completed and is **never
+   rerolled**.
 3. If a file is malformed, incomplete, or mismatched, **preserve it and stop**
    with an explanation. Do not overwrite it. Missing or invalid runs **must
-   not** yield an overall pass.
+   not** yield an overall pass. One C2 receipt cannot complete the campaign.
+4. Validate an existing `${STAMP}-plan.json` before writing a new one on
+   resume. Plan `trees` and `runs` come from one approved configuration;
+   non-approved TREE_*/sample/tick overrides are rejected on execute.
 4. Start / skip / complete / fail / stop events append to
    `campaign-pending-interruptions.jsonl`. Record operator stops there too.
 5. Do not delete other sequences’ files. Do not pass `--diagnostics` on
@@ -326,5 +340,6 @@ EW_CAMPAIGN_CONFIRMED=1 scripts/ew-campaign.sh --execute --sequence 3 docs/ew/re
 
 Until then the execute path refuses. Do not merge to main. Do not move
 `ew-fable-candidate-20260913` (`077a9ce`) or the `51738ca` pin. Do not
-move protocol tag `ew-fable-protocol-20260914` after delivery.
+move historical tag `ew-fable-protocol-20260914` (`e556a380`) or the new
+`ew-fable-protocol-20260914-r2` after delivery.
 **Campaign not started.**

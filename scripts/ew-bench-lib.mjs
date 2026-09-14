@@ -10,8 +10,13 @@ import {fileURLToPath} from 'node:url';
 
 export const PROTOCOL = {
   id: 'ew-benchmark-protocol-20260914',
-  status: 'frozen for Fable final diff review — long campaign not started',
-  protocolTag: 'ew-fable-protocol-20260914',
+  status: 'awaiting independent protocol review — long campaign not started',
+  protocolTag: 'ew-fable-protocol-20260914-r2',
+  previousProtocolTag: {
+    name: 'ew-fable-protocol-20260914',
+    commit: 'e556a3801848d85062ccecc1dcfec4d8c56620fd',
+    note: 'historical; do not move'
+  },
   gate: {
     series: 'electronicsPass',
     p95Ms: 2,
@@ -222,20 +227,288 @@ export function rnd(n) {
   return n == null || Number.isNaN(n) ? null : Math.round(n * 100) / 100;
 }
 
-export function selectRecordedArgv(candidates) {
-  if (!candidates?.length) return null;
-  const withoutType = candidates.filter(c => !(c.argv || []).some(a => String(a).startsWith('--type=')));
-  const chosen = withoutType[0] || candidates[0];
+export function browserExecutableKind(cmd0) {
+  const base = String(cmd0 || '').split(/[/\\]/).pop() || '';
+  const name = base.replace(/\.(exe|sh)$/i, '');
+  if (/^headless_shell$/i.test(name) || /^chrome-headless-shell$/i.test(name)) return 'headless_shell';
+  if (/^chromium/i.test(name)) return 'chromium';
+  if (/^google-chrome/i.test(name) || /^chrome$/i.test(name)) return 'chrome';
+  return null;
+}
+
+export function isBrowserExecutable(cmd0) {
+  return browserExecutableKind(cmd0) != null;
+}
+
+export function readProcCmdline(pid) {
+  try {
+    const cmd = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean);
+    return cmd.length ? cmd : null;
+  } catch {
+    return null;
+  }
+}
+
+export function collectProcBrowserCandidates() {
+  const found = [];
+  try {
+    for (const pid of fs.readdirSync('/proc')) {
+      if (!/^\d+$/.test(pid)) continue;
+      const argv = readProcCmdline(pid);
+      if (!argv) continue;
+      if (isBrowserExecutable(argv[0])) found.push({pid: Number(pid), argv, kind: browserExecutableKind(argv[0])});
+    }
+  } catch { /* no /proc */ }
+  return found;
+}
+
+// Prefer the Playwright-launched PID. Never use /chrome/i on the full path
+// (misses /chromium and can match unrelated processes). extraArgs are not
+// proof of preload-injected flags; unverified launch is not acceptance.
+export function selectRecordedArgv(candidates, {preferPid = null} = {}) {
+  const list = candidates || [];
+  if (preferPid != null) {
+    const hit = list.find(c => Number(c.pid) === Number(preferPid));
+    if (hit && isBrowserExecutable(hit.argv?.[0]) && !(hit.argv || []).some(a => String(a).startsWith('--type='))) {
+      return {
+        ...hit,
+        selected: 'playwright-browser-process',
+        verified: true,
+        candidateCount: list.length
+      };
+    }
+    const argv = readProcCmdline(preferPid);
+    if (argv && isBrowserExecutable(argv[0]) && !argv.some(a => String(a).startsWith('--type='))) {
+      return {
+        pid: Number(preferPid),
+        argv,
+        kind: browserExecutableKind(argv[0]),
+        selected: 'playwright-browser-process',
+        verified: true,
+        candidateCount: list.length
+      };
+    }
+    return {
+      pid: Number(preferPid),
+      argv: argv || hit?.argv || null,
+      selected: 'playwright-pid-unverified',
+      verified: false,
+      candidateCount: list.length,
+      reason: 'Playwright pid was not a browser process without --type='
+    };
+  }
+  const browsers = list.filter(c => isBrowserExecutable(c.argv?.[0]));
+  const withoutType = browsers.filter(c => !(c.argv || []).some(a => String(a).startsWith('--type=')));
+  if (withoutType.length === 1) {
+    return {
+      ...withoutType[0],
+      selected: 'browser-process-without-type',
+      verified: true,
+      candidateCount: list.length
+    };
+  }
+  if (withoutType.length > 1) {
+    return {
+      selected: 'ambiguous-multiple-browser-processes',
+      verified: false,
+      candidateCount: withoutType.length,
+      pids: withoutType.map(c => c.pid),
+      reason: 'multiple browser processes without --type=; refusing to pick an unrelated argv'
+    };
+  }
   return {
-    ...chosen,
-    selected: withoutType.length ? 'browser-process-without-type' : 'fallback-chrome-with-type',
-    candidateCount: candidates.length
+    selected: 'unverified',
+    verified: false,
+    candidateCount: list.length,
+    reason: 'no browser process without --type= (chrome/chromium/headless_shell)'
   };
 }
 
 export function preloadInjectedFlags(recorded, extraArgs = []) {
+  if (!recorded?.verified || !Array.isArray(recorded.argv)) return [];
   const extra = new Set(extraArgs || []);
-  return (recorded?.argv || []).filter(a => typeof a === 'string' && a.startsWith('--') && !extra.has(a));
+  return recorded.argv.filter(a => typeof a === 'string' && a.startsWith('--') && !extra.has(a));
+}
+
+export function approvedCampaignConfig() {
+  return {
+    trees: {...PROTOCOL.trees},
+    withFreeze: false,
+    repetitions: PROTOCOL.sequenceRepetitions,
+    sequenceOrder: [...PROTOCOL.sequenceOrder],
+    passWarmup: PROTOCOL.passWarmup,
+    passSamples: PROTOCOL.passSamples,
+    tickWarmup: PROTOCOL.tickWarmup,
+    tickSamples: PROTOCOL.tickSamples,
+    passCadenceMs: PROTOCOL.passCadenceMs,
+    renderSamples: PROTOCOL.renderSamples
+  };
+}
+
+export function campaignConfigFromEnv(env = process.env) {
+  const approved = approvedCampaignConfig();
+  const num = (key, fallback) => {
+    if (env[key] == null || env[key] === '') return fallback;
+    const n = Number(env[key]);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const requested = {
+    trees: {
+      A: env.TREE_A || approved.trees.A,
+      B: env.TREE_B || approved.trees.B,
+      C1: env.TREE_C1 || approved.trees.C1,
+      C2: env.TREE_C2 || approved.trees.C2,
+      F: env.TREE_F || approved.trees.F
+    },
+    withFreeze: env.WITH_FREEZE != null && env.WITH_FREEZE !== '' && env.WITH_FREEZE !== '0',
+    repetitions: num('EW_CAMPAIGN_REPS', approved.repetitions),
+    sequenceOrder: [...approved.sequenceOrder],
+    passWarmup: num('EW_PASS_WARMUP', approved.passWarmup),
+    passSamples: num('EW_PASS_SAMPLES', approved.passSamples),
+    tickWarmup: num('EW_TICK_WARMUP', approved.tickWarmup),
+    tickSamples: num('EW_TICK_SAMPLES', approved.tickSamples),
+    passCadenceMs: approved.passCadenceMs,
+    renderSamples: approved.renderSamples
+  };
+  const drifts = [];
+  for (const k of ['A', 'B', 'C1', 'C2']) {
+    if (requested.trees[k] !== approved.trees[k]) drifts.push(`trees.${k}`);
+  }
+  if (requested.withFreeze !== approved.withFreeze) drifts.push('withFreeze');
+  if (requested.repetitions !== approved.repetitions) drifts.push('repetitions');
+  if (requested.passWarmup !== approved.passWarmup) drifts.push('passWarmup');
+  if (requested.passSamples !== approved.passSamples) drifts.push('passSamples');
+  if (requested.tickWarmup !== approved.tickWarmup) drifts.push('tickWarmup');
+  if (requested.tickSamples !== approved.tickSamples) drifts.push('tickSamples');
+  return {
+    requested,
+    approved,
+    drifts,
+    acceptance: drifts.length === 0
+  };
+}
+
+export function campaignPlan(config = {}) {
+  const approved = approvedCampaignConfig();
+  const cfg = {
+    ...approved,
+    ...config,
+    trees: config.trees ? {...config.trees} : {...approved.trees},
+    sequenceOrder: config.sequenceOrder ? [...config.sequenceOrder] : [...approved.sequenceOrder]
+  };
+  const order = cfg.withFreeze ? [...cfg.sequenceOrder, PROTOCOL.optionalFifthPin] : [...cfg.sequenceOrder];
+  const sequences = [];
+  for (let seq = 1; seq <= cfg.repetitions; seq++) {
+    for (const label of order) {
+      sequences.push({
+        sequence: seq,
+        label,
+        sha: cfg.trees[label],
+        role: label === 'F'
+          ? 'frozen candidate, same-session comparison only; tag not moved'
+          : label === 'A'
+            ? 'pre-sensor / OPS frame baseline; sensor-pass N/A'
+            : label === 'B'
+              ? 'sensors, ordinary torpedoes'
+              : label === 'C1'
+                ? 'paid noise/ECCM, ordinary torpedoes'
+                : 'measured EW candidate (full EW + HOJ)'
+      });
+    }
+  }
+  return {
+    protocol: PROTOCOL.id,
+    status: PROTOCOL.status,
+    protocolTag: PROTOCOL.protocolTag,
+    previousProtocolTag: PROTOCOL.previousProtocolTag,
+    gate: PROTOCOL.gate,
+    cumulativeFrameP95Ms: PROTOCOL.cumulativeFrameP95Ms,
+    trees: {...cfg.trees},
+    freezeTag: PROTOCOL.freezeTag,
+    freezeMoved: false,
+    withFreeze: !!cfg.withFreeze,
+    sequenceOrder: order,
+    repetitions: cfg.repetitions,
+    warmup: {passWarmup: cfg.passWarmup, tickWarmup: cfg.tickWarmup, passCadenceMs: cfg.passCadenceMs},
+    measured: {passSamples: cfg.passSamples, tickSamples: cfg.tickSamples, renderSamples: cfg.renderSamples},
+    previousHarness: PROTOCOL.previousHarness,
+    duration: PROTOCOL.duration,
+    percentile: PROTOCOL.percentile,
+    timer: PROTOCOL.timer,
+    preloadInjectedFlags: PROTOCOL.preloadInjectedFlags,
+    platinumEvidence: PLATINUM_EVIDENCE,
+    acceptanceOverridesRejected: true,
+    resume: {
+      oneSequenceFlag: '--sequence N',
+      keepEveryRawFile: true,
+      skipOnlyCompleteValidReceipts: true,
+      neverRerollValidGateFailure: true,
+      stopOnMalformedIncompleteOrMismatch: true,
+      reuseCleanExpectedWorktrees: true,
+      stopOnDirtyOrUnexpectedWorktrees: true,
+      neverForceDeleteWorktrees: true,
+      validatePlanBeforeOverwrite: true,
+      interruptionsLog: '${STAMP}-interruptions.jsonl',
+      note: 'Skip only complete valid receipts matching expected tree SHA, harness/helper hashes, sequence, and measurement configuration. A valid gate-failing run stays completed and is never rerolled. Preserve malformed/incomplete/mismatched files and stop with an explanation. Reuse clean worktrees at the expected SHA; stop on dirty or unexpected trees without deleting them. Validate an existing plan before writing a new one on resume.'
+    },
+    runs: sequences,
+    notes: [
+      'One pinned harness against every tree. New harness hash is expected; old e02235c / e7987600 file is preserved.',
+      'Finite campaign: 3 sequences, order A→B→C1→C2. Optional F is extra and is not in the 30-minute estimate.',
+      '1000 passes × 200 ms = 3 min 20 s per sensor-bearing tree (B, C1, C2). Three sequences × those three trees = ~30 min of timed sensor passes, plus A ticks, warm-up, and setup — not inherently multi-hour.',
+      'Acceptance never uses forced GC or --js-flags=--expose-gc. Forced GC exists only on separately labelled --diagnostics runs. GC summary fields come from actual gc() calls.',
+      'Report every run absolute p95/p99 including detection, updateMs, and projectile. Campaign-level cumulative-frame verdict is required. No best-run selection. No median delta as the gate.',
+      'Current Platinum evidence for 51738ca is Astra C2 3.70/9.20 and 2.00/4.30 (both failures). Historical 2.50/6.90 and supplementary 1.60/2.20 stay labeled historical.',
+      'Missing or invalid runs must not yield an overall pass. Plan trees and runs come from one validated configuration. Non-approved acceptance overrides are rejected.',
+      'Do not start this campaign until the tagged protocol is authorized. Historical tag ew-fable-protocol-20260914 stays at e556a380 and is not moved.'
+    ]
+  };
+}
+
+export function validatePlan(plan, {
+  harnessSha256,
+  helperSha256,
+  config = approvedCampaignConfig()
+} = {}) {
+  const problems = [];
+  if (!plan || typeof plan !== 'object') return {ok: false, problems: ['plan is not an object']};
+  for (const k of ['A', 'B', 'C1', 'C2']) {
+    if (plan.trees?.[k] !== config.trees[k]) problems.push(`trees.${k} is not the approved SHA`);
+  }
+  if (!Array.isArray(plan.runs) || plan.runs.length !== config.repetitions * config.sequenceOrder.length) {
+    problems.push('runs length does not match approved 3 × A/B/C1/C2');
+  }
+  for (const run of plan.runs || []) {
+    if (run.sha !== plan.trees?.[run.label]) problems.push(`runs ${run.label} seq ${run.sequence} sha != plan.trees`);
+    if (run.sha !== config.trees[run.label]) problems.push(`runs ${run.label} seq ${run.sequence} sha is not approved`);
+  }
+  if (plan.warmup?.passWarmup !== config.passWarmup) problems.push('warmup.passWarmup drift');
+  if (plan.warmup?.tickWarmup !== config.tickWarmup) problems.push('warmup.tickWarmup drift');
+  if (plan.warmup?.passCadenceMs !== config.passCadenceMs) problems.push('warmup.passCadenceMs drift');
+  if (plan.measured?.passSamples !== config.passSamples) problems.push('measured.passSamples drift');
+  if (plan.measured?.tickSamples !== config.tickSamples) problems.push('measured.tickSamples drift');
+  if (plan.withFreeze) problems.push('withFreeze is not acceptance');
+  if (plan.repetitions !== config.repetitions) problems.push('repetitions drift');
+  if (harnessSha256 && plan.harness?.sha256 && plan.harness.sha256 !== harnessSha256) {
+    problems.push('plan harness sha256 mismatch');
+  }
+  if (helperSha256 && plan.harness?.helperSha256 && plan.harness.helperSha256 !== helperSha256) {
+    problems.push('plan helper sha256 mismatch');
+  }
+  return {ok: problems.length === 0, problems};
+}
+
+export function recomputeReceiptSeries(j) {
+  const passes = asArray(j?.samples?.passes) || [];
+  const ticks = asArray(j?.samples?.ticks?.dtMs) || [];
+  const electronics = percentileStats(passes.map(p => p.electronicsMs).filter(Number.isFinite));
+  const detection = percentileStats(passes.map(p => p.detectionMs).filter(Number.isFinite));
+  const updateMs = percentileStats(passes.map(p => p.updateMs).filter(Number.isFinite));
+  const projectile = percentileStats(passes.map(p => p.projectileMs).filter(Number.isFinite));
+  const tick = percentileStats(ticks.filter(Number.isFinite));
+  const applicable = j?.electronicsPass?.applicable === true;
+  const gatePassed = applicable ? seriesGate(electronics) : null;
+  return {electronics, detection, updateMs, projectile, tick, gatePassed};
 }
 
 export function deriveGcSummary(gcState = {}, {
@@ -536,84 +809,120 @@ export function classifyExistingReceipt(file, expected = {}) {
       problems: mismatches
     };
   }
+  const ineligible = ineligibleReasons(j, expected);
+  if (ineligible.length) {
+    return {
+      action: 'stop',
+      status: 'mismatch',
+      file,
+      reason: ineligible.join('; '),
+      problems: ineligible
+    };
+  }
+  const recomputed = recomputeReceiptSeries(j);
+  const sampleProblems = sampleVerificationProblems(j, expected, recomputed);
+  if (sampleProblems.length) {
+    return {
+      action: 'stop',
+      status: sampleProblems.some(p => p.startsWith('stale')) ? 'mismatch' : 'incomplete',
+      file,
+      reason: sampleProblems.join('; '),
+      problems: sampleProblems
+    };
+  }
   const elec = j.electronicsPass;
-  const electronicsPassed = elec?.applicable === false ? null : elec?.passed === true;
+  const electronicsPassed = elec?.applicable === false ? null : recomputed.gatePassed === true;
   return {
     action: 'skip',
     status: 'complete-valid',
     file,
     gatePassed: electronicsPassed,
     electronicsPassed,
-    note: elec?.passed === false
+    recomputedGatePassed: recomputed.gatePassed,
+    note: electronicsPassed === false
       ? 'valid gate-failing run stays completed and is never rerolled'
       : 'complete valid receipt matching expected tree, hashes, sequence, and measurement configuration'
   };
 }
 
-export function campaignPlan({withFreeze = false, repetitions = PROTOCOL.sequenceRepetitions} = {}) {
-  const order = withFreeze ? [...PROTOCOL.sequenceOrder, PROTOCOL.optionalFifthPin] : [...PROTOCOL.sequenceOrder];
-  const sequences = [];
-  for (let seq = 1; seq <= repetitions; seq++) {
-    for (const label of order) {
-      sequences.push({
-        sequence: seq,
-        label,
-        sha: PROTOCOL.trees[label],
-        role: label === 'F'
-          ? 'frozen candidate, same-session comparison only; tag not moved'
-          : label === 'A'
-            ? 'pre-sensor / OPS frame baseline; sensor-pass N/A'
-            : label === 'B'
-              ? 'sensors, ordinary torpedoes'
-              : label === 'C1'
-                ? 'paid noise/ECCM, ordinary torpedoes'
-                : 'measured EW candidate (full EW + HOJ)'
-      });
+export function ineligibleReasons(j, expected = {}) {
+  const problems = [];
+  if (j.diagnostics === true || j.gc?.diagnostics === true) problems.push('diagnostics receipt is not acceptance');
+  if (j.acceptanceEligible === false) problems.push('acceptanceEligible is false');
+  if (j.profiled === true || j.harness?.profiled === true) problems.push('profiled receipt is not acceptance');
+  if (j.starved === true) problems.push('starved receipt is not acceptance');
+  if (j.gc?.calledInsideMeasuredWindow === true || j.gc?.calledBeforeMeasuredWindow === true || j.gc?.calledAfterMeasuredWindow === true) {
+    problems.push('forced GC call flags are set; acceptance never calls gc()');
+  }
+  if (j.gc?.forcedGcThisRun === true) problems.push('forcedGcThisRun is true');
+  if (Array.isArray(j.errors) && j.errors.length) problems.push('receipt errors are not empty');
+  const launchVerified = j.launch?.verified === true || j.launch?.recordedArgv?.verified === true;
+  if (expected.requireLaunchVerified !== false && !launchVerified) {
+    problems.push('unverified launch state cannot qualify as reference acceptance');
+  }
+  if (j.launch?.exposeGcFlag === true) problems.push('exposeGcFlag is true');
+  const commit = j.measuredTree?.commit;
+  const allowed = new Set(Object.values(PROTOCOL.trees));
+  if (expected.treeSha) {
+    if (commit && commit !== expected.treeSha) problems.push(`tree SHA ${commit} != expected ${expected.treeSha}`);
+  } else if (commit && !allowed.has(commit)) {
+    problems.push('measuredTree.commit is not an approved pinned tree');
+  }
+  return problems;
+}
+
+export function sampleVerificationProblems(j, expected, recomputed = recomputeReceiptSeries(j)) {
+  const problems = [];
+  const label = expected.label || j.treeLabel;
+  const sensor = label && label !== 'A';
+  if (sensor || j.electronicsPass?.applicable === true) {
+    const claimed = j.electronicsPass || {};
+    if (recomputed.electronics.samples < (expected.passSamples || claimed.samples || 0)) {
+      problems.push(`actual electronics samples ${recomputed.electronics.samples} below expected`);
+    }
+    if (claimed.p95 != null && recomputed.electronics.p95 != null && claimed.p95 !== recomputed.electronics.p95) {
+      problems.push(`electronics p95 ${claimed.p95} != samples ${recomputed.electronics.p95}`);
+    }
+    if (claimed.p99 != null && recomputed.electronics.p99 != null && claimed.p99 !== recomputed.electronics.p99) {
+      problems.push(`electronics p99 ${claimed.p99} != samples ${recomputed.electronics.p99}`);
+    }
+    const actualGate = recomputed.gatePassed;
+    if (typeof claimed.passed === 'boolean' && actualGate != null && claimed.passed !== actualGate) {
+      problems.push(`stale electronicsPass.passed=${claimed.passed} but samples/gate are ${actualGate}`);
     }
   }
+  return problems;
+}
+
+export function effectiveElectronics(j) {
+  const e = elecOf(j);
+  if (!e) return null;
+  const samples = asArray(j?.samples?.passes);
+  let stats = {samples: e.samples, p95: e.p95, p99: e.p99};
+  if (samples && samples.some(p => Number.isFinite(p.electronicsMs))) {
+    stats = recomputeReceiptSeries(j).electronics;
+  }
   return {
-    protocol: PROTOCOL.id,
-    status: PROTOCOL.status,
-    protocolTag: PROTOCOL.protocolTag,
-    gate: PROTOCOL.gate,
-    cumulativeFrameP95Ms: PROTOCOL.cumulativeFrameP95Ms,
-    trees: PROTOCOL.trees,
-    freezeTag: PROTOCOL.freezeTag,
-    freezeMoved: false,
-    withFreeze,
-    sequenceOrder: order,
-    repetitions,
-    warmup: {passWarmup: PROTOCOL.passWarmup, tickWarmup: PROTOCOL.tickWarmup, passCadenceMs: PROTOCOL.passCadenceMs},
-    measured: {passSamples: PROTOCOL.passSamples, tickSamples: PROTOCOL.tickSamples, renderSamples: PROTOCOL.renderSamples},
-    previousHarness: PROTOCOL.previousHarness,
-    duration: PROTOCOL.duration,
-    percentile: PROTOCOL.percentile,
-    timer: PROTOCOL.timer,
-    preloadInjectedFlags: PROTOCOL.preloadInjectedFlags,
-    platinumEvidence: PLATINUM_EVIDENCE,
-    resume: {
-      oneSequenceFlag: '--sequence N',
-      keepEveryRawFile: true,
-      skipOnlyCompleteValidReceipts: true,
-      neverRerollValidGateFailure: true,
-      stopOnMalformedIncompleteOrMismatch: true,
-      reuseCleanExpectedWorktrees: true,
-      stopOnDirtyOrUnexpectedWorktrees: true,
-      neverForceDeleteWorktrees: true,
-      interruptionsLog: '${STAMP}-interruptions.jsonl',
-      note: 'Skip only complete valid receipts matching expected tree SHA, harness/helper hashes, sequence, and measurement configuration. A valid gate-failing run stays completed and is never rerolled. Preserve malformed/incomplete/mismatched files and stop with an explanation. Reuse clean worktrees at the expected SHA; stop on dirty or unexpected trees without deleting them.'
-    },
-    runs: sequences,
-    notes: [
-      'One pinned harness against every tree. New harness hash is expected; old e02235c / e7987600 file is preserved.',
-      'Finite campaign: 3 sequences, order A→B→C1→C2. Optional F is extra and is not in the 30-minute estimate.',
-      '1000 passes × 200 ms = 3 min 20 s per sensor-bearing tree (B, C1, C2). Three sequences × those three trees = ~30 min of timed sensor passes, plus A ticks, warm-up, and setup — not inherently multi-hour.',
-      'Acceptance never uses forced GC or --js-flags=--expose-gc. Forced GC exists only on separately labelled --diagnostics runs. GC summary fields come from actual gc() calls.',
-      'Report every run absolute p95/p99 including detection, updateMs, and projectile. Campaign-level cumulative-frame verdict is required. No best-run selection. No median delta as the gate.',
-      'Current Platinum evidence for 51738ca is Astra C2 3.70/9.20 and 2.00/4.30 (both failures). Historical 2.50/6.90 and supplementary 1.60/2.20 stay labeled historical.',
-      'Missing or invalid runs must not yield an overall pass. Do not start this campaign until Fable authorizes it after the tagged protocol review.'
-    ]
+    ...e,
+    samples: stats.samples,
+    p95: stats.p95,
+    p99: stats.p99,
+    passed: seriesGate(stats)
   };
+}
+
+export function receiptIneligible(j) {
+  if (!j) return 'missing';
+  if (j.diagnostics === true) return 'diagnostics';
+  if (j.acceptanceEligible === false) return 'not-acceptance-eligible';
+  if (j.profiled === true) return 'profiled';
+  if (j.starved === true) return 'starved';
+  if (j.gc?.calledInsideMeasuredWindow === true || j.gc?.forcedGcThisRun === true) return 'forced-gc';
+  if (Array.isArray(j.errors) && j.errors.length) return 'errors';
+  if (j.launch?.verified === false || j.launch?.recordedArgv?.verified === false) return 'unverified-launch';
+  const commit = j.measuredTree?.commit;
+  if (commit && !Object.values(PROTOCOL.trees).includes(commit)) return 'unapproved-tree';
+  return null;
 }
 
 function tickOf(receipt) {
@@ -667,24 +976,43 @@ export function summarizeCampaign(blocks, {
   const electronicsP95 = [];
   const tickP95 = [];
   const missing = [];
+  const ineligible = [];
   const bySeq = new Map((blocks || []).map(b => [b.sequence, b]));
   for (let seq = 1; seq <= expectedSequences; seq++) {
     const block = bySeq.get(seq);
     for (const label of expectedLabels) {
-      if (!block?.[label]) missing.push({sequence: seq, label});
+      const j = block?.[label];
+      if (!j) {
+        missing.push({sequence: seq, label});
+        continue;
+      }
+      const reason = receiptIneligible(j);
+      if (reason) ineligible.push({sequence: seq, label, reason});
     }
   }
   for (const block of blocks || []) {
-    const C2 = block.C2;
-    const elec = elecOf(C2);
-    const inc = blockIncrements(block);
+    const C2 = receiptIneligible(block.C2) ? null : block.C2;
+    const A = receiptIneligible(block.A) ? null : block.A;
+    const B = receiptIneligible(block.B) ? null : block.B;
+    const eligibleBlock = {...block, A: A || undefined, B: B || undefined, C2: C2 || undefined};
+    if (!A) delete eligibleBlock.A;
+    if (!B) delete eligibleBlock.B;
+    if (!C2) delete eligibleBlock.C2;
+    const elec = effectiveElectronics(C2);
+    const inc = blockIncrements({...block, A: A || block.A, B: B || block.B, C2: C2 || block.C2});
+    if (!A || !C2) {
+      inc.tickP95.cumulativePassed = null;
+      inc.tickP95.ewMinusPresensor = A && C2 ? inc.tickP95.ewMinusPresensor : null;
+    }
     const run = {
       sequence: block.sequence,
       trees: Object.fromEntries(['A', 'B', 'C1', 'C2', 'F'].filter(k => block[k]).map(k => {
         const j = block[k];
-        const e = elecOf(j);
+        const inelig = receiptIneligible(j);
+        const e = inelig ? null : effectiveElectronics(j);
         return [k, {
           commit: j.measuredTree?.commit || j.treeCommit || null,
+          ineligible: inelig,
           tickP95: rnd(tickOf(j).p95),
           tickP99: rnd(tickOf(j).p99),
           electronicsP95: e ? rnd(e.p95) : null,
@@ -703,18 +1031,25 @@ export function summarizeCampaign(blocks, {
     };
     perRun.push(run);
     if (elec?.p95 != null) electronicsP95.push(elec.p95);
-    if (tickOf(C2).p95 != null) tickP95.push(tickOf(C2).p95);
+    if (C2 && tickOf(C2).p95 != null) tickP95.push(tickOf(C2).p95);
   }
-  const invalid = [...invalidReceipts];
-  const expectedBlockCount = expectedSequences;
-  const listedComplete = missing.length === 0 && (blocks || []).length >= expectedBlockCount;
+  const invalid = [...invalidReceipts, ...ineligible];
+  const acceptanceComplete = missing.length === 0 && ineligible.length === 0 && invalidReceipts.length === 0
+    && expectedLabels.every(label => {
+      if (label === 'F') return true;
+      return [...bySeq.values()].filter(b => b.sequence >= 1 && b.sequence <= expectedSequences).length >= expectedSequences
+        && Array.from({length: expectedSequences}, (_, i) => bySeq.get(i + 1)?.[label]).every(Boolean);
+    });
+  const listedComplete = missing.length === 0 && ineligible.length === 0 && (blocks || []).length >= expectedSequences;
   const anyElecFail = perRun.some(r => r.electronicsPassAbsolute && r.electronicsPassAbsolute.passed === false);
-  const anyElecMissing = perRun.some(r => !r.electronicsPassAbsolute) || missing.some(m => m.label === 'C2');
+  const anyElecMissing = !listedComplete || perRun.filter(r => r.electronicsPassAbsolute).length < expectedSequences;
   const anyCumulFail = perRun.some(r => r.increments.tickP95.cumulativePassed === false);
-  const anyCumulMissing = perRun.some(r => r.increments.tickP95.cumulativePassed == null) || missing.some(m => m.label === 'A' || m.label === 'C2');
+  const anyCumulMissing = !listedComplete || perRun.some(r => r.increments.tickP95.cumulativePassed == null);
   const campaignElectronicsPass = {
     anyRunFailed: anyElecFail,
-    allRunsPassed: listedComplete && invalid.length === 0 && !anyElecFail && !anyElecMissing && perRun.every(r => r.electronicsPassAbsolute?.passed === true),
+    allRunsPassed: listedComplete && invalid.length === 0 && !anyElecFail && !anyElecMissing
+      && perRun.length >= expectedSequences
+      && perRun.every(r => r.electronicsPassAbsolute?.passed === true),
     worstP95: electronicsP95.length ? Math.max(...electronicsP95) : null,
     worstP99: perRun.reduce((w, r) => {
       const v = r.electronicsPassAbsolute?.p99;
@@ -726,7 +1061,9 @@ export function summarizeCampaign(blocks, {
     limitMs: PROTOCOL.cumulativeFrameP95Ms,
     series: 'whole-frame tick p95 vs pre-sensor (tree A)',
     anyRunFailed: anyCumulFail,
-    allRunsPassed: listedComplete && invalid.length === 0 && !anyCumulFail && !anyCumulMissing && perRun.every(r => r.increments.tickP95.cumulativePassed === true),
+    allRunsPassed: listedComplete && invalid.length === 0 && !anyCumulFail && !anyCumulMissing
+      && perRun.length >= expectedSequences
+      && perRun.every(r => r.increments.tickP95.cumulativePassed === true),
     worstEwMinusPresensorP95: cumulValues.length ? Math.max(...cumulValues) : null,
     perRun: perRun.map(r => ({
       sequence: r.sequence,
@@ -734,7 +1071,16 @@ export function summarizeCampaign(blocks, {
       passed: r.increments.tickP95.cumulativePassed
     }))
   };
-  const campaignPassed = campaignElectronicsPass.allRunsPassed && campaignCumulativeFrame.allRunsPassed && missing.length === 0 && invalid.length === 0;
+  const campaignPassed = campaignElectronicsPass.allRunsPassed && campaignCumulativeFrame.allRunsPassed;
+  const campaignStatus = campaignPassed
+    ? 'passed'
+    : (ineligible.length || invalidReceipts.length)
+      ? 'invalid'
+      : missing.length
+        ? 'incomplete'
+        : (anyElecFail || anyCumulFail)
+          ? 'failed'
+          : 'incomplete';
   return {
     protocol: PROTOCOL.id,
     gate: PROTOCOL.gate,
@@ -747,12 +1093,15 @@ export function summarizeCampaign(blocks, {
       campaignLevelCumulativeFrameVerdict: true,
       increments: ['EW−sensors', 'EW−pre-sensor'],
       variabilityReported: true,
-      missingOrInvalidCannotPass: true
+      missingOrInvalidCannotPass: true,
+      ineligibleCannotPass: true
     },
     expectedSequences,
     expectedLabels,
     missing,
+    ineligible,
     invalidReceipts: invalid,
+    campaignStatus,
     perRun,
     variability: {
       electronicsPassP95: percentileStats(electronicsP95),
@@ -766,6 +1115,48 @@ export function summarizeCampaign(blocks, {
     decisionRequired: true,
     doNotMergeToMain: true
   };
+}
+
+export function loadCampaignReceipts(receiptDir, stamp, {
+  harnessSha256,
+  helperSha256,
+  config = approvedCampaignConfig()
+} = {}) {
+  const prefix = stamp;
+  const files = fs.existsSync(receiptDir)
+    ? fs.readdirSync(receiptDir).filter(f => f.startsWith(prefix) && f.endsWith('.json') && !f.includes('summary') && !f.includes('plan') && !f.includes('increments'))
+    : [];
+  const blocks = new Map();
+  const invalidReceipts = [];
+  for (const file of files) {
+    const m = file.match(/seq(\d+)-(A|B|C1|C2|F)\.json$/);
+    if (!m) continue;
+    const full = path.join(receiptDir, file);
+    const seq = Number(m[1]);
+    const label = m[2];
+    const expected = expectedCampaignMeasurement({
+      sequence: seq,
+      label,
+      treeSha: config.trees[label],
+      harnessSha256,
+      helperSha256,
+      passWarmup: config.passWarmup,
+      passSamples: config.passSamples,
+      tickWarmup: config.tickWarmup,
+      tickSamples: config.tickSamples,
+      passCadenceMs: config.passCadenceMs
+    });
+    const classification = classifyExistingReceipt(full, expected);
+    if (classification.action !== 'skip') {
+      invalidReceipts.push({file: full, ...classification});
+      continue;
+    }
+    const json = JSON.parse(fs.readFileSync(full, 'utf8'));
+    const block = blocks.get(seq) || {sequence: seq};
+    block[label] = json;
+    blocks.set(seq, block);
+  }
+  return {blocks: [...blocks.values()].sort((a, b) => a.sequence - b.sequence), invalidReceipts};
 }
 
 export function supportingHashes(repoRoot) {
@@ -906,7 +1297,27 @@ export function selfTest() {
     {pid: 1, argv: ['chrome', '--type=renderer', '--flag']},
     {pid: 2, argv: ['chrome', '--disable-field-trial-config']}
   ]);
-  assert(argvChosen.pid === 2 && argvChosen.selected === 'browser-process-without-type', 'prefer no --type=');
+  assert(argvChosen.pid === 2 && argvChosen.selected === 'browser-process-without-type' && argvChosen.verified === true, 'prefer no --type=');
+  assert(/chrome/i.test('/usr/bin/chromium') === false, 'legacy /chrome/i misses chromium basename');
+  assert(isBrowserExecutable('/usr/bin/chromium') && isBrowserExecutable('/opt/google/chrome') && isBrowserExecutable('/path/headless_shell'), 'chromium/chrome/headless_shell');
+  const fromChromium = selectRecordedArgv([
+    {pid: 9, argv: ['/usr/bin/firefox']},
+    {pid: 10, argv: ['/usr/bin/chromium', '--disable-field-trial-config']}
+  ]);
+  assert(fromChromium.pid === 10 && fromChromium.verified === true, 'select chromium without /chrome/i');
+  const fromPid = selectRecordedArgv([
+    {pid: 10, argv: ['/usr/bin/chromium', '--disable-field-trial-config']},
+    {pid: 11, argv: ['/usr/bin/chromium', '--type=renderer']}
+  ], {preferPid: 10});
+  assert(fromPid.selected === 'playwright-browser-process' && fromPid.verified === true, 'prefer Playwright pid');
+  const drifted = campaignConfigFromEnv({TREE_C2: '0'.repeat(40), EW_PASS_WARMUP: '3', EW_TICK_SAMPLES: '9'});
+  assert(drifted.acceptance === false && drifted.drifts.includes('trees.C2') && drifted.drifts.includes('passWarmup') && drifted.drifts.includes('tickSamples'), 'non-approved overrides are not acceptance');
+  const approvedPlan = campaignPlan();
+  assert(approvedPlan.runs.filter(r => r.label === 'C2').every(r => r.sha === approvedPlan.trees.C2), 'plan.runs match plan.trees');
+  assert(validatePlan(approvedPlan).ok === true, 'approved plan validates');
+  const internallyConsistentOverride = campaignPlan(drifted.requested);
+  assert(internallyConsistentOverride.runs.filter(r => r.label === 'C2').every(r => r.sha === internallyConsistentOverride.trees.C2), 'generated plan keeps trees and runs together');
+  assert(validatePlan(internallyConsistentOverride).ok === false, 'unapproved generated plan is not acceptance');
   const gcFromFlag = deriveGcSummary({
     gcFunctionPresent: true,
     calledBeforeMeasuredWindow: false,
@@ -929,7 +1340,7 @@ export function selfTest() {
     C2: fixtureReceipt({label: 'C2', sequence: seq, electronicsP95: 1.5, electronicsP99: 2.0, tickP95: 1.4})
   });
   const green = summarizeCampaign([passingBlock(1), passingBlock(2), passingBlock(3)]);
-  assert(green.campaignPassed === true, 'complete passing campaign');
+  assert(green.campaignStatus === 'passed', 'complete passing status');
   assert(green.campaignCumulativeFrame.allRunsPassed === true, 'cumulative campaign pass');
   const redElec = passingBlock(2);
   redElec.C2 = fixtureReceipt({label: 'C2', sequence: 2, electronicsP95: 3.7, electronicsP99: 9.2, electronicsPassed: false, tickP95: 1.4});
@@ -945,7 +1356,41 @@ export function selfTest() {
     invalidReceipts: [{file: 'x', status: 'malformed'}]
   });
   assert(invalid.campaignPassed === false, 'invalid receipts cannot pass');
-  return {ok: true, checks: 40};
+  const synthetic = (extra = {}) => ({
+    acceptanceEligible: true,
+    diagnostics: false,
+    errors: [],
+    measuredTree: {commit: 'deliberately-not-a-pinned-commit', dirty: ''},
+    frameCPU: {samples: 3600, p95: 1, p99: 1.5},
+    electronicsPass: {applicable: true, samples: 1000, p95: 1, p99: 2, passed: true},
+    ...extra
+  });
+  const oneC2 = summarizeCampaign([{sequence: 1, C2: synthetic()}]);
+  assert(oneC2.campaignElectronicsPass.allRunsPassed === false, 'single C2 cannot allRunsPassed');
+  assert(oneC2.campaignPassed === false && oneC2.campaignStatus !== 'passed', 'single C2 is not a passing campaign');
+  const diag = (label, seq) => ({
+    treeLabel: label,
+    sequence: seq,
+    acceptanceEligible: false,
+    diagnostics: true,
+    errors: [],
+    measuredTree: {commit: PROTOCOL.trees[label], dirty: ''},
+    gc: {calledInsideMeasuredWindow: true, forcedGcThisRun: true},
+    frameCPU: {samples: 3600, p95: 1, p99: 1.5},
+    electronicsPass: label === 'A' ? {applicable: false} : {applicable: true, samples: 1000, p95: 1, p99: 2, passed: true}
+  });
+  const diagBlock = seq => ({sequence: seq, A: diag('A', seq), B: diag('B', seq), C1: diag('C1', seq), C2: diag('C2', seq)});
+  const diagSum = summarizeCampaign([diagBlock(1), diagBlock(2), diagBlock(3)]);
+  assert(diagSum.campaignElectronicsPass.allRunsPassed === false, 'diagnostic ineligible C2s cannot allRunsPassed');
+  assert(diagSum.campaignStatus === 'invalid', 'diagnostic campaign is invalid not passed');
+  const staleBlock = passingBlock(1);
+  staleBlock.C2 = fixtureReceipt({label: 'C2', sequence: 1, electronicsP95: 9, electronicsP99: 9, electronicsPassed: true});
+  const staleSum = summarizeCampaign([staleBlock, passingBlock(2), passingBlock(3)]);
+  assert(staleSum.campaignElectronicsPass.allRunsPassed === false && staleSum.campaignElectronicsPass.anyRunFailed === true, 'stale passed:true with 9/9 fails');
+  const empty = summarizeCampaign([]);
+  assert(empty.campaignElectronicsPass.allRunsPassed === false && empty.campaignPassed === false, 'empty helper allRunsPassed is false');
+  assert(empty.campaignStatus === 'incomplete', 'empty campaign is incomplete');
+  return {ok: true, checks: 55};
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

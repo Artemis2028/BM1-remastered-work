@@ -6,10 +6,16 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {
   PROTOCOL,
+  campaignConfigFromEnv,
+  campaignPlan,
   classifyExistingReceipt,
   expectedCampaignMeasurement,
   inspectWorktree,
-  summarizeCampaign
+  isBrowserExecutable,
+  selectRecordedArgv,
+  sha256File,
+  summarizeCampaign,
+  validatePlan
 } from './ew-bench-lib.mjs';
 
 let checks = 0;
@@ -27,16 +33,25 @@ function write(name, value) {
   return file;
 }
 
+function rankedSeries(n, p95, p99) {
+  const i95 = Math.min(n - 1, Math.floor(n * 0.95));
+  const i99 = Math.min(n - 1, Math.floor(n * 0.99));
+  return Array.from({length: n}, (_, i) => (i >= i99 ? p99 : i >= i95 ? p95 : Math.min(p95, 1)));
+}
+
 function validReceipt({label = 'C2', sequence = 1, passed = true, p95 = 1.5, p99 = 2.0, extras = {}} = {}) {
   const passSamples = PROTOCOL.passSamples;
   const tickSamples = 8;
   const applicable = label !== 'A';
+  const elec = applicable ? rankedSeries(passSamples, p95, p99) : [];
   return {
     treeLabel: label,
     sequence,
     diagnostics: false,
     profiled: false,
     starved: false,
+    acceptanceEligible: true,
+    errors: [],
     measuredTree: {commit: PROTOCOL.trees[label], dirty: ''},
     harness: {sha256: hashes.harnessSha256, helperSha256: hashes.helperSha256},
     workload: {
@@ -46,7 +61,12 @@ function validReceipt({label = 'C2', sequence = 1, passed = true, p95 = 1.5, p99
       measuredTicks: tickSamples,
       passCadenceMs: PROTOCOL.passCadenceMs
     },
-    launch: {extraArgs: [], exposeGcFlag: false},
+    launch: {
+      extraArgs: [],
+      exposeGcFlag: false,
+      verified: true,
+      recordedArgv: {pid: 1, argv: ['/usr/bin/chromium'], selected: 'playwright-browser-process', verified: true}
+    },
     gc: {
       placement: 'none',
       calledBeforeMeasuredWindow: false,
@@ -63,7 +83,13 @@ function validReceipt({label = 'C2', sequence = 1, passed = true, p95 = 1.5, p99
     seekerCPU: applicable ? {applicable: true, p95: 0.2, p99: 0.3} : {applicable: false},
     samples: {
       ticks: {dtMs: Array.from({length: tickSamples}, () => 1)},
-      passes: applicable ? Array.from({length: passSamples}, (_, i) => ({i})) : null
+      passes: applicable ? elec.map((electronicsMs, i) => ({
+        i,
+        electronicsMs,
+        detectionMs: electronicsMs,
+        updateMs: electronicsMs,
+        projectileMs: 0.2
+      })) : null
     },
     ...extras
   };
@@ -230,6 +256,70 @@ assert(withInvalid.campaignPassed === false, 'invalid receipts cannot yield over
 const emptySummary = summarizeCampaign([]);
 assert(emptySummary.campaignPassed === false, 'no receipts cannot pass');
 assert(emptySummary.missing.length === 12, 'empty campaign missing 12 runs');
+assert(emptySummary.campaignElectronicsPass.allRunsPassed === false, 'empty allRunsPassed false');
+
+const syntheticC2 = {
+  acceptanceEligible: true,
+  diagnostics: false,
+  errors: [],
+  measuredTree: {commit: 'deliberately-not-a-pinned-commit', dirty: ''},
+  frameCPU: {samples: 3600, p95: 1, p99: 1.5},
+  electronicsPass: {applicable: true, samples: 1000, p95: 1, p99: 2, passed: true}
+};
+const oneC2 = summarizeCampaign([{sequence: 1, C2: syntheticC2}]);
+assert(oneC2.campaignElectronicsPass.allRunsPassed === false, 'single C2 cannot allRunsPassed');
+assert(oneC2.campaignStatus !== 'passed', 'single C2 is not a completed passing campaign');
+
+assert(isBrowserExecutable('/usr/bin/chromium'), 'chromium is a browser executable');
+assert(isBrowserExecutable('/path/to/headless_shell'), 'headless_shell is a browser executable');
+assert(!/chrome/i.test('/usr/bin/chromium'), 'legacy chrome regex misses chromium');
+const chromiumArgv = selectRecordedArgv([
+  {pid: 3, argv: ['/usr/bin/chromium', '--disable-field-trial-config']}
+]);
+assert(chromiumArgv.verified === true && chromiumArgv.pid === 3, 'chromium without --type= is verified');
+
+const drifted = campaignConfigFromEnv({TREE_C2: '0'.repeat(40)});
+assert(drifted.acceptance === false && drifted.drifts.includes('trees.C2'), 'TREE_C2 override is not acceptance');
+const generated = campaignPlan(drifted.requested);
+assert(generated.runs.filter(r => r.label === 'C2').every(r => r.sha === generated.trees.C2), 'plan.trees and plan.runs stay together');
+assert(validatePlan(generated).ok === false, 'unapproved C2 plan is rejected');
+assert(validatePlan(campaignPlan()).ok === true, 'approved plan validates');
+
+const repoRoot = process.cwd();
+const realHashes = {
+  harnessSha256: sha256File(path.join(repoRoot, 'scripts/ew-frame-benchmark.mjs')),
+  helperSha256: sha256File(path.join(repoRoot, 'scripts/ew-bench-lib.mjs'))
+};
+const reportDir = path.join(tmp, 'report-cli');
+fs.mkdirSync(reportDir);
+const failReceipt = validReceipt({passed: false, p95: 3.7, p99: 9.2});
+failReceipt.harness = {sha256: realHashes.harnessSha256, helperSha256: realHashes.helperSha256};
+failReceipt.workload.measuredTicks = PROTOCOL.tickSamples;
+failReceipt.frameCPU.samples = PROTOCOL.tickSamples;
+failReceipt.samples.ticks.dtMs = Array.from({length: PROTOCOL.tickSamples}, () => 1);
+fs.writeFileSync(path.join(reportDir, 'campaign-pending-seq1-C2.json'), JSON.stringify(failReceipt));
+const report = spawnSync(process.execPath, [path.join(repoRoot, 'scripts/ew-bench-report.mjs'), reportDir, 'campaign-pending'], {encoding: 'utf8'});
+assert(report.status !== 0, 'report CLI exits non-zero when anyRunFailed/incomplete');
+const reportJson = JSON.parse(report.stdout);
+assert(reportJson.campaignElectronicsPass.anyRunFailed === true, 'report JSON keeps anyRunFailed');
+assert(reportJson.campaignElectronicsPass.allRunsPassed !== true, 'report cannot allRunsPassed on one failing C2');
+assert(reportJson.campaignPassed !== true, 'report campaignPassed false');
+
+const resumeExpected = JSON.stringify(expectedCampaignMeasurement({
+  sequence: 1,
+  label: 'C2',
+  treeSha: PROTOCOL.trees.C2,
+  ...realHashes
+}));
+const resumeCheck = spawnSync(process.execPath, [
+  path.join(repoRoot, 'scripts/ew-resume-check.mjs'), 'receipt',
+  '--file', path.join(reportDir, 'campaign-pending-seq1-C2.json'),
+  '--expected', resumeExpected
+], {encoding: 'utf8'});
+assert(resumeCheck.status === 0, 'valid gate-failing receipt is skipped, not rerolled');
+assert(JSON.parse(resumeCheck.stdout).action === 'skip', 'resume action skip');
+assert(JSON.parse(resumeCheck.stdout).electronicsPassed === false, 'retained failure stays a failure');
+assert(fs.readFileSync(path.join(reportDir, 'campaign-pending-seq1-C2.json'), 'utf8').includes('3.7'), 'failing receipt preserved');
 
 fs.rmSync(tmp, {recursive: true, force: true});
 console.log(JSON.stringify({ok: true, checks}, null, 2));

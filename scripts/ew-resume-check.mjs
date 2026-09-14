@@ -1,7 +1,12 @@
 #!/usr/bin/env node
-// Campaign resume / worktree classifier. Measurement only; never deletes trees
-// or receipts. Exit 0 skip/reuse/create, 2 missing receipt (run), 3 stop.
-import {classifyExistingReceipt, inspectWorktree} from './ew-bench-lib.mjs';
+// Campaign resume / worktree / plan classifier. Measurement only; never deletes.
+// Exit 0 skip/reuse/create/plan-ok, 2 missing receipt (run), 3 stop.
+import fs from 'node:fs';
+import {
+  classifyExistingReceipt,
+  inspectWorktree,
+  validatePlan
+} from './ew-bench-lib.mjs';
 
 const mode = process.argv[2];
 function flag(name) {
@@ -31,6 +36,38 @@ if (mode === 'receipt') {
   process.exit(0);
 }
 
+if (mode === 'plan') {
+  const file = flag('--file');
+  const rawExpected = flag('--expected') || process.env.EW_RESUME_EXPECTED || '{}';
+  let expected;
+  try {
+    expected = JSON.parse(rawExpected);
+  } catch (e) {
+    console.log(JSON.stringify({ok: false, action: 'stop', reason: `expected JSON: ${e.message}`}, null, 2));
+    process.exit(3);
+  }
+  if (!file || !fs.existsSync(file)) {
+    console.log(JSON.stringify({ok: true, action: 'write', status: 'missing'}, null, 2));
+    process.exit(0);
+  }
+  let plan;
+  try {
+    plan = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    console.log(JSON.stringify({ok: false, action: 'stop', status: 'malformed', reason: e.message, file}, null, 2));
+    process.exit(3);
+  }
+  const result = validatePlan(plan, expected);
+  const payload = {
+    ...result,
+    action: result.ok ? 'keep' : 'stop',
+    file
+  };
+  console.log(JSON.stringify(payload, null, 2));
+  process.exit(result.ok ? 0 : 3);
+}
+
 console.error('usage: ew-resume-check.mjs worktree --path PATH --expected-sha SHA');
 console.error('       ew-resume-check.mjs receipt --file FILE --expected JSON');
+console.error('       ew-resume-check.mjs plan --file FILE --expected JSON');
 process.exit(2);

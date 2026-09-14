@@ -182,5 +182,5 @@ Protocol: [BENCHMARK-PROTOCOL.md](BENCHMARK-PROTOCOL.md). Harness capability
 for individual samples / 1,000-pass / interleaved sequences is in
 `scripts/ew-frame-benchmark.mjs` and `scripts/ew-campaign.sh --plan`.
 **Frozen for Fable final diff review — long campaign not started.** Tag
-`ew-fable-protocol-20260914` must not move after delivery. No gameplay
-diff in that follow-up. Do not merge to main. Do not move the freeze.
+`ew-fable-protocol-20260914` at `e556a380` is historical and must not move.
+Follow-up tag `ew-fable-protocol-20260914-r2` is the current protocol freeze.

@@ -150,9 +150,10 @@ impact-only.
 
 ### Long-campaign protocol (not yet executed)
 
-See `docs/ew/BENCHMARK-PROTOCOL.md`. Status: **frozen for Fable final diff
-review — long campaign not started.** Protocol tag
-`ew-fable-protocol-20260914` must not move after delivery.
+See `docs/ew/BENCHMARK-PROTOCOL.md`. Status: **awaiting independent protocol
+review — long campaign not started.** Historical tag
+`ew-fable-protocol-20260914` stays at `e556a380`. New freeze
+`ew-fable-protocol-20260914-r2`.
 
 - **Unchanged** means measurement boundaries and thresholds (electronicsPass
   2/4, cumulative tick ≤2 ms vs A), not the entire harness file. A **new
