@@ -98,3 +98,9 @@ Start Terran Rebel at Earth. Open PWR/OPS → Fleet. Buy a fleet ship at an elig
 Use Attempt to disable in an engagement. Expect overkill from committed shots. Board a surviving disabled target; inspect damaged hull, preserved equipment and immediate prize mobility. Save/reload during both phases. Leave an unclaimed disabled target, then return: that incarnation should be gone. Take personal command of a prize and check the old ship remains a separate fleet vessel.
 
 At an owned yard, buy a faction plan and queue an equipped hull. Check the displayed costs/days, make journeys of different lengths and verify day-by-day upkeep and delivery. Sell a damaged prize and compare the paid repair quote; no free repair or equipment duplication should make resale profitable.
+
+## Repair-service follow-up to 759eded
+
+The original candidate accidentally replaced the personal combined hull/shield repair action with hull-only service. The follow-up restores shield repairs at the existing 1 L per percent after hull spending, the game-start/game-over and docking guards, both failure messages, the `uiConfirm` sound with the existing repair cooldown key, and final stats/legacy-state refresh. Hull repairs retain the new price-scaled basis. Fleet hull service remains separate.
+
+The live suite adds combined hull/shield spending, shield-only partial spending, insufficient funds, full condition, game-over, pre-start and undocked cases. A stock regression checks that Paso X-Base still offers exactly `[49, 347]` after initializing the system-wide supply pool. `759eded` and its evidence remain the original review record; this correction is a separate commit.

@@ -12259,7 +12259,31 @@ function refuel() {
 }
 
 function repairHull() {
-  return repairFleetVessel('player');
+  if (state.gameOver || !state.gameStarted) return;
+  if (!requireDocked()) return;
+  const beforeHull = state.hull;
+  const beforeShields = clamp(finiteNumber(state.shields, 0), 0, 100);
+  if (beforeHull >= 100 && beforeShields >= 100) {
+    setLog('Hull and shields already at 100%.');
+    return;
+  }
+  // Keep the existing combined personal repair service, with the new hull-price
+  // basis only for hull. Remaining funds still buy shields at 1 L per percent.
+  if (beforeHull < 100) repairFleetVessel('player');
+  const shieldRepair = Math.min(100 - beforeShields, Math.max(0, state.latinum));
+  state.shields = beforeShields + shieldRepair;
+  state.latinum -= shieldRepair;
+  const hullRepair = state.hull - beforeHull;
+  if (hullRepair <= 0 && shieldRepair <= 0) {
+    setLog('Not enough latinum for repairs.');
+    return;
+  }
+  captureShipPowerState();
+  syncLegacyState();
+  playGameSound('uiConfirm', { cooldownKey: `repair:${state.currentPlanet}` });
+  setLog(`Repairs complete: hull +${Number(hullRepair.toFixed(2))}%, shields +${Number(shieldRepair.toFixed(2))}%.`);
+  updateStats();
+  return true;
 }
 
 function checkWinLose() {

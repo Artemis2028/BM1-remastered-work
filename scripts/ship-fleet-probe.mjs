@@ -15,7 +15,7 @@ const shim = `window.__fleet={Fleet,state,startWithFaction,createNpcShip,ensureN
  fleetBook,vesselDefaults,getScaledWeaponDamage,get WEAPON_CATALOG(){return WEAPON_CATALOG;},fleetServiceAllowed,captureShipPowerState,restoreFleetPower,applySystemState,saveGame,loadGame,playerWorldPosition,
  getPlayerEscortNpcShips,getPlayerFleetNpcShips,getPlayerEscortFleetShips,getShipStats,getOriginalShipWeaponSlots,getWeapon,
  startBoardingTarget,updateBoarding,canFleetDepart,physicalNpcId,beginAmbientTrafficArrival,advanceFleetCalendar,
- openFleetPurchaseModal,renderFleetPurchaseModal,closeFleetPurchaseModal,getShipyardStock,fleetShipStock,fleetStockAvailable,buyEscortShip,buyFleetShip,repairFleetVessel,sellFleetVessel,
+ openFleetPurchaseModal,renderFleetPurchaseModal,closeFleetPurchaseModal,getShipyardStock,fleetShipStock,fleetStockAvailable,buyEscortShip,buyFleetShip,repairHull,repairFleetVessel,sellFleetVessel,
  transferFleetCommand,renderFleetManager,refitFleetWeapon,orderFleetBuild,fleetBuildStationStatus,fleetPlanStatus,buyFleetPlan,
  getFactionStanding,adjustFactionStanding,getStationOwner,getShipPrice,completeFleetJourneys,fleetStationServices,tick,hojEmitterKey,sensorKey,sensorWorld,sensorAttackSnapshot,launchHoj,updateProjectiles,
  ensureActorEW,ensureActorSensors,ensurePlayerPower,updatePowerSystems,updateSensorSystems,applyVesselDisablement,
@@ -346,6 +346,32 @@ try {
     s.mylatinum = s.latinum;
     s.docked = true;
     s.dockedStationId = null;
+    const fundsBeforeRepair = s.latinum;
+    s.hull = 80;
+    s.shields = 60;
+    const playerMax = B.vesselDefaults(s.playership).hull;
+    const expectedHullCost = F.repairQuote(B.getShipPrice(B.getShipStats()), playerMax * 0.8, playerMax).amount;
+    B.repairHull();
+    test('personal combined repair charges scaled hull plus 1 L per shield percent',
+      s.hull === 100 && s.shields === 100 && Math.abs(fundsBeforeRepair - s.latinum - expectedHullCost - 40) < 0.001,
+      { hull: s.hull, shields: s.shields, spent: fundsBeforeRepair - s.latinum, expectedHullCost });
+    s.shields = 75; s.latinum = 10;
+    B.repairHull();
+    test('personal repair with full hull still buys affordable shields', s.hull === 100 && s.shields === 85 && s.latinum === 0 && s.mylatinum === 0);
+    B.repairHull();
+    test('personal repair reports insufficient funds', s.log === 'Not enough latinum for repairs.' && s.shields === 85);
+    s.shields = 100;
+    B.repairHull();
+    test('personal repair reports fully repaired vessel', s.log === 'Hull and shields already at 100%.');
+    s.hull = 50; s.shields = 50; s.latinum = 10000000;
+    s.gameOver = true; B.repairHull();
+    test('personal repair cannot revive a game-over ship', s.hull === 50 && s.shields === 50 && s.latinum === 10000000);
+    s.gameOver = false; s.gameStarted = false; B.repairHull();
+    test('personal repair is inert before game starts', s.hull === 50 && s.shields === 50);
+    s.gameStarted = true; s.docked = false; B.repairHull();
+    test('personal repair requires docking', s.hull === 50 && s.shields === 50);
+    s.docked = true; B.repairHull();
+    s.latinum = 10000000; s.mylatinum = s.latinum;
     const offer = B.getShipyardStock()[0];
     if (offer) {
       B.openFleetPurchaseModal(offer.id);
@@ -402,6 +428,12 @@ try {
       const raw = st?.stockIds?.[0] || s.planets[s.currentPlanet].shipStockIds?.[0];
       const stock = raw ? B.fleetShipStock(raw) : null;
       test(`${name} authored market has positive system supply`, stock?.quantity > 0, { raw, stock });
+      if (name === 'Paso') {
+        const xbase = s.stationDefinitions.find(st => st.systemIndex === s.currentPlanet && st.name === 'X-Base');
+        const ids = xbase ? B.getShipyardStock(xbase).map(ship => ship.id) : [];
+        test('Paso X-Base preserves exactly its curated hull list despite system pool union',
+          JSON.stringify(ids) === JSON.stringify([49, 347]), { ids, station: xbase?.name });
+      }
     }
     s.currentPlanet = original;
     s.myplanet = original + 1;
