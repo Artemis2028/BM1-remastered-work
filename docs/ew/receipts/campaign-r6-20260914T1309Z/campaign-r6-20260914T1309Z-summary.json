@@ -1,7 +1,7 @@
 {
   "stamp": "campaign-r6-20260914T1309Z",
   "status": "awaiting independent protocol review — long campaign not started",
-  "receiptsFound": 4,
+  "receiptsFound": 8,
   "protocol": "ew-benchmark-protocol-20260914",
   "gate": {
     "series": "electronicsPass",
@@ -32,22 +32,6 @@
     "C2"
   ],
   "missing": [
-    {
-      "sequence": 2,
-      "label": "A"
-    },
-    {
-      "sequence": 2,
-      "label": "B"
-    },
-    {
-      "sequence": 2,
-      "label": "C1"
-    },
-    {
-      "sequence": 2,
-      "label": "C2"
-    },
     {
       "sequence": 3,
       "label": "A"
@@ -152,22 +136,106 @@
         "p99": 2.8,
         "passed": true
       }
+    },
+    {
+      "sequence": 2,
+      "trees": {
+        "A": {
+          "commit": "6958f08e73aff55efbf48bae3f9433e5acc270e8",
+          "ineligible": null,
+          "tickP95": 0.4,
+          "tickP99": 0.5,
+          "electronicsP95": null,
+          "electronicsP99": null,
+          "electronicsPassed": null,
+          "detectionP95": null,
+          "detectionP99": null,
+          "updateMsP95": null,
+          "updateMsP99": null,
+          "projectileP95": null,
+          "projectileP99": null
+        },
+        "B": {
+          "commit": "e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b",
+          "ineligible": null,
+          "tickP95": 1.2,
+          "tickP99": 1.4,
+          "electronicsP95": 1.3,
+          "electronicsP99": 1.7,
+          "electronicsPassed": true,
+          "detectionP95": 1.1,
+          "detectionP99": 1.5,
+          "updateMsP95": null,
+          "updateMsP99": null,
+          "projectileP95": 0.1,
+          "projectileP99": 0.1
+        },
+        "C1": {
+          "commit": "74caf837c7882a86e3bd7c74f083029453953c1a",
+          "ineligible": null,
+          "tickP95": 1.4,
+          "tickP99": 1.6,
+          "electronicsP95": 1.7,
+          "electronicsP99": 2.3,
+          "electronicsPassed": true,
+          "detectionP95": 1.5,
+          "detectionP99": 2.1,
+          "updateMsP95": null,
+          "updateMsP99": null,
+          "projectileP95": 0.1,
+          "projectileP99": 0.1
+        },
+        "C2": {
+          "commit": "51738caf3a1d88492c4fc48a7c0125d4a7e2a355",
+          "ineligible": null,
+          "tickP95": 1.3,
+          "tickP99": 1.7,
+          "electronicsP95": 1.6,
+          "electronicsP99": 2.3,
+          "electronicsPassed": true,
+          "detectionP95": 1.4,
+          "detectionP99": 2.1,
+          "updateMsP95": 1.4,
+          "updateMsP99": 2.1,
+          "projectileP95": 0.2,
+          "projectileP99": 0.2
+        }
+      },
+      "increments": {
+        "tickP95": {
+          "ewMinusSensors": 0.1,
+          "ewMinusPresensor": 0.9,
+          "cumulativeLimitMs": 2,
+          "cumulativePassed": true
+        },
+        "electronicsPassP95": {
+          "ewMinusSensors": 0.3,
+          "ewMinusPresensor": null,
+          "note": "pre-sensor electronicsPass is not applicable"
+        },
+        "freezeComparison": null
+      },
+      "electronicsPassAbsolute": {
+        "p95": 1.6,
+        "p99": 2.3,
+        "passed": true
+      }
     }
   ],
   "variability": {
     "electronicsPassP95": {
-      "samples": 1,
-      "min": 1.7000000000698492,
+      "samples": 2,
+      "min": 1.6000000000931323,
       "max": 1.7000000000698492,
-      "mean": 1.7000000000698492,
-      "stdev": 0,
+      "mean": 1.6500000000814907,
+      "stdev": 0.04999999998835847,
       "p50": 1.7000000000698492,
       "p95": 1.7000000000698492,
       "p99": 1.7000000000698492,
       "method": "nearest-rank floor(n * p) on a sorted copy"
     },
     "tickP95": {
-      "samples": 1,
+      "samples": 2,
       "min": 1.3000000000465661,
       "max": 1.3000000000465661,
       "mean": 1.3000000000465661,
@@ -194,6 +262,11 @@
     "perRun": [
       {
         "sequence": 1,
+        "ewMinusPresensor": 0.9,
+        "passed": true
+      },
+      {
+        "sequence": 2,
         "ewMinusPresensor": 0.9,
         "passed": true
       }

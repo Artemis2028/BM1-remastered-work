@@ -6,3 +6,7 @@
 === SEQ1 START 2026-09-14T13:11:39Z ===
 EW_CAMPAIGN_CONFIRMED=1 EW_RECEIPT_STAMP=campaign-r6-20260914T1309Z scripts/ew-campaign.sh --execute --sequence 1 docs/ew/receipts/campaign-r6-20260914T1309Z
 === SEQ1 END 2026-09-14T13:22:29Z driver_exit=1 ===
+=== SEQ2 PRECHECK 2026-09-14T13:24:04Z ===
+EW_CAMPAIGN_CONFIRMED=1 EW_RECEIPT_STAMP=campaign-r6-20260914T1309Z scripts/ew-campaign.sh --execute --sequence 2 docs/ew/receipts/campaign-r6-20260914T1309Z
+=== SEQ2 START 2026-09-14T13:24:04Z ===
+=== SEQ2 END 2026-09-14T13:34:48Z driver_exit=1 ===

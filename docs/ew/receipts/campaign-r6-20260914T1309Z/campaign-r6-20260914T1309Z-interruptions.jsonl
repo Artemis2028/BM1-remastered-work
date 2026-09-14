@@ -10,3 +10,15 @@
 {"event": "sequence-end", "sequence": 1, "at": "2026-09-14T13:22:28.913630+00:00"}
 {"event": "skip-sequence", "sequence": 2, "reason": "filter", "at": "2026-09-14T13:22:28.929347+00:00"}
 {"event": "skip-sequence", "sequence": 3, "reason": "filter", "at": "2026-09-14T13:22:28.943892+00:00"}
+{"event": "skip-sequence", "sequence": 1, "reason": "filter", "at": "2026-09-14T13:24:04.579607+00:00"}
+{"event": "sequence-start", "sequence": 2, "order": ["A", "B", "C1", "C2"], "at": "2026-09-14T13:24:04.607550+00:00"}
+{"event": "run-start", "sequence": 2, "label": "A", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-A.json", "at": "2026-09-14T13:24:04.636662+00:00"}
+{"event": "run-complete", "sequence": 2, "label": "A", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-A.json", "at": "2026-09-14T13:24:07.104302+00:00"}
+{"event": "run-start", "sequence": 2, "label": "B", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-B.json", "at": "2026-09-14T13:24:07.136640+00:00"}
+{"event": "run-complete", "sequence": 2, "label": "B", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-B.json", "at": "2026-09-14T13:27:40.989263+00:00"}
+{"event": "run-start", "sequence": 2, "label": "C1", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-C1.json", "at": "2026-09-14T13:27:41.022070+00:00"}
+{"event": "run-complete", "sequence": 2, "label": "C1", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-C1.json", "at": "2026-09-14T13:31:14.654233+00:00"}
+{"event": "run-start", "sequence": 2, "label": "C2", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-C2.json", "at": "2026-09-14T13:31:14.687845+00:00"}
+{"event": "run-complete", "sequence": 2, "label": "C2", "file": "docs/ew/receipts/campaign-r6-20260914T1309Z/campaign-r6-20260914T1309Z-seq2-C2.json", "at": "2026-09-14T13:34:48.709287+00:00"}
+{"event": "sequence-end", "sequence": 2, "at": "2026-09-14T13:34:48.726636+00:00"}
+{"event": "skip-sequence", "sequence": 3, "reason": "filter", "at": "2026-09-14T13:34:48.743888+00:00"}
