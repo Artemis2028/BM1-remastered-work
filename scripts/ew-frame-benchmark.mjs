@@ -28,7 +28,8 @@ import {
   preloadInjectedFlags,
   PROTOCOL,
   selectRecordedArgv,
-  sha256File
+  sha256File,
+  argvExposesGc
 } from './ew-bench-lib.mjs';
 const harnessPath = fileURLToPath(import.meta.url);
 const harnessHash = createHash('sha256').update(fs.readFileSync(harnessPath)).digest('hex');
@@ -403,6 +404,8 @@ try {
   const helperPath = path.join(path.dirname(harnessPath), 'ew-bench-lib.mjs');
   const helperSha256 = fs.existsSync(helperPath) ? sha256File(helperPath) : null;
   const injectedFlags = preloadInjectedFlags(recordedArgv, launchExtraArgs);
+  const exposeGc = argvExposesGc(launchExtraArgs)
+    || (recordedArgv?.verified === true && argvExposesGc(recordedArgv.argv));
   const payload = {
     root,
     treeLabel,
@@ -446,7 +449,7 @@ try {
     launch: {
       extraArgs: launchExtraArgs,
       options: launchOptions,
-      exposeGcFlag: launchExtraArgs.includes('--js-flags=--expose-gc'),
+      exposeGcFlag: exposeGc,
       recordedArgv,
       verified: recordedArgv?.verified === true,
       playwrightPid: launchedPid,
@@ -494,7 +497,7 @@ try {
   };
   payload.gc = deriveGcSummary(result.gc || {}, {
     diagnostics,
-    exposeGcFlag: launchExtraArgs.includes('--js-flags=--expose-gc'),
+    exposeGcFlag: exposeGc,
     gcPlacement
   });
   payload.acceptanceEligible = !!(
@@ -509,6 +512,8 @@ try {
     && gcPlacement === 'none'
     && payload.launch.verified
     && payload.gc.forcedGcThisRun === false
+    && payload.gc.gcFunctionPresent === false
+    && payload.launch.exposeGcFlag === false
     && !(payload.errors || []).length
   );
   console.log(JSON.stringify(payload, null, 2));

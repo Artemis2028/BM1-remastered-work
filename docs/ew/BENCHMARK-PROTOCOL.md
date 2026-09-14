@@ -4,16 +4,17 @@
 
 Historical protocol tag `ew-fable-protocol-20260914` stays at `e556a380` and
 **must not move**. Prior freezes `ew-fable-protocol-20260914-r2` (`6d4c01d`)
-and `ew-fable-protocol-20260914-r3` (`c0b42b0`) **must not move**. The
-current immutable tag is `ew-fable-protocol-20260914-r4`.
+and `ew-fable-protocol-20260914-r3` (`c0b42b0`) **must not move**. Prior freeze
+`ew-fable-protocol-20260914-r4` (`70f47cc`) **must not move**. The current
+immutable tag is `ew-fable-protocol-20260914-r5`.
 
 This document specifies the benchmark-only follow-up. It does not change
 gameplay, budgets, freeze tags, or the 2 / 4 ms **measurement boundaries and
 thresholds**. The harness *file* is allowed to change so it can emit
 per-sample series and launch flags; a **new harness hash is expected**. The
 old helper is preserved. Historical tag `ew-fable-protocol-20260914` stays
-at `e556a380`. Prior freezes `r2` (`6d4c01d`) and `r3` (`c0b42b0`) stay put.
-This revision freezes as `ew-fable-protocol-20260914-r4`
+at `e556a380`. Prior freezes `r2` (`6d4c01d`), `r3` (`c0b42b0`), and `r4`
+(`70f47cc`) stay put. This revision freezes as `ew-fable-protocol-20260914-r5`
 and that tag must **not** move after delivery.
 
 It does not start the 1,000-pass campaign. Existing receipts stay on disk.
@@ -98,7 +99,7 @@ recording actual browser launch flags **requires** changing that file.
 | Harness | Where | sha256 |
 | --- | --- | --- |
 | **Old** (preserved) | git `e02235c:scripts/ew-frame-benchmark.mjs` and copy `docs/ew/receipts/harness-e02235c.mjs` | `e79876004ea9b8846ed6f31ca040fc1ff2452db43f77ba744837d9fb6b8b115d` |
-| **New** (this PR; freeze as protocol tag `ew-fable-protocol-20260914-r4`) | `scripts/ew-frame-benchmark.mjs` | see `docs/ew/receipts/campaign-pending-plan.json` |
+| **New** (this PR; freeze as protocol tag `ew-fable-protocol-20260914-r5`) | `scripts/ew-frame-benchmark.mjs` | see `docs/ew/receipts/campaign-pending-plan.json` |
 
 Old receipts that used `e7987600…` stay on disk and are not rewritten. Do not
 point those families at the new hash.
@@ -148,7 +149,7 @@ Acceptance still calls `chromium.launch()` with **no extra args**.
 | `Date.now()` immediately **before** `const t = performance.now()` | Timestamp; not inside the timed deltas. |
 | `gc` object + `--gc-placement` | Diagnostic-only forced GC. `forcedGcThisRun` follows actual `gc()` calls. See §6. |
 | `measuredTree` git commit/tree | Pin identity in the receipt. |
-| `acceptanceEligible` | True only at campaign counts, unprofiled, no diagnostics, `gcPlacement=none`. |
+| `acceptanceEligible` | True only at campaign counts, unprofiled, no diagnostics, `gcPlacement=none`, verified launch, no expose-gc / `gcFunctionPresent`. |
 | `previousHarness` | Points at the preserved `e7987600…` file. |
 | `warmupSeconds` / `simulationSeconds` derived from actual pass counts | 50+300 still 10s / 60s. |
 
@@ -197,11 +198,17 @@ usable git worktree, **stop with an explanation**. Do **not**
 2. Every raw file is retained. Skip a `campaign-pending-seq{N}-{A,B,C1,C2}.json`
    only after **validating** it: approved tree SHA, harness/helper hashes,
    sequence, label, measurement configuration, actual sample counts,
-   `acceptanceEligible`, empty errors, GC/launch state (`launch.verified`,
-   no forced GC), and percentiles/gate recomputed from the recorded samples.
-   Diagnostic, short, mismatched, or malformed receipts are **not**
+   `acceptanceEligible`, empty errors, GC/launch state (`launch.verified`
+   with recorded argv, no exposed GC / `gcFunctionPresent`, no forced GC),
+   pinned `measuredTree.tree` + source manifest, complete per-sample fields
+   (tree A pass samples stay `null`), and percentiles/gate recomputed from
+   the recorded samples. Stored summaries that disagree with samples are
+   rejected. Diagnostic, short, mismatched, or malformed receipts are **not**
    acceptance. A **valid gate-failing** run stays completed and is **never
-   rerolled**.
+   rerolled**. Missing receipt files may still be executed; incomplete files
+   are never treated as a pass. Resume and report share one `validateReceipt`
+   path. `validatePlan` requires the exact ordered 3×A/B/C1/C2 SHA tuples,
+   gate 2/4, cumulative +2, and harness/helper hashes.
 3. If a file is malformed, incomplete, or mismatched, **preserve it and stop**
    with an explanation. Do not overwrite it. Missing or invalid runs **must
    not** yield an overall pass. One C2 receipt cannot complete the campaign.
@@ -274,7 +281,7 @@ receipt, not from prose:
 | Field | Acceptance must show |
 | --- | --- |
 | `launch.extraArgs` | `[]` |
-| `launch.exposeGcFlag` | `false` |
+| `launch.exposeGcFlag` | `false` (derived from `extraArgs` **and** verified `recordedArgv`; extraArgs empty is not enough) |
 | `gc.forcedGcThisRun` | `false` (derived from actual `gc()` calls, not the diagnostics flag) |
 | `gc.forcedGcInAcceptance` | `false` |
 | `gc.gcFunctionPresent` | `false` (no expose-gc) |
@@ -347,6 +354,6 @@ Until then the execute path refuses. Do not merge to main. Do not move
 `ew-fable-candidate-20260913` (`077a9ce`) or the `51738ca` pin. Do not
 move historical tag `ew-fable-protocol-20260914` (`e556a380`), prior freezes
 `ew-fable-protocol-20260914-r2` (`6d4c01d`) and
-`ew-fable-protocol-20260914-r3` (`c0b42b0`), or the current
-`ew-fable-protocol-20260914-r4` after delivery.
+`ew-fable-protocol-20260914-r3` (`c0b42b0`), `ew-fable-protocol-20260914-r4`
+(`70f47cc`), or the current `ew-fable-protocol-20260914-r5` after delivery.
 **Campaign not started.**

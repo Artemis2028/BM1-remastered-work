@@ -120,7 +120,8 @@ const failReceipt = {
   starved: false,
   acceptanceEligible: true,
   errors: [],
-  measuredTree: {commit: PROTOCOL.trees.C2, dirty: ''},
+  measuredTree: {commit: PROTOCOL.trees.C2, tree: PROTOCOL.pinned.C2.tree, dirty: ''},
+  sources: {...PROTOCOL.pinned.C2.sources},
   harness: {
     sha256: sha256File(path.join(root, 'scripts/ew-frame-benchmark.mjs')),
     helperSha256: sha256File(path.join(root, 'scripts/ew-bench-lib.mjs'))
@@ -140,19 +141,31 @@ const failReceipt = {
   },
   gc: {
     placement: 'none',
+    gcFunctionPresent: false,
     calledBeforeMeasuredWindow: false,
     calledAfterMeasuredWindow: false,
     calledInsideMeasuredWindow: false,
     forcedGcThisRun: false
   },
-  frameCPU: {samples: PROTOCOL.tickSamples, p95: 1.4, p99: 1.6},
+  frameCPU: {samples: PROTOCOL.tickSamples, p95: 1, p99: 1},
   electronicsPass: {applicable: true, samples: n, p95: 3.7, p99: 9.2, passed: false},
   detectionPass: {applicable: true, p95: 3.7, p99: 9.2},
   updateMs: {applicable: true, p95: 3.7, p99: 9.2},
-  seekerCPU: {applicable: true, p95: 0.2, p99: 0.3},
+  seekerCPU: {applicable: true, p95: 0.2, p99: 0.2},
   samples: {
-    ticks: {dtMs: Array.from({length: PROTOCOL.tickSamples}, () => 1)},
-    passes: series.map((electronicsMs, i) => ({i, electronicsMs, detectionMs: electronicsMs, updateMs: electronicsMs, projectileMs: 0.2}))
+    ticks: {
+      dtMs: Array.from({length: PROTOCOL.tickSamples}, () => 1),
+      tRelMs: Array.from({length: PROTOCOL.tickSamples}, (_, i) => i)
+    },
+    passes: series.map((electronicsMs, i) => ({
+      i,
+      tEpochMs: 1e12 + i,
+      tRelMs: i,
+      electronicsMs,
+      detectionMs: electronicsMs,
+      updateMs: electronicsMs,
+      projectileMs: 0.2
+    }))
   }
 };
 fs.writeFileSync(path.join(reportDir, 'campaign-pending-seq1-C2.json'), JSON.stringify(failReceipt));

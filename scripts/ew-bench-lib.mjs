@@ -11,10 +11,10 @@ import {fileURLToPath} from 'node:url';
 export const PROTOCOL = {
   id: 'ew-benchmark-protocol-20260914',
   status: 'awaiting independent protocol review — long campaign not started',
-  protocolTag: 'ew-fable-protocol-20260914-r4',
+  protocolTag: 'ew-fable-protocol-20260914-r5',
   previousProtocolTag: {
-    name: 'ew-fable-protocol-20260914-r3',
-    commit: 'c0b42b06b0b782a0b7525398600a4a2dcfa9023d',
+    name: 'ew-fable-protocol-20260914-r4',
+    commit: '70f47cc96bf37f6df3625a1bcc00f089dfccbb1e',
     note: 'prior reporting/validation freeze; do not move'
   },
   historicalProtocolTag: {
@@ -61,6 +61,50 @@ export const PROTOCOL = {
     C1: '74caf837c7882a86e3bd7c74f083029453953c1a',
     C2: '51738caf3a1d88492c4fc48a7c0125d4a7e2a355',
     F: '077a9cedaa5a6cb858b200addb115d862ab238e6'
+  },
+  pinned: {
+    A: {
+      commit: '6958f08e73aff55efbf48bae3f9433e5acc270e8',
+      tree: 'eed3e2271afc88f54eebfa3f129f1fb8b7a85b99',
+      sources: {'src/main.js': '47fd75c8ba9820c23b73c2e1c1c6047a3ef810cbccf955ee498e212e13bfc9fc'}
+    },
+    B: {
+      commit: 'e7aa3c594e4799c54d48e2eeac37a2a1acf36b9b',
+      tree: 'bddf1e43788bebdf78ed3ea8136dd0faad397db6',
+      sources: {
+        'src/main.js': '966c183e4911c385a61625d856321b6c81e2290f6bbc9075689537b1cb48054c',
+        'src/ship-sensors.mjs': '53c43a6ff00ec8f23e9bd83eec3aad4e017a89017f8102398d50088130dc212c'
+      }
+    },
+    C1: {
+      commit: '74caf837c7882a86e3bd7c74f083029453953c1a',
+      tree: '632ecefe45d03a97fa86872c099f7ab6be70c501',
+      sources: {
+        'src/main.js': '5ba906285ac27503f17ec6ef23cda90f2e1ed1dc6bd94bf92c010adb42ab1be3',
+        'src/ship-sensors.mjs': '2011305d0cd5f32d634aa13cc766aaacbfa28ecd06546fe0cc37a19b452714c6',
+        'src/ship-ew.mjs': '77b6f145d98f99964b497093c1a5dc75f28cb066298d57eea77ed1c7a0d2e75c'
+      }
+    },
+    C2: {
+      commit: '51738caf3a1d88492c4fc48a7c0125d4a7e2a355',
+      tree: '8d71d88fc97d36556965a5a59c35ca1766ab7ffb',
+      sources: {
+        'src/main.js': 'f1e8d9c0c85825ee8248f943bff4c2a777fa466a5a970950cf147c8b1f1e535f',
+        'src/ship-sensors.mjs': '457f0ef9bea951bd50810b5cc450466c54fa850430ea2b8e8b2e3ec82e3d6f2f',
+        'src/ship-ew.mjs': '4f16df1f128dd9fffb607a8024f64827a0cb640ba648fc9c709067520afd1d17',
+        'src/ship-hoj.mjs': '7d46cdfe0dcab3be056ca64e578c24094e95f7956bb8ae1eb64c8b275c40df5e'
+      }
+    },
+    F: {
+      commit: '077a9cedaa5a6cb858b200addb115d862ab238e6',
+      tree: '6f22de07e0339b7ba078d0e0b68d9cc20658f199',
+      sources: {
+        'src/main.js': 'f1e8d9c0c85825ee8248f943bff4c2a777fa466a5a970950cf147c8b1f1e535f',
+        'src/ship-sensors.mjs': 'fe4b4de0e27c515fa9b6c3f73675925e3a35eb7607f0dda1bc80ff6d800aafa4',
+        'src/ship-ew.mjs': '4f16df1f128dd9fffb607a8024f64827a0cb640ba648fc9c709067520afd1d17',
+        'src/ship-hoj.mjs': '7d46cdfe0dcab3be056ca64e578c24094e95f7956bb8ae1eb64c8b275c40df5e'
+      }
+    }
   },
   freezeTag: 'ew-fable-candidate-20260913',
   freezeMoved: false,
@@ -208,6 +252,46 @@ export function percentileStats(values) {
 export function seriesGate(stats, p95Ms = PROTOCOL.gate.p95Ms, p99Ms = PROTOCOL.gate.p99Ms) {
   if (!stats || stats.samples === 0 || stats.p95 == null) return null;
   return stats.p95 <= p95Ms && stats.p99 <= p99Ms;
+}
+
+export function rankedSeries(n, p95, p99) {
+  const i95 = Math.min(n - 1, Math.floor(n * 0.95));
+  const i99 = Math.min(n - 1, Math.floor(n * 0.99));
+  const floor = Math.min(p95, 1);
+  return Array.from({length: n}, (_, i) => (i >= i99 ? p99 : i >= i95 ? p95 : floor));
+}
+
+export function pinnedIdentity(labelOrCommit) {
+  if (PROTOCOL.pinned[labelOrCommit]) return PROTOCOL.pinned[labelOrCommit];
+  return Object.values(PROTOCOL.pinned).find(p => p.commit === labelOrCommit) || null;
+}
+
+export function argvExposesGc(argv) {
+  return (argv || []).some(a => {
+    const s = String(a);
+    if (s === '--expose-gc') return true;
+    const m = s.match(/^--js-flags=(.*)$/);
+    if (!m) return false;
+    return m[1].split(',').map(x => x.trim()).includes('--expose-gc');
+  });
+}
+
+export function derivedExposeGc(j) {
+  const argv = j?.launch?.recordedArgv?.argv;
+  return argvExposesGc(argv)
+    || j?.launch?.exposeGcFlag === true
+    || j?.gc?.exposeGcFlag === true
+    || j?.gc?.gcFunctionPresent === true;
+}
+
+export function approvedRunMatrix(config = approvedCampaignConfig()) {
+  const runs = [];
+  for (let seq = 1; seq <= config.repetitions; seq++) {
+    for (const label of config.sequenceOrder) {
+      runs.push({sequence: seq, label, sha: config.trees[label]});
+    }
+  }
+  return runs;
 }
 
 export function acceptanceEligible({
@@ -514,7 +598,7 @@ export function campaignPlan(config = {}) {
       'Report every run absolute p95/p99 including detection, updateMs, and projectile. Campaign-level cumulative-frame verdict is required. No best-run selection. No median delta as the gate.',
       'Current Platinum evidence for 51738ca is Astra C2 3.70/9.20 and 2.00/4.30 (both failures). Historical 2.50/6.90 and supplementary 1.60/2.20 stay labeled historical.',
       'Missing or invalid runs must not yield an overall pass. Plan trees and runs come from one validated configuration. Non-approved acceptance overrides are rejected.',
-      'Do not start this campaign until the tagged protocol is authorized. Historical tag ew-fable-protocol-20260914 stays at e556a380. Prior freezes r2@6d4c01d and r3@c0b42b0 stay put. None of those tags are moved.'
+      'Do not start this campaign until the tagged protocol is authorized. Historical tag ew-fable-protocol-20260914 stays at e556a380. Prior freezes r2@6d4c01d r3@c0b42b0 r4@70f47cc stay put. None of those tags are moved.'
     ]
   };
 }
@@ -529,12 +613,27 @@ export function validatePlan(plan, {
   for (const k of ['A', 'B', 'C1', 'C2']) {
     if (plan.trees?.[k] !== config.trees[k]) problems.push(`trees.${k} is not the approved SHA`);
   }
-  if (!Array.isArray(plan.runs) || plan.runs.length !== config.repetitions * config.sequenceOrder.length) {
-    problems.push('runs length does not match approved 3 × A/B/C1/C2');
+  const expectedOrder = config.sequenceOrder;
+  if (!Array.isArray(plan.sequenceOrder) || plan.sequenceOrder.join(',') !== expectedOrder.join(',')) {
+    problems.push('sequenceOrder is not the approved A,B,C1,C2 matrix');
   }
-  for (const run of plan.runs || []) {
-    if (run.sha !== plan.trees?.[run.label]) problems.push(`runs ${run.label} seq ${run.sequence} sha != plan.trees`);
-    if (run.sha !== config.trees[run.label]) problems.push(`runs ${run.label} seq ${run.sequence} sha is not approved`);
+  const expectedRuns = approvedRunMatrix(config);
+  if (!Array.isArray(plan.runs) || plan.runs.length !== expectedRuns.length) {
+    problems.push('runs length does not match approved 3 × A/B/C1/C2');
+  } else {
+    expectedRuns.forEach((exp, i) => {
+      const run = plan.runs[i];
+      if (!run || run.sequence !== exp.sequence || run.label !== exp.label || run.sha !== exp.sha) {
+        problems.push(`runs[${i}] is not ${exp.label} seq ${exp.sequence} ${exp.sha}`);
+      }
+    });
+  }
+  if (plan.gate?.series !== PROTOCOL.gate.series || plan.gate?.p95Ms !== PROTOCOL.gate.p95Ms || plan.gate?.p99Ms !== PROTOCOL.gate.p99Ms) {
+    problems.push('gate fields are not the approved electronicsPass 2/4');
+  }
+  if (plan.gate?.thresholdsRecalibrated === true) problems.push('thresholdsRecalibrated is not false');
+  if (plan.cumulativeFrameP95Ms !== PROTOCOL.cumulativeFrameP95Ms) {
+    problems.push('cumulativeFrameP95Ms is not the approved 2 ms limit');
   }
   if (plan.warmup?.passWarmup !== config.passWarmup) problems.push('warmup.passWarmup drift');
   if (plan.warmup?.tickWarmup !== config.tickWarmup) problems.push('warmup.tickWarmup drift');
@@ -543,11 +642,16 @@ export function validatePlan(plan, {
   if (plan.measured?.tickSamples !== config.tickSamples) problems.push('measured.tickSamples drift');
   if (plan.withFreeze) problems.push('withFreeze is not acceptance');
   if (plan.repetitions !== config.repetitions) problems.push('repetitions drift');
+  if (!plan.harness?.sha256) problems.push('missing plan harness sha256');
+  if (!plan.harness?.helperSha256 && !plan.harness?.libSha256) problems.push('missing plan helper sha256');
   if (harnessSha256 && plan.harness?.sha256 && plan.harness.sha256 !== harnessSha256) {
     problems.push('plan harness sha256 mismatch');
   }
   if (helperSha256 && plan.harness?.helperSha256 && plan.harness.helperSha256 !== helperSha256) {
     problems.push('plan helper sha256 mismatch');
+  }
+  if (helperSha256 && plan.harness?.libSha256 && plan.harness.libSha256 !== helperSha256) {
+    problems.push('plan lib sha256 mismatch');
   }
   return {ok: problems.length === 0, problems};
 }
@@ -671,7 +775,9 @@ export function expectedCampaignMeasurement({
     starved: false,
     gcPlacement: 'none',
     extraArgs: [],
-    sensorApplicable: label !== 'A'
+    sensorApplicable: label !== 'A',
+    treeObject: PROTOCOL.pinned[label]?.tree,
+    sources: PROTOCOL.pinned[label]?.sources
   };
 }
 
@@ -685,6 +791,28 @@ function completenessProblems(j, expected = {}) {
   if (!j.measuredTree || typeof j.measuredTree.commit !== 'string' || !j.measuredTree.commit) {
     problems.push('missing measuredTree.commit');
   }
+  const pin = pinnedIdentity(label) || pinnedIdentity(j.measuredTree?.commit);
+  if (j.measuredTree?.dirty) problems.push('measured tree is dirty');
+  if (!j.measuredTree || typeof j.measuredTree.tree !== 'string' || !j.measuredTree.tree) {
+    problems.push('missing measuredTree.tree');
+  }
+  if (j.acceptanceEligible !== true) problems.push('acceptanceEligible must be true');
+  if (!Array.isArray(j.errors)) problems.push('missing errors array');
+  else if (j.errors.length) problems.push('receipt errors are not empty');
+  if (!j.sources || typeof j.sources !== 'object') problems.push('missing sources manifest');
+  else if (pin) {
+    for (const file of Object.keys(pin.sources)) {
+      if (typeof j.sources[file] !== 'string' || !j.sources[file]) {
+        problems.push(`sources.${file} missing`);
+      }
+    }
+  }
+  if (j.launch?.verified !== true) problems.push('launch.verified must be true');
+  const rec = j.launch?.recordedArgv;
+  if (!rec || rec.verified !== true) problems.push('missing verified launch.recordedArgv');
+  if (!Array.isArray(rec?.argv) || !rec.argv.length) problems.push('missing recordedArgv.argv');
+  if (derivedExposeGc(j)) problems.push('exposed GC is not acceptance');
+  if (typeof j.gc?.gcFunctionPresent !== 'boolean') problems.push('missing gc.gcFunctionPresent');
   if (!j.harness || typeof j.harness.sha256 !== 'string' || !j.harness.sha256) {
     problems.push('missing harness.sha256');
   }
@@ -721,6 +849,13 @@ function completenessProblems(j, expected = {}) {
     if (Number.isInteger(expected.tickSamples) && tickDt.length !== expected.tickSamples) {
       problems.push(`tick sample count ${tickDt.length} != expected ${expected.tickSamples}`);
     }
+    const tickAt = asArray(j.samples?.ticks?.tRelMs);
+    if (!tickAt) problems.push('missing samples.ticks.tRelMs');
+    else if (tickAt.length !== tickDt.length) {
+      problems.push('samples.ticks.tRelMs length != dtMs');
+    } else if (tickAt.some(x => !Number.isFinite(x))) {
+      problems.push('samples.ticks.tRelMs is not a complete finite array');
+    }
   }
   const sensorTree = (label && label !== 'A') || expected.sensorApplicable === true;
   const preSensor = label === 'A' || expected.sensorApplicable === false;
@@ -737,6 +872,13 @@ function completenessProblems(j, expected = {}) {
         problems.push(`pass sample count ${passes.length} != electronicsPass.samples ${elec.samples}`);
       } else if (passes.some(p => !p || !Number.isFinite(p.electronicsMs))) {
         problems.push('samples.passes is not a complete finite electronicsMs array');
+      } else if (passes.some(p => !Number.isInteger(p.i)
+        || !Number.isFinite(p.tEpochMs)
+        || !Number.isFinite(p.tRelMs)
+        || !Number.isFinite(p.detectionMs)
+        || !Number.isFinite(p.updateMs)
+        || !Number.isFinite(p.projectileMs))) {
+        problems.push('samples.passes missing complete per-sample timing fields');
       }
     }
     for (const [key, obj] of [['detectionPass', j.detectionPass], ['updateMs', j.updateMs], ['seekerCPU', j.seekerCPU]]) {
@@ -771,9 +913,21 @@ function sameArgs(actual, expected) {
 
 function mismatchProblems(j, expected = {}) {
   const problems = [];
+  const label = expected.label || j.treeLabel;
+  const pin = pinnedIdentity(label) || pinnedIdentity(expected.treeSha) || pinnedIdentity(j.measuredTree?.commit);
   const commit = j.measuredTree?.commit;
-  if (expected.treeSha && commit && commit !== expected.treeSha) {
+  if (expected.treeSha && commit !== expected.treeSha) {
     problems.push(`tree SHA ${commit} != expected ${expected.treeSha}`);
+  }
+  const treeObject = expected.treeObject || pin?.tree;
+  if (treeObject && j.measuredTree?.tree && j.measuredTree.tree !== treeObject) {
+    problems.push(`measuredTree.tree != pinned tree ${treeObject}`);
+  }
+  const sources = expected.sources || pin?.sources;
+  if (sources && j.sources) {
+    for (const [file, hash] of Object.entries(sources)) {
+      if (j.sources[file] && j.sources[file] !== hash) problems.push(`sources.${file} does not match pinned tree`);
+    }
   }
   if (expected.label != null && j.treeLabel !== expected.label) {
     problems.push(`treeLabel ${j.treeLabel} != expected ${expected.label}`);
@@ -821,11 +975,14 @@ function mismatchProblems(j, expected = {}) {
   if (expected.extraArgs && !sameArgs(j.launch?.extraArgs, expected.extraArgs)) {
     problems.push('launch.extraArgs mismatch');
   }
-  if (j.launch?.exposeGcFlag === true) {
+  if (j.launch?.exposeGcFlag === true || derivedExposeGc(j)) {
     problems.push('exposeGcFlag is true; acceptance forbids --js-flags=--expose-gc');
   }
   if (j.gc?.forcedGcThisRun === true) {
     problems.push('forcedGcThisRun is true; acceptance never calls gc()');
+  }
+  if (j.gc?.gcFunctionPresent === true) {
+    problems.push('gcFunctionPresent is true; acceptance forbids exposed GC');
   }
   return problems;
 }
@@ -927,23 +1084,25 @@ export function classifyExistingReceipt(file, expected = {}) {
 export function ineligibleReasons(j, expected = {}) {
   const problems = [];
   if (j.diagnostics === true || j.gc?.diagnostics === true) problems.push('diagnostics receipt is not acceptance');
-  if (j.acceptanceEligible === false) problems.push('acceptanceEligible is false');
+  if (j.acceptanceEligible !== true) problems.push('acceptanceEligible is not true');
   if (j.profiled === true || j.harness?.profiled === true) problems.push('profiled receipt is not acceptance');
   if (j.starved === true) problems.push('starved receipt is not acceptance');
   if (j.gc?.calledInsideMeasuredWindow === true || j.gc?.calledBeforeMeasuredWindow === true || j.gc?.calledAfterMeasuredWindow === true) {
     problems.push('forced GC call flags are set; acceptance never calls gc()');
   }
   if (j.gc?.forcedGcThisRun === true) problems.push('forcedGcThisRun is true');
-  if (Array.isArray(j.errors) && j.errors.length) problems.push('receipt errors are not empty');
-  const launchVerified = j.launch?.verified === true || j.launch?.recordedArgv?.verified === true;
+  if (!Array.isArray(j.errors) || j.errors.length) problems.push('receipt errors are missing or not empty');
+  if (j.measuredTree?.dirty) problems.push('measured tree is dirty');
+  const launchVerified = j.launch?.verified === true && j.launch?.recordedArgv?.verified === true
+    && Array.isArray(j.launch?.recordedArgv?.argv) && j.launch.recordedArgv.argv.length > 0;
   if (expected.requireLaunchVerified !== false && !launchVerified) {
     problems.push('unverified launch state cannot qualify as reference acceptance');
   }
-  if (j.launch?.exposeGcFlag === true) problems.push('exposeGcFlag is true');
+  if (derivedExposeGc(j)) problems.push('exposed GC is not acceptance');
   const commit = j.measuredTree?.commit;
   const allowed = new Set(Object.values(PROTOCOL.trees));
   if (expected.treeSha) {
-    if (commit && commit !== expected.treeSha) problems.push(`tree SHA ${commit} != expected ${expected.treeSha}`);
+    if (commit !== expected.treeSha) problems.push(`tree SHA ${commit} != expected ${expected.treeSha}`);
   } else if (commit && !allowed.has(commit)) {
     problems.push('measuredTree.commit is not an approved pinned tree');
   }
@@ -953,28 +1112,39 @@ export function ineligibleReasons(j, expected = {}) {
 export function sampleVerificationProblems(j, expected, recomputed = recomputeReceiptSeries(j)) {
   const problems = [];
   const label = expected.label || j.treeLabel;
-  const sensor = label && label !== 'A';
-  if (sensor || j.electronicsPass?.applicable === true) {
+  const sensor = (label && label !== 'A') || j.electronicsPass?.applicable === true;
+  const check = (name, claimed, stats) => {
+    if (!claimed || claimed.applicable === false || !stats || stats.samples === 0) return;
+    if (claimed.p95 != null && stats.p95 != null && claimed.p95 !== stats.p95) {
+      problems.push(`stale ${name} p95 ${claimed.p95} != samples ${stats.p95}`);
+    }
+    if (claimed.p99 != null && stats.p99 != null && claimed.p99 !== stats.p99) {
+      problems.push(`stale ${name} p99 ${claimed.p99} != samples ${stats.p99}`);
+    }
+  };
+  if (sensor) {
     const claimed = j.electronicsPass || {};
     if (recomputed.electronics.samples < (expected.passSamples || claimed.samples || 0)) {
       problems.push(`actual electronics samples ${recomputed.electronics.samples} below expected`);
     }
-    if (claimed.p95 != null && recomputed.electronics.p95 != null && claimed.p95 !== recomputed.electronics.p95) {
-      problems.push(`electronics p95 ${claimed.p95} != samples ${recomputed.electronics.p95}`);
-    }
-    if (claimed.p99 != null && recomputed.electronics.p99 != null && claimed.p99 !== recomputed.electronics.p99) {
-      problems.push(`electronics p99 ${claimed.p99} != samples ${recomputed.electronics.p99}`);
-    }
+    check('electronicsPass', claimed, recomputed.electronics);
     const actualGate = recomputed.gatePassed;
     if (typeof claimed.passed === 'boolean' && actualGate != null && claimed.passed !== actualGate) {
       problems.push(`stale electronicsPass.passed=${claimed.passed} but samples/gate are ${actualGate}`);
     }
+    check('detectionPass', j.detectionPass, recomputed.detection);
+    check('updateMs', j.updateMs, recomputed.updateMs);
+    check('seekerCPU', j.seekerCPU, recomputed.projectile);
+  }
+  if (recomputed.tick?.samples) {
+    check('frameCPU', {applicable: true, p95: j.frameCPU?.p95, p99: j.frameCPU?.p99}, recomputed.tick);
   }
   return problems;
 }
 
 export function effectiveElectronics(j) {
-  const e = elecOf(j);
+  if (!j || j.electronicsPass?.applicable === false) return null;
+  const e = j.electronicsPass;
   if (!e) return null;
   const samples = asArray(j?.samples?.passes);
   let stats = {samples: e.samples, p95: e.p95, p99: e.p99};
@@ -998,18 +1168,27 @@ export function receiptIneligible(j) {
   if (j.starved === true) return 'starved';
   if (j.gc?.calledInsideMeasuredWindow === true || j.gc?.forcedGcThisRun === true) return 'forced-gc';
   if (Array.isArray(j.errors) && j.errors.length) return 'errors';
+  if (j.measuredTree?.dirty) return 'dirty-tree';
   if (j.launch?.verified === false || j.launch?.recordedArgv?.verified === false) return 'unverified-launch';
+  if (derivedExposeGc(j)) return 'expose-gc';
   const commit = j.measuredTree?.commit;
   if (commit && !Object.values(PROTOCOL.trees).includes(commit)) return 'unapproved-tree';
   return null;
 }
 
+export function effectiveTick(receipt) {
+  if (!receipt) return {};
+  const ticks = asArray(receipt.samples?.ticks?.dtMs);
+  if (ticks && ticks.some(Number.isFinite)) return recomputeReceiptSeries(receipt).tick;
+  return receipt.frameCPU || {};
+}
+
 function tickOf(receipt) {
-  return receipt?.frameCPU || {};
+  return effectiveTick(receipt);
 }
 
 function elecOf(receipt) {
-  return receipt?.electronicsPass?.applicable === false ? null : receipt?.electronicsPass || null;
+  return effectiveElectronics(receipt);
 }
 
 export function blockIncrements(block) {
@@ -1089,20 +1268,25 @@ export function summarizeCampaign(blocks, {
         const j = block[k];
         const inelig = receiptIneligible(j);
         const e = inelig ? null : effectiveElectronics(j);
+        const recomputed = inelig ? null : recomputeReceiptSeries(j);
+        const tick = recomputed?.tick || tickOf(j);
+        const det = recomputed?.detection;
+        const upd = recomputed?.updateMs;
+        const proj = recomputed?.projectile;
         return [k, {
           commit: j.measuredTree?.commit || j.treeCommit || null,
           ineligible: inelig,
-          tickP95: rnd(tickOf(j).p95),
-          tickP99: rnd(tickOf(j).p99),
+          tickP95: rnd(tick.p95),
+          tickP99: rnd(tick.p99),
           electronicsP95: e ? rnd(e.p95) : null,
           electronicsP99: e ? rnd(e.p99) : null,
           electronicsPassed: e ? e.passed : null,
-          detectionP95: seriesP95(j.detectionPass),
-          detectionP99: seriesP99(j.detectionPass),
-          updateMsP95: seriesP95(j.updateMs),
-          updateMsP99: seriesP99(j.updateMs),
-          projectileP95: seriesP95(j.seekerCPU),
-          projectileP99: seriesP99(j.seekerCPU)
+          detectionP95: j.detectionPass?.applicable === false ? null : rnd(det?.p95 ?? seriesP95(j.detectionPass)),
+          detectionP99: j.detectionPass?.applicable === false ? null : rnd(det?.p99 ?? seriesP99(j.detectionPass)),
+          updateMsP95: j.updateMs?.applicable === false ? null : rnd(upd?.p95 ?? seriesP95(j.updateMs)),
+          updateMsP99: j.updateMs?.applicable === false ? null : rnd(upd?.p99 ?? seriesP99(j.updateMs)),
+          projectileP95: j.seekerCPU?.applicable === false ? null : rnd(proj?.p95 ?? seriesP95(j.seekerCPU)),
+          projectileP99: j.seekerCPU?.applicable === false ? null : rnd(proj?.p99 ?? seriesP99(j.seekerCPU))
         }];
       })),
       increments: inc,
@@ -1247,6 +1431,7 @@ export function supportingHashes(repoRoot) {
     'scripts/ew-resume-check.mjs',
     'scripts/ew-bench-resume-test.mjs',
     'scripts/ew-bench-astra-synthetics.mjs',
+    'scripts/ew-bench-r5-repro.mjs',
     'docs/ew/BENCHMARK-PROTOCOL.md'
   ];
   return Object.fromEntries(files.filter(f => fs.existsSync(path.join(repoRoot, f))).map(f => [f, sha256File(path.join(repoRoot, f))]));
@@ -1256,10 +1441,10 @@ function assert(cond, msg) {
   if (!cond) throw new Error(msg);
 }
 
-function fixtureReceipt({
+export function fixtureReceipt({
   label = 'C2',
   sequence = 1,
-  commit = PROTOCOL.trees.C2,
+  commit = PROTOCOL.trees[label] || PROTOCOL.trees.C2,
   harnessSha256 = 'h'.repeat(64),
   helperSha256 = 'l'.repeat(64),
   passSamples = PROTOCOL.passSamples,
@@ -1272,15 +1457,22 @@ function fixtureReceipt({
   applicable = label !== 'A',
   extras = {}
 } = {}) {
-  const passes = applicable ? Array.from({length: passSamples}, (_, i) => ({i, electronicsMs: electronicsP95})) : null;
-  const ticks = Array.from({length: tickSamples}, () => tickP95);
+  if (electronicsP99 < electronicsP95) electronicsP99 = electronicsP95;
+  if (tickP99 < tickP95) tickP99 = tickP95;
+  const pin = pinnedIdentity(label) || pinnedIdentity(commit);
+  const elec = applicable ? rankedSeries(passSamples, electronicsP95, electronicsP99) : [];
+  const ticks = rankedSeries(tickSamples, tickP95, tickP99);
+  const projectile = applicable ? rankedSeries(passSamples, 0.2, 0.3) : [];
   return {
     treeLabel: label,
     sequence,
     diagnostics: false,
     profiled: false,
     starved: false,
-    measuredTree: {commit, dirty: ''},
+    acceptanceEligible: true,
+    errors: [],
+    measuredTree: {commit, tree: pin?.tree || '0'.repeat(40), dirty: ''},
+    sources: {...(pin?.sources || {'src/main.js': 'a'.repeat(64)})},
     harness: {sha256: harnessSha256, helperSha256},
     workload: {
       passWarmup: PROTOCOL.passWarmup,
@@ -1289,9 +1481,15 @@ function fixtureReceipt({
       measuredTicks: tickSamples,
       passCadenceMs: PROTOCOL.passCadenceMs
     },
-    launch: {extraArgs: [], exposeGcFlag: false},
+    launch: {
+      extraArgs: [],
+      exposeGcFlag: false,
+      verified: true,
+      recordedArgv: {pid: 1, argv: ['/usr/bin/chromium'], selected: 'playwright-browser-process', verified: true}
+    },
     gc: {
       placement: 'none',
+      gcFunctionPresent: false,
       calledBeforeMeasuredWindow: false,
       calledAfterMeasuredWindow: false,
       calledInsideMeasuredWindow: false,
@@ -1310,7 +1508,18 @@ function fixtureReceipt({
     seekerCPU: applicable
       ? {applicable: true, p95: 0.2, p99: 0.3}
       : {applicable: false},
-    samples: {ticks: {dtMs: ticks}, passes},
+    samples: {
+      ticks: {dtMs: ticks, tRelMs: ticks.map((_, i) => i)},
+      passes: applicable ? elec.map((electronicsMs, i) => ({
+        i,
+        tEpochMs: 1e12 + i,
+        tRelMs: i,
+        electronicsMs,
+        detectionMs: electronicsMs,
+        updateMs: electronicsMs,
+        projectileMs: projectile[i]
+      })) : null
+    },
     ...extras
   };
 }
@@ -1393,9 +1602,12 @@ export function selfTest() {
   const drifted = campaignConfigFromEnv({TREE_C2: '0'.repeat(40), EW_PASS_WARMUP: '3', EW_TICK_SAMPLES: '9'});
   assert(drifted.acceptance === false && drifted.drifts.includes('trees.C2') && drifted.drifts.includes('passWarmup') && drifted.drifts.includes('tickSamples'), 'non-approved overrides are not acceptance');
   const approvedPlan = campaignPlan();
+  assert(validatePlan(approvedPlan).ok === false, 'plan without harness hashes is incomplete');
+  approvedPlan.harness = {sha256: 'h'.repeat(64), helperSha256: 'l'.repeat(64)};
   assert(approvedPlan.runs.filter(r => r.label === 'C2').every(r => r.sha === approvedPlan.trees.C2), 'plan.runs match plan.trees');
-  assert(validatePlan(approvedPlan).ok === true, 'approved plan validates');
+  assert(validatePlan(approvedPlan, {harnessSha256: 'h'.repeat(64), helperSha256: 'l'.repeat(64)}).ok === true, 'approved plan validates');
   const internallyConsistentOverride = campaignPlan(drifted.requested);
+  internallyConsistentOverride.harness = {sha256: 'h'.repeat(64), helperSha256: 'l'.repeat(64)};
   assert(internallyConsistentOverride.runs.filter(r => r.label === 'C2').every(r => r.sha === internallyConsistentOverride.trees.C2), 'generated plan keeps trees and runs together');
   assert(validatePlan(internallyConsistentOverride).ok === false, 'unapproved generated plan is not acceptance');
   const gcFromFlag = deriveGcSummary({
@@ -1481,9 +1693,6 @@ export function selfTest() {
   ], {preferPid: 99, ownerPid: 1, parentOf});
   assert(unownedPid.verified === false, 'unowned Playwright pid is unverified');
   const aValid = fixtureReceipt({label: 'A', sequence: 1, commit: PROTOCOL.trees.A});
-  aValid.acceptanceEligible = true;
-  aValid.errors = [];
-  aValid.launch = {extraArgs: [], exposeGcFlag: false, verified: true, recordedArgv: {verified: true}};
   const aExpected = expectedCampaignMeasurement({
     label: 'A',
     sequence: 1,
@@ -1500,10 +1709,42 @@ export function selfTest() {
   const aShortTicks = {
     ...aValid,
     frameCPU: {...aValid.frameCPU, samples: 8},
-    samples: {...aValid.samples, ticks: {dtMs: Array.from({length: 8}, () => 1)}}
+    samples: {...aValid.samples, ticks: {dtMs: Array.from({length: 8}, () => 1), tRelMs: Array.from({length: 8}, (_, i) => i)}}
   };
   assert(validateReceipt(aShortTicks, aExpected).status === 'incomplete', 'tree A tick samples must match campaign count');
-  return {ok: true, checks: 61};
+  const c2Expected = expectedCampaignMeasurement({
+    label: 'C2',
+    sequence: 1,
+    treeSha: PROTOCOL.trees.C2,
+    harnessSha256: 'h'.repeat(64),
+    helperSha256: 'l'.repeat(64)
+  });
+  const staleTicks = fixtureReceipt({label: 'C2', sequence: 1, tickP95: 10, tickP99: 10});
+  staleTicks.frameCPU = {samples: PROTOCOL.tickSamples, p95: 1.5, p99: 1.5};
+  assert(validateReceipt(staleTicks, c2Expected).ok === false, 'stale frameCPU vs tick samples is rejected');
+  const aBaseline = fixtureReceipt({label: 'A', sequence: 1, commit: PROTOCOL.trees.A, applicable: false, tickP95: 1, tickP99: 1});
+  const staleInc = blockIncrements({A: aBaseline, C2: staleTicks});
+  assert(staleInc.tickP95.ewMinusPresensor === 9, 'cumulative uses recomputed ticks');
+  assert(staleInc.tickP95.cumulativePassed === false, 'recomputed +9 fails cumulative');
+  const gcArgv = fixtureReceipt({label: 'C2', sequence: 1});
+  gcArgv.launch.extraArgs = [];
+  gcArgv.launch.exposeGcFlag = false;
+  gcArgv.launch.recordedArgv = {
+    pid: 1,
+    argv: ['/usr/bin/chromium', '--js-flags=--expose-gc'],
+    selected: 'playwright-browser-process',
+    verified: true
+  };
+  gcArgv.gc.gcFunctionPresent = true;
+  assert(validateReceipt(gcArgv, c2Expected).ok === false, 'expose-gc argv is rejected');
+  const dirtyTree = fixtureReceipt({label: 'C2', sequence: 1});
+  dirtyTree.measuredTree.dirty = ' M src/main.js';
+  assert(validateReceipt(dirtyTree, c2Expected).ok === false, 'dirty measured tree is rejected');
+  const twelveA = campaignPlan();
+  twelveA.harness = {sha256: 'h'.repeat(64), helperSha256: 'l'.repeat(64)};
+  twelveA.runs = twelveA.runs.map(r => ({...r, label: 'A', sequence: 1, sha: PROTOCOL.trees.A}));
+  assert(validatePlan(twelveA, {harnessSha256: 'h'.repeat(64), helperSha256: 'l'.repeat(64)}).ok === false, '12× A/seq1 is not the matrix');
+  return {ok: true, checks: 67};
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

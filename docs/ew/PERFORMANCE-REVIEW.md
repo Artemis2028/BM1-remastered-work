@@ -184,5 +184,6 @@ for individual samples / 1,000-pass / interleaved sequences is in
 **Frozen for Fable final diff review — long campaign not started.** Tag
 `ew-fable-protocol-20260914` at `e556a380` is historical and must not move.
 Prior freezes `ew-fable-protocol-20260914-r2` (`6d4c01d`) and
-`ew-fable-protocol-20260914-r3` (`c0b42b0`) stay put. Current
-protocol freeze is `ew-fable-protocol-20260914-r4`.
+`ew-fable-protocol-20260914-r3` (`c0b42b0`) and `ew-fable-protocol-20260914-r4`
+(`70f47cc`) stay put. Current
+protocol freeze is `ew-fable-protocol-20260914-r5`.

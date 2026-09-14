@@ -27,6 +27,9 @@ function assert(cond, msg) {
 const astra = spawnSync(process.execPath, [path.join(process.cwd(), 'scripts/ew-bench-astra-synthetics.mjs')], {encoding: 'utf8'});
 assert(astra.status === 0, `Astra synthetic suite exits 0 (${astra.stderr || astra.stdout})`);
 assert(JSON.parse(astra.stdout).ok === true, 'Astra synthetic suite ok');
+const r5 = spawnSync(process.execPath, [path.join(process.cwd(), 'scripts/ew-bench-r5-repro.mjs')], {encoding: 'utf8'});
+assert(r5.status === 0, `r5 repro suite exits 0 (${r5.stderr || r5.stdout})`);
+assert(JSON.parse(r5.stdout).ok === true, 'r5 repro suite ok');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ew-resume-'));
 const hashes = {harnessSha256: 'a'.repeat(64), helperSha256: 'b'.repeat(64)};
@@ -48,6 +51,10 @@ function validReceipt({label = 'C2', sequence = 1, passed = true, p95 = 1.5, p99
   const tickSamples = 8;
   const applicable = label !== 'A';
   const elec = applicable ? rankedSeries(passSamples, p95, p99) : [];
+  const tickP95 = label === 'A' ? 0.8 : 1.4;
+  const tickP99 = tickP95;
+  const tickVals = rankedSeries(tickSamples, tickP95, tickP99);
+  const pin = PROTOCOL.pinned[label];
   return {
     treeLabel: label,
     sequence,
@@ -56,7 +63,8 @@ function validReceipt({label = 'C2', sequence = 1, passed = true, p95 = 1.5, p99
     starved: false,
     acceptanceEligible: true,
     errors: [],
-    measuredTree: {commit: PROTOCOL.trees[label], dirty: ''},
+    measuredTree: {commit: PROTOCOL.trees[label], tree: pin.tree, dirty: ''},
+    sources: {...pin.sources},
     harness: {sha256: hashes.harnessSha256, helperSha256: hashes.helperSha256},
     workload: {
       passWarmup: PROTOCOL.passWarmup,
@@ -73,22 +81,28 @@ function validReceipt({label = 'C2', sequence = 1, passed = true, p95 = 1.5, p99
     },
     gc: {
       placement: 'none',
+      gcFunctionPresent: false,
       calledBeforeMeasuredWindow: false,
       calledAfterMeasuredWindow: false,
       calledInsideMeasuredWindow: false,
       forcedGcThisRun: false
     },
-    frameCPU: {samples: tickSamples, p95: label === 'A' ? 0.8 : 1.4, p99: 1.6},
+    frameCPU: {samples: tickSamples, p95: tickP95, p99: tickP99},
     electronicsPass: applicable
       ? {applicable: true, samples: passSamples, p95, p99, passed}
       : {applicable: false, samples: null, p95: null, p99: null, passed: null},
     detectionPass: applicable ? {applicable: true, p95, p99} : {applicable: false},
     updateMs: applicable ? {applicable: true, p95, p99} : {applicable: false},
-    seekerCPU: applicable ? {applicable: true, p95: 0.2, p99: 0.3} : {applicable: false},
+    seekerCPU: applicable ? {applicable: true, p95: 0.2, p99: 0.2} : {applicable: false},
     samples: {
-      ticks: {dtMs: Array.from({length: tickSamples}, () => 1)},
+      ticks: {
+        dtMs: tickVals,
+        tRelMs: tickVals.map((_, i) => i)
+      },
       passes: applicable ? elec.map((electronicsMs, i) => ({
         i,
+        tEpochMs: 1e12 + i,
+        tRelMs: i,
         electronicsMs,
         detectionMs: electronicsMs,
         updateMs: electronicsMs,
@@ -138,7 +152,7 @@ const incompleteClass = classifyExistingReceipt(incomplete, expected('C2', 1));
 assert(incompleteClass.action === 'stop' && incompleteClass.status === 'incomplete', 'incomplete stops');
 assert(fs.existsSync(incomplete), 'incomplete file preserved');
 
-const wrongTree = validReceipt({extras: {measuredTree: {commit: '0'.repeat(40), dirty: ''}}});
+const wrongTree = validReceipt({extras: {measuredTree: {commit: '0'.repeat(40), tree: PROTOCOL.pinned.C2.tree, dirty: ''}}});
 const mismatchTree = classifyExistingReceipt(write('wrong-tree.json', wrongTree), expected('C2', 1));
 assert(mismatchTree.action === 'stop' && mismatchTree.status === 'mismatch', 'wrong tree SHA stops');
 
@@ -159,7 +173,15 @@ const shortSamples = validReceipt({extras: {workload: {
   passCadenceMs: PROTOCOL.passCadenceMs
 }}});
 shortSamples.electronicsPass.samples = 300;
-shortSamples.samples.passes = Array.from({length: 300}, (_, i) => ({i, electronicsMs: 1}));
+shortSamples.samples.passes = Array.from({length: 300}, (_, i) => ({
+  i,
+  tEpochMs: 1e12 + i,
+  tRelMs: i,
+  electronicsMs: 1,
+  detectionMs: 1,
+  updateMs: 1,
+  projectileMs: 0.2
+}));
 assert(classifyExistingReceipt(write('short.json', shortSamples), expected('C2', 1)).status === 'mismatch', '300-sample config mismatch');
 
 const diag = validReceipt({extras: {diagnostics: true}});
@@ -221,8 +243,14 @@ assert(/Not force-deleting/.test(dirty.reason), 'dirty explains no delete');
 
 function block(seq, {c2p95 = 1.5, c2p99 = 2.0, c2passed = true, c2tick = 1.4, aTick = 0.8} = {}) {
   const tree = (label, extra) => {
+    const tickP95 = label === 'A' ? aTick : extra?.tick ?? (label === 'C2' ? c2tick : 1.2);
+    const tickP99 = tickP95;
     const j = validReceipt({label, sequence: seq, ...extra});
-    j.frameCPU.p95 = label === 'A' ? aTick : extra?.tick ?? (label === 'C2' ? c2tick : 1.2);
+    j.frameCPU = {samples: j.frameCPU.samples, p95: tickP95, p99: tickP99};
+    j.samples.ticks = {
+      dtMs: rankedSeries(j.frameCPU.samples, tickP95, tickP99),
+      tRelMs: Array.from({length: j.frameCPU.samples}, (_, i) => i)
+    };
     return j;
   };
   return {
@@ -304,7 +332,9 @@ assert(drifted.acceptance === false && drifted.drifts.includes('trees.C2'), 'TRE
 const generated = campaignPlan(drifted.requested);
 assert(generated.runs.filter(r => r.label === 'C2').every(r => r.sha === generated.trees.C2), 'plan.trees and plan.runs stay together');
 assert(validatePlan(generated).ok === false, 'unapproved C2 plan is rejected');
-assert(validatePlan(campaignPlan()).ok === true, 'approved plan validates');
+const approved = campaignPlan();
+approved.harness = {sha256: 'h'.repeat(64), helperSha256: 'l'.repeat(64)};
+assert(validatePlan(approved).ok === true, 'approved plan validates');
 
 const repoRoot = process.cwd();
 const realHashes = {
@@ -316,8 +346,12 @@ fs.mkdirSync(reportDir);
 const failReceipt = validReceipt({passed: false, p95: 3.7, p99: 9.2});
 failReceipt.harness = {sha256: realHashes.harnessSha256, helperSha256: realHashes.helperSha256};
 failReceipt.workload.measuredTicks = PROTOCOL.tickSamples;
-failReceipt.frameCPU.samples = PROTOCOL.tickSamples;
-failReceipt.samples.ticks.dtMs = Array.from({length: PROTOCOL.tickSamples}, () => 1);
+failReceipt.frameCPU = {samples: PROTOCOL.tickSamples, p95: 1, p99: 1};
+failReceipt.seekerCPU = {applicable: true, p95: 0.2, p99: 0.2};
+failReceipt.samples.ticks = {
+  dtMs: Array.from({length: PROTOCOL.tickSamples}, () => 1),
+  tRelMs: Array.from({length: PROTOCOL.tickSamples}, (_, i) => i)
+};
 fs.writeFileSync(path.join(reportDir, 'campaign-pending-seq1-C2.json'), JSON.stringify(failReceipt));
 const report = spawnSync(process.execPath, [path.join(repoRoot, 'scripts/ew-bench-report.mjs'), reportDir, 'campaign-pending'], {encoding: 'utf8'});
 assert(report.status !== 0, 'report CLI exits non-zero when anyRunFailed/incomplete');

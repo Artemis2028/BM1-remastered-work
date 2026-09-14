@@ -30,6 +30,7 @@
     "test:ew:bench-lib": "node scripts/ew-bench-lib.mjs",
     "test:ew:bench-resume": "node scripts/ew-bench-resume-test.mjs",
     "test:ew:bench-astra": "node scripts/ew-bench-astra-synthetics.mjs",
+    "test:ew:bench-r5": "node scripts/ew-bench-r5-repro.mjs",
     "test:ew:performance:plan": "scripts/ew-campaign.sh --plan"
   },
   "license": "SEE LICENSE IN LICENSE.md",
