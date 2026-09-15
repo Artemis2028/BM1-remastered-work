@@ -4281,3 +4281,33 @@ button:disabled {
 .fleet-manager details {padding:10px;border-bottom:1px solid #456;}
 .fleet-manager button,.fleet-manager select {margin:5px;padding:6px;color:#e5f2ff;background:#253d56;border:1px solid #66829c;}
 .fleet-manager label {display:inline-block;margin:6px;}
+
+/* Public Cheats & Debug dialog: independent of the frequently redrawn HUD. */
+#cheats-debug {
+  box-sizing: border-box;
+  width: min(760px, calc(100vw - 24px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  padding: 20px;
+  border: 2px solid var(--lcars-purple, #bd9de0);
+  border-radius: 12px;
+  background: #11131e;
+  color: #f1edf7;
+  font: 16px/1.5 system-ui, sans-serif;
+}
+#cheats-debug::backdrop { background: rgba(0, 0, 0, .72); }
+#cheats-debug .debug-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+#cheats-debug h2 { margin: 0; font-size: 23px; }
+#cheats-debug h3 { margin: 0 0 10px; font-size: 18px; }
+#cheats-debug section { border-top: 1px solid #565064; padding-top: 16px; margin-top: 16px; }
+#cheats-debug p { overflow-wrap: anywhere; margin: 10px 0; }
+#cheats-debug form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 12px 0; }
+#cheats-debug label { display: grid; gap: 5px; flex: 1 1 190px; min-width: 0; }
+#cheats-debug input, #cheats-debug select { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px; background: #222638; color: #fff; border: 1px solid #9b90ae; border-radius: 4px; font: inherit; }
+#cheats-debug button { min-height: 40px; max-width: 100%; padding: 8px 12px; white-space: normal; font: inherit; }
+#cheats-debug .debug-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#cheats-debug [data-debug-status] { padding: 10px; background: #252a3d; border-radius: 4px; }
+#cheats-debug .debug-error { color: #ffb8ad; }
+#cheats-debug summary { cursor: pointer; }
+#cheats-debug code { overflow-wrap: anywhere; }
+#cheats-debug :focus-visible { outline: 2px solid #ffd18c; outline-offset: 3px; }
