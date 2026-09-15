@@ -105,7 +105,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 2,
@@ -212,7 +216,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 4,
@@ -317,7 +325,11 @@
         "efficiency": 0.8,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 9,
@@ -420,7 +432,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 10,
@@ -523,7 +539,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 11,
@@ -576,7 +596,7 @@
         "source": "Reviewed hull-register game-size envelope",
         "sizeStatus": "review-baseline"
       },
-      "artworkSource": "cargoship3.gif \u2014 existing Vega hull, not a second freighter",
+      "artworkSource": "cargoship3.gif — existing Vega hull, not a second freighter",
       "warpRange": 460,
       "fuelCapacity": 130,
       "impulseSpeed": 6.85,
@@ -627,7 +647,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 15,
@@ -737,7 +761,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 22,
@@ -842,7 +870,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "hardened"
+      }
     },
     {
       "id": 24,
@@ -945,7 +977,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 25,
@@ -1048,7 +1084,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 26,
@@ -1102,6 +1142,10 @@
         "rotationDegrees": 0,
         "source": "Reviewed hull-register game-size envelope",
         "sizeStatus": "review-baseline"
+      },
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
       }
     },
     {
@@ -1205,7 +1249,11 @@
         "efficiency": 0.8,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 33,
@@ -1312,7 +1360,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 35,
@@ -1415,7 +1467,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 38,
@@ -1518,7 +1574,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 42,
@@ -1621,7 +1681,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "hardened"
+      }
     },
     {
       "id": 47,
@@ -1728,12 +1792,16 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 48,
       "name": "Jem'Hadar Battlecruiser",
-      "description": "A heavy Jem\u2019Hadar battlecruiser with strong protection and a mixed combat fit. Dominion core shipyards reserve it for trusted captains.",
+      "description": "A heavy Jem’Hadar battlecruiser with strong protection and a mixed combat fit. Dominion core shipyards reserve it for trusted captains.",
       "shipClass": "capital",
       "drawWidth": 74,
       "drawHeight": 74,
@@ -1833,7 +1901,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 49,
@@ -1938,7 +2010,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "hardened"
+      }
     },
     {
       "id": 50,
@@ -2041,7 +2117,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 51,
@@ -2146,7 +2226,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 53,
@@ -2253,7 +2337,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 54,
@@ -2358,7 +2446,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 55,
@@ -2465,7 +2557,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 60,
@@ -2575,7 +2671,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "hardened"
+      }
     },
     {
       "id": 61,
@@ -2678,7 +2778,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "hardened"
+      }
     },
     {
       "id": 62,
@@ -2781,7 +2885,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "hardened"
+      }
     },
     {
       "id": 63,
@@ -2834,6 +2942,10 @@
         "rotationDegrees": 0,
         "source": "Integrated compact ship-size ladder at 030155d",
         "sizeStatus": "review-baseline"
+      },
+      "capture": {
+        "mode": "allowed",
+        "resistance": "hardened"
       }
     },
     {
@@ -2937,7 +3049,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "hardened"
+      }
     },
     {
       "id": 65,
@@ -3040,7 +3156,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "hardened"
+      }
     },
     {
       "id": 66,
@@ -3145,12 +3265,16 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "hardened"
+      }
     },
     {
       "id": 206,
       "name": "Dominion Scout",
-      "description": "A compact Dominion scout with a light pulse cannon. Fast and affordable, but lightly protected compared with the Jem\u2019Hadar attack ship.",
+      "description": "A compact Dominion scout with a light pulse cannon. Fast and affordable, but lightly protected compared with the Jem’Hadar attack ship.",
       "shipClass": "shuttle",
       "drawWidth": 74,
       "drawHeight": 74,
@@ -3252,7 +3376,11 @@
         "efficiency": 0.8,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 207,
@@ -3359,7 +3487,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 208,
@@ -3467,7 +3599,11 @@
         "efficiency": 0.8,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 209,
@@ -3574,7 +3710,11 @@
         "efficiency": 0.8,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 210,
@@ -3681,7 +3821,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 211,
@@ -3738,7 +3882,7 @@
         "source": "Approved native Vulcan Explorer art at 0.75 scale",
         "sizeStatus": "review-baseline"
       },
-      "artworkSource": "vulcancruiser.gif \u2014 Claude audited original",
+      "artworkSource": "vulcancruiser.gif — Claude audited original",
       "warpRange": 1410,
       "fuelCapacity": 360,
       "impulseSpeed": 5.95,
@@ -3789,7 +3933,11 @@
         "efficiency": 0.8,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 212,
@@ -3896,7 +4044,11 @@
         "efficiency": 0.8,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 213,
@@ -4005,7 +4157,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 214,
@@ -4112,7 +4268,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 215,
@@ -4220,12 +4380,16 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 216,
       "name": "Dominion Cruiser",
-      "description": "A fast Dominion combat cruiser with stronger defenses and weapons than the attack ship. Based in the Dominica core, away from Blender\u2019s remnants.",
+      "description": "A fast Dominion combat cruiser with stronger defenses and weapons than the attack ship. Based in the Dominica core, away from Blender’s remnants.",
       "shipClass": "cruiser",
       "drawWidth": 74,
       "drawHeight": 74,
@@ -4327,7 +4491,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 217,
@@ -4434,7 +4602,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 218,
@@ -4541,7 +4713,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 219,
@@ -4648,7 +4824,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 220,
@@ -4755,7 +4935,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 221,
@@ -4862,7 +5046,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 222,
@@ -4969,7 +5157,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 223,
@@ -5076,7 +5268,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 224,
@@ -5183,7 +5379,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "hardened"
+      }
     },
     {
       "id": 225,
@@ -5291,7 +5491,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 226,
@@ -5398,7 +5602,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 227,
@@ -5505,7 +5713,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 228,
@@ -5612,7 +5824,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 229,
@@ -5719,7 +5935,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 230,
@@ -5827,7 +6047,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 231,
@@ -5935,7 +6159,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 232,
@@ -6042,7 +6270,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "hardened"
+      }
     },
     {
       "id": 233,
@@ -6149,7 +6381,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 234,
@@ -6256,7 +6492,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 235,
@@ -6363,7 +6603,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 236,
@@ -6470,7 +6714,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 237,
@@ -6577,7 +6825,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 238,
@@ -6684,7 +6936,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 239,
@@ -6791,7 +7047,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 240,
@@ -6898,7 +7158,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 241,
@@ -7005,7 +7269,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 242,
@@ -7112,7 +7380,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 243,
@@ -7219,7 +7491,11 @@
         "efficiency": 0.8,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 244,
@@ -7326,7 +7602,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 245,
@@ -7433,7 +7713,11 @@
         "efficiency": 0.8,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 246,
@@ -7540,7 +7824,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 247,
@@ -7647,7 +7935,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 248,
@@ -7754,7 +8046,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 249,
@@ -7861,7 +8157,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 250,
@@ -7968,7 +8268,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 251,
@@ -8075,7 +8379,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 252,
@@ -8182,7 +8490,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 253,
@@ -8289,7 +8601,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 254,
@@ -8396,7 +8712,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "hardened"
+      }
     },
     {
       "id": 255,
@@ -8503,7 +8823,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 256,
@@ -8610,7 +8934,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 257,
@@ -8717,7 +9045,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 258,
@@ -8824,7 +9156,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 259,
@@ -8931,7 +9267,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 260,
@@ -9038,7 +9378,11 @@
         "efficiency": 0.8,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 261,
@@ -9145,7 +9489,12 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "unlock",
+        "resistance": "exceptional",
+        "reason": "Tactical Cube capture content is deferred"
+      }
     },
     {
       "id": 262,
@@ -9252,7 +9601,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 263,
@@ -9359,7 +9712,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 264,
@@ -9466,7 +9823,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 265,
@@ -9573,7 +9934,11 @@
         "efficiency": 0.8,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 266,
@@ -9680,7 +10045,11 @@
         "efficiency": 0.8,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 267,
@@ -9787,7 +10156,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 268,
@@ -9894,7 +10267,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 269,
@@ -10001,7 +10378,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 270,
@@ -10108,7 +10489,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 271,
@@ -10215,7 +10600,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 272,
@@ -10322,7 +10711,11 @@
         "efficiency": 0.8,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 273,
@@ -10429,7 +10822,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 274,
@@ -10536,7 +10933,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 275,
@@ -10643,7 +11044,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 276,
@@ -10750,7 +11155,11 @@
         "efficiency": 0.8,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 277,
@@ -10857,7 +11266,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 278,
@@ -10964,7 +11377,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 279,
@@ -11071,7 +11488,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 280,
@@ -11178,7 +11599,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 281,
@@ -11285,7 +11710,11 @@
         "efficiency": 0.8,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 282,
@@ -11392,7 +11821,11 @@
         "efficiency": 0.8,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 283,
@@ -11499,7 +11932,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 284,
@@ -11606,7 +12043,11 @@
         "efficiency": 0.8,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 285,
@@ -11713,7 +12154,11 @@
         "efficiency": 0.8,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 286,
@@ -11820,7 +12265,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 287,
@@ -11927,7 +12376,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 288,
@@ -12034,7 +12487,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 289,
@@ -12141,7 +12598,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 290,
@@ -12248,7 +12709,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 291,
@@ -12355,7 +12820,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 292,
@@ -12462,7 +12931,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 293,
@@ -12569,7 +13042,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 294,
@@ -12676,7 +13153,11 @@
         "efficiency": 0.8,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 295,
@@ -12783,7 +13264,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 296,
@@ -12890,7 +13375,11 @@
         "efficiency": 0.8,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 297,
@@ -12997,7 +13486,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 298,
@@ -13104,7 +13597,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 299,
@@ -13211,7 +13708,11 @@
         "efficiency": 0.8,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 300,
@@ -13318,7 +13819,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 301,
@@ -13425,7 +13930,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 302,
@@ -13532,7 +14041,11 @@
         "efficiency": 0.8,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 303,
@@ -13639,7 +14152,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 305,
@@ -13750,7 +14267,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 306,
@@ -13861,7 +14382,11 @@
         "efficiency": 0.8,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 307,
@@ -13972,7 +14497,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 308,
@@ -14083,7 +14612,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 309,
@@ -14195,7 +14728,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 310,
@@ -14307,7 +14844,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 311,
@@ -14419,7 +14960,11 @@
         "efficiency": 0.8,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 312,
@@ -14531,7 +15076,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 313,
@@ -14643,7 +15192,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 314,
@@ -14754,7 +15307,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 315,
@@ -14865,7 +15422,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 316,
@@ -14976,7 +15537,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 317,
@@ -15087,7 +15652,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 318,
@@ -15198,7 +15767,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 319,
@@ -15309,12 +15882,16 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 320,
       "name": "D'deridex Warbird",
-      "description": "A large cloaked D\u2019deridex warbird with heavy protection and substantial interstellar reach. Deliberate handling rewards positioning over pursuit.",
+      "description": "A large cloaked D’deridex warbird with heavy protection and substantial interstellar reach. Deliberate handling rewards positioning over pursuit.",
       "shipClass": "capital",
       "drawWidth": 74,
       "drawHeight": 74,
@@ -15420,12 +15997,16 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 321,
       "name": "Norexan Warbird",
-      "description": "A fast Norexan strike warbird with a cloak and plasma torpedo. Less durable than a D\u2019deridex, but considerably more responsive.",
+      "description": "A fast Norexan strike warbird with a cloak and plasma torpedo. Less durable than a D’deridex, but considerably more responsive.",
       "shipClass": "cruiser",
       "drawWidth": 74,
       "drawHeight": 74,
@@ -15531,12 +16112,16 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 322,
       "name": "Jem'Hadar Attack Ship",
-      "description": "A compact Jem\u2019Hadar attack ship with a polaron beam and photon launcher. A practical combat upgrade among Blender\u2019s remaining Dominion ships.",
+      "description": "A compact Jem’Hadar attack ship with a polaron beam and photon launcher. A practical combat upgrade among Blender’s remaining Dominion ships.",
       "shipClass": "lightCruiser",
       "drawWidth": 74,
       "drawHeight": 74,
@@ -15642,7 +16227,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 323,
@@ -15753,7 +16342,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 324,
@@ -15864,7 +16457,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 325,
@@ -15977,7 +16574,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 326,
@@ -16088,7 +16689,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 327,
@@ -16199,7 +16804,11 @@
         "efficiency": 0.8,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 328,
@@ -16310,7 +16919,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 329,
@@ -16417,12 +17030,16 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 330,
       "name": "B'rel Scout",
-      "description": "A stripped-down B\u2019rel starter refit with a small disruptor. Light protection and limited reach keep it below the larger Bird of Prey patrol designs.",
+      "description": "A stripped-down B’rel starter refit with a small disruptor. Light protection and limited reach keep it below the larger Bird of Prey patrol designs.",
       "shipClass": "shuttle",
       "drawWidth": 74,
       "drawHeight": 74,
@@ -16528,12 +17145,16 @@
         "efficiency": 0.8,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 331,
       "name": "K't'inga Cargo Cruiser",
-      "description": "A K\u2019t\u2019inga hull converted for armed cargo service. Its large hold and tractor favor logistics over the speed and weapons of a frontline battlecruiser.",
+      "description": "A K’t’inga hull converted for armed cargo service. Its large hold and tractor favor logistics over the speed and weapons of a frontline battlecruiser.",
       "shipClass": "lightCruiser",
       "drawWidth": 74,
       "drawHeight": 74,
@@ -16639,7 +17260,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 332,
@@ -16750,12 +17375,16 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 333,
       "name": "Negh'Var Command Ship",
-      "description": "A Negh\u2019Var command variant for coordinating Klingon battle groups. Heavy protection, cloak and long reach support major fleet operations.",
+      "description": "A Negh’Var command variant for coordinating Klingon battle groups. Heavy protection, cloak and long reach support major fleet operations.",
       "shipClass": "battleship",
       "drawWidth": 74,
       "drawHeight": 74,
@@ -16857,7 +17486,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "hardened"
+      }
     },
     {
       "id": 334,
@@ -16968,7 +17601,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 335,
@@ -17080,7 +17717,11 @@
         "efficiency": 0.8,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 336,
@@ -17192,7 +17833,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 338,
@@ -17303,7 +17948,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 340,
@@ -17415,7 +18064,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 341,
@@ -17527,7 +18180,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 342,
@@ -17639,7 +18296,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 343,
@@ -17750,7 +18411,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 344,
@@ -17861,7 +18526,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     },
     {
       "id": 345,
@@ -17972,7 +18641,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 346,
@@ -18083,7 +18756,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "exceptional"
+      }
     },
     {
       "id": 347,
@@ -18097,7 +18774,7 @@
       "fleetEligible": false,
       "shipyardEligible": false,
       "availabilityRegion": "secret-paso",
-      "description": "Project X\u2019s exceptional Terran supercapital. Heavy weapons, immense protection and long reach are entrusted only to captains with 100 Terran standing.",
+      "description": "Project X’s exceptional Terran supercapital. Heavy weapons, immense protection and long reach are entrusted only to captains with 100 Terran standing.",
       "descriptionProvenance": "Authored for full-roster-v2; source wording preserved in balanceReview.sourceDescription; lore notes in docs/ship-balance/LORE-SOURCES.md.",
       "balanceStatus": "reviewed-full-roster-v2",
       "render": {
@@ -18168,7 +18845,7 @@
             18
           ]
         },
-        "sourceDescription": "Project X\u2019s exceptional Terran capital ship, entrusted only to captains of the highest faction standing.",
+        "sourceDescription": "Project X’s exceptional Terran capital ship, entrusted only to captains of the highest faction standing.",
         "loreBasis": "bm-source-and-user-review",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
       },
@@ -18188,7 +18865,11 @@
         "efficiency": 1.1,
         "signature": 1.5
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "hardened"
+      }
     },
     {
       "id": 348,
@@ -18294,7 +18975,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 349,
@@ -18401,7 +19086,11 @@
         "efficiency": 1,
         "signature": 0.65
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 350,
@@ -18507,7 +19196,11 @@
         "efficiency": 1.15,
         "signature": 0.9
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "light"
+      }
     },
     {
       "id": 351,
@@ -18521,7 +19214,7 @@
       "fleetEligible": true,
       "shipyardEligible": true,
       "availabilityRegion": "general",
-      "description": "A war-oriented light Bird of Prey, above the B\u2019rel and below the K\u2019Vort. Its small disruptor and photon launcher support local combat duties.",
+      "description": "A war-oriented light Bird of Prey, above the B’rel and below the K’Vort. Its small disruptor and photon launcher support local combat duties.",
       "descriptionProvenance": "Authored for full-roster-v2; source wording preserved in balanceReview.sourceDescription; lore notes in docs/ship-balance/LORE-SOURCES.md.",
       "balanceStatus": "reviewed-full-roster-v2",
       "render": {
@@ -18536,7 +19229,7 @@
         "source": "Klingon shuttle (L14)",
         "sourceGame": "Flash source artwork"
       },
-      "reviewNote": "User clarification: this is a separate, war-oriented Klingon Bird of Prey, second in the early power progression after the B\u2019rel. Proposed role: light cruiser, larger and stronger than the starter. The B\u2019rel links are for comparison, not a shared hull identity. Exact class name, stats, price and game dimensions remain to be set.",
+      "reviewNote": "User clarification: this is a separate, war-oriented Klingon Bird of Prey, second in the early power progression after the B’rel. Proposed role: light cruiser, larger and stronger than the starter. The B’rel links are for comparison, not a shared hull identity. Exact class name, stats, price and game dimensions remain to be set.",
       "image": "assets/1671db796b069ed213061e5139634517783743503e96afd2236b35fea284bce0.png",
       "trimBounds": {
         "sx": 0,
@@ -18573,7 +19266,7 @@
       ],
       "purchaseTier": "trusted",
       "marketRole": "military",
-      "artCorrection": "Faithful nose-up PSD master from Claude\u2019s bundle, preserving our hull ID and role.",
+      "artCorrection": "Faithful nose-up PSD master from Claude’s bundle, preserving our hull ID and role.",
       "warpRange": 340,
       "fuelCapacity": 150,
       "impulseSpeed": 7.0,
@@ -18599,7 +19292,7 @@
             null
           ]
         },
-        "sourceDescription": "A war-oriented light cruiser, the next step after the B\u2019rel and below the K\u2019Vort in the early Klingon fleet.",
+        "sourceDescription": "A war-oriented light cruiser, the next step after the B’rel and below the K’Vort in the early Klingon fleet.",
         "loreBasis": "klingon",
         "loreScope": "Role inspiration only; faction, refit, three-slot loadout and numerical values are BM gameplay decisions."
       },
@@ -18619,7 +19312,11 @@
         "efficiency": 1,
         "signature": 1
       },
-      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side."
+      "sensorDesign": "Role-derived native hardware; upgrades multiply these traits. Signature is independent of political side.",
+      "capture": {
+        "mode": "allowed",
+        "resistance": "standard"
+      }
     }
   ],
   "aliases": {

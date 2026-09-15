@@ -1,0 +1,1455 @@
+{
+  "version": 1,
+  "basis": "Reviewed BM alternate-history data at 04abbfc; proposed first-playtest counts. Ambient ships only, no owned-ship limit.",
+  "profiles": [
+    {
+      "systemIndex": 0,
+      "name": "Earth",
+      "ambientShips": 18,
+      "source": "data/planetData.json#/planets/0",
+      "population": 5700,
+      "market": 5,
+      "stationIds": [
+        "0-9",
+        "0-3",
+        "0-8",
+        "0-6",
+        "0-7",
+        "0-5",
+        "0-16",
+        "0-11",
+        "0-13",
+        "0-12",
+        "0-17",
+        "0-14",
+        "0-15",
+        "0-2",
+        "0-10",
+        "0-4",
+        "egg-shipyard-terran-1",
+        "import-203-0"
+      ],
+      "description": "The Homeworld of the humans and the center of government for the Earth Empire. Earth's population has slowly declined as much of its people are sent to their deaths in the war with the Klingons. All of the human's resources have been spent on the war and the cities of Earth have fallen into disrepair. Even so, most humans are not willing to leave the one place they call home.",
+      "rationale": "Wartime government hub; patrols and logistics retain high local activity despite population decline."
+    },
+    {
+      "systemIndex": 1,
+      "name": "Orion",
+      "ambientShips": 6,
+      "source": "data/planetData.json#/planets/1",
+      "population": 2200,
+      "market": 3,
+      "stationIds": [
+        "1-18"
+      ],
+      "description": "The humans quickly annexed the planet Orion to take full advantage of the already-existing slave trade here. Though Orions are not good laborers, they do make fine administrators and secretaries. Over 80% of the beauracratic system on Earth is operated by Orion slaves. Because of their importance, Orions live a privileged life with many benefits over other slaves such as the Lysians.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 2,
+      "name": "Lik Prime",
+      "ambientShips": 4,
+      "source": "data/planetData.json#/planets/2",
+      "population": 4900,
+      "market": -2,
+      "stationIds": [
+        "2-19"
+      ],
+      "description": "The inhabitants of Lik Prime were most surprised when they came under the rule of the Earth Empire. As a pre-warp civilization the sudden transition nearly tore their society apart. The planet is mostly desert with some tropical regions, but with frequent human strip-mining the water on this planet is toxic and they rely entirely on other sources.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 3,
+      "name": "Alpha Centauri",
+      "ambientShips": 13,
+      "source": "data/planetData.json#/planets/3",
+      "population": 7000,
+      "market": 3,
+      "stationIds": [
+        "3-30",
+        "3-27",
+        "3-31",
+        "3-35",
+        "3-34",
+        "3-29",
+        "3-33",
+        "3-23",
+        "3-22",
+        "3-24",
+        "3-21",
+        "3-25",
+        "3-20",
+        "3-32",
+        "3-28",
+        "3-26",
+        "egg-shipyard-terran-6"
+      ],
+      "description": "The first planet to be colonized by humans, it remains one of the power centers of the empire. Much of Earth's administration has been moved to Alpha Centauri since Earth is under constant threat of attack. Fortunately this planet has gone relatively untouched in the war and it remains a beautiful planet with a dense population.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 4,
+      "name": "Paso",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/4",
+      "population": 2300,
+      "market": 0,
+      "stationIds": [
+        "4-163",
+        "4-36",
+        "4-37",
+        "4-38"
+      ],
+      "description": "A planet that was once home to a wide variety of life, it was strip-mined by the humans until it eventually became uninhabitable. Nothing can live on its surface now and it is an utterly useless planet.",
+      "rationale": "Strip-mined, uninhabitable description overrides the population field. Localized X-Base activity; its stock remains intact."
+    },
+    {
+      "systemIndex": 5,
+      "name": "New Switzerland",
+      "ambientShips": 12,
+      "source": "data/planetData.json#/planets/5",
+      "population": 2300,
+      "market": 5,
+      "stationIds": [
+        "5-40",
+        "5-41",
+        "5-44",
+        "5-45",
+        "5-43",
+        "5-42",
+        "5-39",
+        "egg-shipyard-independent-1",
+        "egg-shipyard-neutral-1",
+        "import-201-5"
+      ],
+      "description": "Founded a few hundred years ago by passivist humans, New Switzerland has grown into a large economic center for their region of the galaxy. After the Imperial War began New Switzerland became a safe-haven for humans escaping the Klingon onslaught. The Swiss make the best laser cutters in the galaxy.",
+      "rationale": "Independent exchange and salvage facilities support merchant traffic without treating stock as population."
+    },
+    {
+      "systemIndex": 6,
+      "name": "Trey",
+      "ambientShips": 5,
+      "source": "data/planetData.json#/planets/6",
+      "population": 4300,
+      "market": -3,
+      "stationIds": [
+        "6-46"
+      ],
+      "description": "A prison planet for the Earth Empire. It still has several hundred thousand prisoners of various races. The planet has been ignored for the most part of the war, even though the Klingons know there are a good many Klingons still being held prisoner there. Anyone who visits this world will not be able to sleep at night, as the blood-curling screams from the prisoners being tortured by their human guards echo in the deep canyons nonstop.",
+      "rationale": "Restricted or conflict-centered destination in its description; limited routine traffic, existing military encounters unchanged."
+    },
+    {
+      "systemIndex": 7,
+      "name": "Epsilon",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/7",
+      "population": 4200,
+      "market": -2,
+      "stationIds": [
+        "7-208"
+      ],
+      "description": "A great experiment that failed, Epsilon was supposed to be a peaceful human colony. Instead, the people here continued the human tradition of malignity. It was abandoned, an only a handful of people remain trapped in a 22nd century ideal, clinging to the 'old times'.",
+      "rationale": "Sparse visitors: description contains an abandonment or habitability constraint, overriding numeric population."
+    },
+    {
+      "systemIndex": 8,
+      "name": "Quintus",
+      "ambientShips": 11,
+      "source": "data/planetData.json#/planets/8",
+      "population": 5000,
+      "market": 3,
+      "stationIds": [
+        "8-52",
+        "8-48",
+        "8-50",
+        "8-49",
+        "8-51",
+        "8-47"
+      ],
+      "description": "Quintus has served as an Earth outpost since the beginning of the Imperial War. It supports a small population of civilians and houses many millions of soldiers who train here.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 9,
+      "name": "Gorn",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/9",
+      "population": 0,
+      "market": 0,
+      "stationIds": [
+        "9-gorn-muster-dock",
+        "egg-shipyard-gorn-1"
+      ],
+      "description": "A reptillian species that threatened Earth. Their military fleet, and indeed their entire race, was wiped out by the Earth Empire a few hundred years ago. The outer skin of the Gorn does not decompose, and it is perhaps the billions of corpses scattered across the planet that has caused this planet to go unpopulated.",
+      "rationale": "Depopulated and dormant; this profile does not activate Gorn generators or military."
+    },
+    {
+      "systemIndex": 10,
+      "name": "Rigel",
+      "ambientShips": 5,
+      "source": "data/planetData.json#/planets/10",
+      "population": 3000,
+      "market": 0,
+      "stationIds": [
+        "10-54",
+        "10-53"
+      ],
+      "description": "Rigel is an independent planet inhabited by a primitive industrial society. The Andorians however lay claim to this world and are quite willing to protect it and its people. The people here are so peaceful it would be a shame to ruin them.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 11,
+      "name": "Vulcan",
+      "ambientShips": 10,
+      "source": "data/planetData.json#/planets/11",
+      "population": 6000,
+      "market": 6,
+      "stationIds": [
+        "11-59",
+        "11-55",
+        "11-56",
+        "11-58",
+        "11-57",
+        "egg-shipyard-vulcan-1"
+      ],
+      "description": "The Vulcans were once a fierce race along side the humans. But after significant cultural reforms they retreated to their homeworld and have become primarily educators. Their universities and research facilities are top-notch. They have a small fleet of ships but have very few weapons.",
+      "rationale": "Research and education support civilian traffic; this count does not enlarge its authored military."
+    },
+    {
+      "systemIndex": 12,
+      "name": "Opusab",
+      "ambientShips": 7,
+      "source": "data/planetData.json#/planets/12",
+      "population": 4300,
+      "market": 0,
+      "stationIds": [
+        "12-60",
+        "12-63",
+        "12-61",
+        "12-62"
+      ],
+      "description": "A peaceful settlement with a variety of races. Many people from different governments get along here, even though they may be at war with each other. It is said that this might be due to the high number of Polock Flowers that bloom on the surface year-round. Its pollen has a calming affect on the average humanoid's senses. One person even claims to have seen a Klingon and a Human holding hands.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 13,
+      "name": "Ferenginar",
+      "ambientShips": 18,
+      "source": "data/planetData.json#/planets/13",
+      "population": 7000,
+      "market": 8,
+      "stationIds": [
+        "13-66",
+        "13-67",
+        "13-64",
+        "13-68",
+        "13-65",
+        "13-69",
+        "13-grand-nagus-casino",
+        "egg-shipyard-ferengi-1",
+        "import-204-13"
+      ],
+      "description": "Homeworld to the Ferengi race, who are mostly traders of various goods and services. The Ferengi will sell you anything they can get their hands on, but are usually reluctant to buy. Their primary trade ship is their small cargo shuttle, but they also have large Maurauder starships that are quite combat capable.",
+      "rationale": "Trading homeworld with a high authored market; merchant traffic and escorts."
+    },
+    {
+      "systemIndex": 14,
+      "name": "Lysia",
+      "ambientShips": 4,
+      "source": "data/planetData.json#/planets/14",
+      "population": 800,
+      "market": -5,
+      "stationIds": [
+        "14-70"
+      ],
+      "description": "The primitive Lysians were used by the humans as laborers for the strip-mining of Paso. With the onset of the war the Lysians finally found themselves free. But since their technology is so primitive, they do not dare venture out of their territory. Many regard the Lysians as children and wish no harm against them. The Lysians however are enjoying their momentary freedom and just hope no one comes along to enslave them again any time soon.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 15,
+      "name": "Nausica",
+      "ambientShips": 11,
+      "source": "data/planetData.json#/planets/15",
+      "population": 3500,
+      "market": 0,
+      "stationIds": [
+        "15-72",
+        "15-74",
+        "15-77",
+        "15-75",
+        "15-76",
+        "15-73",
+        "15-71",
+        "egg-shipyard-pirate-1"
+      ],
+      "description": "Once combat warriors for the Earth Empire, the Nausicans are now free. However they have no ships of their own and most are simple independent traders. Nausica itself is a fairly ugly world with ugly people. Not many people bother coming here.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 16,
+      "name": "Denmark",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/16",
+      "population": 0,
+      "market": 0,
+      "stationIds": [],
+      "description": "A beautiful planet with a great variety of wildlife. The waterfalls here on Denmark are some of the tallest in the galaxy. It is said that a primitive sentient race once thrived here but later died out of natural causes.",
+      "rationale": "No present civilization described; occasional visitors only."
+    },
+    {
+      "systemIndex": 17,
+      "name": "Tholia",
+      "ambientShips": 9,
+      "source": "data/planetData.json#/planets/17",
+      "population": 4800,
+      "market": 2,
+      "stationIds": [
+        "17-209",
+        "17-80",
+        "17-79",
+        "17-78",
+        "egg-shipyard-tholian-1"
+      ],
+      "description": "Tholians managed to save themselves from enslavement by being, frankly, the best ship designers the galaxy has ever known. Now that Earth has dropped its funding for Tholian technology, they produce only one class of trade ship, but it is still the most widely used ship on the civilian market.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 18,
+      "name": "Flash",
+      "ambientShips": 4,
+      "source": "data/planetData.json#/planets/18",
+      "population": 3200,
+      "market": 0,
+      "stationIds": [
+        "18-81"
+      ],
+      "description": "The Flashians are incredible computer programmers. They supply many governments with computer systems and software for the ships of their fleets and are contracted often by the Tholians and Andorians. One can only sit in wonder at the genious and pure sexiness of the Flash programmers.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 19,
+      "name": "Oce Nu",
+      "ambientShips": 4,
+      "source": "data/planetData.json#/planets/19",
+      "population": 3500,
+      "market": -4,
+      "stationIds": [
+        "19-202"
+      ],
+      "description": "OceNu has historically been a battleground between the Klingons and the Humans, as it is equidistant between their homeworlds. The small population usually stayed unharmed and out of the way, but the constant battles raging in space limits any interstellar travel here.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 20,
+      "name": "Koann",
+      "ambientShips": 5,
+      "source": "data/planetData.json#/planets/20",
+      "population": 4700,
+      "market": 0,
+      "stationIds": [
+        "20-203",
+        "egg-shipyard-terran-2"
+      ],
+      "description": "Koann was originally a shipyard for Earth's Imperial Fleet. At its peak there were 30 stations in orbit producing 180 starships a year. It was the first planet to be taken by the Klingons and has since been converted into a spy post for the Klingon Empire.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 21,
+      "name": "Biakisch",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/21",
+      "population": 500,
+      "market": 0,
+      "stationIds": [],
+      "description": "Home to a race of pre-industrial aliens. It is only due to their extreme insignificance that they have managed to go unnoticed by any advanced species. However, strange lifeforms have beeen seen here from time to time.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 22,
+      "name": "Delpi",
+      "ambientShips": 12,
+      "source": "data/planetData.json#/planets/22",
+      "population": 3500,
+      "market": 8,
+      "stationIds": [
+        "22-84",
+        "22-85",
+        "22-82",
+        "22-83",
+        "egg-shipyard-delpin-1"
+      ],
+      "description": "The Delpi homeworld is over 99.8 water and is home to a highly intelligent aquatic dolphin-like race. Their technology is quite advanced but lacks any strong weapon designs. Their aquatic ships are fast and sleek and, until recently, were scientific long-range explorers for the humans. Now they enjoy the freedom to do as they please.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 23,
+      "name": "Iconia",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/23",
+      "population": 0,
+      "market": 0,
+      "stationIds": [],
+      "description": "The Iconians were an ancient race that no longer inhabit this planet. A war-like species, they were annihilated by their enemies thousands of years ago. Many archaeological expeditions have taken place on Iconia, and some fascinating artifacts have been found. But the decimation of their world was efficient and complete, and so very little of their society remains.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 24,
+      "name": "Andoria",
+      "ambientShips": 10,
+      "source": "data/planetData.json#/planets/24",
+      "population": 7000,
+      "market": 3,
+      "stationIds": [
+        "24-86",
+        "24-89",
+        "24-87",
+        "24-88",
+        "egg-shipyard-andorian-1"
+      ],
+      "description": "Primarily ship builders, Andorians of Andoria rival the Ferengi in their lust for wealth. They sell ships to just about anyone, and frequently sell to both sides of a warring party at low prices with the idea that the longer the war continues the more sales they will have. Thus, the Andorians are both hated and loved by the humans, who buy ships from them yet watch as they sell the same ships to the Klingons.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 25,
+      "name": "Konael",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/25",
+      "population": 0,
+      "market": 0,
+      "stationIds": [],
+      "description": "Although a reasonably pleasant planet with a few resources and life forms, none of the major governments colonized this small world.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 26,
+      "name": "Trill",
+      "ambientShips": 4,
+      "source": "data/planetData.json#/planets/26",
+      "population": 3000,
+      "market": 0,
+      "stationIds": [
+        "26-90"
+      ],
+      "description": "Trills are considered the sexiest of all the species. Trill women dominate the prostitution market second only to the Orion Slave Trade. And yes, their spots do go all the way down, and for a few slips of latinum you can find out for yourself.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 27,
+      "name": "Tepos",
+      "ambientShips": 11,
+      "source": "data/planetData.json#/planets/27",
+      "population": 8000,
+      "market": 0,
+      "stationIds": [
+        "27-94",
+        "27-92",
+        "27-95",
+        "27-96",
+        "27-98",
+        "27-93",
+        "27-91",
+        "27-97"
+      ],
+      "description": "The Teposians are weapons dealers, plain and simple. They've built their entire economy around it and are making a killing during the war. Care to buy some?",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 28,
+      "name": "Blender",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/28",
+      "population": 9000,
+      "market": 0,
+      "stationIds": [],
+      "description": "The site of a great war between the Earth Empire and a conquering race called the Dominion. Earth destroyed the invading Dominion fleet and they were driven to this planet where a few survivors went unnoticed and are slowly rebuilding.",
+      "rationale": "Dominion remnant rebuilding: reserved activity, not a busy civilian hub inferred from population."
+    },
+    {
+      "systemIndex": 29,
+      "name": "Remus",
+      "ambientShips": 4,
+      "source": "data/planetData.json#/planets/29",
+      "population": 8000,
+      "market": 0,
+      "stationIds": [
+        "29-164"
+      ],
+      "description": "One of the homeworlds of the Romulan Empire. This planet is home to the Remans, who are a slave race to the Romulans. They mine dilithium here on this planet for the profit of the Romulan Empire.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 30,
+      "name": "Romulus",
+      "ambientShips": 13,
+      "source": "data/planetData.json#/planets/30",
+      "population": 9000,
+      "market": 3,
+      "stationIds": [
+        "30-100",
+        "30-105",
+        "30-102",
+        "30-106",
+        "30-99",
+        "30-103",
+        "30-104",
+        "30-101",
+        "egg-shipyard-romulan-1"
+      ],
+      "description": "The primary world of the Romulan race. They are a xenophobic race who are unwilling to communicate freely with outside governments.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 31,
+      "name": "Harman",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/31",
+      "population": 0,
+      "market": 0,
+      "stationIds": [],
+      "description": "A planet that was home to a peaceful early-warp civilization. They were in relatively peaceful contact with their close neighbors the Romulans. But after the Vex system was destroyed, Harman soon vanished. The entire planet is now a frozen wasteland. Many say the Romulans know what happened to Harman, but they refuse to tell anyone.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 32,
+      "name": "Kardon",
+      "ambientShips": 4,
+      "source": "data/planetData.json#/planets/32",
+      "population": 0,
+      "market": 0,
+      "stationIds": [
+        "32-165"
+      ],
+      "description": "All communication was lost with Kardon shortly after the Vexxian homeworld was destroyed by a spacial anomaly. Some brave souls have ventured to this system, often with the intent to explore the Vex system. But after seeing that the entire surface of Kardon has been burned away, and knowing no ship has ever returned from the Vex system, everyone turns back at this point.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 33,
+      "name": "Vex",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/33",
+      "population": 50000,
+      "market": 0,
+      "stationIds": [],
+      "description": "The Vex homeworld. Once a thriving civilization, the planet is all but destroyed. Skeletons litter the ground, and you feel a strange presence here as if someone is watching you. A few broken hulls in orbit of this planet tell you that this is not the place to be.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 34,
+      "name": "Lameu",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/34",
+      "population": 3600,
+      "market": 0,
+      "stationIds": [
+        "34-107",
+        "34-110",
+        "34-108",
+        "34-109"
+      ],
+      "description": "This planet used to belong to the Earth Empire until it was abandoned when the Klingons began their rise to power. It was thought that since it was so close to the Klingons it would be lost anyway. Now it has its own government.",
+      "rationale": "Sparse visitors: description contains an abandonment or habitability constraint, overriding numeric population."
+    },
+    {
+      "systemIndex": 35,
+      "name": "Batos",
+      "ambientShips": 9,
+      "source": "data/planetData.json#/planets/35",
+      "population": 4000,
+      "market": 0,
+      "stationIds": [
+        "35-111",
+        "35-116",
+        "35-112",
+        "35-114",
+        "35-115",
+        "35-113"
+      ],
+      "description": "An Earth planet that was quickly overtaken by the Klingon Empire at the beginning of the Imperial War. It serves as little but a small military outpost.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 36,
+      "name": "Worf",
+      "ambientShips": 11,
+      "source": "data/planetData.json#/planets/36",
+      "population": 6000,
+      "market": 3,
+      "stationIds": [
+        "36-119",
+        "36-121",
+        "36-118",
+        "36-117",
+        "36-120",
+        "36-201"
+      ],
+      "description": "Named after a great warrior who is said to have saved the Klingons from losing the war with his brilliant tactics and war strategies. Worf is a relatively peaceful Klingon planet, although there are frequent public human disembowelments from time to time.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 37,
+      "name": "Qonos",
+      "ambientShips": 13,
+      "source": "data/planetData.json#/planets/37",
+      "population": 9500,
+      "market": 5,
+      "stationIds": [
+        "37-127",
+        "37-131",
+        "37-129",
+        "37-123",
+        "37-126",
+        "37-125",
+        "37-133",
+        "37-122",
+        "37-134",
+        "37-130",
+        "37-124",
+        "37-132",
+        "37-128",
+        "egg-shipyard-klingon-1"
+      ],
+      "description": "The homeworld of the Klingon race. It is here that the first uprising began against the tyranny of the humans. The system is now heavily guarded and with the slow spread of Klingon power across the quadrant it is unlikely Earth will ever retake it.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 38,
+      "name": "Xonok",
+      "ambientShips": 4,
+      "source": "data/planetData.json#/planets/38",
+      "population": 1000,
+      "market": 0,
+      "stationIds": [
+        "38-204"
+      ],
+      "description": "A barren rock that the Klingons stripmine for resources such as duranium to build their warships. Xonok has a population of zero and cannot support any life due to the heavy toxins now in its atmosphere.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 39,
+      "name": "Qem-Kis",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/39",
+      "population": 7000,
+      "market": 0,
+      "stationIds": [
+        "39-205"
+      ],
+      "description": "Once a thriving metropolis planet, Qem-Kis is all but abandoned now that the Klingon Empire has extended to its borders and driven out all the humans. Now only the seething criminals and mercinaries remain.",
+      "rationale": "Sparse visitors: description contains an abandonment or habitability constraint, overriding numeric population."
+    },
+    {
+      "systemIndex": 40,
+      "name": "Anorez",
+      "ambientShips": 5,
+      "source": "data/planetData.json#/planets/40",
+      "population": 3000,
+      "market": 2,
+      "stationIds": [
+        "40-135"
+      ],
+      "description": "A diverse world with many different species of wildlife. Many civilians come here to hunt or gather fresh food for long journeys. At night you can hear the mating call of the Praedis Monkey, who have been known to trample over hikers in their frenzy to find a female Praedis.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 41,
+      "name": "Du'Qot",
+      "ambientShips": 10,
+      "source": "data/planetData.json#/planets/41",
+      "population": 5000,
+      "market": 0,
+      "stationIds": [
+        "41-142",
+        "41-136",
+        "41-139",
+        "41-141",
+        "41-137",
+        "41-138",
+        "41-140"
+      ],
+      "description": "A Klingon world not frequently travelled in. DuQot has few services to offer anyone and as such, does not generally receive too many visitors. There are some black market ship trades here, but none that draw the attention of the Empire.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 42,
+      "name": "Hof-Maso",
+      "ambientShips": 11,
+      "source": "data/planetData.json#/planets/42",
+      "population": 6000,
+      "market": 0,
+      "stationIds": [
+        "42-146",
+        "42-148",
+        "42-144",
+        "42-143",
+        "42-147",
+        "42-149",
+        "42-151",
+        "42-145"
+      ],
+      "description": "Far from the human territory is HofMaso, the primary shipyard of the Klingon Empire. It is here that they secretly developed a massive fleet for over a 50 years to overthrow Earth's power.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 43,
+      "name": "Nyoabek",
+      "ambientShips": 4,
+      "source": "data/planetData.json#/planets/43",
+      "population": 5500,
+      "market": -2,
+      "stationIds": [
+        "43-207"
+      ],
+      "description": "Despite numerous attempts to colonize this world by the Klingons, Nyoabek's unsuitable landscape and atmosphere have made it impossible for anyone to gain a foothold. There are some awkwardly built trade outposts on its surface, but no one is willing to live here.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 44,
+      "name": "Hos'Ichu",
+      "ambientShips": 4,
+      "source": "data/planetData.json#/planets/44",
+      "population": 6000,
+      "market": -1,
+      "stationIds": [
+        "44-150"
+      ],
+      "description": "This planet contains one of the most heaviest Klingon populations with the exception of Qonos, despite its frequent volcanic eruptions. It is also considered to be the worst side of the empire, with many untrustworthy Klingon captains making frequent port calls here.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 45,
+      "name": "Kah'Less",
+      "ambientShips": 4,
+      "source": "data/planetData.json#/planets/45",
+      "population": 8000,
+      "market": 0,
+      "stationIds": [
+        "45-206"
+      ],
+      "description": "Named after the great Klingon Warrior Kah'Less, this world is dismal and trecherous. Many Klingon warriors are sent here to train.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 46,
+      "name": "Bajora",
+      "ambientShips": 7,
+      "source": "data/planetData.json#/planets/46",
+      "population": 3000,
+      "market": 0,
+      "stationIds": [
+        "46-152",
+        "46-153",
+        "46-154",
+        "egg-shipyard-bajoran-1"
+      ],
+      "description": "Home to a peaceful race called the Bajorans, this planet is the ecological center of the galaxy. It is a beautiful planet with one of the cleanest atmospheres, as the Bajorans produce no pollution with their technology. Even their ships use no dilithium or deuterium to operate.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 47,
+      "name": "Noron",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/47",
+      "population": 2000,
+      "market": 0,
+      "stationIds": [],
+      "description": "A desert planet with little to no vegetation and primitive life forms. There are no sentient indigenous peoples here, but several colonies are scattered in various small oasises.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 48,
+      "name": "Erasariel",
+      "ambientShips": 4,
+      "source": "data/planetData.json#/planets/48",
+      "population": 2000,
+      "market": 0,
+      "stationIds": [
+        "48-155"
+      ],
+      "description": "Erasariel is so far from its sun that it is a frozen wasteland. But since it has atmosphere, many people settle here under artificial means.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 49,
+      "name": "Cardassia",
+      "ambientShips": 13,
+      "source": "data/planetData.json#/planets/49",
+      "population": 6000,
+      "market": 3,
+      "stationIds": [
+        "49-161",
+        "49-162",
+        "49-156",
+        "49-157",
+        "49-159",
+        "49-158",
+        "49-160",
+        "egg-shipyard-cardassian-1"
+      ],
+      "description": "A once beautiful world stripped of its resources and covered on nearly 84 percent of its surface with artificial buildings. It has a population density greater than any known planet in the galaxy.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 50,
+      "name": "Dyson",
+      "ambientShips": 9,
+      "source": "data/planetData.json#/planets/50",
+      "population": 15000,
+      "market": 8,
+      "stationIds": [
+        "50-0",
+        "50-1"
+      ],
+      "description": "The original inhabitants of Dyson left their home after their population became too large. Their government, rich and advanced beyond all others, constructed a large sphere around their sun which now houses the entire population. It is rumored that the people of Dyson are related to humans.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 51,
+      "name": "Pirates Haven",
+      "ambientShips": 4,
+      "source": "data/planetData.json#/planets/51",
+      "population": 1500,
+      "market": -5,
+      "stationIds": [
+        "51-166"
+      ],
+      "description": "Arrrg...beware matey, we pirates aren't all sunshine and pixie dust. But buy what ye wish and get out before we skin ye alive. There be nothing here but the rotting corpses of the poor traders caught in our little haven.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 52,
+      "name": "Sonata",
+      "ambientShips": 9,
+      "source": "data/planetData.json#/planets/52",
+      "population": 9000,
+      "market": 3,
+      "stationIds": [
+        "52-176",
+        "52-186",
+        "52-177",
+        "egg-shipyard-sona-1"
+      ],
+      "description": "Sonata is nestled in the middle of a nebula called the Briar Patch. It is homeworld to the Son'a, an advanced race so powerful that neither the Empire nor the Klingons have dared to violate their territory. However dangerous they are, the Son'a are peaceful and friendly to those who show courtesy.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 53,
+      "name": "Iritum",
+      "ambientShips": 6,
+      "source": "data/planetData.json#/planets/53",
+      "population": 8500,
+      "market": 2,
+      "stationIds": [
+        "53-188",
+        "53-187"
+      ],
+      "description": "Iritum is primarily a mining planet for the Son'a race, but as the Son'a have developed clean ore processing facilities, the surface is very habitable. Despite that only 15% of the land mass is warm and flat enough for cities, many people call this planet home.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 54,
+      "name": "Terra Nova",
+      "ambientShips": 11,
+      "source": "data/planetData.json#/planets/54",
+      "population": 5000,
+      "market": -3,
+      "stationIds": [
+        "54-198",
+        "54-180",
+        "54-167",
+        "54-175",
+        "54-172",
+        "54-174",
+        "54-173",
+        "54-179",
+        "54-178",
+        "54-168",
+        "54-169",
+        "54-171",
+        "54-170",
+        "egg-shipyard-terran-3",
+        "import-202-54"
+      ],
+      "description": "Terra Nova: A frontier colony of the Earth Empire, planted uncomfortably close to Andorian territory. The Andorians, annoyed at the intrusion, raid its outlying settlements whenever the Empire's patrols are drawn off by the Klingon war. The colonists endure, as frontier humans must.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 55,
+      "name": "Tarellia",
+      "ambientShips": 6,
+      "source": "data/planetData.json#/planets/55",
+      "population": 6000,
+      "market": 2,
+      "stationIds": [
+        "55-189",
+        "egg-shipyard-tarellian-1"
+      ],
+      "description": "Tarellia, homeworld to the Tarellian race. The Tarellians were exploring the galaxy long before humans had built swords and castles. Their thirst for knowledge and adventure have led them to create some ships that require no antimatter at all.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 56,
+      "name": "Promelus",
+      "ambientShips": 6,
+      "source": "data/planetData.json#/planets/56",
+      "population": 6000,
+      "market": 6,
+      "stationIds": [],
+      "description": "The homeworld of the Promelli. Not much is known about this alien race. They employ mysterious bio-technology and use weapons unknown to the rest of the galaxy.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 57,
+      "name": "Brea",
+      "ambientShips": 11,
+      "source": "data/planetData.json#/planets/57",
+      "population": 8700,
+      "market": 4,
+      "stationIds": [
+        "57-184",
+        "57-185",
+        "57-182",
+        "58-breen-station",
+        "57-181",
+        "egg-shipyard-breen-1"
+      ],
+      "description": "The homeworld of the Breen. The Breen live in temperatures far above that of normal humanoids, and are forced to wear environmental suits outside of their home planet and spacecraft. It is said that no one has ever seen a Breen.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 58,
+      "name": "Dominica",
+      "ambientShips": 11,
+      "source": "data/planetData.json#/planets/58",
+      "population": 15000,
+      "market": 8,
+      "stationIds": [
+        "58-191",
+        "58-190",
+        "59-dominion-starbase",
+        "egg-shipyard-dominion-1"
+      ],
+      "description": "Dominica is in the Gamma Quadrant, home to the dreaded Dominion. The Jem'haddar have set up a base of operations on this planet, and all of the resources shipped through the wormhole are checked at the starbases here.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 59,
+      "name": "Andreas",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/59",
+      "population": 8000,
+      "market": 6,
+      "stationIds": [
+        "59-192",
+        "egg-shipyard-terran-4",
+        "import-200-59"
+      ],
+      "description": "Andreas: An uninhabited world turned refuge. Civilians fleeing the Klingon advance in the outer systems squat in its empty valleys, far from any fleet lane. No government claims Andreas, and none patrol it.",
+      "rationale": "Sparse visitors: description contains an abandonment or habitability constraint, overriding numeric population."
+    },
+    {
+      "systemIndex": 60,
+      "name": "New Romulus",
+      "ambientShips": 4,
+      "source": "data/planetData.json#/planets/60",
+      "population": 7000,
+      "market": 1,
+      "stationIds": [
+        "60-193"
+      ],
+      "description": "New Romulus: A young Romulan colony settled to relieve crowding on the homeworld. Its administrators run it with the same closed fist as Romulus itself, and its listening posts watch the Klingon frontier. The Empire has no intention of losing it.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 61,
+      "name": "Astron",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/61",
+      "population": 5000,
+      "market": 0,
+      "stationIds": [],
+      "description": "A desolate planet home to no one since a mysterious cybernetic race wiped out all life.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 62,
+      "name": "Orilla",
+      "ambientShips": 13,
+      "source": "data/planetData.json#/planets/62",
+      "population": 2300,
+      "market": 5,
+      "stationIds": [
+        "62-197",
+        "62-196",
+        "62-194",
+        "62-195",
+        "egg-shipyard-borg-1",
+        "egg-shipyard-hirogen-1",
+        "egg-shipyard-neutral-2",
+        "egg-shipyard-suliban-1",
+        "import-205-62"
+      ],
+      "description": "The former home World of a technologically advanced race, who died out many years ago,it is now inhabited by a small group of refugees fleeing many conflicts.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 63,
+      "name": "Aldnas",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/63",
+      "population": 0,
+      "market": 0,
+      "stationIds": [],
+      "description": "Aldnas: Once a thriving Romulan colony, now stripped near the bone. When its colonists balked at the Senate's wartime levies, the fleet took what it was owed in ships, ore, and sons. Aldnas endures, poorer and quieter.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 64,
+      "name": "Elderea",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/64",
+      "population": 0,
+      "market": 0,
+      "stationIds": [],
+      "description": ".The planet of elderea exsperience strange metorphsic radiation that constantly ages cell which is why it has remained uninhabited.",
+      "rationale": "Sparse visitors: description contains an abandonment or habitability constraint, overriding numeric population."
+    },
+    {
+      "systemIndex": 65,
+      "name": "Xindus",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/65",
+      "population": 0,
+      "market": 0,
+      "stationIds": [],
+      "description": "The former inhabitants of xindus once tried to eradicate the Terran empire when it was still in its infancy. The terrans amasted a grand fleet and dispatched it to lay waste to the xindi's home planet, every single xindi vessel was then destroyed, but it is said that the delphins technology springs from that of the xindi.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 66,
+      "name": "Sato",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/66",
+      "population": 0,
+      "market": 0,
+      "stationIds": [],
+      "description": "The planet Sato named after the first empress of the empire, now deserted arfter constant attacks throughout the klingon war..",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 67,
+      "name": "Nexus",
+      "ambientShips": 3,
+      "source": "data/planetData.json#/planets/67",
+      "population": 0,
+      "market": 0,
+      "stationIds": [],
+      "description": "The planet of nexus was first founded by lysian colonists brought to mine the dilithium. the lysians soon died out under the harsh conditions no colonization attempt has been made since..",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 68,
+      "name": "Vortara",
+      "ambientShips": 8,
+      "source": "data/planetData.json#/planets/68",
+      "population": 15000,
+      "market": 8,
+      "stationIds": [
+        "69-dominion-shipyard"
+      ],
+      "description": "Vortara Home of the legendary Vorta, who control the Jem'hadar in the name of the founders.The planet Vortara is home to an extensive cloning programme over 20,000 vortar clones are produced every day and then put into stasis.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 69,
+      "name": "New Bajor",
+      "ambientShips": 8,
+      "source": "data/planetData.json#/planets/69",
+      "population": 15000,
+      "market": 8,
+      "stationIds": [
+        "69-200"
+      ],
+      "description": "New Bajor for a time a Bajoran colony. Now the bajorans are slaves to the dominion mining ore on the planets surface.New bajor is a sad place all you can hear are the somber screams of Bajorans being beaten by there Jem'hadar guards",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 70,
+      "name": "JemHadar Relay",
+      "ambientShips": 9,
+      "source": "data/planetData.json#/planets/70",
+      "population": 9200,
+      "market": 7,
+      "stationIds": [
+        "71-dominion-shipyard",
+        "70-199"
+      ],
+      "description": "A Dominion relay world between Blender and Dominica. Jem'Hadar patrols use the system to coordinate raids through the frontier corridor.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 71,
+      "name": "Karemma Exchange",
+      "ambientShips": 5,
+      "source": "data/planetData.json#/planets/71",
+      "population": 7600,
+      "market": 5,
+      "stationIds": [],
+      "description": "A Dominion-aligned Karemma trade hub where Gamma Quadrant cargo is screened before moving toward the old Alpha Quadrant front.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 72,
+      "name": "Founders Watch",
+      "ambientShips": 8,
+      "source": "data/planetData.json#/planets/72",
+      "population": 11500,
+      "market": 8,
+      "stationIds": [
+        "73-dominion-heavy-yard"
+      ],
+      "description": "A guarded Dominion listening post built around a secluded Founder enclave. Vorta administrators and Jem'Hadar escorts control every approach.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 73,
+      "name": "Dosi Gate",
+      "ambientShips": 5,
+      "source": "data/planetData.json#/planets/73",
+      "population": 6800,
+      "market": 4,
+      "stationIds": [],
+      "description": "Dosi merchants operate here under Dominion supervision, moving weapons, ketracel-white, and intelligence toward Dominica.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 74,
+      "name": "T-Rogoran Annex",
+      "ambientShips": 6,
+      "source": "data/planetData.json#/planets/74",
+      "population": 5400,
+      "market": 3,
+      "stationIds": [
+        "75-dominion-starbase"
+      ],
+      "description": "A T-Rogoran colony absorbed into Dominion logistics. The system is poor, but its docks keep the corridor supplied.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 75,
+      "name": "Proxima Yard",
+      "ambientShips": 7,
+      "source": "data/planetData.json#/planets/75",
+      "population": 6400,
+      "market": 6,
+      "stationIds": [
+        "egg-shipyard-terran-5"
+      ],
+      "description": "An Earth shipyard colony at Proxima, known for refitting older Imperial hulls into convoy escorts.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 76,
+      "name": "Tellar",
+      "ambientShips": 5,
+      "source": "data/planetData.json#/planets/76",
+      "population": 7600,
+      "market": 4,
+      "stationIds": [],
+      "description": "Tellarite engineers keep this Empire-aligned factory world loud, argumentative, and heavily armed.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 77,
+      "name": "P'Jem",
+      "ambientShips": 5,
+      "source": "data/planetData.json#/planets/77",
+      "population": 3800,
+      "market": 3,
+      "stationIds": [],
+      "description": "A quiet Vulcan monastery world whose listening arrays track fleet movements across nearby disputed sectors.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 78,
+      "name": "T'Khut",
+      "ambientShips": 4,
+      "source": "data/planetData.json#/planets/78",
+      "population": 5200,
+      "market": 2,
+      "stationIds": [],
+      "description": "A Vulcan frontier settlement under the harsh light of a companion world. Logic dictates a strong defensive presence here.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 79,
+      "name": "Rator",
+      "ambientShips": 6,
+      "source": "data/planetData.json#/planets/79",
+      "population": 8200,
+      "market": 6,
+      "stationIds": [],
+      "description": "A Romulan military colony and fleet rendezvous, fortified while the Senate watches the war consume its neighbors.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 80,
+      "name": "Virinat",
+      "ambientShips": 5,
+      "source": "data/planetData.json#/planets/80",
+      "population": 3600,
+      "market": 3,
+      "stationIds": [],
+      "description": "A Romulan agricultural colony made strategically important by its hidden listening posts.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 81,
+      "name": "Chaltok",
+      "ambientShips": 5,
+      "source": "data/planetData.json#/planets/81",
+      "population": 6000,
+      "market": 5,
+      "stationIds": [],
+      "description": "A Romulan border world with old warbird yards and a population trained to disappear at the first sign of invasion.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 82,
+      "name": "Lakarian",
+      "ambientShips": 5,
+      "source": "data/planetData.json#/planets/82",
+      "population": 7800,
+      "market": 5,
+      "stationIds": [],
+      "description": "A Cardassian cultural world untouched by the war, still serving as a regional command post.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 83,
+      "name": "Arawath",
+      "ambientShips": 5,
+      "source": "data/planetData.json#/planets/83",
+      "population": 5600,
+      "market": 3,
+      "stationIds": [],
+      "description": "A Cardassian supply system with drydock rings, ore depots, and enough patrol traffic to discourage raiders.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 84,
+      "name": "Monac",
+      "ambientShips": 4,
+      "source": "data/planetData.json#/planets/84",
+      "population": 4100,
+      "market": 2,
+      "stationIds": [],
+      "description": "A Cardassian industrial moon-system that manufactures components for Galor and Keldon fleet groups.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 85,
+      "name": "Ty'Gokor",
+      "ambientShips": 7,
+      "source": "data/planetData.json#/planets/85",
+      "population": 9000,
+      "market": 7,
+      "stationIds": [],
+      "description": "A hidden Klingon command world where fleet captains gather for campaigns beyond Qonos.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 86,
+      "name": "Boreth",
+      "ambientShips": 5,
+      "source": "data/planetData.json#/planets/86",
+      "population": 4300,
+      "market": 3,
+      "stationIds": [],
+      "description": "A Klingon monastery world defended with surprising ferocity by warriors seeking prophecy and glory.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 87,
+      "name": "Narendra",
+      "ambientShips": 5,
+      "source": "data/planetData.json#/planets/87",
+      "population": 5000,
+      "market": 4,
+      "stationIds": [],
+      "description": "A Klingon border colony whose garrisons watch both Romulan and Imperial approaches.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 88,
+      "name": "Lappa",
+      "ambientShips": 6,
+      "source": "data/planetData.json#/planets/88",
+      "population": 4600,
+      "market": 5,
+      "stationIds": [
+        "88-lappa-casino-exchange"
+      ],
+      "description": "A Ferengi finance moon where trade contracts are more heavily defended than most starbases.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 89,
+      "name": "Hupyrian",
+      "ambientShips": 6,
+      "source": "data/planetData.json#/planets/89",
+      "population": 3900,
+      "market": 3,
+      "stationIds": [
+        "89-hupyrian-casino-port"
+      ],
+      "description": "A Ferengi-aligned protectorate that supplies guards, brokers, and quiet muscle for the Grand Nagus.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 90,
+      "name": "Breen Anchorage",
+      "ambientShips": 6,
+      "source": "data/planetData.json#/planets/90",
+      "population": 8700,
+      "market": 6,
+      "stationIds": [],
+      "description": "A frozen Breen fleet anchorage, silent on all channels and dangerous to approach. The Breen answer no hails and honor no alliances; whatever waits in the ice is best left undisturbed.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 91,
+      "name": "Goralis",
+      "ambientShips": 5,
+      "source": "data/planetData.json#/planets/91",
+      "population": 6200,
+      "market": 4,
+      "stationIds": [],
+      "description": "A Son'a refinery system on the outer Briar Patch, defended by fast ships and volatile subspace weapons.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 92,
+      "name": "Tarellian Reach",
+      "ambientShips": 4,
+      "source": "data/planetData.json#/planets/92",
+      "population": 4200,
+      "market": 2,
+      "stationIds": [],
+      "description": "A Tarellian exploration colony built around unusual drive technology and long-range navigation schools.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 93,
+      "name": "Promelli Drift",
+      "ambientShips": 6,
+      "source": "data/planetData.json#/planets/93",
+      "population": 5100,
+      "market": 5,
+      "stationIds": [
+        "egg-shipyard-promelli-1"
+      ],
+      "description": "A Promelli bio-technology enclave surrounded by strange debris fields and ships of unknown design.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 94,
+      "name": "Crystal Loom",
+      "ambientShips": 10,
+      "source": "data/planetData.json#/planets/94",
+      "population": 5400,
+      "market": 6,
+      "stationIds": [
+        "95-tholian-research",
+        "94-210",
+        "94-215",
+        "94-216"
+      ],
+      "description": "A Tholian forge-world of crystal foundries and web-anchor docks. Tholian engineers here weave cargo hulls and lattice shields for fleets pushing deeper into their frontier.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 95,
+      "name": "Webheart",
+      "ambientShips": 10,
+      "source": "data/planetData.json#/planets/95",
+      "population": 7600,
+      "market": 7,
+      "stationIds": [
+        "95-211",
+        "96-tholian-research",
+        "95-217"
+      ],
+      "description": "Webheart is the political knot of the growing Tholian empire, where crystalline command spires coordinate patrols and warship production across the web.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 96,
+      "name": "Lattice Hold",
+      "ambientShips": 7,
+      "source": "data/planetData.json#/planets/96",
+      "population": 4300,
+      "market": 5,
+      "stationIds": [
+        "96-212",
+        "96-218"
+      ],
+      "description": "A harsh mineral world whose orbit is crowded with refractive debris. Tholian escort flotillas use Lattice Hold to screen convoys moving between core systems.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 97,
+      "name": "Spindle Reach",
+      "ambientShips": 7,
+      "source": "data/planetData.json#/planets/97",
+      "population": 3900,
+      "market": 4,
+      "stationIds": [
+        "97-213",
+        "97-219"
+      ],
+      "description": "Spindle Reach guards the outer filaments of Tholian space. Small shuttle wings and customs pickets here watch every approach for raiders and smugglers.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 98,
+      "name": "Facet Gate",
+      "ambientShips": 9,
+      "source": "data/planetData.json#/planets/98",
+      "population": 6100,
+      "market": 6,
+      "stationIds": [
+        "98-214",
+        "99-tholian-research",
+        "98-220"
+      ],
+      "description": "Facet Gate is a transit lattice where Tholian merchants bargain under the protection of web cannons and disciplined station crews. Cargo traffic here never really stops.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 99,
+      "name": "Hirogen Range",
+      "ambientShips": 6,
+      "source": "data/planetData.json#/planets/99",
+      "population": 3800,
+      "market": 5,
+      "stationIds": [
+        "99-hirogen-trophy-exchange"
+      ],
+      "description": "The Hirogen Range is less a settled world than a guarded staging ground, surrounded by hunting beacons, trophy vaults, and repair docks for vessels that return from deep pursuit.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    },
+    {
+      "systemIndex": 100,
+      "name": "Suliban Helix",
+      "ambientShips": 6,
+      "source": "data/planetData.json#/planets/100",
+      "population": 4600,
+      "market": 4,
+      "stationIds": [
+        "100-suliban-cell-dock"
+      ],
+      "description": "Suliban Helix is a loose chain of cell docks, hidden listening posts, and patched-together habitats. Its captains survive by moving first, trading quietly, and never presenting a single obvious target.",
+      "rationale": "Initial bounded traffic from authored market and facility count; description retained below for row-by-row tuning. This is not ship-stock capacity."
+    }
+  ]
+}
