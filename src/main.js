@@ -1,6 +1,8 @@
 import * as World from './faction-world.mjs';
 import { assessIntel, intelRandom } from './galaxy-intelligence.mjs';
 const TRANSPORTER_RANGE = 2500;
+const WORLD_CARGO_DROPOFF_RANGE = 600;
+const JUMP_BACKGROUND_REPORT_LIMIT = 6;
 const PLAYER_DISABLE_GRACE_MS = 3000;
 import * as Fleet from './ship-fleet.mjs';
 import { HOJ_WEAPON_ID, createHojFlight, stepHojFlight, sampleHojIfDue } from './ship-hoj.mjs';
@@ -171,9 +173,9 @@ const DEFAULT_SECURITY_POLICY = Object.freeze({
 // PLANET_ORBIT_BASE_MS, hours per revolution, so planet-relative markers are effectively stable);
 // its radius is derived from the authority's own planet-anchored installations. All durations are
 // on the local simulation clock (frameScale * 16.667 ms per tick), never on gameNow().
-const SECURITY_ZONE_MIN_RADIUS = 560;
-const SECURITY_ZONE_MAX_RADIUS = 1100;
-const SECURITY_ZONE_RADIUS_MARGIN = 260; // beyond the authority's farthest planet-anchored installation
+const SECURITY_ZONE_MIN_RADIUS = 1400;
+const SECURITY_ZONE_MAX_RADIUS = 2600;
+const SECURITY_ZONE_RADIUS_MARGIN = 600; // beyond the authority's farthest planet-anchored installation
 const SECURITY_HOLD_FRACTION = 0.8; // holding point sits at this fraction of the radius, on the visitor's approach bearing
 const SECURITY_HOLD_TOLERANCE = 60;
 const SECURITY_DWELL_MS = 5000;
@@ -4617,7 +4619,7 @@ function sensorCheckpointBroadcast(entity, zone = getSecurityZone()) {
   const c = sensorContact(issuer, a);
   // Direct communications can be received before the next 5 Hz pass, but never refresh a dark sender.
   if (e.transponder && !(a === state ? isPlayerCloaked() : a.cloaked || a.cloak?.active) && sensorDistance(issuer,
-      sensorPosition(a)) <= 2400) {
+      sensorPosition(a)) <= Math.max(2400, sensorSnapshotActor(issuer, zone).coverage)) {
     const o = sensorSnapshotActor(issuer),
       t = sensorSnapshotActor(a);
     let r = sensorWorld.contact(o.key, t.key);
@@ -8140,6 +8142,8 @@ function renderOpenContractsPanel() {
   }
   const rows = contracts.map((contract) => `<div class="contract-cardline">
     <div class="contract-route">${escapeHtml(contract.originName)} → ${escapeHtml(chartSystemLabel(getContractTargetIndex(contract)))}</div>
+    <div class="meta">World drop-off within ${WORLD_CARGO_DROPOFF_RANGE} units. Delivery is automatic after clearance, or while cloaked.</div>
+    ${getContractTargetIndex(contract) === state.currentPlanet ? '<button data-cargo-drop>Deliver cargo at this world</button>' : ''}
     <div class="contract-load">${escapeHtml(contract.tons)}t ${escapeHtml(contract.goods)} | ${escapeHtml(getContractTotal(contract))}L</div><button data-contract-marker="${escapeHtml(contract.id)}" aria-pressed="${contract.showMarker}">${contract.showMarker ? 'Hide' : 'Show'} destination marker</button>
   </div>`).join('');
   return `<div class="contracts"><div class="panel-head">Contracts</div>${rows}</div>`;
@@ -8609,6 +8613,7 @@ function chartSystemLabel(index) {
     : 'Uncharted system';
 }
 document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-cargo-drop]')) { deliverDestinationCargoAtCurrentPlanet({manual:true}); return; }
   const button = e.target.closest('[data-contract-marker]');
   if (!button) return;
   const contract = getOpenContracts().find((c) => c.id === button.dataset.contractMarker);
@@ -8972,6 +8977,8 @@ function galaxyNewsBook() {
   news.items = news.items.slice(-120);
   news.pending ||= [];
   news.observations ||= {};
+  news.readIds ||= news.items.filter(r=>r.day <= (news.lastReadDay || 0)).map(r=>r.id);
+  news.readIds = news.readIds.filter(id=>news.items.some(r=>r.id===id)).slice(-120);
   return news;
 }
 function addGalaxyReport(report) {
@@ -8979,7 +8986,11 @@ function addGalaxyReport(report) {
   const book = galaxyNewsBook();
   const id = String(report.id);
   if (book.items.some(r => r.id === id)) return false;
-  book.items.push({id, day:report.day ?? state.day, kind:String(report.kind), confidence:String(report.confidence), text:String(report.text), systemIndex:report.systemIndex ?? null});
+  const factions = (report.factions || []).filter(isRecognizedFactionKey);
+  const item = {id, day:report.day ?? state.day, kind:String(report.kind), confidence:String(report.confidence), text:String(report.text), systemIndex:report.systemIndex ?? null,
+    factions,category:report.category || (id.startsWith('diplomacy:')?'diplomacy':id.startsWith('intel:')?'intel':'combat'),playerRelated:Boolean(report.playerRelated)};
+  item.playerRelated ||= isPersonalGalaxyReport(item);
+  book.items.push(item);
   book.items = book.items.slice(-120);
   return true;
 }
@@ -9015,7 +9026,7 @@ function makeIntelReport(index, observation, id, day) {
   const claims = {quiet:'report no major clashes',scout:'report reconnaissance activity',skirmish:'report a minor fleet action',raid:'report a possible raid',battle:'report a major fleet action'};
   const identity = estimate.attacker ? ` Ships identified as ${formatFaction(estimate.attacker)}; identification may be mistaken.` : '';
   const kind = {quiet:'Situation report',scout:'Reconnaissance report',skirmish:'Clash report',raid:'Raid report',battle:'Fleet action report'}[estimate.kind];
-  return {id,day:day+estimate.delay,systemIndex:known?index:null,kind,
+  return {id,day:day+estimate.delay,systemIndex:known?index:null,kind,category:'intel',factions:[estimate.attacker].filter(Boolean),playerRelated:ownShips || (known && ownsReportLocation(index)),
     confidence:ownShips?'Fleet assessment — mistakes possible':'Unconfirmed civilian report',
     text:`${source} ${claims[estimate.kind]} ${place}.${identity} Information dated day ${observation.day}; conditions may have changed.`};
 }
@@ -9058,22 +9069,74 @@ function collectGalaxyReports(day = state.day) {
     if (index < overlap) continue;
     const kind = e.status === 'war' && before && before !== 'war' ? 'War declared' : e.status === 'peace' && before === 'war' ? 'Peace agreement' : e.status === 'crisis' && before && before !== 'crisis' ? 'Border crisis' : 'Diplomatic update';
     news.nextDiplomacyId = (news.nextDiplomacyId || 0) + 1;
-    addGalaxyReport({id:`diplomacy:${news.nextDiplomacyId}`,day:e.day,kind,confidence:'Public diplomatic report',text:`${formatFaction(e.a)} / ${formatFaction(e.b)}: ${e.reason}. Current relations: ${e.status}.`});
+    addGalaxyReport({id:`diplomacy:${news.nextDiplomacyId}`,day:e.day,kind,category:'diplomacy',factions:[e.a,e.b],confidence:'Public diplomatic report',text:`${formatFaction(e.a)} / ${formatFaction(e.b)}: ${e.reason}. Current relations: ${e.status}.`});
   }
   // Cursor follows the full bounded World history; no separately coupled cap.
   news.historyCursor = signatures;
   collectRegionalIntel(day);
 }
+let reportFolder = 'all';
+let reportPage = 0;
+function ownsReportLocation(index) {
+  if (index == null || !state.planets[index]) return false;
+  if (state.controlledSystems.includes(Number(index))) return true;
+  return state.stationDefinitions.some(st=>Number(st.systemIndex)===Number(index) && getStationOwner(st,index)===PLAYER_SIDE);
+}
+function isPersonalGalaxyReport(report) {
+  if (report.playerRelated) return true;
+  const faction = state.playerFaction;
+  if (report.factions?.includes(faction)) return true;
+  // Old saves did not store faction metadata; only infer relevance from their visible text.
+  if (!report.factions && report.text?.includes(formatFaction(faction))) return true;
+  return report.systemIndex != null && (ownsReportLocation(report.systemIndex) || hasIntelShips(Number(report.systemIndex)));
+}
+function visibleGalaxyReports() {
+  return galaxyNewsBook().items.filter(r=>r.systemIndex==null || isReportSystemKnown(r.systemIndex));
+}
+function selectJumpBriefingReports() {
+  const book = galaxyNewsBook();
+  if (!state.warp.briefingReports) {
+    const unread = visibleGalaxyReports().filter(r=>!book.readIds.includes(r.id)).reverse();
+    state.warp.briefingReports = {
+      personal:unread.filter(isPersonalGalaxyReport).map(r=>r.id),
+      galaxy:unread.filter(r=>!isPersonalGalaxyReport(r)).slice(0,JUMP_BACKGROUND_REPORT_LIMIT).map(r=>r.id),
+    };
+  }
+  const visible = visibleGalaxyReports();
+  const resolve = ids=>(ids || []).map(id=>visible.find(r=>r.id===id)).filter(Boolean);
+  return {personal:resolve(state.warp.briefingReports.personal),galaxy:resolve(state.warp.briefingReports.galaxy).slice(0,JUMP_BACKGROUND_REPORT_LIMIT)};
+}
+function galaxyReportCategory(report) {
+  return report.category || (report.id.startsWith('diplomacy:')?'diplomacy':report.id.startsWith('intel:')?'intel':'combat');
+}
 function renderGalaxyReports() {
   const book = galaxyNewsBook();
-  const rows = book.items.filter(r=>r.systemIndex == null || isReportSystemKnown(r.systemIndex)).slice(-18).reverse();
+  const all = visibleGalaxyReports().slice().reverse();
   const transit = state.warp.active && state.warp.briefingOpen;
+  const folders = [['personal','Your affairs'],['diplomacy','Diplomacy'],['combat','Battles & losses'],['intel','Field reports'],['all','All reports']];
+  const inFolder = (r,folder)=>folder==='all' || (folder==='personal'?isPersonalGalaxyReport(r):galaxyReportCategory(r)===folder);
+  const cards = rows=>rows.map(r=>`<article class="galaxy-report" data-report-id="${escapeHtml(r.id)}"><div class="meta">Day ${r.day} · ${escapeHtml(r.confidence)}</div><h3>${escapeHtml(r.kind)}</h3><p>${escapeHtml(r.text)}</p></article>`).join('');
+  let rows = [],content;
+  if (transit && reportFolder==='briefing') {
+    const selected = selectJumpBriefingReports();
+    rows = [...selected.personal,...selected.galaxy];
+    content = `<details class="report-section" open><summary>Your affairs (${selected.personal.length})</summary><div class="report-list" data-report-personal>${cards(selected.personal) || '<p>No new reports involving you.</p>'}</div></details><details class="report-section" open><summary>Wider galaxy (${selected.galaxy.length} / ${JUMP_BACKGROUND_REPORT_LIMIT})</summary><div class="report-list" data-report-background>${cards(selected.galaxy) || '<p>No new background reports received.</p>'}</div></details>`;
+  } else {
+    const filtered = all.filter(r=>inFolder(r,reportFolder));
+    reportPage = Math.min(reportPage,Math.max(0,Math.ceil(filtered.length/6)-1));
+    rows = filtered.slice(reportPage*6,reportPage*6+6);
+    content = `<div class="report-list">${cards(rows) || '<p>No reports in this folder.</p>'}</div><div class="report-pages"><button data-report-page="-1" ${reportPage===0?'disabled':''}>Previous</button><span>Page ${reportPage+1} / ${Math.max(1,Math.ceil(filtered.length/6))}</span><button data-report-page="1" ${(reportPage+1)*6>=filtered.length?'disabled':''}>Next</button></div>`;
+  }
   const el = document.getElementById('galaxy-reports');
-  el.innerHTML = `<div class="debug-heading"><h2>${transit ? 'Subspace briefing — in transit' : 'Galactic reports'}</h2><button data-report-close>${transit ? 'Continue jump' : 'Close'}</button></div><p>${transit ? `En route to ${escapeHtml(state.planets[state.warp.to]?.name || 'destination')}. ` : ''}Campaign day ${state.day}. Reports may be delayed or incomplete; silence does not mean peace.</p><div class="report-list">${rows.map(r=>`<article class="galaxy-report"><div class="meta">Day ${r.day} · ${escapeHtml(r.confidence)}</div><h3>${escapeHtml(r.kind)}</h3><p>${escapeHtml(r.text)}</p></article>`).join('') || '<p>No new reports received on this route.</p>'}</div>${transit ? '<button data-report-save>Save in transit</button><p data-report-save-status role="status"></p><button data-report-close>Continue jump</button>' : ''}`;
+  el.innerHTML = `<div class="debug-heading"><h2>${transit ? 'Subspace briefing — in transit' : 'Galactic reports'}</h2><button data-report-close>${transit ? 'Continue jump' : 'Close'}</button></div><p>${transit ? `En route to ${escapeHtml(state.planets[state.warp.to]?.name || 'destination')}. ` : ''}Campaign day ${state.day}. ${transit?'Your affairs are uncapped; up to six new wider-galaxy reports per jump. ':''}Reports may be delayed or incomplete.</p><nav class="report-folders" aria-label="Report folders">${transit?`<button data-report-folder="briefing" aria-pressed="${reportFolder==='briefing'}">This jump</button>`:''}${folders.map(([key,label])=>`<button data-report-folder="${key}" aria-pressed="${reportFolder===key}">${label} (${all.filter(r=>inFolder(r,key)).length})</button>`).join('')}</nav>${content}${transit ? '<button data-report-save>Save in transit</button><p data-report-save-status role="status"></p><button data-report-close>Continue jump</button>' : ''}`;
+  book.readIds = [...new Set([...book.readIds,...rows.map(r=>r.id)])].slice(-120);
 }
+
 function openGalaxyReports() {
   if (!state.gameStarted) return;
   collectGalaxyReports();
+  reportFolder = state.warp.active && state.warp.briefingOpen ? 'briefing' : 'all';
+  reportPage = 0;
   pauseGameClock();
   keys.clear(); heldWeaponInputs.clear();
   renderGalaxyReports();
@@ -9124,6 +9187,10 @@ function triggerDebugMission(kind) {
   return state.log;
 }
 document.addEventListener('click', e => {
+  const folder = e.target.closest('[data-report-folder]');
+  if (folder) { reportFolder=folder.dataset.reportFolder;reportPage=0;renderGalaxyReports();return; }
+  const page = e.target.closest('[data-report-page]');
+  if (page) { reportPage=Math.max(0,reportPage+Number(page.dataset.reportPage));renderGalaxyReports();return; }
   if (e.target.closest('[data-arrival-ack]')) { if (state.arrivalHail) state.arrivalHail.acknowledged = true; updateSecurityOrderPanel(); }
   if (e.target.closest('[data-galaxy-reports]')) openGalaxyReports();
   if (e.target.closest('[data-report-close]')) closeGalaxyReports();
@@ -12894,9 +12961,24 @@ function removeCargoFromPods(item, tons = 1) {
   return 0;
 }
 
-function deliverDestinationCargoAtCurrentPlanet() {
-  if (getSecurityDockingBlock()) return false;
-  if (!state.docked && distanceToPlayer(state.systemPlanet) > TRANSPORTER_RANGE && !hasServiceConnection()) return false;
+function hasWorldCargoToDeliver() {
+  return (state.cargoArray || []).some(isCargoDueAtCurrentPlanet)
+    || (state.openContracts || []).some(c=>getContractTargetIndex(c)===state.currentPlanet);
+}
+function getWorldCargoDeliveryStatus() {
+  if (!state.gameStarted || state.gameOver || state.warp.active || isWormholeTransitActive() || !state.systemPlanet)
+    return {ok:false,reason:'Cargo delivery requires being in the destination system.'};
+  const distance = Math.ceil(distanceToPlayer(state.systemPlanet));
+  if (distanceToPlayer(state.systemPlanet) > WORLD_CARGO_DROPOFF_RANGE)
+    return {ok:false,distance,reason:`Approach the destination world: ${distance.toLocaleString()} / ${WORLD_CARGO_DROPOFF_RANGE} units for cargo drop-off.`};
+  const covert = isPlayerCloaked();
+  const block = !covert && getSecurityDockingBlock();
+  return block ? {ok:false,distance,reason:`${block} A cloaked cargo drop-off is possible at the world.`}
+    : {ok:true,distance,covert,reason:covert?'Covert drop-off ready.':'World drop-off ready.'};
+}
+function deliverDestinationCargoAtCurrentPlanet({manual=false} = {}) {
+  const delivery = getWorldCargoDeliveryStatus();
+  if (!delivery.ok) { if (manual) setLog(delivery.reason); return false; }
   const planet = state.planets[state.currentPlanet];
   restoreMissingContractCargo({ onlyCurrentDestination: true });
   let delivered = 0;
@@ -12923,7 +13005,7 @@ function deliverDestinationCargoAtCurrentPlanet() {
     }
   }
 
-  if (delivered <= 0) return false;
+  if (delivered <= 0) { if (manual) setLog('No cargo is due at this world.'); return false; }
 
   const restoredBefore = Boolean(state.tradeLaneRestored);
   state.latinum += payout;
@@ -12962,7 +13044,7 @@ function deliverDestinationCargoAtCurrentPlanet() {
   const milestone = !restoredBefore && state.tradeLaneRestored
     ? ' Trade lane restored; you can keep taking contracts and spend your latinum.'
     : '';
-  setLog(`Delivered ${delivered} tons of ${goods.join(', ')} at ${planet.name} for ${payout} latinum.${milestone}`);
+  setLog(`${delivery.covert ? 'Covertly delivered' : 'Delivered'} ${delivered} tons of ${goods.join(', ')} at ${planet.name} for ${payout} latinum.${milestone}`);
   showTradeMissionComplete({
     planetName: planet.name,
     delivered,
@@ -13910,6 +13992,15 @@ securityOrderPanelEl?.addEventListener('click', (e) => {
 
 // World markers: the perimeter, the issuing installation, and the player's holding or exit point.
 // The legal perimeter is drawn distinctly from any physical map edge.
+function drawWorldCargoDropoff() {
+  if (!state.gameStarted || state.warp.active || !state.systemPlanet || !hasWorldCargoToDeliver()) return;
+  const centre = worldToScreen(state.systemPlanet);
+  const edge = worldToScreen({x:state.systemPlanet.x+WORLD_CARGO_DROPOFF_RANGE,y:state.systemPlanet.y});
+  const radius = Math.abs(edge.x-centre.x);
+  ctx.save();ctx.strokeStyle='#7ce8c0';ctx.fillStyle='#7ce8c0';ctx.lineWidth=2;ctx.setLineDash([7,7]);
+  ctx.beginPath();ctx.arc(centre.x,centre.y,radius,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
+  ctx.font='13px system-ui';ctx.textAlign='center';ctx.fillText('Cargo drop-off · 600 units',centre.x,centre.y-radius-10);ctx.restore();
+}
 function drawSecurityZoneMarkers(now = gameNow()) {
   const zone = getSecurityZone(state.currentPlanet);
   if (!zone) return;
@@ -14186,7 +14277,7 @@ topLeftMenuEl?.addEventListener('click', (e) => {
     if (value === 'transport') transport();
     if (value === 'contract') negotiateContract();
     if (value === 'trade') tradeOne();
-    if (value === 'deliver') tradeAtPlanet();
+    if (value === 'deliver') deliverDestinationCargoAtCurrentPlanet({manual:true});
     if (value === 'refuel') refuel();
     if (value === 'repair') repairHull();
     if (value === 'weapons') openWeaponsLocker();
@@ -16304,7 +16395,7 @@ function destroyStation(station) {
   if (station.destroyed) return;
   const lossId = Fleet.nextId(fleetBook(), 'installation-loss');
   for(const order of fleetBook().orders)if(order.stationId===station.id&&!['delivered','lost'].includes(order.status))order.status='lost';
-  addGalaxyReport({id:`station-loss:${station.id}:${station.reconstructionId || 'original'}:${lossId}`,systemIndex:state.currentPlanet,kind:'Installation lost',confidence:'Confirmed local observation',text:`${station.name} destroyed in ${state.planets[state.currentPlanet]?.name}. ${state.activeFleetAttack ? formatFaction(state.activeFleetAttack.faction) + ' raid reported in the system.' : 'Combat attribution not confirmed.'}`});
+  addGalaxyReport({id:`station-loss:${station.id}:${station.reconstructionId || 'original'}:${lossId}`,systemIndex:state.currentPlanet,kind:'Installation lost',category:'combat',factions:[station.faction].filter(Boolean),playerRelated:getStationOwner(station)===PLAYER_SIDE,confidence:'Confirmed local observation',text:`${station.name} destroyed in ${state.planets[state.currentPlanet]?.name}. ${state.activeFleetAttack ? formatFaction(state.activeFleetAttack.faction) + ' raid reported in the system.' : 'Combat attribution not confirmed.'}`});
   station.destroyed = true;
   station.hostile = false;
   station.attitude = 'destroyed';
@@ -16834,7 +16925,7 @@ function spawnFleetAttack(systemIndex = state.currentPlanet, attackerFaction = c
   };
   state.fleetAttackControlSince = 0;
   recordLocalIntel();
-  addGalaxyReport({id:attackId,systemIndex,day:state.day,kind:'Local fleet attack',confidence:'Local encounter record',
+  addGalaxyReport({id:attackId,systemIndex,day:state.day,category:'combat',factions:[attackerFaction,localFaction],playerRelated:true,kind:'Local fleet attack',confidence:'Local encounter record',
     text:`${ships.length} ${formatFaction(attackerFaction)} attacking vessels entered ${state.planets[systemIndex].name}. Their wider objectives are unconfirmed.`});
   setLog(`${formatFaction(attackerFaction)} attack fleet entering ${state.planets[systemIndex]?.name || 'this system'}: ${size} ships inbound.`);
   return true;
@@ -17386,6 +17477,7 @@ function tick(frameScale = 1) {
   s.y = canvas.height * 0.5;
   updateTractorBeams(frameScale);
   updateSecurityEncounters(frameScale);
+  if (hasWorldCargoToDeliver()) deliverDestinationCargoAtCurrentPlanet();
 
   const now = gameNow();
   if ((up || down || left || right || s.velocity > 0) && now - lastMotionStatsAt > 250) {
@@ -20580,6 +20672,7 @@ function render() {
     ctx.textAlign = 'start';
   }
   drawSecurityZoneMarkers(now);
+  drawWorldCargoDropoff();
   for (const station of state.stations.filter(st=>sensorVisibleToPlayer(st))) {
     const p = worldToScreen(station);
     const stationVisual = getStationVisualProfile(station);

@@ -169,7 +169,9 @@ export function advanceDiplomacy(book, day, pairs, baseWar) {
       const roll = randomFor(`${book.seed}:${d}:${a}:${b}`);
       if (old.status === 'war') {
         const warAge = d - old.since;
-        if (warAge >= DIPLOMACY_RULES.minimumWarDays && roll < Math.min(0.75, 0.2 + warAge / 150))
+        // The Earth–Klingon campaign war needs an authored strategic resolution.
+        // Debug/story setDiplomacy calls remain available; a calendar roll cannot end it.
+        if (pairKey(a, b) !== pairKey('terran', 'klingon') && warAge >= DIPLOMACY_RULES.minimumWarDays && roll < Math.min(0.75, 0.2 + warAge / 150))
           setDiplomacy(book, a, b, 'peace', d, true, 'War exhaustion and negotiated peace');
       } else if (d >= old.treatyUntil) {
         if (old.status === 'crisis' && roll < 0.32)

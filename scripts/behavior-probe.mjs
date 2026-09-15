@@ -241,6 +241,7 @@ async function scenarioRunner() {
   const escortWeapon = B.getWeapon(B.getDefaultWeaponId(escort.shipId, escort.faction, true));
   need(escortWeapon.type === 'Torpedo', `S1d fixture: escort weapon is ${escortWeapon.name} (${escortWeapon.type}), expected a Torpedo`);
   escort.lastShotAt = READY;
+  escort.heading = 90; // Aim this projectile-credit fixture at its stationary victim.
   const savedStations = s.stations;
   s.stations = []; // station defenses fire with source 'station' and would steal the last hit
   target.combatShields = 0;
@@ -1081,6 +1082,8 @@ async function scenarioRunner() {
     secondOrderForSameVisit: ordersFor(home, kVisitor.securityInstanceId).length,
   };
   // 5. real aggression still permits defence under the same policy; expired evidence does not
+  // Expanded perimeter places the visitor beyond weapon range of the central escort.
+  escortR5.x = kVisitor.x + 100; escortR5.y = kVisitor.y;
   kVisitor.speed = 1.0; kVisitor.lastShotAt = READY;
   B.fireNpcWeapon(kVisitor, escortR5, 'ship', performance.now());
   const afterShot = { target: B.isPlayerEscortShipTarget(kVisitor), attacker: B.isNpcSystemAttacker(kVisitor, 'player') };
@@ -1553,7 +1556,7 @@ try {
     ['S4.11 a lost holding has no effective policy, keeps its override, uses standing orders; reclaim restores it', g(r.lossReclaim).effective === null && r.lossReclaim.retained === true && r.lossReclaim.roeApplied === r.lossReclaim.defaultRoe && r.lossReclaim.reclaimedRoe === 'return-fire'],
     ['S4.12 policies survive save/reload; a legacy save loads with the default and no overrides', g(r.persistPolicy).same && r.persistPolicy.effSame && r.persistPolicy.legacyDefault && r.persistPolicy.legacyNoOverride],
     ['S4.13 Security tab only where the side has authority; its buttons set, promote and clear policy', g(r.securityUi).tabPresent === true && r.securityUi.uiOverride === 'return-fire' && r.securityUi.uiDefault === 'return-fire' && r.securityUi.uiCleared === true && r.securityUi.foreignHeldByFlagFaction === 'klingon' && r.securityUi.flag === 'klingon' && r.securityUi.foreignTab === false],
-    ['S5.0 checkpoint authority: foreign and private stations are not anchors; disabled by default; a same-flag foreign world rejects configuration; enabling activates the zone', g(r.zoneAuthority).foreignExcluded === true && r.zoneAuthority.foreignPresent === true && r.zoneAuthority.disabledByDefault === true && r.zoneAuthority.setAtForeign === true && r.zoneAuthority.enabled === true && r.zoneAuthority.radius >= 560 && r.zoneAuthority.radius <= 1100],
+    ['S5.0 checkpoint authority: foreign and private stations are not anchors; disabled by default; a same-flag foreign world rejects configuration; enabling activates the zone', g(r.zoneAuthority).foreignExcluded === true && r.zoneAuthority.foreignPresent === true && r.zoneAuthority.disabledByDefault === true && r.zoneAuthority.setAtForeign === true && r.zoneAuthority.enabled === true && r.zoneAuthority.radius >= 1400 && r.zoneAuthority.radius <= 2600],
     ['S5.1 open access: a visitor crosses an enabled open zone; no order, objective, offence, hostility, standing change or shot', g(r.openAccess).inside === true && r.openAccess.orders === 0 && !r.openAccess.objective && r.openAccess.hostile === false && r.openAccess.attackId === null && r.openAccess.standingsSame && r.openAccess.escortFired === null && r.openAccess.anchorShots === null && r.openAccess.noncompliant === false],
     ['S5.17 tightening open access while a visitor is already inside issues a withdrawal in the same visit', g(r.policyTightening).sameEpisode && r.policyTightening.issued && r.policyTightening.kind === 'withdraw' && r.policyTightening.decision === 'closed'],
     ['S5.2 challenge: one order, the civilian approaches, holds through the dwell, is cleared with scope movement_identity and resumes its route; identity untouched', g(r.challenge).issued && r.challenge.kind === 'challenge' && r.challenge.cls === 'other' && r.challenge.destWhileOrdered === 'checkpoint hold' && r.challenge.reached && r.challenge.cleared && r.challenge.outcome === 'cleared' && r.challenge.compliance === 'movement_identity' && r.challenge.orders === 1 && r.challenge.clearance === 'check' && r.challenge.resumed && JSON.stringify(r.challenge.identity) === JSON.stringify(r.challenge.identityBefore) && r.challenge.stillOneOrderAfterDwell],

@@ -1,0 +1,270 @@
+station_id,system_index,name,type_id,type_name,proposed_role,authored_ship_ids,authored_weapon_ids,review_note
+0-9,0,Alpha Array,89,Subspace Comm,"Sector fleet command relay; orders, distress and intelligence subscriptions only",,,Relay services only; relocate any authored stock before removing market
+0-3,0,Daystrom Institute,71,Human Research Lab,"Weapon development, analysis and prototype trials; no general hull sales",,25;9;15;16;21;14;46,Inherit proposed type role; retain existing ownership and catalog gates
+0-8,0,Galaxy Living,84,Habitat Station,"Housing, workforce, refugees and passenger logistics; no hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+0-6,0,Joe's Repair,83,Maintenance Station,"Discount repairs, salvage refits, towing and explicitly licensed used small hulls",,1;8,Inherit proposed type role; retain existing ownership and catalog gates
+0-7,0,Kirk's Pub,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+0-5,0,McKinley,74,Human Shipyard,Small/medium hull construction and refits,1;306;307;308;326;327;344;9,,Inherit proposed type role; retain existing ownership and catalog gates
+0-16,0,PS-095,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+0-11,0,PS-102,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+0-13,0,PS-102,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+0-12,0,PS-254,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+0-17,0,PS-548,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+0-14,0,PS-874,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+0-15,0,PS-884,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+0-2,0,Stardock Alpha,70,Human Starbase,"Fleet headquarters, full repairs, licensed reserve sales and stores",38,46,Inherit proposed type role; retain existing ownership and catalog gates
+0-10,0,The Safe Harbor,84,Habitat Station,"Housing, workforce, refugees and passenger logistics; no hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+0-4,0,Utopia Planitia,73,Human Heavy Shipyard,"Capital construction, heavy overhaul, reserve commissions",327;328;38;35;33;2;344;236,,Inherit proposed type role; retain existing ownership and catalog gates
+1-18,1,Dabo Palace,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",335;336;47,1,Inherit proposed type role; retain existing ownership and catalog gates
+2-19,2,Isla Asylum,84,Habitat Station,"Housing, workforce, refugees and passenger logistics; no hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+3-30,3,Alpha Yard,73,Human Heavy Shipyard,"Capital construction, heavy overhaul, reserve commissions",309;312;4;2;38;305;9,,Inherit proposed type role; retain existing ownership and catalog gates
+3-27,3,Beta Yard,74,Human Shipyard,Small/medium hull construction and refits,351;330;305;2;11;312;306;344,,Inherit proposed type role; retain existing ownership and catalog gates
+3-31,3,LaForge Institute,71,Human Research Lab,"Weapon development, analysis and prototype trials; no general hull sales",,1;4;10;6;11;8,Inherit proposed type role; retain existing ownership and catalog gates
+3-35,3,Nelix Station,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",1;307,1;37,Inherit proposed type role; retain existing ownership and catalog gates
+3-34,3,Park Place,84,Habitat Station,"Housing, workforce, refugees and passenger logistics; no hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+3-29,3,PS-002,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+3-33,3,PS-354,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+3-23,3,PS-475,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+3-22,3,PS-548,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+3-24,3,PS-978,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+3-21,3,PS-987,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+3-25,3,Repair Yard 1,83,Maintenance Station,"Discount repairs, salvage refits, towing and explicitly licensed used small hulls",,9;10,Inherit proposed type role; retain existing ownership and catalog gates
+3-20,3,Stardock Prime,70,Human Starbase,"Fleet headquarters, full repairs, licensed reserve sales and stores",,,Inherit proposed type role; retain existing ownership and catalog gates
+3-32,3,The Arboretum,84,Habitat Station,"Housing, workforce, refugees and passenger logistics; no hull shop",343;237,,Inherit proposed type role; retain existing ownership and catalog gates
+3-28,3,TS-001,87,Advanced Defense Platform,Heavy torpedoes and layered defense; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+3-26,3,Xiang Yard,73,Human Heavy Shipyard,"Capital construction, heavy overhaul, reserve commissions",33;38;35;328;327;1;344,,Inherit proposed type role; retain existing ownership and catalog gates
+4-163,4,X-Base,70,Human Starbase,"Fleet headquarters, full repairs, licensed reserve sales and stores",49;347,,Inherit proposed type role; retain existing ownership and catalog gates
+4-36,4,XR-12 (abandoned),78,Ore Station,Extract/refine minerals when local deposits exist; sell feedstock,,,Exploration/restoration; no staffed services until restored
+4-37,4,XR-51 (abandoned),78,Ore Station,Extract/refine minerals when local deposits exist; sell feedstock,,,Exploration/restoration; no staffed services until restored
+4-38,4,XR-57 (abandoned),78,Ore Station,Extract/refine minerals when local deposits exist; sell feedstock,,,Exploration/restoration; no staffed services until restored
+5-40,5,Defense 01,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+5-41,5,Defense 02,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+5-44,5,Defense 03,87,Advanced Defense Platform,Heavy torpedoes and layered defense; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+5-45,5,Free Swiss Exchange,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",,1;5;11;14,Inherit proposed type role; retain existing ownership and catalog gates
+5-43,5,Kathy's Pub,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",1,14,Inherit proposed type role; retain existing ownership and catalog gates
+5-42,5,Swiss Miss,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",350;349;310;11;10,11;1,Inherit proposed type role; retain existing ownership and catalog gates
+5-39,5,Swiss Orbital,84,Habitat Station,"Housing, workforce, refugees and passenger logistics; no hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+6-46,6,The Black Skull,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,1;7;31;14,Inherit proposed type role; retain existing ownership and catalog gates
+7-208,7,SB-524,70,Human Starbase,"Fleet headquarters, full repairs, licensed reserve sales and stores",,,Inherit proposed type role; retain existing ownership and catalog gates
+8-52,8,HD-22,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+8-48,8,HS-29,78,Ore Station,Extract/refine minerals when local deposits exist; sell feedstock,,,Inherit proposed type role; retain existing ownership and catalog gates
+8-50,8,HS-39,78,Ore Station,Extract/refine minerals when local deposits exist; sell feedstock,,,Inherit proposed type role; retain existing ownership and catalog gates
+8-49,8,PS-885,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+8-51,8,The Rock,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+8-47,8,TS-293,87,Advanced Defense Platform,Heavy torpedoes and layered defense; no commerce,343,,Authored hull offer needs explicit licensed depot exception or relocation
+10-54,10,Ga'Ick,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",314;15,,Inherit proposed type role; retain existing ownership and catalog gates
+10-53,10,Gi'k-91,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+11-59,11,J'lin Center,83,Maintenance Station,"Discount repairs, salvage refits, towing and explicitly licensed used small hulls",,,Inherit proposed type role; retain existing ownership and catalog gates
+11-55,11,U of Vulcan,72,Vulcan University,"Officer/scientist education, training, analysis and mediation",,35;40;41,Inherit proposed type role; retain existing ownership and catalog gates
+11-56,11,V'Pek Tar,74,Human Shipyard,Small/medium hull construction and refits,25;211;47;237,,Inherit proposed type role; retain existing ownership and catalog gates
+11-58,11,VSU Dorms,84,Habitat Station,"Housing, workforce, refugees and passenger logistics; no hull shop",,,University-linked accommodation; avoid duplicate workforce benefit
+11-57,11,Vulcan South U,72,Vulcan University,"Officer/scientist education, training, analysis and mediation",47;237,43;50,Authored hull offer needs explicit licensed depot exception or relocation
+12-60,12,Paxis Route,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",,,Inherit proposed type role; retain existing ownership and catalog gates
+12-63,12,Rainbow's End,84,Habitat Station,"Housing, workforce, refugees and passenger logistics; no hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+12-61,12,The Fuzzy Bunny,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",,,Inherit proposed type role; retain existing ownership and catalog gates
+12-62,12,The Happy House,84,Habitat Station,"Housing, workforce, refugees and passenger logistics; no hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+13-66,13,Contracts End,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",,52,Inherit proposed type role; retain existing ownership and catalog gates
+13-67,13,Greed Central,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",,,Inherit proposed type role; retain existing ownership and catalog gates
+13-64,13,Sharp Tooth,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+13-68,13,Snuff This,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,32,Inherit proposed type role; retain existing ownership and catalog gates
+13-65,13,The Big Ear,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,33,Inherit proposed type role; retain existing ownership and catalog gates
+13-69,13,Zek's Used Ships,83,Maintenance Station,"Discount repairs, salvage refits, towing and explicitly licensed used small hulls",310;316;317;331;311;47;315,,Inherit proposed type role; retain existing ownership and catalog gates
+14-70,14,SB-203 (abandoned),70,Human Starbase,"Fleet headquarters, full repairs, licensed reserve sales and stores",,,Exploration/restoration; no staffed services until restored
+15-72,15,D-37,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+15-74,15,D-48,87,Advanced Defense Platform,Heavy torpedoes and layered defense; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+15-77,15,D-56,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+15-75,15,D-65,87,Advanced Defense Platform,Heavy torpedoes and layered defense; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+15-76,15,D-82,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+15-73,15,D-87,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+15-71,15,Nausica Orbital,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",11,36,Inherit proposed type role; retain existing ownership and catalog gates
+17-209,17,First Web Citadel,106,Tholian Starbase,Web-defense citadel and protected trade anchorage,222;318;223;232,16;4,Authored hull offer needs explicit licensed depot exception or relocation
+17-80,17,Tholian Cargo Yard,107,Tholian Light Shipyard,Small lattice hulls and commercial transport construction,222;318;223,5,Inherit proposed type role; retain existing ownership and catalog gates
+17-79,17,Tholian Heavy Yard,108,Tholian Heavy Shipyard,Heavy cargo and combat lattice frames,232;223;318,5;16,Authored hull offer needs explicit licensed depot exception or relocation
+17-78,17,Tholian Light Yard,107,Tholian Light Shipyard,Small lattice hulls and commercial transport construction,222;318;223,5,Inherit proposed type role; retain existing ownership and catalog gates
+18-81,18,Newgrounds Pub,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+19-202,19,Oce nu Drinking Establishment,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+20-203,20,Koann Klub,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+22-84,22,Bio-Lab (abandoned),71,Human Research Lab,"Weapon development, analysis and prototype trials; no general hull sales",,,Exploration/restoration; no staffed services until restored
+22-85,22,Delpi State U,72,Vulcan University,"Officer/scientist education, training, analysis and mediation",,40;41;42;43,Inherit proposed type role; retain existing ownership and catalog gates
+22-82,22,Splash-Planet,77,Delpin Waterpark,"Tourism, recreation, refugee respite and civilian passenger contracts",,,Inherit proposed type role; retain existing ownership and catalog gates
+22-83,22,Xiang Center,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",319;345,1,Inherit proposed type role; retain existing ownership and catalog gates
+24-86,24,Antenna Yard,83,Maintenance Station,"Discount repairs, salvage refits, towing and explicitly licensed used small hulls",15;10;9;338;240;348,,Inherit proposed type role; retain existing ownership and catalog gates
+24-89,24,Blues Waterpark,77,Delpin Waterpark,"Tourism, recreation, refugee respite and civilian passenger contracts",,,Inherit proposed type role; retain existing ownership and catalog gates
+24-87,24,GHD-DS,87,Advanced Defense Platform,Heavy torpedoes and layered defense; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+24-88,24,U of Andoria,72,Vulcan University,"Officer/scientist education, training, analysis and mediation",,42,Inherit proposed type role; retain existing ownership and catalog gates
+26-90,26,The Spot,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",1;9;10;47;335,,Inherit proposed type role; retain existing ownership and catalog gates
+27-94,27,Crusher,78,Ore Station,Extract/refine minerals when local deposits exist; sell feedstock,,,Inherit proposed type role; retain existing ownership and catalog gates
+27-92,27,Die,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+27-95,27,Protector 1,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+27-96,27,Protector 2,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+27-98,27,Protector 3,87,Advanced Defense Platform,Heavy torpedoes and layered defense; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+27-93,27,Scum,87,Advanced Defense Platform,Heavy torpedoes and layered defense; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+27-91,27,The Blacksmith,71,Human Research Lab,"Weapon development, analysis and prototype trials; no general hull sales",,7;23;24;26;6;11,Inherit proposed type role; retain existing ownership and catalog gates
+27-97,27,The Depot,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,13;18;37,Inherit proposed type role; retain existing ownership and catalog gates
+29-164,29,Reman Starbase,90,Romulan Starbase,"Concealed fleet support, intelligence, repairs and authorized reserves",53,,Inherit proposed type role; retain existing ownership and catalog gates
+30-100,30,G1,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+30-105,30,G32,87,Advanced Defense Platform,Heavy torpedoes and layered defense; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+30-102,30,GX1 (abandoned),78,Ore Station,Extract/refine minerals when local deposits exist; sell feedstock,,,Exploration/restoration; no staffed services until restored
+30-106,30,Kpec Prison,84,Habitat Station,"Housing, workforce, refugees and passenger logistics; no hull shop",,,Detention/prisoner exchange overrides generic habitat role
+30-99,30,Praetor Center,90,Romulan Starbase,"Concealed fleet support, intelligence, repairs and authorized reserves",,51,Inherit proposed type role; retain existing ownership and catalog gates
+30-103,30,Rinsu,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",,,Inherit proposed type role; retain existing ownership and catalog gates
+30-104,30,Tuansu,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+30-101,30,Waryard,83,Maintenance Station,"Discount repairs, salvage refits, towing and explicitly licensed used small hulls",320;321,4;6;7;22,Inherit proposed type role; retain existing ownership and catalog gates
+32-165,32,X-8,85,Wormhole Generator,"Regulated transit, navigation research and gate maintenance",,,Inherit proposed type role; retain existing ownership and catalog gates
+34-107,34,Gato Station,83,Maintenance Station,"Discount repairs, salvage refits, towing and explicitly licensed used small hulls",1;4,1;14,Inherit proposed type role; retain existing ownership and catalog gates
+34-110,34,P012,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+34-108,34,Picards Place,84,Habitat Station,"Housing, workforce, refugees and passenger logistics; no hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+34-109,34,Star Park,84,Habitat Station,"Housing, workforce, refugees and passenger logistics; no hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+35-111,35,K'Klep,80,Klingon Shipyard,Birds-of-Prey and other small/medium warship work,331;332;310;239,,Authored hull offer needs explicit licensed depot exception or relocation
+35-116,35,K24,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+35-112,35,K39,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+35-114,35,K48,87,Advanced Defense Platform,Heavy torpedoes and layered defense; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+35-115,35,K74,87,Advanced Defense Platform,Heavy torpedoes and layered defense; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+35-113,35,K84,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+36-119,36,B'lech,79,Klingon Starbase,"House fleet seat, warship support and licensed reserve sales",331;239,,Inherit proposed type role; retain existing ownership and catalog gates
+36-121,36,Juhad,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+36-118,36,K178,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+36-117,36,K94,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+36-120,36,Tupok,80,Klingon Shipyard,Birds-of-Prey and other small/medium warship work,351;330;332;239,,Authored hull offer needs explicit licensed depot exception or relocation
+36-201,36,Worf's Bar,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+37-127,37,Flek,79,Klingon Starbase,"House fleet seat, warship support and licensed reserve sales",,,Inherit proposed type role; retain existing ownership and catalog gates
+37-131,37,Hu'kel,83,Maintenance Station,"Discount repairs, salvage refits, towing and explicitly licensed used small hulls",,,Inherit proposed type role; retain existing ownership and catalog gates
+37-129,37,K'Jak,81,Klingon Heavy Shipyard,"Heavy warships, major repairs and House reserve commissions",42;334;331;239,19;12;25,Inherit proposed type role; retain existing ownership and catalog gates
+37-123,37,K38,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+37-126,37,Kempek,79,Klingon Starbase,"House fleet seat, warship support and licensed reserve sales",239,47,Inherit proposed type role; retain existing ownership and catalog gates
+37-125,37,KTanga,79,Klingon Starbase,"House fleet seat, warship support and licensed reserve sales",,,Inherit proposed type role; retain existing ownership and catalog gates
+37-133,37,Plax,84,Habitat Station,"Housing, workforce, refugees and passenger logistics; no hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+37-122,37,Plek,79,Klingon Starbase,"House fleet seat, warship support and licensed reserve sales",,6,Inherit proposed type role; retain existing ownership and catalog gates
+37-134,37,Plex,84,Habitat Station,"Housing, workforce, refugees and passenger logistics; no hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+37-130,37,Praxis,79,Klingon Starbase,"House fleet seat, warship support and licensed reserve sales",,,Inherit proposed type role; retain existing ownership and catalog gates
+37-124,37,Qonos Array,89,Subspace Comm,"Sector fleet command relay; orders, distress and intelligence subscriptions only",,,Relay services only; relocate any authored stock before removing market
+37-132,37,Tar'jel,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+37-128,37,Targ,80,Klingon Shipyard,Birds-of-Prey and other small/medium warship work,351;330;331;332;239,6;12;7,Authored hull offer needs explicit licensed depot exception or relocation
+38-204,38,Xonok Pub,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+39-205,39,Kises Bar,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+40-135,40,Empok Nor,88,Cardassian Starbase,"Sector administration, defense and the catalog's established Galor/Keldon construction",,,Inherit proposed type role; retain existing ownership and catalog gates
+41-142,41,K21,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+41-136,41,K28,78,Ore Station,Extract/refine minerals when local deposits exist; sell feedstock,,,Inherit proposed type role; retain existing ownership and catalog gates
+41-139,41,K283,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+41-141,41,K298,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+41-137,41,K384,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+41-138,41,K93,78,Ore Station,Extract/refine minerals when local deposits exist; sell feedstock,,,Inherit proposed type role; retain existing ownership and catalog gates
+41-140,41,The Sludge,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",,34;22;16;26;24;18,Inherit proposed type role; retain existing ownership and catalog gates
+42-146,42,Fuki,80,Klingon Shipyard,Birds-of-Prey and other small/medium warship work,351;330;331;239,,Authored hull offer needs explicit licensed depot exception or relocation
+42-148,42,K'fort,79,Klingon Starbase,"House fleet seat, warship support and licensed reserve sales",,,Inherit proposed type role; retain existing ownership and catalog gates
+42-144,42,Kempek,80,Klingon Shipyard,Birds-of-Prey and other small/medium warship work,351;330;331;239,,Authored hull offer needs explicit licensed depot exception or relocation
+42-143,42,KPlex,79,Klingon Starbase,"House fleet seat, warship support and licensed reserve sales",,,Inherit proposed type role; retain existing ownership and catalog gates
+42-147,42,Krap,81,Klingon Heavy Shipyard,"Heavy warships, major repairs and House reserve commissions",,1;4;6;12,Inherit proposed type role; retain existing ownership and catalog gates
+42-149,42,L'fort,79,Klingon Starbase,"House fleet seat, warship support and licensed reserve sales",,,Inherit proposed type role; retain existing ownership and catalog gates
+42-151,42,L'fort,79,Klingon Starbase,"House fleet seat, warship support and licensed reserve sales",,,Inherit proposed type role; retain existing ownership and catalog gates
+42-145,42,Prax,81,Klingon Heavy Shipyard,"Heavy warships, major repairs and House reserve commissions",334;42;239,,Inherit proposed type role; retain existing ownership and catalog gates
+43-207,43,Nayobek orbital Bar,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+44-150,44,K38,78,Ore Station,Extract/refine minerals when local deposits exist; sell feedstock,,,Inherit proposed type role; retain existing ownership and catalog gates
+45-206,45,Kahless Club,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+46-152,46,Borj,84,Habitat Station,"Housing, workforce, refugees and passenger logistics; no hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+46-153,46,Tempe,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",,,Inherit proposed type role; retain existing ownership and catalog gates
+46-154,46,Terok Nor,88,Cardassian Starbase,"Sector administration, defense and the catalog's established Galor/Keldon construction",345,20;37,Inherit proposed type role; retain existing ownership and catalog gates
+48-155,48,Iceland,84,Habitat Station,"Housing, workforce, refugees and passenger logistics; no hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+49-161,49,C329,78,Ore Station,Extract/refine minerals when local deposits exist; sell feedstock,,,Inherit proposed type role; retain existing ownership and catalog gates
+49-162,49,C382,78,Ore Station,Extract/refine minerals when local deposits exist; sell feedstock,,,Inherit proposed type role; retain existing ownership and catalog gates
+49-156,49,Clak Nor,88,Cardassian Starbase,"Sector administration, defense and the catalog's established Galor/Keldon construction",,48,Inherit proposed type role; retain existing ownership and catalog gates
+49-157,49,Duek Nor,88,Cardassian Starbase,"Sector administration, defense and the catalog's established Galor/Keldon construction",,,Inherit proposed type role; retain existing ownership and catalog gates
+49-159,49,Dukat Pub,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+49-158,49,Pex Outpost,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",,3;19;20,Inherit proposed type role; retain existing ownership and catalog gates
+49-160,49,Turok Nor,88,Cardassian Starbase,"Sector administration, defense and the catalog's established Galor/Keldon construction",323;324,,Inherit proposed type role; retain existing ownership and catalog gates
+50-0,50,Dyson Base,82,Dyson Sphere,"Exceptional habitat, energy/industry and an authored megaproject",,5,Inherit proposed type role; retain existing ownership and catalog gates
+50-1,50,FHG-293-A,85,Wormhole Generator,"Regulated transit, navigation research and gate maintenance",,,Inherit proposed type role; retain existing ownership and catalog gates
+51-166,51,The Slip,85,Wormhole Generator,"Regulated transit, navigation research and gate maintenance",,,Inherit proposed type role; retain existing ownership and catalog gates
+52-176,52,Sona Defence 1,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+52-186,52,Sonata Bar,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+52-177,52,Sonata Orbital Defence,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+53-188,53,Iritum Workers Bar,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+53-187,53,Mining Platform A,78,Ore Station,Extract/refine minerals when local deposits exist; sell feedstock,,,Inherit proposed type role; retain existing ownership and catalog gates
+54-198,54,Josh's Maitenance,83,Maintenance Station,"Discount repairs, salvage refits, towing and explicitly licensed used small hulls",342;346,,Inherit proposed type role; retain existing ownership and catalog gates
+54-180,54,Nova Bar,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",33;326;327;328;64;228,,Inherit proposed type role; retain existing ownership and catalog gates
+54-167,54,Nova Base,70,Human Starbase,"Fleet headquarters, full repairs, licensed reserve sales and stores",38,46,Inherit proposed type role; retain existing ownership and catalog gates
+54-175,54,Nova Defence Alpha,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+54-172,54,Nova Defence Beta,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+54-174,54,Nova Defence Delta,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+54-173,54,Nova Defence Gamma,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+54-179,54,Nova Trade Out Post,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",230;236,21;31;36,Inherit proposed type role; retain existing ownership and catalog gates
+54-178,54,Nova Weapon Research,71,Human Research Lab,"Weapon development, analysis and prototype trials; no general hull sales",,39;2;8;9;11,Inherit proposed type role; retain existing ownership and catalog gates
+54-168,54,Nova Yard Alpha,73,Human Heavy Shipyard,"Capital construction, heavy overhaul, reserve commissions",309;312;4;2;38;305;9,,Inherit proposed type role; retain existing ownership and catalog gates
+54-169,54,Nova Yard Beta,73,Human Heavy Shipyard,"Capital construction, heavy overhaul, reserve commissions",33;326;35;328;345;61;344,,Inherit proposed type role; retain existing ownership and catalog gates
+54-171,54,Nova Yard Defence,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,228;227;230;232,,Authored hull offer needs explicit licensed depot exception or relocation
+54-170,54,Nova Yard Gamma,74,Human Shipyard,Small/medium hull construction and refits,306;307;308;309;9;11,,Inherit proposed type role; retain existing ownership and catalog gates
+55-189,55,Tarrelia Trading,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",,,Inherit proposed type role; retain existing ownership and catalog gates
+57-184,57,Brea Bar,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",60;48;238,,Inherit proposed type role; retain existing ownership and catalog gates
+57-185,57,Brea Base,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",,58,Inherit proposed type role; retain existing ownership and catalog gates
+57-182,57,Brea complex Defence,86,Defense Platform,Local beam defense and checkpoint fire support; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+58-breen-station,57,Brea Cryo Anchorage,112,Breen Station,"Cryogenic support, listening post and electronic warfare refit",233;234;218,2;16;23,Authored hull offer needs explicit licensed depot exception or relocation
+57-181,57,Brea Defence Platform,87,Advanced Defense Platform,Heavy torpedoes and layered defense; no commerce,,,Inherit proposed type role; retain existing ownership and catalog gates
+58-191,58,Domin Nor,88,Cardassian Starbase,"Sector administration, defense and the catalog's established Galor/Keldon construction",314;323;324,,Inherit proposed type role; retain existing ownership and catalog gates
+58-190,58,Dominica Check Point,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",322;48;216;238,,Inherit proposed type role; retain existing ownership and catalog gates
+59-dominion-starbase,58,Dominion Command Starbase,109,Dominion Starbase,"Military command, supply distribution and occupation administration",206;322;216;48;65;238,3;16;19,Authored hull offer needs explicit licensed depot exception or relocation
+59-192,59,SB-534,70,Human Starbase,"Fleet headquarters, full repairs, licensed reserve sales and stores",,,Inherit proposed type role; retain existing ownership and catalog gates
+60-193,60,New romulus Base,90,Romulan Starbase,"Concealed fleet support, intelligence, repairs and authorized reserves",29;321;320,51,Inherit proposed type role; retain existing ownership and catalog gates
+62-197,62,Josh's Bar,76,Bar,"Crew leave, recruitment, paid rumors and underworld contacts; no normal hull shop",,,Inherit proposed type role; retain existing ownership and catalog gates
+62-196,62,Josh's Repair,83,Maintenance Station,"Discount repairs, salvage refits, towing and explicitly licensed used small hulls",,1;8,Inherit proposed type role; retain existing ownership and catalog gates
+62-194,62,Orilla Vanilla,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",,,Inherit proposed type role; retain existing ownership and catalog gates
+62-195,62,Splash-Planet,77,Delpin Waterpark,"Tourism, recreation, refugee respite and civilian passenger contracts",,,Inherit proposed type role; retain existing ownership and catalog gates
+69-dominion-shipyard,68,Vortara Dominion Shipyard,110,Dominion Shipyard,Jem'Hadar/light hull assembly with crew/supply dependencies,206;322;216;48;238,3;19,Inherit proposed type role; retain existing ownership and catalog gates
+69-200,69,Vortara cloning Facility,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",345,,Cloning/logistics role overrides trade model; preserve ship 345 via attached depot or relocation
+71-dominion-shipyard,70,JemHadar Relay Shipyard,110,Dominion Shipyard,Jem'Hadar/light hull assembly with crew/supply dependencies,206;322;216;48;238,3;19,Inherit proposed type role; retain existing ownership and catalog gates
+70-199,70,New Bajor Ore Processing,78,Ore Station,Extract/refine minerals when local deposits exist; sell feedstock,,,Inherit proposed type role; retain existing ownership and catalog gates
+73-dominion-heavy-yard,72,Founders Heavy Shipyard,111,Dominion Heavy Shipyard,Capital warship construction and heavy refit,322;216;48;65;238,3;16;19,Inherit proposed type role; retain existing ownership and catalog gates
+75-dominion-starbase,74,T-Rogoran Dominion Starbase,109,Dominion Starbase,"Military command, supply distribution and occupation administration",206;322;216;238,3;16,Authored hull offer needs explicit licensed depot exception or relocation
+95-tholian-research,94,Crystal Research Lattice,113,Tholian Research Station,"Web/shield research, analysis and specialist refits",222;223;318;232,5;16,Authored hull offer needs explicit licensed depot exception or relocation
+94-210,94,Loom Bastion,106,Tholian Starbase,Web-defense citadel and protected trade anchorage,222;318;223;232,16;4,Authored hull offer needs explicit licensed depot exception or relocation
+94-215,94,Loom Heavy Shipyard,108,Tholian Heavy Shipyard,Heavy cargo and combat lattice frames,232;223;318,5;16,Authored hull offer needs explicit licensed depot exception or relocation
+94-216,94,Loom Light Yard,107,Tholian Light Shipyard,Small lattice hulls and commercial transport construction,222;318;223,5,Inherit proposed type role; retain existing ownership and catalog gates
+95-211,95,Webheart Bastion,106,Tholian Starbase,Web-defense citadel and protected trade anchorage,222;318;223;232,16;4,Authored hull offer needs explicit licensed depot exception or relocation
+96-tholian-research,95,Webheart Research Spire,113,Tholian Research Station,"Web/shield research, analysis and specialist refits",222;318;223,5;16,Authored hull offer needs explicit licensed depot exception or relocation
+95-217,95,Webheart War Yard,108,Tholian Heavy Shipyard,Heavy cargo and combat lattice frames,232;223;318,5;16,Authored hull offer needs explicit licensed depot exception or relocation
+96-212,96,Lattice Bastion,106,Tholian Starbase,Web-defense citadel and protected trade anchorage,222;318;232;223,16;4,Authored hull offer needs explicit licensed depot exception or relocation
+96-218,96,Lattice Cargo Yard,107,Tholian Light Shipyard,Small lattice hulls and commercial transport construction,222;223;318,5,Inherit proposed type role; retain existing ownership and catalog gates
+97-213,97,Spindle Bastion,106,Tholian Starbase,Web-defense citadel and protected trade anchorage,222;318;223;232,16;4,Authored hull offer needs explicit licensed depot exception or relocation
+97-219,97,Spindle Patrol Yard,107,Tholian Light Shipyard,Small lattice hulls and commercial transport construction,222;318;223,5,Inherit proposed type role; retain existing ownership and catalog gates
+98-214,98,Facet Gate Bastion,106,Tholian Starbase,Web-defense citadel and protected trade anchorage,223;318;222;232,16;4,Authored hull offer needs explicit licensed depot exception or relocation
+99-tholian-research,98,Facet Research Array,113,Tholian Research Station,"Web/shield research, analysis and specialist refits",223;318;222;232,5;16,Authored hull offer needs explicit licensed depot exception or relocation
+98-220,98,Facet Slipway,107,Tholian Light Shipyard,Small lattice hulls and commercial transport construction,223;318;222,5;16,Inherit proposed type role; retain existing ownership and catalog gates
+13-grand-nagus-casino,13,Grand Nagus Casino,119,Casino Station,"Gambling, intelligence brokers, financing and passenger contracts",315;316;317,8;33,Authored hull offer needs explicit licensed depot exception or relocation
+88-lappa-casino-exchange,88,Lappa Casino Exchange,119,Casino Station,"Gambling, intelligence brokers, financing and passenger contracts",315;316;317,8,Authored hull offer needs explicit licensed depot exception or relocation
+89-hupyrian-casino-port,89,Hupyrian Casino Port,119,Casino Station,"Gambling, intelligence brokers, financing and passenger contracts",315;316;317,8,Authored hull offer needs explicit licensed depot exception or relocation
+9-gorn-muster-dock,9,Gorn Muster Dock,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",252;251,3,"Keep dormant/discovery gate on sales, recovery and living-faction activity"
+99-hirogen-trophy-exchange,99,Hirogen Trophy Exchange,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",267;253;254,3;19,Inherit proposed type role; retain existing ownership and catalog gates
+100-suliban-cell-dock,100,Suliban Cell Dock,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",258;259;257,2;14,Inherit proposed type role; retain existing ownership and catalog gates
+egg-shipyard-andorian-1,24,Andorian Export Yard,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",240;348,,Inherit proposed type role; retain existing ownership and catalog gates
+egg-shipyard-bajoran-1,46,Bajoran Solar-Sail Exchange,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",345,,Inherit proposed type role; retain existing ownership and catalog gates
+egg-shipyard-borg-1,62,Silent Collective Reclamation Node,82,Dyson Sphere,"Exceptional habitat, energy/industry and an authored megaproject",346;261,,Derelict salvage/discovery overrides inhabited Dyson role; Authored hull offer needs explicit licensed depot exception or relocation
+egg-shipyard-breen-1,57,Breen Cryo Reserve,112,Breen Station,"Cryogenic support, listening post and electronic warfare refit",233;218;234,,Licensed reserve/salvage depot; preserve special designs and add archive recovery; Authored hull offer needs explicit licensed depot exception or relocation
+egg-shipyard-cardassian-1,49,Obsidian Reserve Yard,88,Cardassian Starbase,"Sector administration, defense and the catalog's established Galor/Keldon construction",314;323;324,,Licensed reserve/salvage depot; preserve special designs and add archive recovery
+egg-shipyard-delpin-1,22,Delpin Diplomatic Slip,77,Delpin Waterpark,"Tourism, recreation, refugee respite and civilian passenger contracts",22;319;51,,Authored hull offer needs explicit licensed depot exception or relocation
+egg-shipyard-dominion-1,58,Founder Reserve Hatchery,111,Dominion Heavy Shipyard,Capital warship construction and heavy refit,206;322;238;216;48;65,,Licensed reserve/salvage depot; preserve special designs and add archive recovery
+egg-shipyard-ferengi-1,13,Grand Nagus Private Lot,119,Casino Station,"Gambling, intelligence brokers, financing and passenger contracts",316;317;315,,Authored hull offer needs explicit licensed depot exception or relocation
+egg-shipyard-gorn-1,9,Gorn Hegemony Clutch Yard,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",252;251,,"Keep dormant/discovery gate on sales, recovery and living-faction activity"
+egg-shipyard-hirogen-1,62,Hirogen Trophy Dock,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",267;253;254,,Inherit proposed type role; retain existing ownership and catalog gates
+egg-shipyard-independent-1,5,Free Swiss Reserve Exchange,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",60;349;350,,Licensed reserve/salvage depot; preserve special designs and add archive recovery
+egg-shipyard-klingon-1,37,Klingon House Reserve Yard,81,Klingon Heavy Shipyard,"Heavy warships, major repairs and House reserve commissions",351;330;332;331;239;334;255;333,,Licensed reserve/salvage depot; preserve special designs and add archive recovery
+egg-shipyard-neutral-1,5,Independent Salvage Vault Alpha,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",10;47;214;55;310;305;309;311,,Licensed reserve/salvage depot; preserve special designs and add archive recovery
+egg-shipyard-neutral-2,62,Independent Salvage Vault Beta,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",335;11;341;340;220;268,,Licensed reserve/salvage depot; preserve special designs and add archive recovery
+egg-shipyard-pirate-1,15,Nausican Chop Shop,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",207;225,,Inherit proposed type role; retain existing ownership and catalog gates
+egg-shipyard-promelli-1,93,Promelli Relic Broker,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",226;227,,Inherit proposed type role; retain existing ownership and catalog gates
+egg-shipyard-romulan-1,30,Tal Shiar Ghost Yard,90,Romulan Starbase,"Concealed fleet support, intelligence, repairs and authorized reserves",212;321;256;320;53;246,,Inherit proposed type role; retain existing ownership and catalog gates
+egg-shipyard-sona-1,52,Son'a Private Hangar,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",235;219;224,,Inherit proposed type role; retain existing ownership and catalog gates
+egg-shipyard-suliban-1,62,Suliban Cabal Slip,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",258;259;257,,Inherit proposed type role; retain existing ownership and catalog gates
+egg-shipyard-tarellian-1,55,Tarellian Long-Range Exchange,75,Trade Station,"Freight brokerage, commodities, warehousing and authorized civilian lots",215;338;54,,Inherit proposed type role; retain existing ownership and catalog gates
+egg-shipyard-terran-1,0,Imperial Mothball Vault Alpha,73,Human Heavy Shipyard,"Capital construction, heavy overhaul, reserve commissions",308;208;228;243;263;272;273;306,,Licensed reserve/salvage depot; preserve special designs and add archive recovery
+egg-shipyard-terran-2,20,Imperial Mothball Vault Beta,73,Human Heavy Shipyard,"Capital construction, heavy overhaul, reserve commissions",307;250;209;9;269;326;236;230,,Licensed reserve/salvage depot; preserve special designs and add archive recovery
+egg-shipyard-terran-3,54,Imperial Mothball Vault Gamma,73,Human Heavy Shipyard,"Capital construction, heavy overhaul, reserve commissions",344;229;312;342;4;336;217;327,,Licensed reserve/salvage depot; preserve special designs and add archive recovery
+egg-shipyard-terran-4,59,Imperial Mothball Vault Delta,73,Human Heavy Shipyard,"Capital construction, heavy overhaul, reserve commissions",241;244;245;249;264;266;325;313,,Licensed reserve/salvage depot; preserve special designs and add archive recovery
+egg-shipyard-terran-5,75,Imperial Mothball Vault Epsilon,73,Human Heavy Shipyard,"Capital construction, heavy overhaul, reserve commissions",328;231;242;248;265;270;271;213,,Licensed reserve/salvage depot; preserve special designs and add archive recovery
+egg-shipyard-terran-6,3,Imperial Mothball Vault Zeta,73,Human Heavy Shipyard,"Capital construction, heavy overhaul, reserve commissions",221;329;49;262;2,,Licensed reserve/salvage depot; preserve special designs and add archive recovery
+egg-shipyard-tholian-1,17,Tholian Lattice Reserve,108,Tholian Heavy Shipyard,Heavy cargo and combat lattice frames,222;223;318;232,,Licensed reserve/salvage depot; preserve special designs and add archive recovery; Authored hull offer needs explicit licensed depot exception or relocation
+egg-shipyard-vulcan-1,11,Vulcan Surplus Annex,72,Vulcan University,"Officer/scientist education, training, analysis and mediation",210;237;343;260;211,,Licensed reserve/salvage depot; preserve special designs and add archive recovery; Authored hull offer needs explicit licensed depot exception or relocation
+import-200-59,59,Andreas Command Outpost,200,Command Outpost,"Frontier command, convoy routing and local fleet logistics",,11;15;25,Inherit proposed type role; retain existing ownership and catalog gates
+import-201-5,5,Swiss Relay Array,201,Communication Array,"Regional relay, navigation updates and contract messages",,23;24,Relay services only; relocate any authored stock before removing market
+import-202-54,54,Terra Nova Bastion,202,Heavy Starbase,"Sector fortress, capital repairs and fleet stores",,11;15;18;25,Inherit proposed type role; retain existing ownership and catalog gates
+import-203-0,0,K-Series Fleet Yard,203,K Series Station,"Modular frontier yard, patrol refit and small construction",,10;15,Inherit proposed type role; retain existing ownership and catalog gates
+import-204-13,13,T19 Trade Ring,204,T19 Station,"Cargo terminal, transshipment, customs and convoy assembly",,15;23,Inherit proposed type role; retain existing ownership and catalog gates
+import-205-62,62,Orilla Biodome,205,Biodome Station,"Food, agriculture, refugees and biological research",,24,Inherit proposed type role; retain existing ownership and catalog gates

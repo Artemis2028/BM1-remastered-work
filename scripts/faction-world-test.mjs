@@ -71,4 +71,19 @@ test('non-diplomatic factions cannot sign treaties and invalid states fail', () 
   assert.throws(() => W.setDiplomacy(b, 'romulan', 'romulan', 'war', 1));
   assert.throws(() => W.setDiplomacy(b, 'terran', 'romulan', 'invalid', 1));
 });
+test('Earth–Klingon war survives calendar exhaustion in both directions; explicit story/debug resolution remains possible', () => {
+  for (const pair of [['terran', 'klingon'], ['klingon', 'terran']]) {
+    const daily = W.createDiplomacy('campaign'), bulk = W.createDiplomacy('campaign');
+    for (let day = 2; day <= 2000; day++) W.advanceDiplomacy(daily, day, [pair], () => true);
+    W.advanceDiplomacy(bulk, 2000, [pair], () => true);
+    assert.deepEqual(daily, bulk);
+    assert.equal(W.relation(bulk, ...pair, true).status, 'war');
+    assert.equal(bulk.lastDay, 2000);
+    assert.equal(bulk.history.length, 0);
+    const saved = JSON.parse(JSON.stringify(bulk));
+    W.setDiplomacy(saved, ...pair, 'peace', 2000, true, 'Authored strategic resolution');
+    W.advanceDiplomacy(saved, 2001, [pair], () => true);
+    assert.equal(W.relation(saved, ...pair, true).status, 'peace');
+  }
+});
 console.log(`${checks}/${checks} world model groups passed.`);

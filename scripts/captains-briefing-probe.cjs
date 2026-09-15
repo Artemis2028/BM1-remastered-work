@@ -129,7 +129,7 @@ const server = http.createServer((req, res) => {
     const r=await ev(()=>{const t=testBM1,s=t.state;t.startWithFaction('terran');t.changeDiplomacy('terran','klingon','war');const before=s.npcShips.length;const msg=t.triggerDebugEvent('raid');const raid=s.activeFleetAttack;const station=s.stations[0];t.destroyStation(station);t.collectGalaxyReports();const news=t.galaxyNewsBook().items;return {msg,raid:!!raid,spawned:s.npcShips.length-before,report:news.some(r=>r.id===raid.id),loss:news.some(r=>r.kind==='Installation lost'&&r.text.includes(station.name)),bounded:news.length<=120};});assert.ok(r.raid&&r.spawned>0&&r.report&&r.loss&&r.bounded,JSON.stringify(r));
   });
   await check('debug mission controls open real cargo offers and run existing away missions',async()=>{
-    const r=await ev(()=>{const t=testBM1,s=t.state;t.startWithFaction('terran');t.triggerDebugMission('cargo');const offer=s.pendingContractOffer;t.acceptPendingContract();const accepted=t.getOpenContracts().some(c=>c.id===offer.id);const result=t.triggerDebugMission('transport');return {offer:!!offer,accepted,result,physical:s.docked};});
+    const r=await ev(()=>{const t=testBM1,s=t.state;t.startWithFaction('terran');t.triggerDebugMission('cargo');const offer=s.pendingContractOffer;t.acceptPendingContract();const accepted=t.getOpenContracts().some(c=>c.id===offer.id);t.setCamera(s.systemPlanet.x+100,s.systemPlanet.y);const result=t.triggerDebugMission('transport');return {offer:!!offer,accepted,result,physical:s.docked};});
     assert.ok(r.offer&&r.accepted,JSON.stringify(r));assert.equal(r.physical,false);assert.match(r.result,/Transport/);
   });
   await check('news deduplicates repeated reads without hiding same-day war and peace',async()=>{
