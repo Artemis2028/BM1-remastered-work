@@ -387,6 +387,9 @@ async function scenarioRunner() {
   const foreignDef = { ...govDef, id: 'probe-foreign-vulcan', name: 'Vulcan Science Concession', faction: 'vulcan', offset: { ...(govDef.offset || {}), x: (govDef.offset?.x || 0) + 260 } };
   const privateDef = { ...govDef, id: 'probe-private-1', name: 'Independent Trade Post', faction: 'neutral', offset: { ...(govDef.offset || {}), x: (govDef.offset?.x || 0) - 260 } };
   const ferengiDef = { ...govDef, id: 'probe-foreign-ferengi', name: 'Ferengi Commerce Hub', faction: 'ferengi', offset: { ...(govDef.offset || {}), y: (govDef.offset?.y || 0) + 260 } };
+  // Acquire the government installations before adding the foreign concessions.
+  // Faction membership grants no property.
+  B.transferSystemControlToPlayer(home);
   s.stationDefinitions.push(foreignDef, privateDef, ferengiDef);
   const enterHome = () => { delete s.systemStates[home]; s.currentPlanet = home; s.myplanet = home + 1; s.selectedPlanet = home; B.applySystemState(home); s.spawnProtectionUntil = 0; clearNpcs(); clearShots(); };
   const findStation = (id) => (s.stations || []).find((st) => st.id === id);
@@ -634,6 +637,8 @@ async function scenarioRunner() {
   // An explicitly constructed Zzyx-Council patrol placed in the cached snapshot: restoration must not
   // re-fit its hull, faction or side to the current holder.
   const zzShip = B.createNpcShip({ id: 'probe-zz-patrol', shipId: 305, faction: 'neutral', seed: 77, from: pAt(500), role: 'patrol', sideId: 'Zzyx-Council' });
+  // Live encounter state is authoritative on re-entry, including constructed visitors.
+  s.npcShips.push(zzShip);
   s.systemStates[home].npcShips.push({ ...zzShip, destination: { ...zzShip.destination }, waitUntil: 0 });
   enterKeep(home); // restore once so the baseline includes the constructed ship
   const identity = (list) => list.filter((n) => !n.destroyed && !B.isPlayerSideNpc(n)).map((n) => ({ id: n.id, shipId: n.shipId, faction: n.faction, side: B.getNpcSideId(n) }));
@@ -953,8 +958,8 @@ async function scenarioRunner() {
     return n;
   };
   const restoreHome = () => { for (const d of s.stationDefinitions) if (Number(d.systemIndex) === home) delete s.destroyedStations[d.id]; };
-  // Real ambient slots (ids from the system snapshot) for the persistence cases: only these survive a
-  // cache wipe or reload the way the game's own traffic does. Other slots are parked far outside.
+  // Controlled ambient participants for persistence: fresh scenes may be quiet or already
+  // depleted. Use real NPC construction and live encounter save/restore; park other traffic.
   const usedSlots = new Set();
   const clearProbeNpcs = () => { for (let i = s.npcShips.length - 1; i >= 0; i--) if (Number(s.npcShips[i].id) >= 9000) s.npcShips.splice(i, 1); };
   const parkOthers = (zone, except) => {
@@ -965,8 +970,7 @@ async function scenarioRunner() {
     }
   };
   const slotTraffic = (zone, distance, angle, faction = 'ferengi') => {
-    const n = s.npcShips.find((x) => x && !x.destroyed && (x.role === 'traffic' || x.role === 'localTraffic') && !usedSlots.has(x.id));
-    if (!n) return null;
+    const n = mk(`probe-persist-${usedSlots.size}`, faction, { shipId: 1, seed: 5800 + usedSlots.size, role: 'traffic', attitude: 'neutral', hostile: false }, polar(zone, distance, angle));
     usedSlots.add(n.id);
     const p = polar(zone, distance, angle);
     Object.assign(n, { x: p.x, y: p.y, destination: polar(zone, Math.max(40, zone.holdDistance * 0.4), angle), destinationName: 'inner beacon', speed: 1.2, trafficWarp: null, ambientWarpAt: performance.now() + 120000, hostile: false, attitude: 'neutral', waitUntil: 0, securityObjective: null, faction, sideId: faction, identityLocked: true });
@@ -1229,6 +1233,10 @@ async function scenarioRunner() {
   };
   // 14. operator UI through real clicks
   clearNpcs();
+  // Dock at the real planet: the separated-arrival fix starts the ship outside service range.
+  const dockMarker = B.getFlightPlanetMarker(home);
+  B.setCamera(dockMarker.worldX, dockMarker.worldY);
+  s.ship.velocity = 0; s.ship.turnVelocity = 0;
   s.docked = true; s.dockedPlanetIndex = home; s.dockedStationId = null; s.planetMenuOpen = true; s.dockMenuTab = 'security';
   B.renderPlanetMenu();
   const menu5 = document.getElementById('planet-menu');

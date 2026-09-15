@@ -83,6 +83,7 @@ export function buildPurchaseContext({
   credits,
   standings,
   tierThresholds,
+  standingFaction,
 } = {}) {
   const context = {
     systemName: String(systemName || '').trim(),
@@ -90,6 +91,7 @@ export function buildPurchaseContext({
     credits,
     standings,
   };
+  if (standingFaction) context.standingFaction = standingFaction;
   if (isDominionCoreSystem(context.systemName)) context.region = 'dominion-core';
   const detectedVendor = detectPurchaseVendor({ systemName, stationName, vendor });
   if (detectedVendor) context.vendor = detectedVendor;

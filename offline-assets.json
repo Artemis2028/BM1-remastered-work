@@ -1,5 +1,5 @@
 {
-  "version": "20260913-approved-hull-merges-v1",
+  "version": "bm1-pwa-20260915-playtest-review-v2",
   "generatedAt": "2026-09-13T00:00:00.000Z",
   "assets": [
     "./app.webmanifest",
@@ -481,6 +481,7 @@
     "./data/stationData.json",
     "./data/station_manifest.json",
     "./index.html",
+    "./src/faction-world.mjs",
     "./src/main.js",
     "./src/pwa-register.js",
     "./src/ship-catalog-integration.mjs",
