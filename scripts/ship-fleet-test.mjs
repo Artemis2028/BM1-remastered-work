@@ -122,18 +122,19 @@ test('long calendar advance equals daily processing', () => {
   F.ensureStock(b, 1, 10, 1);
   F.ensureStock(d, 1, 10, 1);
   const hooks = (b, a) => ({ settle: (day) => F.recordBill(b, a, `d${day}`, 'upkeep', 3, day) });
-  F.advanceCalendar(b, a, 5, 'trip', hooks(b, a));
-  for (let i = 0; i < 5; i++) F.advanceCalendar(d, c, 1, `day${i}`, hooks(d, c));
+  const trip = F.nextId(b, 'journey');
+  F.advanceCalendar(b, a, 5, trip, hooks(b, a));
+  for (let i = 0; i < 5; i++) F.advanceCalendar(d, c, 1, F.nextId(d, 'journey'), hooks(d, c));
   assert.deepEqual(a, c);
   assert.deepEqual(b.stock, d.stock);
   assert.deepEqual(b.ledger, d.ledger);
-  assert.equal(F.advanceCalendar(b, a, 5, 'trip', hooks(b, a)), false);
+  assert.equal(F.advanceCalendar(b, a, 5, trip, hooks(b, a)), false);
 });
 test('zero-day transit runs no economic hooks', () => {
   const b = book(),
     a = { day: 1 };
   let ran = 0;
-  F.advanceCalendar(b, a, 0, 'hole', { settle: () => ran++, complete: () => ran++, market: () => ran++ });
+  F.advanceCalendar(b, a, 0, F.nextId(b, 'journey'), { settle: () => ran++, complete: () => ran++, market: () => ran++ });
   assert.equal(ran, 0);
   assert.equal(a.day, 1);
 });
@@ -249,5 +250,47 @@ test('station destruction permanently loses unfinished work', () => {
   );
   assert.equal(b.orders[0].status, 'lost');
   assert.equal(delivered, false);
+});
+test('campaign ID supports LAN crypto without randomUUID', () => {
+  const id=F.createCampaignId({getRandomValues(bytes){bytes.fill(171);return bytes;}});
+  assert.equal(id,'ab'.repeat(16));
+});
+test('restore owns last-shot cooldown translation', () => {
+  const defaults={hull:100,shields:0,cooldown:5000}, actor={};
+  const snap=F.snapshotVessel({combatHull:50,lastShotAt:9000},defaults,10000);
+  F.restoreVessel(actor,snap,100,defaults.cooldown);
+  assert.equal(actor.lastShotAt+defaults.cooldown-100,4000);
+  assert.equal(F.snapshotVessel(actor,defaults,100).shotCooldownMs,4000);
+});
+test('cancelled deployment cannot reroll the same incarnation and XP', () => {
+  const b=book(),first=F.beginBoarding(b,{targetId:'target'}); F.cancelBoarding(b);
+  const second=F.beginBoarding(b,{targetId:'target'});
+  assert.notEqual(first.id,second.id);assert.equal(first.roll,second.roll);
+  F.cancelBoarding(b);assert.notEqual(first.roll,F.beginBoarding(b,{targetId:'replacement'}).roll);
+});
+test('ledger compacts 600 jumps without losing totals or replay protection', () => {
+  let b=book(),a={day:1,latinum:5000};const first=F.nextId(b,'journey');
+  const settle=day=>{for(let ship=0;ship<12;ship++)F.recordBill(b,a,`upkeep:${day}:v${ship}`,'upkeep',3,day);};
+  F.advanceCalendar(b,a,20,first,{settle});
+  for(let j=1;j<600;j++){F.advanceCalendar(b,a,20,F.nextId(b,'journey'),{settle});if(j===60)b=F.copy(b);}
+  const total=(b.ledgerArchive.byKind.upkeep?.amount||0)+b.ledger.filter(e=>e.kind==='upkeep').reduce((n,e)=>n+e.amount,0);
+  assert.equal(total,600*20*12*3);assert.equal(b.debt,total-5000);assert.equal(a.latinum,0);
+  assert.ok(b.ledger.length<=128);assert.equal(Object.keys(b.advances).length,0);assert.ok(JSON.stringify(b).length<25000);
+  assert.equal(F.advanceCalendar(b,a,20,first,{settle}),false);assert.equal(F.recordBill(b,a,'upkeep:2:v0','upkeep',3,2),false);
+  const debt=b.debt;a.latinum=100;F.payDebt(b,a,a.day);assert.equal(b.debt,debt-100);
+  b=F.copy(b);assert.equal(F.recordBill(b,a,`upkeep:${a.day}:v0`,'upkeep',3,a.day),false);
+});
+test('legacy financial migration preserves totals and journey watermark', () => {
+  const b=book();delete b.financialVersion;delete b.ledgerArchive;b.counter=44;b.settledDay=200;b.debt=12;
+  b.advances={'fixture:journey:7':{days:2,endDay:3}};
+  b.ledger=Array.from({length:200},(_,i)=>({id:`upkeep:${i+1}:v`,day:i+1,kind:'upkeep',amount:5,paid:4}));
+  F.prepareFinancialBook(b);assert.equal(b.debt,12);assert.equal(b.journeyCounter,7);
+  assert.equal(b.ledgerArchive.byKind.upkeep.amount+b.ledger.reduce((n,e)=>n+e.amount,0),1000);
+  assert.equal(F.advanceCalendar(b,{day:200},2,'fixture:journey:7',{}),false);
+  assert.equal(F.recordBill(b,{latinum:100},'upkeep:1:v','upkeep',5,1),false);
+});
+test('same-day financial event cannot replay after reload', () => {
+  let b=book();const a={latinum:1},id=F.nextId(b,'rescue');F.recordBill(b,a,id,'rescue',10,1);b=F.copy(b);
+  assert.equal(F.recordBill(b,a,id,'rescue',10,1),false);assert.equal(b.debt,9);
 });
 console.log(`${count}/${count} fleet model checks passed`);

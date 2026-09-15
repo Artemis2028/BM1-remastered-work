@@ -12,3 +12,6 @@ asset-backups/
 *.zip
 *.tar
 *.tar.gz
+
+# Generated in-game probe screenshots
+tmp-*.png

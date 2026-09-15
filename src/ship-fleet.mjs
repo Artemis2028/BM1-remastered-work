@@ -16,6 +16,11 @@ export const FLEET_RULES = Object.freeze({
   resaleBasis: 0.35,
   routeUnitsPerDay: 10,
 });
+// randomUUID is secure-context-only; getRandomValues also works over LAN HTTP.
+export function createCampaignId(cryptoApi = globalThis.crypto) {
+  if (typeof cryptoApi?.randomUUID === 'function') return cryptoApi.randomUUID();
+  return Array.from(cryptoApi.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
+}
 export const copy = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
 export const bounded = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 export function stableHash(value) {
@@ -93,7 +98,7 @@ export function snapshotVessel(actor, defaults, now = 0) {
   if (!Array.isArray(result.cargoArray)) result.cargoArray = [];
   return result;
 }
-export function restoreVessel(actor, snapshot, now = 0) {
+export function restoreVessel(actor, snapshot, now = 0, cooldown = 0) {
   if (!snapshot || snapshot.version !== 1) return false;
   Object.assign(actor, {
     maxCombatHull: snapshot.maxHull,
@@ -102,7 +107,7 @@ export function restoreVessel(actor, snapshot, now = 0) {
     combatShields: snapshot.shields,
     weaponReadyAt: now + Math.max(0, snapshot.readyMs || 0),
     recoveryAt: snapshot.recoveryMs ? now + snapshot.recoveryMs : 0,
-    lastShotAt: now + Math.max(0, snapshot.shotCooldownMs || 0),
+    lastShotAt: now + Math.max(0, snapshot.shotCooldownMs || 0) - cooldown,
     destroyed: snapshot.condition === 'destroyed' || snapshot.hull === 0,
   });
   for (const key of PHYSICAL_FIELDS) if (snapshot[key] !== undefined) actor[key] = copy(snapshot[key]);
@@ -136,7 +141,12 @@ export function createFleetBook(day = 1, campaignId = 'campaign') {
     campaignId,
     counter: 0,
     settledDay: day,
-    advances: {},
+    advances: {}, // only pre-migration nonstandard IDs
+    journeyCounter: 0,
+    financialCounter: 0,
+    financialVersion: 2,
+    ledgerClosedThrough: day - 1,
+    ledgerArchive: { entries: 0, byKind: {} },
     ledger: [],
     debt: 0,
     stock: {},
@@ -153,21 +163,76 @@ export function createFleetBook(day = 1, campaignId = 'campaign') {
 export function nextId(book, type) {
   return `${book.campaignId}:${type}:${++book.counter}`;
 }
+// Retain 128 recent entries plus all open-day items. Closed-day replay is
+// blocked by a saved watermark; current/recent IDs use a Set rebuilt once/load.
+const financialIndexes = new WeakMap();
+const RECENT_LEDGER_ITEMS = 128;
+function eventSequence(book, id, types) {
+  const prefix = `${book.campaignId}:`;
+  if (typeof id !== 'string' || !id.startsWith(prefix)) return 0;
+  const tail = id.slice(prefix.length), split = tail.lastIndexOf(':');
+  if (!types.includes(tail.slice(0, split))) return 0;
+  const n = Number(tail.slice(split + 1));
+  return Number.isSafeInteger(n) && n > 0 ? n : 0;
+}
+export function prepareFinancialBook(book) {
+  if (book.financialVersion === 2) return book;
+  book.ledger ||= []; book.advances ||= {};
+  book.journeyCounter = 0; book.financialCounter = 0;
+  book.ledgerClosedThrough = (book.settledDay || 1) - 1;
+  book.ledgerArchive = { entries: 0, byKind: {} };
+  for (const id of Object.keys(book.advances)) {
+    const seq = eventSequence(book, id, ['journey', 'legacy-journey']);
+    if (seq) { book.journeyCounter = Math.max(book.journeyCounter, seq); delete book.advances[id]; }
+  }
+  for (const entry of book.ledger)
+    book.financialCounter = Math.max(book.financialCounter, eventSequence(book, entry.id, ['rescue', 'payment']));
+  book.counter = Math.max(book.counter || 0, book.journeyCounter, book.financialCounter);
+  book.financialVersion = 2;
+  compactFinancialBook(book);
+  return book;
+}
+function financialIndex(book) {
+  let index = financialIndexes.get(book);
+  if (!index || index.ledger !== book.ledger) {
+    index = { ledger: book.ledger, ids: new Set(book.ledger.map(e => e.id)) };
+    financialIndexes.set(book, index);
+  }
+  return index.ids;
+}
+export function compactFinancialBook(book) {
+  prepareFinancialBook(book);
+  book.ledgerClosedThrough = Math.max(book.ledgerClosedThrough, book.settledDay - 1);
+  if (book.ledger.length <= RECENT_LEDGER_ITEMS) return book;
+  const retained = [], cutoff = book.ledger.length - RECENT_LEDGER_ITEMS;
+  for (let i = 0; i < book.ledger.length; i++) {
+    const e = book.ledger[i];
+    if (i >= cutoff || e.day > book.ledgerClosedThrough) { retained.push(e); continue; }
+    const total = (book.ledgerArchive.byKind[e.kind] ||= { amount: 0, paid: 0, entries: 0 });
+    total.amount += e.amount; total.paid += e.kind === 'payment' ? e.amount : (e.paid || 0);
+    total.entries++; book.ledgerArchive.entries++;
+  }
+  book.ledger = retained; financialIndexes.delete(book);
+  return book;
+}
 export function recordBill(book, account, eventId, kind, amount, day) {
-  if (book.ledger.some((e) => e.id === eventId)) return false;
-  if (!Number.isFinite(amount) || amount < 0) throw Error('Invalid bill');
+  prepareFinancialBook(book);
+  if (!Number.isFinite(amount) || amount < 0 || !Number.isInteger(day)) throw Error('Invalid bill');
+  const seq = eventSequence(book, eventId, ['rescue', 'payment']), ids = financialIndex(book);
+  if (day <= book.ledgerClosedThrough || ids.has(eventId) || (seq && seq <= book.financialCounter)) return false;
   const paid = Math.min(Math.max(0, account.latinum), amount);
-  account.latinum -= paid;
-  book.debt += amount - paid;
-  book.ledger.push({ id: eventId, kind, amount, paid, day });
+  account.latinum -= paid; book.debt += amount - paid;
+  book.ledger.push({ id: eventId, kind, amount, paid, day }); ids.add(eventId);
+  if (seq) book.financialCounter = seq;
   return true;
 }
 export function payDebt(book, account, day) {
+  prepareFinancialBook(book);
   const amount = Math.min(book.debt, Math.max(0, account.latinum));
   if (amount <= 0) return 0;
-  account.latinum -= amount;
-  book.debt -= amount;
-  book.ledger.push({ id: nextId(book, 'payment'), kind: 'payment', amount, day });
+  account.latinum -= amount; book.debt -= amount;
+  const id = nextId(book, 'payment'); book.financialCounter = book.counter;
+  financialIndex(book).add(id); book.ledger.push({ id, kind: 'payment', amount, day });
   return amount;
 }
 export function ensureStock(book, system, hull, day, capacity = 2, sources = []) {
@@ -234,18 +299,21 @@ export function removeVessel(book, vesselId) {
 }
 // The caller supplies the verified Flash upkeep policy. No invented default percentage.
 export function advanceCalendar(book, account, days, id, hooks) {
-  if (book.advances[id]) return false;
+  prepareFinancialBook(book);
+  // Engine journeys are monotonic. The persisted high-water mark recognizes
+  // old completed journeys even after their verbose history is compacted.
+  if (Object.hasOwn(book.advances, id)) return false;
+  const seq = eventSequence(book, id, ['journey', 'legacy-journey']);
+  if (!seq) throw Error('Calendar requires an ID from nextId(book, "journey")');
+  if (seq <= book.journeyCounter) return false;
   if (!Number.isInteger(days) || days < 0) throw Error('Calendar days must be nonnegative integers');
   for (let i = 0; i < days; i++) {
     const day = account.day + 1;
-    hooks.settle?.(day);
-    account.day = day;
-    book.settledDay = day;
-    hooks.complete?.(day);
-    advanceStock(book, day);
-    hooks.market?.(day);
+    hooks.settle?.(day); account.day = day; book.settledDay = day;
+    hooks.complete?.(day); advanceStock(book, day); hooks.market?.(day);
+    compactFinancialBook(book);
   }
-  book.advances[id] = { days, endDay: account.day };
+  book.journeyCounter = seq;
   return true;
 }
 export function beginBoarding(book, { targetId, sourceId, resistance = 'standard' }) {
@@ -261,8 +329,8 @@ export function beginBoarding(book, { targetId, sourceId, resistance = 'standard
     xp,
     resistance,
     chance: boardingChance(xp, resistance),
-    roll: (stableHash(`${id}:${targetId}:v1`) / 4294967296) * 100,
-    algorithm: 1,
+    roll: (stableHash(`${book.campaignId}:${targetId}:${xp}:v2`) / 4294967296) * 100,
+    algorithm: 2,
   };
   book.boarding = operation;
   book.team.available = false;

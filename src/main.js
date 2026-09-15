@@ -3776,6 +3776,7 @@ function ensureNpcCombatStats(npc) {
   if (!Number.isFinite(npc.combatShields) || npc.combatShields < 0) {
     npc.combatShields = npc.maxCombatShields;
   }
+  if (npc.combatHull <= 0 && !npc.destroyed) destroyNpcShip(npc);
 }
 
 function ensureStationCombatStats(station) {
@@ -4449,7 +4450,7 @@ function getEWUpgradeDecision(id,entity=state) {
   return {canBuy:!reason,reason,requirement,standing,faction,price:u?.price||0};
 }
 function buyEWModule(id,entity=state) {
-  const a=sensorEntity(entity),d=getEWUpgradeDecision(id,a);if(fleetBook().debt>0||a.fleetId&&!fleetServiceAllowed(a))return false;if(!d.canBuy){setLog(d.reason);return false;}
+  const a=sensorEntity(entity),d=getEWUpgradeDecision(id,a);if(fleetBook().debt>0){setLog('Settle fleet arrears before purchasing equipment.');return false;}if(a.fleetId&&!fleetServiceAllowed(a)){setLog('Ship is not available for local refit.');return false;}if(!d.canBuy){setLog(d.reason);return false;}
   const previous=ensureActorEW(a).module;if(a.fleetId&&previous)(a.jammerInventory||=[]).push(previous);
   state.latinum-=d.price;stopEW(ensureActorEW(a),true);a.ew.module=id;
   captureShipPowerState();updateStats();renderTopLeftPanel();return true;
@@ -4885,7 +4886,7 @@ function getSensorUpgradeDecision(id, entity = state) {
 function buySensorSuite(id, entity = state) {
   const a = sensorEntity(entity),
     d = getSensorUpgradeDecision(id, a);
-  if(fleetBook().debt>0||a.fleetId&&!fleetServiceAllowed(a))return false;
+  if(fleetBook().debt>0){setLog('Settle fleet arrears before purchasing equipment.');return false;}if(a.fleetId&&!fleetServiceAllowed(a)){setLog('Ship is not available for local refit.');return false;}
   if (!d.canBuy) {
     setLog(d.reason);
     return false;
@@ -5243,7 +5244,7 @@ function captureShipPowerState(systemIndex = state.securityLiveSystemIndex) {
 }
 function restoreFleetPower(ship, fleetShip) {
   ensureNpcCombatStats(ship);
-  if (fleetShip.vessel) { Fleet.restoreVessel(ship, fleetShip.vessel, performance.now()); ship.lastShotAt -= vesselDefaults(ship.shipId).cooldown; }
+  if (fleetShip.vessel) { Fleet.restoreVessel(ship, fleetShip.vessel, performance.now(), vesselDefaults(ship.shipId).cooldown); }
   else {
     ship.physicalId = fleetShip.id;
     ship.weaponSlots = getOriginalShipWeaponSlots(ship.shipId).slice(0,3);
@@ -5372,6 +5373,7 @@ function updatePowerSystems(frameScale = 1) {
   for (const npc of state.npcShips || []) {
     if (npc.destroyed) continue;
     ensureNpcCombatStats(npc);
+    if (npc.destroyed) continue;
     advanceActorPower(npc, frameScale, now);
   }
   if (profile) profile.fundMs = (profile.fundMs || 0) + performance.now() - fundStart;
@@ -8781,7 +8783,8 @@ function getUnfilteredShipyardStock(station = getCurrentDockedStation()) {
       .filter((ship) => ship && ship.assetType === 'ship' && getShipPrice(ship) > 0)
       .filter((ship) => ship.rosterState !== 'retired' && ship.rosterState !== 'prototype' && !isUnbalancedPrototype(ship))
       .filter(stockEligible);
-    return [...new Map(localStock.map(ship => [ship.id, ship])).values()].slice(0, SHIPYARD_STOCK_SIZE);
+    const authored = [...new Map(localStock.map(ship => [ship.id, ship])).values()];
+    return station ? authored.slice(0, SHIPYARD_STOCK_SIZE) : authored;
   }
   const context = getShipyardStockContext(station);
   let stock = ships
@@ -8853,9 +8856,11 @@ function getStationConstructionRemaining(station = {}) {
 
 function completeDueStationConstructions(options = {}) {
   let completed = 0;
+  const completedSystems = new Set();
   state.playerBuiltStations = (state.playerBuiltStations || []).map((station) => {
     if (!station.underConstruction || getStationConstructionProgress(station) < 1) return station;
     completed += 1;
+    completedSystems.add(station.systemIndex);
     return {
       ...station,
       underConstruction: false,
@@ -8864,8 +8869,12 @@ function completeDueStationConstructions(options = {}) {
     };
   });
   if (!completed) return 0;
-  syncPlayerBuiltStationDefinitions();
-  applySystemState(state.currentPlanet);
+  syncPlayerBuiltStationDefinitions({ invalidateCache: !options.deferScene });
+  if (options.deferScene) {
+    // Definitions are needed on the next economic day; arrival owns the live
+    // rebuild. Do not reconstruct the origin during transit.
+    for (const system of completedSystems) delete state.systemStates[system];
+  } else applySystemState(state.currentPlanet);
   if (!options.silent) {
     setLog(`${completed} station construction project${completed === 1 ? '' : 's'} completed while you were away.`);
   }
@@ -9617,12 +9626,12 @@ function getPlayerEscortNpcShips(now = performance.now()) {
   });
 }
 
-function syncPlayerBuiltStationDefinitions() {
+function syncPlayerBuiltStationDefinitions(options = {}) {
   state.stationDefinitions = state.stationDefinitions.filter((station) => !station.builtByPlayer);
   state.playerBuiltStations.forEach((station) => {
     state.stationDefinitions.push({ ...station, builtByPlayer: true, faction: station.faction || state.playerFaction });
   });
-  state.systemStates = {};
+  if (options.invalidateCache !== false) state.systemStates = {};
 }
 
 function lockStationOrbitToCurrentPosition(station, star, planet, now = performance.now()) {
@@ -11216,7 +11225,7 @@ function saveGame(slot = state.currentSaveSlot || 1) {
   const saveSlot = clamp(Math.round(Number(slot) || 1), 1, SAVE_SLOT_COUNT);
   const payload = {
     pendingJourney:state.warp.active?{...Fleet.copy(state.warp),elapsed:Math.max(0,performance.now()-state.warp.startedAt)}:null,
-    fleetBook: Fleet.copy(fleetBook()),
+    fleetBook: Fleet.copy(Fleet.compactFinancialBook(fleetBook())),
     sensorVersion: 1, ...snapshotActorSensors(state), sensorArchives: snapshotSensorArchives(),
     savedAt: new Date().toISOString(),
     saveSlot,
@@ -11287,11 +11296,21 @@ function saveGame(slot = state.currentSaveSlot || 1) {
     gameOver: state.gameOver,
     victory: state.victory,
   };
-  localStorage.setItem(getSaveSlotKey(saveSlot), JSON.stringify(payload));
-  if (saveSlot === 1) localStorage.setItem(LEGACY_SAVE_KEY, JSON.stringify(payload));
+  try {
+    // Keep one authoritative payload. Legacy reads still work; new writes do
+    // not double the storage requirement for slot 1.
+    localStorage.setItem(getSaveSlotKey(saveSlot), JSON.stringify(payload));
+  } catch {
+    setLog('Save failed: browser storage is full or unavailable. Your previous save is unchanged.');
+    return false;
+  }
+  if (saveSlot === 1) {
+    try { localStorage.removeItem(LEGACY_SAVE_KEY); } catch { /* canonical save succeeded */ }
+  }
   state.currentSaveSlot = saveSlot;
   setLog(`Game saved to slot ${saveSlot}.`);
   renderTopLeftPanel();
+  return true;
 }
 
 function loadGame(slot = state.currentSaveSlot || 1) {
@@ -12387,7 +12406,8 @@ function completeWarpTravel() {
   const p = state.planets[state.currentPlanet];
   closePlayerSecurityOrders(state.warp.from, 'departed', 'left the system'); // a completed jump is an actual departure
   applySystemState(state.currentPlanet);
-  const completedBuilds = completeDueStationConstructions({ silent: true });
+  const completedBuilds = state.warp.completedStations || 0;
+  state.warp.completedStations = 0;
   scheduleNextFleetAttack(performance.now() + 30000);
   setCameraNearPlanet();
   placePlayerAtSecurityApproach();
@@ -13376,6 +13396,7 @@ function handleGameCanvasClick(e) {
     state.combatTargetId = clickedNpc.id;
     state.combatTargetType = 'ship';
     ensureNpcCombatStats(clickedNpc);
+    if (clickedNpc.destroyed) return;
     setLog(`Target locked: ${playerContactLabel(clickedNpc)}. Press Space to fire.`);
     return;
   }
@@ -13875,6 +13896,7 @@ function isPlayerKillCreditSource(source = '') {
 
 function damageNpcShip(npc, damage, source = 'player', color = '#74d6ff', impactPoint = null) {
   ensureNpcCombatStats(npc);
+  if (npc.destroyed) return { shieldDamage: 0, hullDamage: 0 };
   const amount = Math.max(0, Math.round(finiteNumber(damage, 0)));
   if (amount <= 0) return { shieldDamage: 0, hullDamage: 0 };
   const shieldDamage = Math.min(npc.combatShields, amount);
@@ -15716,9 +15738,10 @@ function updateNpcShips(frameScale = 1) {
   const playerCloaked = isPlayerCloaked(now);
   for (const npc of state.npcShips) {
     if (npc.destroyed) continue;
+    ensureNpcCombatStats(npc);
+    if (npc.destroyed) continue;
     if (npc.condition === 'disabled') { tickDisabledVessel(npc, now); continue; }
     if (updateAmbientTrafficWarp(npc, now, frameScale)) continue;
-    ensureNpcCombatStats(npc);
     if (isNpcTractorHeld(npc, now)) {
       npc.systemWarpIntensity = 0;
       npc.waitUntil = now + 140;
@@ -19309,7 +19332,7 @@ function syncGameOverMenu() {
 }
 
 function resetRunState() {
-  state.fleetBook = Fleet.createFleetBook(1, crypto.randomUUID());
+  state.fleetBook = Fleet.createFleetBook(1, Fleet.createCampaignId());
   state.recoveryAt=0;
   state.cargo = 0;
   state.mycargo = 0;
@@ -19753,7 +19776,8 @@ document.addEventListener('click', event => {
 
 // Fleet runtime adapters. The book lives outside the disposable systemStates cache.
 function fleetBook() {
-  return (state.fleetBook ||= Fleet.createFleetBook(state.day, crypto.randomUUID()));
+  const book = (state.fleetBook ||= Fleet.createFleetBook(state.day, Fleet.createCampaignId()));
+  return Fleet.prepareFinancialBook(book);
 }
 function vesselDefaults(shipId) {
   const weapons = getOriginalShipWeaponSlots(shipId).slice(0, 3);
@@ -19963,8 +19987,7 @@ function restorePrizeVisit(system) {
       else state.npcShips.push(npc);
     }
     Object.assign(npc, item.actor);
-    Fleet.restoreVessel(npc, item.vessel, performance.now());
-    npc.lastShotAt -= vesselDefaults(npc.shipId).cooldown;
+    Fleet.restoreVessel(npc, item.vessel, performance.now(), vesselDefaults(npc.shipId).cooldown);
   }
 }
 function canFleetDepart() {
@@ -19998,7 +20021,8 @@ function advanceFleetCalendar(days, id) {
     },
     complete(day) {
       completeFleetJourneys();
-      completeDueStationConstructions({ silent: true });
+      const completed = completeDueStationConstructions({ silent: true, deferScene: state.warp.active });
+      if (state.warp.active) state.warp.completedStations = (state.warp.completedStations || 0) + completed;
       Fleet.progressBuilds(fleetBook(), fleetBuildStationStatus, deliverFleetBuild);
     },
     market(day) {
@@ -20401,7 +20425,7 @@ function deliverFleetBuild(order) {
   record.vessel = Fleet.snapshotVessel(npc, vesselDefaults(record.shipId), performance.now());
   state.playerFleet.push(record);
   autoAssignFleet(record);
-  if (order.system === state.currentPlanet) state.npcShips.push(npc);
+  if (!state.warp.active && order.system === state.currentPlanet) state.npcShips.push(npc);
 }
 function refitFleetWeapon(id, slot, weaponId, buy = false) {
   const npc = fleetLocalActor(id);
@@ -20603,7 +20627,7 @@ function renderFleetManager(open = false) {
     .join('');
   fleetManagerEl.innerHTML = `<h2>Fleet & shipyard</h2>${btn('close', 'Close')}<p>Calendar day ${state.day} · Fleet upkeep ${state.playerFleet.filter((f) => !f.destroyed).reduce((n, f) => n + upkeepPerDay(f.shipId), 0)} L/day. Personal vessel exempt.</p>
     <p>Arrears ${b.debt.toFixed(2)} L ${btn('pay', 'Settle arrears')}</p><p>Team: ${b.boarding ? b.boarding.phase : b.team.available ? 'Available' : 'Lost'} · XP ${b.team.xp}. ${btn('board', 'Board selected disabled ship')}${btn('cancel', 'Cancel deployment')}${btn('recruit', 'Recruit (2000 L)')}${btn('train', 'Train +5 XP (1000 L)')}</p>
-    <p>${btn('repair', 'Repair personal hull', 'player')}${btn('rescue', 'Request recovery')}</p><h3>Formations</h3>${groups}${btn('group', 'New formation')}<h3>Owned vessels (${state.playerFleet.filter((f) => !f.destroyed).length})</h3>${roster || '<p>No fleet vessels.</p>'}<h3>Plans & construction</h3>${plans || '<p>Dock at a suitable vendor.</p>'}${b.orders.map((o) => `<p>${escapeHtml(getShipStats(o.shipId).name)}: ${o.status}, ${Math.max(0, o.remainingDays)} work days remaining</p>`).join('')}<h3>Financial book</h3>${b.ledger
+    <p>${btn('repair', 'Repair personal hull', 'player')}${btn('rescue', 'Request recovery')}</p><h3>Formations</h3>${groups}${btn('group', 'New formation')}<h3>Owned vessels (${state.playerFleet.filter((f) => !f.destroyed).length})</h3>${roster || '<p>No fleet vessels.</p>'}<h3>Plans & construction</h3>${plans || '<p>Dock at a suitable vendor.</p>'}${b.orders.map((o) => `<p>${escapeHtml(getShipStats(o.shipId).name)}: ${o.status}, ${Math.max(0, o.remainingDays)} work days remaining</p>`).join('')}<h3>Financial book</h3><p>Older history: ${b.ledgerArchive.entries} entries summarized below; recent entries remain itemized.</p>${Object.entries(b.ledgerArchive.byKind).map(([kind, total]) => `<p>${escapeHtml(kind)}: ${total.amount.toFixed(2)} L total, ${total.paid.toFixed(2)} L paid.</p>`).join('')}${b.ledger
       .slice(-20)
       .map((e) => `<p>Day ${e.day}: ${e.kind} ${e.amount.toFixed(2)} L</p>`)
       .join('')}`;
@@ -20732,8 +20756,7 @@ function transferFleetCommand(id) {
       fleetId: formerId,
       from: oldPosition,
     });
-  Fleet.restoreVessel(former, old, now);
-  former.lastShotAt -= vesselDefaults(former.shipId).cooldown;
+  Fleet.restoreVessel(former, old, now, vesselDefaults(former.shipId).cooldown);
   former.heading = state.ship.rotation;
   former.escortIndex = destination.escortIndex || 0;
   const formerRecord = {
@@ -20956,7 +20979,7 @@ function completeFleetJourneys() {
       f.systemIndex = f.transit.to;
       f.assignment = 'defense';
       delete f.transit;
-      if (f.systemIndex === state.currentPlanet && !fleetLocalActor(f.id))
+      if (!state.warp.active && f.systemIndex === state.currentPlanet && !fleetLocalActor(f.id))
         state.npcShips.push(...getPlayerFleetNpcShips().filter((n) => n.fleetId === f.id));
     }
 }

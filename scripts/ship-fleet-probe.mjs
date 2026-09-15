@@ -15,9 +15,9 @@ const shim = `window.__fleet={Fleet,state,startWithFaction,createNpcShip,ensureN
  fleetBook,vesselDefaults,getScaledWeaponDamage,get WEAPON_CATALOG(){return WEAPON_CATALOG;},fleetServiceAllowed,captureShipPowerState,restoreFleetPower,applySystemState,saveGame,loadGame,playerWorldPosition,
  getPlayerEscortNpcShips,getPlayerFleetNpcShips,getPlayerEscortFleetShips,getShipStats,getOriginalShipWeaponSlots,getWeapon,
  startBoardingTarget,updateBoarding,canFleetDepart,physicalNpcId,beginAmbientTrafficArrival,advanceFleetCalendar,
- openFleetPurchaseModal,renderFleetPurchaseModal,closeFleetPurchaseModal,getShipyardStock,fleetShipStock,fleetStockAvailable,buyEscortShip,buyFleetShip,repairHull,repairFleetVessel,sellFleetVessel,
+ openFleetPurchaseModal,renderFleetPurchaseModal,closeFleetPurchaseModal,getShipyardStock,fleetShipStock,fleetStockAvailable,buyEscortShip,buyFleetShip,buyEWModule,buySensorSuite,completeDueStationConstructions,syncPlayerBuiltStationDefinitions,repairHull,repairFleetVessel,sellFleetVessel,
  transferFleetCommand,renderFleetManager,refitFleetWeapon,orderFleetBuild,fleetBuildStationStatus,fleetPlanStatus,buyFleetPlan,
- getFactionStanding,adjustFactionStanding,getStationOwner,getShipPrice,completeFleetJourneys,fleetStationServices,tick,hojEmitterKey,sensorKey,sensorWorld,sensorAttackSnapshot,launchHoj,updateProjectiles,
+ buildPurchaseContext,getCurrentPurchaseVendor,isUnbalancedPrototype,getFactionStanding,adjustFactionStanding,getStationOwner,getShipPrice,completeFleetJourneys,fleetStationServices,tick,hojEmitterKey,sensorKey,sensorWorld,sensorAttackSnapshot,launchHoj,updateProjectiles,
  ensureActorEW,ensureActorSensors,ensurePlayerPower,updatePowerSystems,updateSensorSystems,applyVesselDisablement,
  fleetNpcWeapon,fleetFirePermitted,fleetFormationPoint,tickDisabledVessel,fireCounterfirePoint,refitFleetElectronics,transferFleetEquipment,ensureSecurityLedger,getSecurityLedger,getSecurityActiveOrders,remapFleetSecurity,parseStationData,resolveShipId,
  recoverDisabledPlayer,completeWormholeTransit,beginWarpTravel,completeWarpTravel,getPlottedRoute,canSeeDisabled,render,fleetTrafficCount,dispatchFleetFormation,
@@ -32,6 +32,8 @@ const mime = {
   '.gif': 'image/gif',
   '.webp': 'image/webp',
 };
+const lanOrigin = process.argv.includes('--lan');
+const originHost = lanOrigin ? 'bm1-lan.test' : '127.0.0.1';
 const server = http.createServer((req, res) => {
   const rel = decodeURIComponent((req.url || '/').split('?')[0]).replace(/^\/+/, '') || 'index.html';
   const file = path.resolve(root, rel);
@@ -58,13 +60,21 @@ try {
     }),
     errors = [];
   page.on('console', (msg) => {
-    if (msg.text().startsWith('FLEET_SCALE_')) console.log(msg.text());
+    if (msg.text().startsWith('FLEET_')) console.log(msg.text());
   });
   page.on('pageerror', (e) => {
     errors.push(e.message);
     console.error('PAGE', e.message);
   });
-  await page.goto(`http://127.0.0.1:${server.address().port}/`);
+  if (lanOrigin) {
+    // Route only transport. The browser retains a real insecure HTTP origin;
+    // neither secure-context status nor crypto APIs are overridden.
+    await page.route(`http://${originHost}:*/**`, async route => {
+      const response=await route.fetch({url:route.request().url().replace(originHost,'127.0.0.1')});
+      await route.fulfill({response});
+    });
+  }
+  await page.goto(`http://${originHost}:${server.address().port}/`);
   await page.waitForFunction(
     () => window.__fleet?.state.shipCatalog && window.__fleet.state.planets.length > 10,
   );
@@ -76,6 +86,7 @@ try {
       browser: browser.version(),
       viewport: { width: 1280, height: 850 },
       ...(await page.evaluate(() => ({
+        isSecureContext, randomUUID:typeof crypto.randomUUID, getRandomValues:typeof crypto.getRandomValues, origin:location.origin,
         hardwareConcurrency: navigator.hardwareConcurrency,
         userAgent: navigator.userAgent,
       }))),
@@ -111,6 +122,43 @@ try {
       B.restoreFleetPower(n, f);
       return n;
     };
+    const campaignId=B.fleetBook().campaignId;B.saveGame(1);B.loadGame(1);
+    test('campaign identity survives save/load on this origin',B.fleetBook().campaignId===campaignId);
+    const slotKey=B.getSaveSlotKey(1),saved=localStorage.getItem(slotKey),originalSet=Storage.prototype.setItem;
+    Storage.prototype.setItem=function(k,v){if(k===slotKey)throw new DOMException('Full','QuotaExceededError');return originalSet.call(this,k,v);};
+    let quota;try{quota=B.saveGame(1);}finally{Storage.prototype.setItem=originalSet;}
+    test('quota failure reports and retains previous save',quota===false&&localStorage.getItem(slotKey)===saved&&s.log.startsWith('Save failed:'));
+    localStorage.setItem('bm2_html_save',saved);localStorage.removeItem(slotKey);B.loadGame(1);
+    test('legacy-only slot 1 can still load',B.fleetBook().campaignId===campaignId);B.saveGame(1);
+    test('slot 1 stores one canonical payload',!!localStorage.getItem(slotKey)&&localStorage.getItem('bm2_html_save')===null);
+    B.startWithFaction('terran');s.docked=true;s.latinum=100000;B.fleetBook().debt=1;
+    test('EW arrears refusal explains without charging',!B.buyEWModule(1)&&s.log==='Settle fleet arrears before purchasing equipment.'&&s.latinum===100000);
+    test('sensor arrears refusal explains without charging',!B.buySensorSuite(1)&&s.log==='Settle fleet arrears before purchasing equipment.'&&s.latinum===100000);
+    B.startWithFaction('terran');s.npcShips=[];s.playerFleet=[];
+    const zombie=npc('legacy-zero');zombie.combatHull=0;zombie.destroyed=false;zombie.lastDamageSource='player';s.combatTargetId=zombie.id;s.combatTargetType='ship';
+    const zombieFunds=s.latinum;B.ensureNpcCombatStats(zombie);const zombiePaid=s.latinum;B.ensureNpcCombatStats(zombie);B.damageNpcShip(zombie,10);
+    test('finite legacy zero resolves destruction and credit once',zombie.destroyed&&zombie.condition==='destroyed'&&zombie.combatHull===0&&s.combatTargetId===null&&zombiePaid>zombieFunds&&s.latinum===zombiePaid);
+    const ownedZero=owned('owned-zero');ownedZero.combatHull=0;B.updateNpcShips(1);
+    test('zero-hull owned actor retires fleet record before moving',ownedZero.destroyed&&s.playerFleet.find(f=>f.id===ownedZero.fleetId)?.destroyed);
+    B.startWithFaction('terran');
+    for(const name of ['Proxima Yard','Alpha Centauri','New Switzerland','Orilla','Andreas']){
+      s.currentPlanet=B.getSystemIndexByName(name);s.myplanet=s.currentPlanet+1;s.dockedStationId=null;
+      const listed=B.getShipyardStock(null).map(ship=>ship.id),authored=s.planets[s.currentPlanet].shipStockIds.map(B.resolveShipId);
+      const context=B.buildPurchaseContext(B.getCurrentPurchaseVendor(null));
+      const eligible=[...new Set(authored.filter(id=>{const ship=s.shipStatsById[id];return ship&&ship.assetType==='ship'&&B.getShipPrice(ship)>0&&!['retired','prototype'].includes(ship.rosterState)&&!B.isUnbalancedPrototype(ship)&&s.shipCatalog.eligibleForStock(id,context);} ))];
+      test(`${name} exposes complete eligible authored list`,JSON.stringify(listed)===JSON.stringify(eligible),{listed,eligible});
+      console.log('FLEET_MARKET',JSON.stringify({name,authored:authored.length,eligible:eligible.length,offered:listed.length}));
+    }
+    B.startWithFaction('terran');s.npcShips=[];s.playerFleet=[];
+    const origin=s.currentPlanet,destination=(origin+1)%s.planets.length,stationId='calendar-review-station';
+    s.playerBuiltStations.push({...F.copy(s.stationDefinitions.find(st=>st.systemIndex===origin)),id:stationId,systemIndex:origin,builtByPlayer:true,underConstruction:true,constructionStartedDay:s.day,constructionDays:1});
+    B.syncPlayerBuiltStationDefinitions();B.applySystemState(origin);B.beginWarpTravel(destination,B.getPlottedRoute(origin,destination));s.warp.travelDays=2;
+    const actors=s.npcShips,stations=s.stations,departureDay=s.day;B.advanceFleetCalendar(2,s.warp.journeyId);
+    test('calendar completion never rebuilds origin mid-warp',s.npcShips===actors&&s.stations===stations&&s.warp.active);
+    test('construction completes on actual due day',s.playerBuiltStations.find(st=>st.id===stationId)?.completedDay===departureDay+1);
+    B.completeWarpTravel();test('arrival reports completed stations once',s.currentPlanet===destination&&s.day===departureDay+2&&/1 station construction project completed/.test(s.log),{log:s.log});
+    B.beginWarpTravel(origin,B.getPlottedRoute(destination,origin));B.completeWarpTravel();test('later arrival does not repeat completion notice',!/station construction project/.test(s.log));
+    B.startWithFaction('terran');
     s.npcShips = [];
     s.playerFleet = [];
     s.latinum = 10000000;
@@ -191,15 +239,16 @@ try {
       '20 escorts restore without ownership cap',
       B.getPlayerEscortFleetShips().length === 20 && s.npcShips.filter((n) => n.fleetId).length === 20,
     );
+    const testTrip = F.nextId(B.fleetBook(), 'journey');
     const accountBefore = s.latinum,
       day = s.day,
       total = s.playerFleet.reduce((v, f) => v + B.upkeepPerDay(f.shipId), 0);
-    B.advanceFleetCalendar(5, 'test-trip');
+    B.advanceFleetCalendar(5, testTrip);
     test(
       'all owned vessels billed original mass per day',
       s.day === day + 5 && s.latinum === accountBefore - 5 * total,
     );
-    B.advanceFleetCalendar(5, 'test-trip');
+    B.advanceFleetCalendar(5, testTrip);
     test('journey replay cannot bill twice', s.day === day + 5 && s.latinum === accountBefore - 5 * total);
     const wormholeDay = s.day,
       wormholeMoney = s.latinum;
@@ -481,7 +530,7 @@ try {
       );
       const order = B.fleetBook().orders.at(-1),
         recipe = order.recipe;
-      B.advanceFleetCalendar(recipe.days, 'build-completion');
+      B.advanceFleetCalendar(recipe.days, F.nextId(B.fleetBook(), 'journey'));
       const built = s.playerFleet.find((f) => f.id === order.id + ':vessel');
       test(
         'calendar delivers one equipped physical ship',
@@ -490,7 +539,7 @@ try {
           JSON.stringify(built.vessel.weaponSlots) === JSON.stringify(B.getOriginalShipWeaponSlots(hull.id)),
       );
       const count = s.playerFleet.length;
-      B.advanceFleetCalendar(1, 'after-build');
+      B.advanceFleetCalendar(1, F.nextId(B.fleetBook(), 'journey'));
       test('delivered build cannot duplicate', s.playerFleet.length === count);
       const actor = s.npcShips.find((n) => n.fleetId === built.id);
       actor.x = yard.x + 70;

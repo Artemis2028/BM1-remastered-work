@@ -101,6 +101,10 @@ At an owned yard, buy a faction plan and queue an equipped hull. Check the displ
 
 ## Repair-service follow-up to 759eded
 
+For the subsequent fixes and current validation after Fable's f418161 review,
+see [REVIEW-FIXES-r2.md](REVIEW-FIXES-r2.md). The paragraphs below describe the
+historical repair-service follow-up.
+
 The original candidate accidentally replaced the personal combined hull/shield repair action with hull-only service. The follow-up restores shield repairs at the existing 1 L per percent after hull spending, the game-start/game-over and docking guards, both failure messages, the `uiConfirm` sound with the existing repair cooldown key, and final stats/legacy-state refresh. Hull repairs retain the new price-scaled basis. Fleet hull service remains separate.
 
 The live suite adds combined hull/shield spending, shield-only partial spending, insufficient funds, full condition, game-over, pre-start and undocked cases. A stock regression checks that Paso X-Base still offers exactly `[49, 347]` after initializing the system-wide supply pool. `759eded` and its evidence remain the original review record; this correction is a separate commit.
