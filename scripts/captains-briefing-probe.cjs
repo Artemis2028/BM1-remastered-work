@@ -91,7 +91,7 @@ const server = http.createServer((req, res) => {
   await check('remote station purchases honor real stock, charge once, and never grant physical docking',async()=>{
     const r=await ev(()=>{const t=testBM1,s=t.state;t.startWithFaction('terran');s.latinum=1e7;s.factionStanding.terran=100;s.weaponInventory=[];s.weaponSlots=[null,null,null];
       const yard=s.stations.find(st=>t.getStationWeaponStock(st).some(w=>w.minMass<=s.mymass)&&t.getShipyardStock(st).some(x=>x.id!==s.playership));
-      t.setCamera(s.systemPlanet.x+7000,s.systemPlanet.y);const opened=t.openRemoteStationShop(yard.id);
+      t.setCamera(yard.x+2000,yard.y);const opened=t.openRemoteStationShop(yard.id);
       const w=t.getStationWeaponStock().find(w=>w.minMass<=s.mymass&&w.guidance!=='home-on-jam');const funds=s.latinum;t.buyWeapon(w.id);
       const bought=funds-s.latinum===t.getWeaponPrice(w)&&s.weaponInventory.includes(w.id);
       const ship=t.getShipyardStock().find(x=>x.id!==s.playership&&t.getShipPurchaseStatus(x.id).ok);const price=t.getShipPurchaseStatus(ship.id).price,old=s.latinum;t.completeShipPurchase(ship.id);

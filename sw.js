@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'bm1-pwa-20260915-captains-briefing-v1';
+const CACHE_VERSION = 'bm1-pwa-20260915-intelligence-v2';
 const APP_CACHE = `${CACHE_VERSION}-app`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_ASSET_MANIFEST = './offline-assets.json';
