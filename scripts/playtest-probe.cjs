@@ -59,12 +59,12 @@ const server = http.createServer((req, res) => {
       response: r,
       body:
         (await r.text()) +
-        `\nwindow.testBM1={Fleet,state,startWithFaction,applyDebugCommand,getFactionStanding,saveGame,loadGame,keys,heldWeaponInputs,updateStats,fleetBook,applyVesselDisablement,gameNow,tick,pauseGameClock,resumeGameClock,getSystemControl,getStationOwner,getSecurityZone,getSecurityDockingBlock,placePlayerAtSecurityApproach,playerWorldPosition,adjustFactionStanding,setSecurityPolicyOverride,clearSecurityPolicyOverride,getDelegatedPolicy,canDelegateSecurity,renderSecurityPanelMarkup,getEffectiveSecurityPolicy,isNpcSystemAttacker,recordPlayerAggressionAgainst,createNpcShip,getSystemActivity,updateSystemActivity,ensurePlaytestState,isChartSystemVisible,getPlottedRoute,markSystemVisited,getOpenContracts,getCatalogPurchaseDecision,getCurrentDockedStation,getStationVisualProfile,resolveSecurityPoint,ensureActorSensors,ensureSystemState,getOpenContracts,normalizeContract,renderOpenContractsPanel,getRecoveryStatus,recoverDisabledPlayer,getNpcCombatDurability,updateRecoveryPanel,getCurrentPurchaseVendor,getShipSaleStatus,getUnfilteredShipyardStock,isDefensePlatform,getStationDefenseProfile,destroyStation,advanceFleetCalendar,advanceFactionReconstruction,syncFactionReconstruction,getStationCombatDurability,getShipStats,ensureCombatTargetStats,applySystemState,getSystemFaction,areFactionsOpposed,areFactionsAligned,changeDiplomacy,diplomacyBook,advanceWorldDiplomacy,activityTrafficShip,getShipFaction,getMapFactionTerritoryClusters,measureIntroCrawl,showIntroStory,skipIntroStory,openGameMenu,returnToMainMenu,factionDefs,reviewLegacyHolding,renderFleetManager,updateSecurityEncounters,getPlayerSecurityOrder,respondToSecurityOrder,setCamera,openStationComms,fireStationWeapon,withStationOrbit,spawnFleetAttack,updateSystemOrbits,openTopLeftTab,restoreWorldEncounter,captureWorldEncounter};`,
+        `\nwindow.testBM1={createRuntimeStationFromDefinition,createLightweightRuntimeStation,getStationDefinitionWorldPoint,isNpcStationTarget,Fleet,state,startWithFaction,applyDebugCommand,getFactionStanding,saveGame,loadGame,keys,heldWeaponInputs,updateStats,fleetBook,applyVesselDisablement,gameNow,tick,pauseGameClock,resumeGameClock,getSystemControl,getStationOwner,getSecurityZone,getSecurityDockingBlock,placePlayerAtSecurityApproach,playerWorldPosition,adjustFactionStanding,setSecurityPolicyOverride,clearSecurityPolicyOverride,getDelegatedPolicy,canDelegateSecurity,renderSecurityPanelMarkup,getEffectiveSecurityPolicy,isNpcSystemAttacker,recordPlayerAggressionAgainst,createNpcShip,getSystemActivity,updateSystemActivity,ensurePlaytestState,isChartSystemVisible,getPlottedRoute,markSystemVisited,getOpenContracts,getCatalogPurchaseDecision,getCurrentDockedStation,getStationVisualProfile,resolveSecurityPoint,ensureActorSensors,ensureSystemState,getOpenContracts,normalizeContract,renderOpenContractsPanel,getRecoveryStatus,recoverDisabledPlayer,getNpcCombatDurability,updateRecoveryPanel,getCurrentPurchaseVendor,getShipSaleStatus,getUnfilteredShipyardStock,isDefensePlatform,getStationDefenseProfile,destroyStation,advanceFleetCalendar,advanceFactionReconstruction,syncFactionReconstruction,getStationCombatDurability,getShipStats,ensureCombatTargetStats,applySystemState,getSystemFaction,areFactionsOpposed,areFactionsAligned,changeDiplomacy,diplomacyBook,advanceWorldDiplomacy,activityTrafficShip,getShipFaction,getMapFactionTerritoryClusters,measureIntroCrawl,showIntroStory,skipIntroStory,openGameMenu,returnToMainMenu,factionDefs,reviewLegacyHolding,renderFleetManager,updateSecurityEncounters,getPlayerSecurityOrder,respondToSecurityOrder,setCamera,openStationComms,fireStationWeapon,withStationOrbit,spawnFleetAttack,updateSystemOrbits,openTopLeftTab,restoreWorldEncounter,captureWorldEncounter};`,
     });
   });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   await page.waitForFunction(
-    () => window.testBM1 && testBM1.state.shipCatalog && testBM1.state.planets.length > 10,
+    () => window.testBM1 && testBM1.state.shipCatalog && testBM1.state.planets.length > 10 && testBM1.state.flaHints?.symbols?.length > 0,
   );
   const checks = [];
   async function check(name, fn) {
@@ -81,6 +81,7 @@ const server = http.createServer((req, res) => {
         const p = t.playerWorldPosition();
         return {
           key,
+          log: t.state.log,
           holdings: t.state.controlledSystems.length,
           owned: t.state.stations.filter((s) => t.getStationOwner(s) === 'player').length,
           distance: Math.hypot(p.x - t.state.systemPlanet.x, p.y - t.state.systemPlanet.y),
@@ -88,6 +89,8 @@ const server = http.createServer((req, res) => {
       });
     });
     for (const r of result) {
+      assert.match(r.log, /aboard.*selected\./, r.key);
+      assert.doesNotMatch(r.log, /FLA action hint|_root|Symbol \d+|playership ==/, r.key);
       assert.equal(r.holdings, 0, r.key);
       assert.equal(r.owned, 0, r.key);
       assert.ok(r.distance > 350, JSON.stringify(r));
@@ -138,9 +141,14 @@ const server = http.createServer((req, res) => {
       n.lastAggressionAt = t.gameNow();
       n.lastAggressionSystemIndex = t.state.currentPlanet;
       n.lastAggressionTargetSide = 'player';
-      return t.isNpcSystemAttacker(n, 'terran');
+      n.hostile = true;
+      n.attitude = 'hostile';
+      const stations = t.state.stations.filter(s => t.getStationOwner(s) === 'terran');
+      return { attacker: t.isNpcSystemAttacker(n, 'terran'), count: stations.length, targets: stations.some(s => t.isNpcStationTarget(n, s)) };
     });
-    assert.equal(r, false);
+    assert.equal(r.attacker, false);
+    assert.ok(r.count > 0);
+    assert.equal(r.targets, false);
   });
   await check(
     'war / peace changes both directions and persists; friendship never overrides war',
@@ -553,6 +561,38 @@ const server = http.createServer((req, res) => {
     });
     assert.ok(r.minimum >= 90, JSON.stringify(r));
     assert.equal(r.moved, true);
+  });
+  await check('authored remote and explicit orbits survive all station creation paths', async () => {
+    const r = await evaluate(() => {
+      const t = testBM1, s = t.state;
+      const remote = s.stationDefinitions.filter(d => Math.hypot(d.offsetX, d.offsetY) > 5000);
+      const rows = remote.map(d => {
+        s.currentPlanet = d.systemIndex;
+        t.applySystemState(d.systemIndex);
+        const index = s.stationDefinitions.filter(x => x.systemIndex === d.systemIndex).findIndex(x => x.id === d.id);
+        const expectedAt = planet => {
+          const point = t.getStationDefinitionWorldPoint(d, s.systemStar, planet, 0);
+          return t.withStationOrbit({ ...d, ...point }, s.systemStar, planet, d.systemIndex + 1, index);
+        };
+        // Scene generation uses the authored epoch; incremental constructors use the live planet.
+        const expected = [expectedAt(s.systemStates[d.systemIndex].planet), expectedAt(s.systemPlanet), expectedAt(s.systemPlanet)];
+        const variants = [s.stations.find(x => x.id === d.id),
+          t.createRuntimeStationFromDefinition(d, d.systemIndex, index, 0),
+          t.createLightweightRuntimeStation(d, d.systemIndex, index, 0)];
+        return { id: d.id, name: d.name, authoredDistance: Math.hypot(d.offsetX, d.offsetY),
+          preserved: variants.every((x, i) => x.orbitAnchor === expected[i].orbitAnchor && Math.abs(x.orbitDistance - expected[i].orbitDistance) < 1e-6) };
+      });
+      const explicit = { ...remote[0], systemIndex: s.currentPlanet, orbitAnchor: 'planet', orbitDistance: 2345, orbitAngle: 0.7, orbitPeriod: 80000, orbitDirection: -1 };
+      const explicitKept = [false, true].every(builtByPlayer => [t.createRuntimeStationFromDefinition, t.createLightweightRuntimeStation].every(create => {
+        const st = create({ ...explicit, builtByPlayer }, s.currentPlanet, 0, 0);
+        return st.orbitAnchor === explicit.orbitAnchor && st.orbitDistance === explicit.orbitDistance && Math.abs(st.orbitAngle - explicit.orbitAngle) < 1e-6 && st.orbitPeriod === explicit.orbitPeriod && st.orbitDirection === explicit.orbitDirection;
+      }));
+      return { rows, explicitKept };
+    });
+    console.log('  remote orbit preservation:', JSON.stringify(r));
+    assert.ok(r.rows.length >= 3);
+    assert.ok(r.rows.every(x => x.preserved), JSON.stringify(r));
+    assert.equal(r.explicitKept, true);
   });
   await check(
     'legacy start grant can be released without stripping other holdings or ships',

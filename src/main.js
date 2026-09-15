@@ -2403,7 +2403,7 @@ function ensureSystemState(systemIndex) {
   const stationDefs = state.stationDefinitions.filter((station) => station.systemIndex === systemIndex);
   const stations = stationDefs.map((station, i) => {
     const stationTypeId = getStationTypeId(station);
-    const typedStation = { ...station, stationTypeId, ...(!station.builtByPlayer ? stationRoleOrbit({...station,stationTypeId},i) : {}) };
+    const typedStation = { ...station, stationTypeId, ...stationRoleOrbit({ ...station, stationTypeId }) };
     const visual = getStationVisualProfile(typedStation);
     const defenseProfile = getStationDefenseProfile(typedStation);
     // Owner comes from records/data, never from who controls the system; the flag follows the owner.
@@ -2590,9 +2590,10 @@ function applySystemState(systemIndex) {
   state.combatTargetId = null;
   state.combatTargetType = 'ship';
   state.securityLiveSystemIndex = Number(systemIndex);
-  reconcileSecurityParticipants(systemIndex);
+  // Restore the actual visitors before matching checkpoint orders to their incarnations.
   restoreWorldEncounter(systemIndex);
   restorePrizeVisit(systemIndex);
+  reconcileSecurityParticipants(systemIndex);
   for (const npc of state.npcShips) ensureNpcPower(npc);
 }
 
@@ -6628,9 +6629,9 @@ function reconcileSecurityParticipants(systemIndex) {
   for (const order of getSecurityActiveOrders(ledger)) {
     if (order.visitorKind !== 'npc') continue;
     const already = (state.npcShips || []).find((npc) => npc && npc.securityInstanceId === order.visitorInstanceId && !npc.destroyed);
-    if (already) { if (!already.securityObjective) beginNpcSecurityObjective(already, order); continue; }
     const snap = ledger.participants[order.visitorInstanceId];
-    const npc = snap ? (state.npcShips || []).find((entry) => entry && entry.id === snap.npcId && !entry.destroyed && !isPlayerSideNpc(entry) && !getSecurityOrderForVisitor(ledger, entry.securityInstanceId)) : null;
+    if (already && !snap) { if (!already.securityObjective) beginNpcSecurityObjective(already, order); continue; }
+    const npc = already || (snap ? (state.npcShips || []).find((entry) => entry && entry.id === snap.npcId && !entry.destroyed && !isPlayerSideNpc(entry) && !getSecurityOrderForVisitor(ledger, entry.securityInstanceId)) : null);
     if (!snap || !npc) { resolveSecurityOrder(ledger, order, 'contact_lost', 'participant not restored', { silent: true }); continue; }
     Object.assign(npc, {
       power: snap.power ? cloneJson(snap.power) : null, crewSkill: snap.crewSkill, crewTemperament: snap.crewTemperament,
@@ -8596,10 +8597,17 @@ function isDefensePlatform(station) {
   return /platform/i.test(String(stats.name));
 }
 // Separate ring radii guarantee clearance even when independently orbiting stations align.
-function stationRoleOrbit(station, index) {
-  const name = `${station.name} ${getShipStats(station.stationTypeId).name}`;
+// Remote authored sites provide exploration and long-range sensor geometry. Only
+// the ordinary local installation cluster participates in the role-based rings.
+function keepsAuthoredStationOrbit(station) {
+  return hasExplicitStationOrbit(station)
+    || Math.hypot(finiteNumber(station.offsetX, 0), finiteNumber(station.offsetY, 0)) > 5000;
+}
+
+function stationRoleOrbit(station) {
+  if (station.builtByPlayer || keepsAuthoredStationOrbit(station)) return {};
   const peers = state.stationDefinitions.filter(
-    (s) => s.systemIndex === station.systemIndex && !s.builtByPlayer && !s.reconstructionId,
+    (s) => s.systemIndex === station.systemIndex && !s.builtByPlayer && !s.reconstructionId && !keepsAuthoredStationOrbit(s),
   );
   const ordered = [...peers].sort((a, b) => {
     const rank = (s) =>
@@ -10693,7 +10701,7 @@ function createRuntimeStationFromDefinition(station, systemIndex = state.current
   const planet = systemIndex === state.currentPlanet ? state.systemPlanet : systemState.planet;
   const base = systemIndex + 1;
   const stationTypeId = getStationTypeId(station);
-  const typedStation = { ...station, stationTypeId, ...(!station.builtByPlayer ? stationRoleOrbit({...station,stationTypeId},i) : {}) };
+  const typedStation = { ...station, stationTypeId, ...stationRoleOrbit({ ...station, stationTypeId }) };
   const visual = getStationVisualProfile(typedStation);
   const defenseProfile = getStationDefenseProfile(typedStation);
   const stationFaction = station.faction || getSystemFaction(systemIndex);
@@ -10731,7 +10739,7 @@ function createLightweightRuntimeStation(station, systemIndex = state.currentPla
   const planet = state.systemPlanet || FLIGHT_PLANET_POSITION;
   const base = systemIndex + 1;
   const stationTypeId = getStationTypeId(station);
-  const typedStation = { ...station, stationTypeId, ...(!station.builtByPlayer ? stationRoleOrbit({...station,stationTypeId},i) : {}) };
+  const typedStation = { ...station, stationTypeId, ...stationRoleOrbit({ ...station, stationTypeId }) };
   const visual = getStationVisualProfile(typedStation);
   const stationPoint = getStationDefinitionWorldPoint(typedStation, star, planet, now);
   return lockStationOrbitToCurrentPosition(withStationOrbit({
@@ -16165,8 +16173,17 @@ function isNpcStationTarget(npc, station) {
   if (!station || station.destroyed || station.attitude === 'destroyed') return false;
   // Own or allied installations are never targets; two unrelated independents are not "the same".
   const owner = getStationOwner(station, state.currentPlanet);
-  const side=getNpcSideId(npc);
-  return !sidesAligned(side,owner) && (sidesOpposed(side,owner) || hasRecentAggressionAgainst(station,side) || (isRaidingHere(npc) && sidesAligned(owner,getDefendingSideId())));
+  const side = getNpcSideId(npc);
+  // Player hostility applies to player property, not to unrelated foreign stations.
+  const hostileToPlayerProperty = owner === PLAYER_SIDE && (
+    npc.hostile || npc.attitude === 'hostile' || npc.playerAggroUntil > gameNow()
+    || sidesOpposed(side, getPlayerFlag())
+  );
+  return !sidesAligned(side, owner) && (
+    hostileToPlayerProperty || sidesOpposed(side, owner)
+    || hasRecentAggressionAgainst(station, side)
+    || (isRaidingHere(npc) && sidesAligned(owner, getDefendingSideId()))
+  );
 }
 
 function areFactionsAligned(a = 'neutral', b = 'neutral') {
@@ -20673,10 +20690,6 @@ function startWithFaction(key, options = {}) {
   renderStartMenu('main');
   playGameSound('shipLaunch', { cooldownKey: 'ship:new-game' });
   setLog(`${state.captainName} aboard ${state.shipName}. ${f.label} selected.`);
-  const hint = getFactionHint(f.playership);
-  if (hint) {
-    setLog(`${state.captainName} aboard ${state.shipName}. FLA action hint -> ${hint}`);
-  }
   syncLegacyState();
   updateStats();
 }

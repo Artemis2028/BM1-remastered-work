@@ -1,5 +1,7 @@
 # Playtest fixes and faction world simulation
 
+Review follow-up: [regression fixes and complete validation](PLAYTEST-REVIEW-FIXES.md).
+
 Review candidate for Artemis2028/BM1-remastered-work, based on the public debug-menu commit `28335fee1f2936b6ca720885afba3e609009e273`. This includes the previously accepted fleet work through `9ca4ddbcecb05496130ea1dac60f3faf2d8c489b`. No main-branch merge or remote push is part of this handoff.
 
 ## Status against the 15 September playtest notes
@@ -22,7 +24,7 @@ Review candidate for Artemis2028/BM1-remastered-work, based on the public debug-
 | PT-14 | Only Defense Platform 86 and Advanced Defense Platform 87 receive the modest damage adjustment. Durability, range and cadence are unchanged; platform projectiles can cover the stated engagement range. |
 | PT-15 | Paid, persistent reconstruction orders create a new installation incarnation after seven construction days. Funds/materials, territory, site occupancy, ownership changes and destruction of construction are checked. Original ruins remain destroyed. Works while the player is elsewhere. |
 | PT-16 | Saved quiet/patrol/scout/skirmish/raid/battle activity replaces the recurring automatic raid timer. Civilian density is independent. Active raid identity and damage survive reload; no reload reroll. |
-| PT-17 | Planet-orbit rings place defenses/shipyards closer and larger installations farther out. Ring gaps account for both silhouettes. Player-built locations remain authored by their placement system. |
+| PT-17 | Local planet-orbit rings place defenses/shipyards closer and larger installations farther out. Ring gaps account for both silhouettes. Authored remote sites beyond 5,000 units, explicit orbits and player-built placement are preserved. |
 | PT-18 | Hidden Dominion core excluded from chart nodes, labels, nebulae, territory exclusions/shading, routes, bounds, click selection, keyboard neighbors and player pathfinding. Visiting the region unlocks it persistently. |
 | PT-19 | Visible Menu with Resume, Save, Save/Exit, confirmed discard, settings and debug access. Menu/debug freeze simulation time. Escape works during warp. Save failure keeps the current run open; title closes gameplay surfaces and stops simulation. Alert posture is selectable without issuing attack orders. |
 | PT-20 | New faction starts receive no territory or government stations. Older saves keep acquired holdings and offer an explicit starting-grant review instead of silently stripping property. |

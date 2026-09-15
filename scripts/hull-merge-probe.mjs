@@ -9,7 +9,7 @@ import {chromium} from 'playwright';
 import {createShipCatalog} from '../bm-ships/catalog.mjs';
 import {mergeCatalogIntoEntities} from '../src/ship-catalog-integration.mjs';
 
-const root = fileURLToPath(new URL('../', import.meta.url));
+const root = path.resolve(process.env.BM1_TEST_ROOT || fileURLToPath(new URL('../', import.meta.url)));
 const read = name => JSON.parse(fs.readFileSync(path.join(root, name), 'utf8'));
 const manifest = read('bm-ships/ships.json');
 const catalog = createShipCatalog(manifest, read('bm-ships/bm2-id-map.json'), read('bm-ships/size-config.json'));
@@ -66,7 +66,7 @@ const shim=`window.__merge={state,startWithFaction,createNpcShip,getNpcSideId,ge
  getShipyardStock,fleetShipStock,getShipPurchaseStatus,completeShipPurchase,canBuyEscortShip,canBuyFleetShip,
  buyEscortShip,buyFleetShip,getGodModeShips,getOriginalShipWeaponSlots,getDefaultWeaponId,
  applyShipDefaultWeapons,getWeapon,getShipVisualProfile,getScaledWeaponDamage,getScaledWeaponCooldown,
- getStationOwner,playerWorldPosition,render,renderPlanetMenu,NPC_WEAPON_COOLDOWN_SCALE,NPC_WEAPON_FLOOR_SCALE,
+ getStationOwner,getSystemIndexByName,applySystemState,transferSystemControlToPlayer,playerWorldPosition,render,renderPlanetMenu,NPC_WEAPON_COOLDOWN_SCALE,NPC_WEAPON_FLOOR_SCALE,
  freeze:()=>new Promise(resolve=>{const t=setTimeout(()=>resolve(false),3000);requestAnimationFrame=cb=>{if(cb.name==='loop'){clearTimeout(t);resolve(true);}return 0;};})};`;
 const mime={'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.json':'application/json','.css':'text/css','.png':'image/png','.gif':'image/gif','.webp':'image/webp'};
 const server=http.createServer((req,res)=>{
@@ -94,7 +94,12 @@ try{
   test('all old IDs are absent from runtime records but resolve to selected survivors',Object.entries(expected).every(([old,id])=>!s.shipStatsById[old]&&B.getShipStats(old).id===id));
   const n=B.createNpcShip({id:'alias-fixture',shipId:27,faction:'romulan',sideId:'Council',from:B.playerWorldPosition()});
   test('NPC construction uses canonical hull while preserving political identity',n.shipId===320&&n.faction==='romulan'&&B.getNpcSideId(n)==='Council',n);
-  const station=s.stations.find(st=>!st.destroyed&&B.getStationOwner(st)==='player');
+  // Alias purchases use an acquired Terran designated vendor, whose mixed stock is
+  // permitted by the new local-market rules. The Ferengi start itself owns nothing.
+  s.currentPlanet=B.getSystemIndexByName('Paso');s.myplanet=s.currentPlanet+1;
+  B.applySystemState(s.currentPlanet);
+  B.transferSystemControlToPlayer(s.currentPlanet);
+  const station=s.stations.find(st=>!st.destroyed&&st.shipVendor==='paso-project-x'&&B.getStationOwner(st)==='player');
   if(!station)throw Error('Missing player-owned station fixture');
   s.docked=true;s.dockedStationId=station.id;s.dockedPlanetIndex=null;s.npcShips=[];s.projectiles=[];
   s.latinum=1e7;s.cargo=0;s.playerFleet=[];s.spawnProtectionUntil=0;
