@@ -4,7 +4,7 @@
 
 ## The campaign spine
 
-Earth and the Klingons begin in a sustained war. Stalemate means the front has stopped moving; it does not mean peace. Other powers may join, withdraw or negotiate separately. The central war ends through a strategic settlement, conquest or a Dominion-driven ceasefire, rather than the ordinary calendar's random war-exhaustion roll.
+Earth and the Klingons begin in a sustained war. Stalemate means the front has stopped moving; it does not mean peace. Other powers may join, withdraw or negotiate separately. The central war can end through a strategic settlement or conquest, rather than the ordinary calendar's random war-exhaustion roll. Dominion arrival does not automatically end it or force the existing factions into an alliance.
 
 Give the Klingons more ready combat power at the start and Earth more replacement capacity. A starting ratio around 1.2–1.3 Klingon ready strength to 1.0 Terran strength is worth testing, with Terran production around 1.2 times Klingon production. This produces pressure without scripting which worlds must fall. Those ratios must come from actual hulls, facilities and resources; avoid invisible combat bonuses.
 
@@ -25,25 +25,35 @@ Suggested bookkeeping: operating income minus upkeep changes treasury; mines/imp
 | Scenario | Conditions | Events and player choices |
 | --- | --- | --- |
 | Klingon advance, Terran line holds | Klingons take border worlds; surviving Terran yards replace enough losses to deny Earth | Escort material shipments or raid the Klingon repair chain. Both sides grind down; scouts and missing convoys foreshadow Dominion intervention. |
-| Terran industrial recovery | Earth protects heavy yards and supply while Klingon losses outpace repairs | A Terran counteroffensive threatens Qonos. The Dominion offers the losing Houses protection and basing rights; expose the deal, intercept its envoys or face a client fleet. |
+| Terran industrial recovery | Earth protects heavy yards and supply while Klingon losses outpace repairs | A Terran counteroffensive threatens Qonos as an independent Dominion invasion opens another front. The Klingons fight for their own survival; Earth must decide how much force to divert from its offensive. The player can back any contender or pursue separate goals. |
 | Victory leaves a hollow empire | One side wins territory but loses crews, treasury and supply depth | New possessions revolt or require garrisons. Dominion forces strike a newly stretched corridor. Conquest matters, but is not instant economic integration. |
 | The brokers' war | Ferengi supply both sides; a third faction's entry changes the balance | Contract profits rise, embargoes split routes, allies make demands. Romulans can intervene after sufficient tension or a deliberate diplomatic plot, then negotiate their own exit. |
 | Communications blackout | A chain of relays is captured or destroyed during a major offensive | Orders arrive late; fleets execute standing instructions. Rescue a courier, rebuild a relay or investigate a forged stand-down message before a real Dominion incursion. |
-| Player breaks the expected cycle | The player preserves both sides' strength, exposes infiltration or forces a credible settlement | The Dominion changes plan: coercion, limited expedition or delayed invasion. Do not manufacture losses to force the intended story. Preparation should pay off. |
+| Player breaks the expected cycle | The player preserves both sides' strength, exposes infiltration or forces a credible settlement | The Dominion still invades, but meets stronger, better prepared opponents. Its staging and attack axis can adapt to the actual front. Do not manufacture losses to force a collapse; preparation should pay off. |
 
 The normal route is the first scenario, with the others emerging from the same state. A faction can win a battle while its campaign position deteriorates.
 
-Suggested resolution gates: a sustained and supplied advantage, decisive objectives held long enough to matter, and political willingness. Test a 1.7:1 ready-strength advantage held for 20 days with a major industrial/capital objective; treat this as an offer/decision threshold, not an automatic surrender. Mutual exhaustion plus a verified outside threat can instead unlock a joint ceasefire. A frozen front alone never does.
+Suggested resolution gates: a sustained and supplied advantage, decisive objectives held long enough to matter, and political willingness. Test a 1.7:1 ready-strength advantage held for 20 days with a major industrial/capital objective; treat this as an offer/decision threshold, not an automatic surrender. Mutual exhaustion plus a verified outside threat can make a negotiated ceasefire attractive, but neither a ceasefire nor a coalition is compulsory. A frozen front alone never ends the war.
 
 ## Dominion intervention with warning and agency
 
 Use phases: dormant → reconnaissance/infiltration → staging → intervention. Keep the hidden core hidden until its existing discovery rule permits disclosure. Naming the Dominion in a rumor is not discovery or activation.
 
-Candidate invasion conditions: at least 60 campaign days, a reachable staging corridor, and combined Terran/Klingon readiness below roughly 65% of its opening baseline for 15 days. Production damage and supply disruption increase opportunity; a supplied dominant victor may instead receive a coercive ultimatum. Keep these thresholds in data and test them across seeds before adoption.
+The invasion is the campaign transition, not an optional protection offer. Use a scheduled staging window and actual reachable invasion routes. Terran/Klingon losses, production damage and supply disruption affect the Dominion's opportunity, target selection and likely success; low combined readiness must not be a mandatory trigger that lets a strong player prevent the campaign transition indefinitely. Timing still needs tuning against travel and production rates. If the player disrupts one staging route, the Dominion must rebuild or find another real route rather than teleport an invasion force.
 
 There must be at least two actionable warnings before the first major assault: missing patrols, unexplained supply purchases, unfamiliar warship signatures or a colony requesting help. Subsequent stages require resources, routes and actual staging fleets. The Dominion cannot spawn arbitrary ships beside an unreachable world. Destroying its staging logistics reduces or delays the invasion. Rumors remain fallible; campaign triggers read actual persistent events, not generated report text.
 
 Special events can deliberately raise tensions with any faction. An allegation alone has no automatic diplomatic effect; a separate political reaction must be authored and recorded. This retains the reviewed distinction between intelligence text and simulated reality. Star Trek's use of deception to draw the Romulans into war provides a useful story reference; our triggers and mechanics would be original BM1 design. [StarTrek.com on In the Pale Moonlight](https://www.startrek.com/news/this-classic-ds9-episode-tackles-the-finer-points-of-morality).
+
+## After arrival: an open war
+
+The Dominion enters as an independent belligerent with a powerful, finite expedition. Klingon Houses do not accept Dominion protection as the setup for its entry. There is no scripted Dominion victory, compulsory Terran–Klingon alliance or chosen player side.
+
+Any active faction can win through surviving forces, economic resources, production and captured territory. The Dominion can exploit the exhausted powers and conquer them, lose its expedition to determined resistance, or become one of several enduring contenders. Other belligerents can join or leave wars according to their interests. A victorious pre-invasion faction faces the Dominion with the strength it actually preserved.
+
+The player can serve the Dominion, fight it, remain loyal to another faction, change allegiance, trade across the conflict or build an independent power. The campaign does not assign a side or require participation in a final battle. Existing access, reputation and ownership consequences still apply to the player's actions; choosing a side never grants ownership of all its worlds.
+
+Invasion arrival and each major capture change the strategic situation, not the rules of combat or production. Do not create replacement fleets solely to rescue a preferred story outcome. Strategic victory should be recognized from control and the ability to sustain opposition; let the player continue afterward if they want. Exact victory thresholds remain a design task.
 
 ## Planets changing hands
 
@@ -146,6 +156,6 @@ Useful missions: escort replacement relay cores; verify a corrupted order; resto
 4. Add reachable objectives, occupation and supply, then strategic settlements and the Dominion phase controller.
 5. Add station missions and archive recovery using one bounded contract per lost license/source event.
 
-Required checks: menu/save/jump reads cannot reroll; every currently obtainable design stays obtainable under its existing gates; Earth gains no unauthorized Cardassian stock; loss/reclaim never changes foreign/private owners; days advanced daily, in chunks and once produce identical books; no double-produced hull or double-resolved battle; no unknown-location report leak; connected/disconnected fleet orders acknowledge once; losing a relay never resets standing orders; central-war settlement only follows explicit campaign/debug action; intervention staging obeys discovery and reach.
+Required checks: menu/save/jump reads cannot reroll; every currently obtainable design stays obtainable under its existing gates; Earth gains no unauthorized Cardassian stock; loss/reclaim never changes foreign/private owners; days advanced daily, in chunks and once produce identical books; no double-produced hull or double-resolved battle; no unknown-location report leak; connected/disconnected fleet orders acknowledge once; losing a relay never resets standing orders; central-war settlement only follows explicit campaign/debug action; intervention staging obeys discovery and reach; invasion arrival neither forces an alliance nor assigns the player a faction; a prepared faction can defeat the Dominion without a scripted reversal; player support for any active side remains available.
 
 The immediate reports/cargo candidate deliberately leaves these proposed systems out of runtime. That keeps the next implementation tied to reviewed gameplay decisions rather than silently inventing an economic campaign.
