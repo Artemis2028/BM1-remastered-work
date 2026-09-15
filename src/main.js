@@ -28,6 +28,7 @@ const playtestClock = { stoppedAt: null, offset: 0 };
 function gameNow() { return (playtestClock.stoppedAt ?? performance.now()) - playtestClock.offset; }
 function pauseGameClock() { if (playtestClock.stoppedAt === null) playtestClock.stoppedAt = performance.now(); }
 function resumeGameClock() {
+  if (document.getElementById('galaxy-reports')?.open) return;
   if (playtestClock.stoppedAt !== null) { playtestClock.offset += performance.now() - playtestClock.stoppedAt; playtestClock.stoppedAt = null; }
   keys.clear(); heldWeaponInputs.clear();
 }
@@ -182,7 +183,7 @@ const SECURITY_MAX_ACTIVE_ORDERS = 6;
 const SECURITY_OUTCOME_DISPLAY_MS = 9000;
 const SECURITY_ACCESS_ORDER = Object.freeze({ open: 0, challenge: 1, closed: 2 });
 const SECURITY_ACCESS_CLASSES = Object.freeze(['warFlag', 'independent', 'unknown', 'other']);
-// The one authored foreign checkpoint. Active only while the named authority holds the system and
+// Explicit local policy overrides the faction border defaults. Active only while the named authority holds the system and
 // owns a live, planet-anchored installation from the preference list. No dependency on the player.
 const SECURITY_AUTHORED_CHECKPOINTS = Object.freeze([
   Object.freeze({
@@ -193,6 +194,18 @@ const SECURITY_AUTHORED_CHECKPOINTS = Object.freeze([
     access: Object.freeze({ warFlag: 'closed', independent: 'challenge', other: 'challenge', unknown: 'open' }),
   }),
 ]);
+const FACTION_BORDER_POLICIES = Object.freeze({
+  klingon: { warFlag: 'closed', independent: 'challenge', other: 'challenge', unknown: 'challenge' },
+  romulan: { warFlag: 'closed', independent: 'challenge', other: 'challenge', unknown: 'closed' },
+  cardassian: { warFlag: 'closed', independent: 'challenge', other: 'challenge', unknown: 'challenge' },
+  dominion: { warFlag: 'closed', independent: 'closed', other: 'challenge', unknown: 'closed' },
+  breen: { warFlag: 'closed', independent: 'challenge', other: 'challenge', unknown: 'closed' },
+  terran: { warFlag: 'closed', independent: 'open', other: 'open', unknown: 'challenge' },
+  andorian: { warFlag: 'closed', independent: 'open', other: 'open', unknown: 'challenge' },
+  gorn: { warFlag: 'closed', independent: 'challenge', other: 'challenge', unknown: 'challenge' },
+  ferengi: { warFlag: 'challenge', independent: 'open', other: 'open', unknown: 'open' },
+  tholian: { warFlag: 'closed', independent: 'open', other: 'open', unknown: 'challenge' },
+});
 const PLAYER_ESCORT_DEFENSE_RANGE = 980;
 const PLAYER_ESCORT_ORDER_MS = 18000;
 const MAX_PLAYER_SHIELD_DAMAGE_PER_HIT = 22;
@@ -1316,7 +1329,7 @@ function getTradeStandingFaction(systemIndex = state.currentPlanet, station = nu
   return side === 'neutral' || isRecognizedFactionKey(side) ? side : null;
 }
 
-function getCurrentPurchaseVendor(station = getCurrentDockedStation()) {
+function getCurrentPurchaseVendor(station = getCurrentServiceStation()) {
   const stationStats = station ? getShipStats(station.stationTypeId) : null;
   return {
     systemName: getCurrentSystemName(),
@@ -2509,6 +2522,8 @@ function ensureSystemState(systemIndex) {
 }
 
 function applySystemState(systemIndex) {
+  state.remoteStationId = null;
+  state.arrivalHail = null;
   captureWorldEncounter(systemIndex);
   capturePrizeVisit(systemIndex);
   // The NPCs currently live belong to securityLiveSystemIndex; snapshot the participants of that
@@ -4451,13 +4466,13 @@ function setEWOrder(entity,dimension,value) {
   captureShipPowerState();renderTopLeftPanel();return true;
 }
 function getEWUpgradeDecision(id,entity=state) {
-  const u=EW_MODULES[id],a=sensorEntity(entity),st=getCurrentDockedStation();
+  const u=EW_MODULES[id],a=sensorEntity(entity),st=getCurrentServiceStation();
   const owner=st?getStationOwner(st):getSystemFaction(state.currentPlanet)||'neutral';
   const faction=owner===PLAYER_SIDE?getPlayerFlag():owner.startsWith('private:')?'neutral':owner;
   const requirement=getConfiguredPurchaseTierThresholds()?.[u?.tier]??PURCHASE_TIER_STANDING[u?.tier]??0;
   const standing=getFactionStanding(faction),blocked=getSecurityDockingBlock(owner);
   const service=!st||(!st.destroyed&&!st.underConstruction&&/shipyard|science|university|maintenance|starbase/i.test(getShipStats(st.stationTypeId).name||st.name||''));
-  const reason=!u?'Unknown module':!state.docked?'Dock for refit':blocked?String(blocked):!service?'No electronic refit service':
+  const reason=!u?'Unknown module':!hasServiceConnection()?'Hail a station for refit':blocked?String(blocked):!service?'No electronic refit service':
     a!==state&&(!state.npcShips.includes(a)||!isPlayerSideNpc(a)||a.destroyed||a.trafficWarp?.phase==='away'||sensorDistance(playerWorldPosition(),a)>2400)?'Ship is not locally commanded':
     ensureActorEW(a).module===id?'Already installed':standing<requirement?`Requires ${requirement} ${formatFaction(faction)} standing; yours ${standing}`:state.latinum<u.price?'Insufficient latinum':null;
   return {canBuy:!reason,reason,requirement,standing,faction,price:u?.price||0};
@@ -4872,7 +4887,7 @@ function startSensorAction(action) {
 function getSensorUpgradeDecision(id, entity = state) {
   const u = SENSOR_SUITES[id],
     a = sensorEntity(entity),
-    st = getCurrentDockedStation();
+    st = getCurrentServiceStation();
   const faction = String(st ? getStationOwner(st) : getSystemFaction(state.currentPlanet) || 'neutral'),
     gateFaction = faction === PLAYER_SIDE ? getPlayerFlag() : faction.startsWith('private:') ? 'neutral' : faction;
   const requirement = getConfiguredPurchaseTierThresholds()?.[u?.tier] ?? PURCHASE_TIER_STANDING[u?.tier] ?? 0;
@@ -4880,7 +4895,7 @@ function getSensorUpgradeDecision(id, entity = state) {
     blocked = getSecurityDockingBlock(faction);
   const service = !st || (!st.destroyed && !st.underConstruction && /shipyard|science|university|maintenance|starbase/i
     .test(st.name || getShipStats(st.stationTypeId).name || ''));
-  const reason = !u ? 'Unknown suite' : !state.docked ? 'Dock for refit' : blocked ? String(blocked) : !service ?
+  const reason = !u ? 'Unknown suite' : !hasServiceConnection() ? 'Hail a station for refit' : blocked ? String(blocked) : !service ?
     'No sensor refit service' : a !== state && (a.destroyed || a.trafficWarp?.phase === 'away' || sensorDistance(
       playerWorldPosition(), a) > 2400 || !state.npcShips.some(n => n === a && isPlayerSideNpc(n))) ?
     'Ship is not locally commanded' : id <= ensureActorSensors(a).suite ? 'Already fitted or better' : standing <
@@ -5003,7 +5018,7 @@ function applyPointImpact(hit, shot) {
     .creditSource === 'player' ? 1 : a === state ? NPC_WEAPON_DAMAGE_SCALE : NPC_STATION_DAMAGE_SCALE;
   const damage = Math.max(1, Math.round(shot.damage * scale));
   if (a === state) applyPlayerDamage(damage, shot.color, {
-    impactPoint: hit
+    combatUnits: true, impactPoint: hit
   });
   else damageCombatTarget(a, damage, shot.creditSource, shot.color, hit);
 }
@@ -5990,7 +6005,7 @@ function getSecurityZone(systemIndex = state.currentPlanet) {
     label = `${state.planets[i]?.name || 'System'} Security`;
     access = { ...getEffectiveSecurityPolicy(i).access };
   } else {
-    const authored = SECURITY_AUTHORED_CHECKPOINTS.find((entry) => getSystemIndexByName(entry.systemName) === i) || (getDelegatedPolicy(i) ? {authority:control.controller,label:`${formatFaction(control.controller)} Orbital Authority`,anchorNames:getSecurityAnchorCandidates(i,control.controller).map(s=>s.name),access:DEFAULT_SECURITY_POLICY.access} : null);
+    const authored = SECURITY_AUTHORED_CHECKPOINTS.find((entry) => getSystemIndexByName(entry.systemName) === i) || ((FACTION_BORDER_POLICIES[control.controller] || getDelegatedPolicy(i)) ? {authority:control.controller,label:`${formatFaction(control.controller)} Orbital Authority`,anchorNames:getSecurityAnchorCandidates(i,control.controller).map(s=>s.name),access:FACTION_BORDER_POLICIES[control.controller] || DEFAULT_SECURITY_POLICY.access} : null);
     if (!authored || control.controller !== authored.authority) return null;
     const candidates = getSecurityAnchorCandidates(i, authored.authority);
     anchor = authored.anchorNames.map((name) => candidates.find((station) => station.name === name)).find(Boolean) || null;
@@ -6740,11 +6755,11 @@ function placePlayerAtSecurityApproach() {
   const star = state.systemStar || centre;
   const objects = [{...centre, safeRadius: Math.max(240, getPlanetVisualSize(state.planets[state.currentPlanet]) * .8)}, {...star, safeRadius: 350}, ...state.stations.filter(s => !s.destroyed).map(s => ({...s,safeRadius:Math.max(180, getStationScreenRadius(s) + 100)}))];
   const bearing = Math.atan2(star.y - centre.y, star.x - centre.x) + Math.PI;
-  const start = zone ? zone.radius + SECURITY_ARRIVAL_MARGIN : 700;
+  const start = zone ? zone.radius + Math.max(600, SECURITY_ARRIVAL_MARGIN) : 1800;
   for (let ring = 0; ring < 12; ring++) for (let slot = 0; slot < 24; slot++) {
     const angle = bearing + slot * Math.PI / 12;
     const point = {x:centre.x + Math.cos(angle)*(start + ring*240), y:centre.y + Math.sin(angle)*(start + ring*240)};
-    if (objects.every(o => Math.hypot(point.x-o.x,point.y-o.y) > o.safeRadius)) {setCamera(point.x,point.y);return true;}
+    if (objects.every(o => Math.hypot(point.x-o.x,point.y-o.y) > o.safeRadius)) {setCamera(point.x,point.y);state.arrivalHail = zone?.foreign ? {systemIndex:state.currentPlanet, acknowledged:false} : null;return true;}
   }
   return false;
 }
@@ -7938,6 +7953,7 @@ function getWeaponSpriteSrc(file) {
 }
 
 function getWeaponShopIconSrc(weapon = getWeapon()) {
+  if (Number(weapon.id) === HOJ_WEAPON_ID) return `${WEAPON_SPRITE_ROOT}/torpedo-photon.png`;
   return `${WEAPON_SHOP_ICON_ROOT}/weapon-${Number(weapon.id)}.png?v=${WEAPON_ICON_ASSET_VERSION}`;
 }
 
@@ -8171,6 +8187,10 @@ function applyDebugCommand(raw) {
     state[command] = debugInteger(args[0], field.min, field.max());
     if (command === 'hull') syncDebugVesselCondition();
     message = `${field.label} set to ${state[command]}.`;
+  } else if (command === 'event' && args.length === 1) {
+    message = triggerDebugEvent(args[0]);
+  } else if (command === 'mission' && args.length === 1) {
+    message = triggerDebugMission(args[0]);
   } else if (command === 'repair' && !args.length) {
     state.hull = 100;
     state.shields = 100;
@@ -8271,6 +8291,7 @@ function openDebugMenu() {
       <button type="button" data-debug-code="feat vexBorgDown on">Vex Borg: complete</button><button type="button" data-debug-code="feat vexBorgDown off">Vex Borg: reset</button>
       <button type="button" data-debug-code="feat bajoranFleetDown on">Bajoran fleet: complete</button><button type="button" data-debug-code="feat bajoranFleetDown off">Bajoran fleet: reset</button></div></section>
     <section><h3>Wars, peace &amp; crises</h3><form data-debug-form="diplomacy"><label>First faction<select name="diplomacy-a">${factionOptions}</select></label><label>Second faction<select name="diplomacy-b">${factionOptions}</select></label><label>Relationship<select name="diplomacy-state"><option value="crisis">Crisis</option><option value="war">War</option><option value="peace">Peace</option></select></label><button type="submit">Set relationship</button></form><div data-diplomacy-bulletin>${renderDiplomacyBulletin()}</div></section>
+    <section><h3>Local events &amp; existing missions</h3><p>Combat events deploy real ships against the current system. An eligible enemy must be at war with its governor; use the diplomacy controls above first.</p><div class="debug-actions"><button data-debug-code="event scout">Reconnaissance</button><button data-debug-code="event skirmish">Minor fleet action</button><button data-debug-code="event raid">Raid</button><button data-debug-code="event battle">Major fleet action</button><button data-debug-code="event station-loss">Destroy selected installation</button><button data-debug-code="mission cargo">Cargo contract</button><button data-debug-code="mission transport">Planet away mission</button><button data-galaxy-reports>View reports</button></div><p>Cargo delivery and planetary away missions already exist. Escort, rescue and investigation contracts are future mission ideas.</p></section>
     <section><h3>Cheat codes</h3><form data-debug-form="code"><label>Code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="standing romulan 50" required></label><button type="submit">Run code</button></form>
       <details><summary>Remaster code list</summary><p>Codes are case-insensitive. Faction keys appear in the selector above.</p><ul>
         <li><code>crisis romulan klingon</code>, <code>war romulan klingon</code>, <code>peace romulan klingon</code> — change bilateral relations.</li><li><code>standing romulan 50</code> — set one faction's standing.</li><li><code>latinum 10000</code>, <code>duranium 500</code>, <code>antimatter 6</code> — set resources.</li>
@@ -8396,6 +8417,7 @@ function openGameMenu() {
   gameMenuEl.showModal();
 }
 function returnToMainMenu() {
+  document.getElementById('galaxy-reports').close();
   state.gameStarted = false;
   state.warp.active = false;
   clearWormholeTransit();
@@ -8737,7 +8759,8 @@ function updateSystemActivity(frameScale) {
 function chooseActivityAttacker(record) {
   const local = getSystemFaction();
   const candidates = Object.keys(factionNames).filter(
-    (f) => isRecognizedFactionKey(f) && areFactionsOpposed(f, local),
+    (f) => isRecognizedFactionKey(f) && areFactionsOpposed(f, local)
+      && getNpcShipIdForFaction(f, record.seed, 'fleetAttack') != null,
   );
   const total = candidates.reduce((n, f) => n + (World.FACTION_TRAFFIC[f]?.warDeployment || 1), 0);
   let roll = seeded(record.seed + 17) * total;
@@ -8884,6 +8907,151 @@ function advanceFactionReconstruction(day) {
     if (!state.warp.active) applySystemState(state.currentPlanet);
   }
 }
+function getCurrentServiceStation() {
+  if (state.docked) return getCurrentDockedStation();
+  if (!state.gameStarted || state.warp.active || isWormholeTransitActive()) return null;
+  return state.stations.find(s => s.id === state.remoteStationId && !s.destroyed && !s.underConstruction) || null;
+}
+function hasServiceConnection() {
+  return state.gameStarted && !state.warp.active && !isWormholeTransitActive() && (state.docked || !!getCurrentServiceStation());
+}
+function requireServiceConnection() {
+  if (!hasServiceConnection()) { setLog('Hail a station to open a transporter trade channel, or dock.'); return false; }
+  const st = getCurrentServiceStation();
+  const block = getSecurityDockingBlock(st ? getStationOwner(st) : getSystemControl(state.currentPlanet).polityId)
+    || serviceRefusal(st?.faction || getSystemFaction(state.currentPlanet));
+  if (block) { setLog(block); return false; }
+  return true;
+}
+function openRemoteStationShop(id) {
+  if (state.warp.active || isWormholeTransitActive() || !state.gameStarted) return false;
+  const station = state.stations.find(s => s.id === id && !s.destroyed && !s.underConstruction);
+  if (!station) return false;
+  const block = getSecurityDockingBlock(getStationOwner(station)) || serviceRefusal(station.faction);
+  if (block) { setLog(block); openStationComms(id); return false; }
+  document.getElementById('station-comms').close();
+  state.remoteStationId = id;
+  state.planetMenuOpen = true;
+  state.dockMenuTab = 'services';
+  renderPlanetMenu();
+  setLog(`${station.name}: transporter trade channel open. Dock only for hull repairs.`);
+  deliverContractIfPossible();
+  return true;
+}
+function galaxyNewsBook() {
+  const p = ensurePlaytestState();
+  if (!p.news || !Array.isArray(p.news.items)) p.news = {items:[], lastReadDay:0};
+  p.news.items = p.news.items.slice(-120);
+  return p.news;
+}
+function addGalaxyReport(report) {
+  if (report.systemIndex != null && !isChartSystemVisible(Number(report.systemIndex))) return false;
+  const book = galaxyNewsBook();
+  const id = String(report.id);
+  if (book.items.some(r => r.id === id)) return false;
+  book.items.push({id, day:report.day ?? state.day, kind:String(report.kind), confidence:String(report.confidence), text:String(report.text), systemIndex:report.systemIndex ?? null});
+  book.items = book.items.slice(-120);
+  return true;
+}
+function collectGalaxyReports(day = state.day) {
+  const news = galaxyNewsBook();
+  const history = diplomacyBook().history;
+  const signatures = history.map(e=>JSON.stringify(e));
+  const prior = Array.isArray(news.historyCursor) ? news.historyCursor : [];
+  let overlap = Math.min(prior.length, signatures.length);
+  while (overlap > 0 && !signatures.slice(0,overlap).every((v,i)=>v === prior[prior.length-overlap+i])) overlap--;
+  const priorStates = new Map();
+  for (let index=0;index<history.length;index++) {
+    const e = history[index], pair = [e.a,e.b].sort().join(':');
+    const before = priorStates.get(pair) || (history.length < 120 ? (baseFactionWar(e.a,e.b) ? 'war' : 'peace') : null);
+    priorStates.set(pair,e.status);
+    if (index < overlap) continue;
+    const kind = e.status === 'war' && before && before !== 'war' ? 'War declared' : e.status === 'peace' && before === 'war' ? 'Peace agreement' : e.status === 'crisis' && before && before !== 'crisis' ? 'Border crisis' : 'Diplomatic update';
+    news.nextDiplomacyId = (news.nextDiplomacyId || 0) + 1;
+    addGalaxyReport({id:`diplomacy:${news.nextDiplomacyId}`,day:e.day,kind,confidence:'Public diplomatic report',text:`${formatFaction(e.a)} / ${formatFaction(e.b)}: ${e.reason}. Current relations: ${e.status}.`});
+  }
+  news.historyCursor = signatures.slice(-120);
+  // A limited feed of mobilization warnings, not invented confirmed battle outcomes.
+  const cycle = Math.floor(day / 7);
+  if (news.warningCycle === cycle) return;
+  news.warningCycle = cycle;
+  const candidates = state.planets.map((p,i)=>i).filter(i=>isChartSystemVisible(i) && i !== state.currentPlanet)
+    .filter(i=>['skirmish','raid','battle'].includes(getSystemActivity(i).type));
+  for (const i of candidates.slice(0,3)) {
+    const r = getSystemActivity(i), defender = getSystemFaction(i);
+    const enemies = Object.keys(factionNames).filter(f=>isRecognizedFactionKey(f) && areFactionsOpposed(f,defender)
+      && (!state.shipCatalog || pickCatalogSpawnId('fleetAttack',f,r.seed,i) != null));
+    if (!enemies.length) continue;
+    const attacker = enemies[Math.floor(seeded(r.seed + 17) * enemies.length)];
+    addGalaxyReport({id:`warning:${cycle}:${i}`,systemIndex:i,day,kind:r.type === 'battle' ? 'Large fleet mobilization' : r.type === 'raid' ? 'Raid warning' : 'Border tension',confidence:'Unconfirmed civilian report',text:`Civilian relays report ${formatFaction(attacker)} warships near ${state.planets[i].name}, held by ${formatFaction(defender)}. ${r.type === 'battle' ? 'A major fleet action is feared.' : 'Clashes are possible.'} No losses independently verified.`});
+  }
+}
+function renderGalaxyReports() {
+  const book = galaxyNewsBook();
+  const rows = book.items.filter(r=>r.systemIndex == null || isChartSystemVisible(r.systemIndex)).slice(-18).reverse();
+  const transit = state.warp.active && state.warp.briefingOpen;
+  const el = document.getElementById('galaxy-reports');
+  el.innerHTML = `<div class="debug-heading"><h2>${transit ? 'Subspace briefing — in transit' : 'Galactic reports'}</h2><button data-report-close>${transit ? 'Continue jump' : 'Close'}</button></div><p>${transit ? `En route to ${escapeHtml(state.planets[state.warp.to]?.name || 'destination')}. ` : ''}Campaign day ${state.day}. Reports may be delayed or incomplete; silence does not mean peace.</p><div class="report-list">${rows.map(r=>`<article class="galaxy-report"><div class="meta">Day ${r.day} · ${escapeHtml(r.confidence)}</div><h3>${escapeHtml(r.kind)}</h3><p>${escapeHtml(r.text)}</p></article>`).join('') || '<p>No new reports received on this route.</p>'}</div>${transit ? '<button data-report-save>Save in transit</button><p data-report-save-status role="status"></p><button data-report-close>Continue jump</button>' : ''}`;
+}
+function openGalaxyReports() {
+  if (!state.gameStarted) return;
+  collectGalaxyReports();
+  pauseGameClock();
+  keys.clear(); heldWeaponInputs.clear();
+  renderGalaxyReports();
+  const el = document.getElementById('galaxy-reports');
+  if (!el.open) el.showModal();
+}
+function openWarpBriefing() {
+  if (!state.warp.active || state.warp.briefingSeen) return;
+  state.warp.briefingOpen = true;
+  updateSecurityOrderPanel();
+  // Commit the travel calendar once; arrival uses the same persisted journey id.
+  state.warp.journeyId ||= Fleet.nextId(fleetBook(), 'journey');
+  advanceFleetCalendar(state.warp.travelDays ?? 1, state.warp.journeyId);
+  openGalaxyReports();
+}
+function closeGalaxyReports() {
+  if (state.warp.active && state.warp.briefingOpen) {
+    state.warp.briefingSeen = true;
+    state.warp.briefingOpen = false;
+  }
+  galaxyNewsBook().lastReadDay = state.day;
+  document.getElementById('galaxy-reports').close();
+  if (!gameMenuEl?.open && !debugMenuEl?.open) resumeGameClock();
+}
+function triggerDebugEvent(kind) {
+  if (kind === 'station-loss') { const target = getSelectedCombatTarget(); if (!target?.stationTypeId || target.destroyed) throw new Error('Select a live installation first.'); target.lastDamageSource = 'debug'; destroyStation(target); return `${target.name} destroyed; report published.`; }
+  if (!['scout','skirmish','raid','battle'].includes(kind)) throw new Error('Use event scout, skirmish, raid or battle.');
+  if (state.activeFleetAttack) throw new Error('A fleet action is already active here.');
+  const record = getSystemActivity();
+  if (kind !== 'scout' && !chooseActivityAttacker(record)) throw new Error('No eligible faction is at war with this governor. Set a war first.');
+  Object.assign(record,{type:kind, triggered:false, combatElapsed:1e9});
+  const before = state.npcShips.length;
+  updateSystemActivity(0);
+  if (!record.triggered || state.npcShips.length === before) throw new Error('No eligible ships can deploy here.');
+  if (kind === 'scout') addGalaxyReport({id:`scout:${state.currentPlanet}:${record.cycle}:${state.day}`,systemIndex:state.currentPlanet,kind:'Reconnaissance',confidence:'Confirmed local contact',text:`${formatFaction(getSystemFaction())} reconnaissance ship deployed near ${state.planets[state.currentPlanet].name}.`});
+  return `${kind}: ${state.npcShips.length-before} real ships deployed in this system.`;
+}
+function triggerDebugMission(kind) {
+  if (!['cargo','transport'].includes(kind)) throw new Error('Implemented missions: cargo and transport.');
+  if (!hasServiceConnection()) {
+    const station = state.stations.find(s=>!s.destroyed&&!s.underConstruction&&!serviceRefusal(s.faction));
+    if (!station || !openRemoteStationShop(station.id)) throw new Error('Open an authorized station channel first. Border clearance still applies.');
+  }
+  if (!requireServiceConnection()) throw new Error(state.log);
+  if (kind === 'cargo') { negotiateContract(); return 'Cargo offer opened; accept it to begin delivery.'; }
+  transport();
+  return state.log;
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-arrival-ack]')) { if (state.arrivalHail) state.arrivalHail.acknowledged = true; updateSecurityOrderPanel(); }
+  if (e.target.closest('[data-galaxy-reports]')) openGalaxyReports();
+  if (e.target.closest('[data-report-close]')) closeGalaxyReports();
+  if (e.target.closest('[data-report-save]')) { const ok = saveGame(state.currentSaveSlot || 1); const line = document.querySelector('[data-report-save-status]'); if (line) line.textContent = ok ? 'Game saved in transit.' : state.log; }
+});
+document.getElementById('galaxy-reports')?.addEventListener('cancel', e=>{e.preventDefault();closeGalaxyReports();});
+
 function openStationComms(stationId = null) {
   if (!state.gameStarted || state.warp.active || isWormholeTransitActive()) return;
   const el = document.getElementById('station-comms');
@@ -8891,7 +9059,7 @@ function openStationComms(stationId = null) {
   const station = state.stations.find(
     (s) => s.id === stationId && !s.destroyed && !s.underConstruction,
   );
-  el.innerHTML = `<h2>System communications</h2><button data-comms="close">Close</button><p>${escapeHtml(block || 'Station channels available throughout this system.')}</p><button data-comms="security">Security channel</button><button data-comms="distress">Distress / recovery</button>${station ? `<h3>${escapeHtml(station.name)}</h3><p>${block ? 'Ordinary communication awaits clearance.' : `${escapeHtml(formatFaction(station.faction))} installation. Docking range ${Math.round(distanceToPlayer(station))}. Approach physically for repairs, refits and purchases.`}</p>` : ''}<div class="debug-grid">${state.stations
+  el.innerHTML = `<h2>System communications</h2><button data-comms="close">Close</button><p>${escapeHtml(block || 'Station channels available throughout this system.')}</p><button data-comms="security">Security channel</button><button data-comms="distress">Distress / recovery</button>${station ? `<h3>${escapeHtml(station.name)}</h3><p>${block ? 'Ordinary communication awaits clearance.' : `${escapeHtml(formatFaction(station.faction))} installation. Docking range ${Math.round(distanceToPlayer(station))}. Transporter purchases are available by hail. Dock for hull repairs.`}</p>` : ''}<div class="debug-grid">${state.stations
     .filter((s) => !s.destroyed && !s.underConstruction)
     .map(
       (s) =>
@@ -8903,7 +9071,7 @@ function openStationComms(stationId = null) {
 document.addEventListener('click', (e) => {
   const hail = e.target.closest('[data-station-hail]');
   if (hail) {
-    openStationComms(hail.dataset.stationHail);
+    openRemoteStationShop(hail.dataset.stationHail);
     return;
   }
   const button = e.target.closest('[data-comms]');
@@ -9547,7 +9715,7 @@ function getWeaponStockForFaction(faction = state.systemFaction) {
   return WEAPON_CATALOG.filter((weapon) => weapon.stockFactions?.includes('neutral') || weapon.id <= 2);
 }
 
-function getStationWeaponStock(station = getCurrentDockedStation()) {
+function getStationWeaponStock(station = getCurrentServiceStation()) {
   if (station?.weaponStockIds?.length) {
     const localStock = station.weaponStockIds
       .map((id) => getWeapon(id))
@@ -9559,14 +9727,14 @@ function getStationWeaponStock(station = getCurrentDockedStation()) {
   return stock;
 }
 
-function getHojPurchaseDecision(station=getCurrentDockedStation()) {
+function getHojPurchaseDecision(station=getCurrentServiceStation()) {
   const owner=station?getStationOwner(station):null;
   const faction=owner===PLAYER_SIDE?getPlayerFlag():owner?.startsWith('private:')?'neutral':owner;
   const requirement=getConfiguredPurchaseTierThresholds()?.respected??PURCHASE_TIER_STANDING.respected;
   const standing=faction?getFactionStanding(faction):0;
   const service=station&&!station.destroyed&&!station.underConstruction&&/shipyard|research|science|university|starbase|military/i.test(getShipStats(station.stationTypeId).name||'');
   const blocked=owner?getSecurityDockingBlock(owner):null;
-  const reason=!state.docked?'Dock at a weapons vendor':!service?'Military or science weapons service required':blocked?String(blocked):standing<requirement?`Requires ${requirement} ${formatFaction(faction)} standing; yours ${standing}`:null;
+  const reason=!hasServiceConnection()?'Hail a weapons vendor':!service?'Military or science weapons service required':blocked?String(blocked):standing<requirement?`Requires ${requirement} ${formatFaction(faction)} standing; yours ${standing}`:null;
   return {canBuy:!reason,reason,requirement,standing,faction};
 }
 
@@ -9677,13 +9845,13 @@ function canLoadWeaponIntoSlot(weaponId, slot = 1) {
 
 function buyWeapon(weaponId) {
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireDocked()) return;
-  if (!getCurrentDockedStation()) {
+  if (!requireServiceConnection()) return;
+  if (!getCurrentServiceStation()) {
     setLog('Weapons are sold from station stores.');
     return;
   }
   const weapon = getWeapon(weaponId);
-  const wStation = getCurrentDockedStation();
+  const wStation = getCurrentServiceStation();
   if(weapon.guidance==='home-on-jam'){const decision=getHojPurchaseDecision(wStation);if(!decision.canBuy){setLog(decision.reason);return;}}
   const wRefusal = weapon.guidance==='home-on-jam' ? null : serviceRefusal((wStation && wStation.faction) || getSystemFaction(state.currentPlanet));
   if (wRefusal) {
@@ -9770,7 +9938,7 @@ function getCurrentDockedStation() {
   return state.stations.find((station) => station.id === state.dockedStationId && !station.destroyed) || null;
 }
 
-function getShipyardStockContext(station = getCurrentDockedStation()) {
+function getShipyardStockContext(station = getCurrentServiceStation()) {
   const planet = state.planets[state.currentPlanet] || {};
   const stationStats = station ? getShipStats(station.stationTypeId) : null;
   const stationName = String(stationStats?.name || station?.name || '').toLowerCase();
@@ -9808,12 +9976,12 @@ function scoreShipyardStock(ship, context) {
   return factionScore + priceScore + massScore + seedScore * 0.92;
 }
 
-function getShipyardStock(station = getCurrentDockedStation()) {
+function getShipyardStock(station = getCurrentServiceStation()) {
   const service=fleetStationServices(station);
   if(!service.sell)return [];
   return getUnfilteredShipyardStock(station).filter(ship=>!service.smallOnly||ship.mass<=4);
 }
-function getUnfilteredShipyardStock(station = getCurrentDockedStation()) {
+function getUnfilteredShipyardStock(station = getCurrentServiceStation()) {
   const purchaseContext = buildPurchaseContext(getCurrentPurchaseVendor(station));
   const stockEligible = (ship) => !state.shipCatalog || state.shipCatalog.eligibleForStock(ship.id, purchaseContext);
   const ships = Object.values(state.shipStatsById)
@@ -9997,7 +10165,7 @@ function isCommonStationPlan(stationStats) {
     || sizeClass.includes('defense');
 }
 
-function getStationPlanStockContext(station = getCurrentDockedStation()) {
+function getStationPlanStockContext(station = getCurrentServiceStation()) {
   const shipyardContext = getShipyardStockContext(station);
   const stationName = shipyardContext.stationName || '';
   const isResearch = stationName.includes('research') || stationName.includes('university') || stationName.includes('lab');
@@ -10049,7 +10217,7 @@ function isLocalFactionIndustrialPlan(stationStats, context) {
     );
 }
 
-function getStationPlanStock(station = getCurrentDockedStation()) {
+function getStationPlanStock(station = getCurrentServiceStation()) {
   const context = getStationPlanStockContext(station);
   let stock = getBuildableStationTypes()
     .filter((stationStats) => !hasStationPlan(stationStats.id))
@@ -10843,7 +11011,7 @@ function assignStationsToPlayer(stationIds = []) {
 
 function rebuildSystemStations() {
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireDocked()) return;
+  if (!requireServiceConnection()) return;
   const status = getRebuildSystemStationsStatus(state.currentPlanet);
   if (!status.ok) {
     setLog(status.reason);
@@ -11191,7 +11359,7 @@ function confirmPendingWormholeBuild() {
 
 function buildStation(stationTypeId) {
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireDocked()) return;
+  if (!requireServiceConnection()) return;
   if (!canBuildStationsHere()) {
     setLog('Station construction is only available in systems you control.');
     return;
@@ -11230,7 +11398,7 @@ function buildStation(stationTypeId) {
 
 function buyStationPlan(stationTypeId) {
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireDocked()) return;
+  if (!requireServiceConnection()) return;
   const stationStats = state.shipStatsById[Number(stationTypeId)];
   if (!stationStats || stationStats.assetType !== 'station') {
     setLog('That station plan is not available.');
@@ -11304,8 +11472,8 @@ function realignPlayerAssetsToFaction(faction = state.playerFaction) {
 
 function buyFactionFlag(faction) {
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireDocked()) return;
-  if (getCurrentDockedStation()) {
+  if (!requireServiceConnection()) return;
+  if (getCurrentServiceStation()) {
     setLog('Faction flags are sold from planets, not stations.');
     return;
   }
@@ -11360,7 +11528,7 @@ function raisePlayerFlag(faction) {
 }
 
 function renderPlanetMenu() {
-  if (!planetMenuEl || !state.planetMenuOpen || !state.docked) {
+  if (!planetMenuEl || !state.planetMenuOpen || !hasServiceConnection()) {
     if (planetMenuEl) planetMenuEl.classList.add('hidden');
     return;
   }
@@ -11369,15 +11537,15 @@ function renderPlanetMenu() {
     state.dockPanelScrollByTab[previousDockPanel.dataset.dockTab] = previousDockPanel.scrollTop;
   }
   const planet = state.planets[state.currentPlanet];
-  const station = getCurrentDockedStation();
+  const station = getCurrentServiceStation();
   const serviceName = station?.name || planet.name;
   const serviceTitle = serviceName;
   const stationStats = station ? getShipStats(station.stationTypeId) : null;
-  const stationMeta = station
+  const stationMeta = (state.remoteStationId && !state.docked ? 'Transporter trade channel · ' : '') + (station
     ? `${escapeHtml(stationStats.name || 'Station')} | Defense ${Math.round(station.defenseRange || 0)} | ${formatFaction(station.faction || state.systemFaction)} station`
-    : `${formatFaction(state.systemFaction)} space | ${state.systemAttitude}${state.systemHasNebula ? ' | Nebula' : ''}`;
+    : `${formatFaction(state.systemFaction)} space | ${state.systemAttitude}${state.systemHasNebula ? ' | Nebula' : ''}`);
   const planetDescription = String(planet.description || state.systemData[state.currentPlanet]?.[7] || '').trim();
-  const serviceDescription = !station && planetDescription
+  const serviceDescription = state.remoteStationId && !state.docked ? '<div class="service-description">Transporter trade channel open. Purchases and cargo transfers are remote; hull repairs require docking.</div>' : !station && planetDescription
     ? `<div class="service-description">${escapeHtml(planetDescription)}</div>`
     : '';
   const market = currentMarketOffers().map(renderMarketOffer).join('');
@@ -11559,7 +11727,7 @@ function renderPlanetMenu() {
     security: securityMarkup,
     services: `${serviceDescription}<div class="service-grid">
       <button data-planet-action="refuel">Antimatter</button>
-      <button data-planet-action="repair">Repair</button>
+      <button data-planet-action="repair" ${!state.docked ? 'disabled title="Dock for hull repairs"' : ''}>Repair${!state.docked ? ' (dock required)' : ''}</button>
       <button data-planet-action="contract">Contract</button>
       <button data-planet-action="deliver">Deliver</button>
       <button data-planet-action="claim">${escapeHtml(claimStatus.label)}</button>
@@ -11638,6 +11806,7 @@ function openStationMenu(station) {
 
 function closePlanetMenu() {
   state.planetMenuOpen = false;
+  state.remoteStationId = null;
   state.fleetPurchaseShipId = null;
   renderPlanetMenu();
 }
@@ -11779,11 +11948,11 @@ function getShipSaleStatus(shipId) {
   shipId = resolveShipId(shipId);
   const ship = state.shipStatsById[Number(shipId)];
   if (!ship || ship.assetType !== 'ship') return { ok: false, reason: 'That ship is not available.', ship: null };
-  if (!state.docked) return { ok: false, reason: 'Dock at a ship seller first.', ship };
+  if (!hasServiceConnection()) return { ok: false, reason: 'Hail a ship seller first.', ship };
   if (!getShipyardStock().some(stockShip => Number(stockShip.id) === Number(shipId))) {
     return { ok: false, reason: `${ship.name} is not stocked here.`, ship };
   }
-  const station = getCurrentDockedStation();
+  const station = getCurrentServiceStation();
   const securityBlock = getSecurityDockingBlock(station ? getStationOwner(station) : getSystemControl(state.currentPlanet).polityId);
   const serviceBlock = securityBlock || serviceRefusal(station?.faction || getSystemFaction(state.currentPlanet));
   if (serviceBlock) return { ok: false, reason: serviceBlock, ship };
@@ -11910,7 +12079,7 @@ function renderShipPurchaseModal() {
 function openShipPurchaseModal(shipId) {
   shipId = resolveShipId(shipId);
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireDocked()) return;
+  if (!requireServiceConnection()) return;
   const status = getShipPurchaseStatus(shipId);
   if (!status.ship) {
     setLog(status.reason);
@@ -11930,7 +12099,7 @@ function closeShipPurchaseModal() {
 function completeShipPurchase(shipId) {
   shipId = resolveShipId(shipId);
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireDocked()) return;
+  if (!requireServiceConnection()) return;
   const status = getShipPurchaseStatus(shipId);
   if (!status.ok) {
     setLog(status.reason);
@@ -12076,7 +12245,7 @@ function renderFleetPurchaseModal() {
 function openFleetPurchaseModal(shipId) {
   shipId = resolveShipId(shipId);
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireDocked()) return;
+  if (!requireServiceConnection()) return;
   const status = getFleetPurchaseStatus(shipId);
   if (!status.ship) {
     setLog(status.reason);
@@ -12105,7 +12274,7 @@ function confirmFleetPurchase(assignment) {
 function buyFleetShip(shipId, systemIndex = state.currentPlanet) {
   shipId = resolveShipId(shipId);
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireDocked()) return;
+  if (!requireServiceConnection()) return;
   const ship = state.shipStatsById[Number(shipId)];
   if (!ship || ship.assetType !== 'ship') {
     setLog('That fleet ship is not available.');
@@ -12156,7 +12325,7 @@ function buyFleetShip(shipId, systemIndex = state.currentPlanet) {
 function buyEscortShip(shipId) {
   shipId = resolveShipId(shipId);
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireDocked()) return;
+  if (!requireServiceConnection()) return;
   const ship = state.shipStatsById[Number(shipId)];
   if (!ship || ship.assetType !== 'ship') {
     setLog('That escort ship is not available.');
@@ -12644,6 +12813,7 @@ function removeCargoFromPods(item, tons = 1) {
 }
 
 function deliverDestinationCargoAtCurrentPlanet() {
+  if (getSecurityDockingBlock()) return false;
   const planet = state.planets[state.currentPlanet];
   restoreMissingContractCargo({ onlyCurrentDestination: true });
   let delivered = 0;
@@ -12914,15 +13084,20 @@ function createCargoRunOffer() {
   const targetIndex=destinations[Math.floor(Math.random()*destinations.length)];
   const targetSystem = ensureSystemState(targetIndex);
   const goods = state.tradeGoodsArray[Math.floor(Math.random() * state.tradeGoodsArray.length)];
-  const tons = 2 + Math.floor(Math.random() * 5);
-  const hazardPay = targetSystem.hasAsteroids || targetSystem.hasNebula ? 1 + Math.floor(Math.random() * 10) : 0;
-  const basePay = 4 + Math.floor(Math.random() * 16);
-  const station = getCurrentDockedStation();
+  const available = Math.max(1, state.cargoCap - state.cargo);
+  const tons = Math.min(available, 2 + Math.floor(Math.random() * Math.min(19, Math.max(3, available))));
+  const route = getPlottedRoute(state.currentPlanet, targetIndex);
+  const distance = finiteNumber(route?.distance, (route?.legs || []).reduce((n, leg) => n + getRouteWarpDistance(leg), 0));
+  const wartime = areFactionsOpposed(getSystemFaction(state.currentPlanet), getSystemFaction(targetIndex));
+  const hazardPay = (targetSystem.hasAsteroids ? 20 : 0) + (targetSystem.hasNebula ? 30 : 0) + (wartime ? 100 : 0);
+  const basePay = Math.round(150 + Math.min(350, distance * 3));
+  const station = getCurrentServiceStation();
   const stationStats = station ? getShipStats(station.stationTypeId) : null;
   const origin = state.planets[state.currentPlanet];
   const hazards = [];
   if (targetSystem.hasAsteroids) hazards.push('asteroid traffic');
   if (targetSystem.hasNebula) hazards.push('nebula interference');
+  if (wartime) hazards.push('wartime destination; access is not guaranteed');
   return {
     id: `contract-${Date.now().toString(36)}-${Math.floor(Math.random() * 100000).toString(36)}`,
     goods,
@@ -13059,8 +13234,8 @@ function closeContractModal() {
 
 function acceptPendingContract() {
   if (state.gameOver || !state.gameStarted) return;
-  if (!state.docked) {
-    setLog('Dock again before accepting a contract.');
+  if (!requireServiceConnection()) {
+    setLog('Hail a station again before accepting a contract.');
     closeContractModal();
     return;
   }
@@ -13098,9 +13273,9 @@ function declinePendingContract() {
 
 function buyMarketGood(slot = 0) {
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireDocked()) return;
+  if (!requireServiceConnection()) return;
   updateMenu(1, 3);
-  const buyRefusal = serviceRefusal(getSystemFaction(state.currentPlanet));
+  const buyRefusal = serviceRefusal(getCurrentServiceStation()?.faction || getSystemFaction(state.currentPlanet));
   if (buyRefusal) {
     setLog(buyRefusal);
     updateStats();
@@ -13119,7 +13294,7 @@ function buyMarketGood(slot = 0) {
     return;
   }
   state.latinum -= offer.price;
-  const tradeFaction = getTradeStandingFaction(state.currentPlanet, getCurrentDockedStation());
+  const tradeFaction = getTradeStandingFaction(state.currentPlanet, getCurrentServiceStation());
   if (tradeFaction && getFactionStanding(tradeFaction) < 15) adjustFactionStanding(tradeFaction, 1, { silent: true });
   playGameSound('purchase', { cooldownKey: `market:buy:${slot}` });
   setLog(`Bought 1 ton of ${offer.goods} for ${offer.price} latinum.`);
@@ -13128,9 +13303,9 @@ function buyMarketGood(slot = 0) {
 
 function sellMarketGood(slot = 0) {
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireDocked()) return;
+  if (!requireServiceConnection()) return;
   updateMenu(1, 5);
-  const sellRefusal = serviceRefusal(getSystemFaction(state.currentPlanet));
+  const sellRefusal = serviceRefusal(getCurrentServiceStation()?.faction || getSystemFaction(state.currentPlanet));
   if (sellRefusal) {
     setLog(sellRefusal);
     updateStats();
@@ -13145,7 +13320,7 @@ function sellMarketGood(slot = 0) {
     return;
   }
   state.latinum += offer.price;
-  const tradeFaction = getTradeStandingFaction(state.currentPlanet, getCurrentDockedStation());
+  const tradeFaction = getTradeStandingFaction(state.currentPlanet, getCurrentServiceStation());
   if (tradeFaction && getFactionStanding(tradeFaction) < 15) adjustFactionStanding(tradeFaction, 1, { silent: true });
   playGameSound('cargo', { cooldownKey: `market:sell:${slot}` });
   setLog(`Sold 1 ton of ${offer.goods} for ${offer.price} latinum.`);
@@ -13171,7 +13346,7 @@ function openMap() {
 
 function transport() {
   if (state.gameOver || !state.gameStarted) return;
-  if (!state.docked) {
+  if (!hasServiceConnection()) {
     const target = getNearestTransportAsteroid();
     if (!target) {
       setLog(`No asteroid in transporter range. Fly within ${ASTEROID_TRANSPORT_RANGE} units and press T.`);
@@ -13180,7 +13355,7 @@ function transport() {
     mineAsteroid(target.asteroid);
     return;
   }
-  if (!requireDocked()) return;
+  if (!requireServiceConnection()) return;
   updateMenu(2, 5);
   const p = state.planets[state.currentPlanet];
   const chance = Math.random();
@@ -13249,9 +13424,10 @@ function tryTransportClickedAsteroid(asteroid) {
 
 function negotiateContract() {
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireDocked()) return;
+  if (!requireServiceConnection()) return;
   updateMenu(1, 3);
   state.pendingContractOffer = createCargoRunOffer();
+  if (!state.pendingContractOffer) { setLog('No reachable cargo destinations available.'); return; }
   renderContractModal();
   setLog(`Contract offer from ${state.pendingContractOffer.employerName}.`);
   updateStats();
@@ -13264,13 +13440,13 @@ function deliverContractIfPossible() {
 
 function tradeOne() {
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireDocked()) return;
+  if (!requireServiceConnection()) return;
   buyMarketGood(0);
 }
 
 function tradeAtPlanet() {
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireDocked()) return;
+  if (!requireServiceConnection()) return;
   updateMenu(1, 5);
   if (deliverDestinationCargoAtCurrentPlanet()) return;
   const p = state.planets[state.currentPlanet];
@@ -13322,7 +13498,7 @@ function randomTravelEvent() {
 
 function refuel() {
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireDocked()) return;
+  if (!requireServiceConnection()) return;
   syncFuelToAntimatter();
   const missing = state.fuelCap - state.antimatter;
   if (missing <= 0) {
@@ -13587,10 +13763,11 @@ function updateSecurityOrderPanel() {
   }
   const visitor = ledger?.visitors?.player || null;
   const cleared = zone && zone.foreign && visitor?.clearance && !order;
-  const show = Boolean(order || notice || (zone && zone.foreign && (cleared || visitor?.noncompliant)));
+  const arrival = zone?.foreign && state.arrivalHail?.systemIndex === state.currentPlanet && !state.arrivalHail.acknowledged;
+  const show = Boolean(arrival || order || notice || (zone && zone.foreign && (cleared || visitor?.noncompliant)));
   securityOrderPanelEl.classList.toggle('hidden', !show);
   if (!show) { securityOrderPanelEl.dataset.renderKey = ''; return; }
-  const key = securityOrderPanelKey(order, notice, zone) + (cleared ? ':cleared' : visitor?.noncompliant ? ':refused' : '');
+  const key = securityOrderPanelKey(order, notice, zone) + (arrival ? ':arrival' : '') + (cleared ? ':cleared' : visitor?.noncompliant ? ':refused' : '');
   if (securityOrderPanelEl.dataset.renderKey === key) return;
   securityOrderPanelEl.dataset.renderKey = key;
   if (order) {
@@ -13616,6 +13793,13 @@ function updateSecurityOrderPanel() {
           <button data-security-response="refuse" class="security-refuse" title="Refusal is recorded. Their installations will not receive you for this visit. It authorizes no weapons.">Refuse</button>
         </div>
       </div>`;
+    return;
+  }
+  if (arrival) {
+    const e = ensureActorSensors(state);
+    const decision = getVisitorAccessDecision(zone, {...getSecurityContact('player'), broadcast:e.transponder ? {source:'declared',faction:e.declaration || getPlayerFlag()} : {source:'none'}});
+    const message = decision.decision === 'closed' ? 'Your declared flag is barred. Remain outside the perimeter and leave this system. Station commerce is denied.' : decision.decision === 'challenge' ? 'Approach the marked security perimeter at low speed. On crossing, follow the holding marker and stop for inspection. Commerce unlocks after clearance.' : 'Your declared traffic is cleared to approach. Hail a station for transporter trade.';
+    securityOrderPanelEl.innerHTML = `<div class="security-order-head"><span>Incoming hail</span><span>${escapeHtml(zone.anchorName)}</span></div><div class="security-order-body"><p>${escapeHtml(zone.label)}: ${escapeHtml(message)}</p><p>Security perimeter: ${zone.radius} units from the planet.</p><button data-arrival-ack>Acknowledge hail</button><button data-comms="open">Station channels</button></div>`;
     return;
   }
   if (notice) {
@@ -14926,8 +15110,13 @@ function applyPlayerDamage(damage, color = '#ff7777', options = {}) {
     return { shieldDamage: 0, hullDamage: 0, blocked: true };
   }
   state.shields = clamp(finiteNumber(state.shields, 0), 0, 100);
-  const shieldDamage = Math.min(state.shields, amount, MAX_PLAYER_SHIELD_DAMAGE_PER_HIT);
-  const hullDamage = Math.min(MAX_PLAYER_HULL_DAMAGE_PER_HIT, Math.max(0, amount - Math.min(state.shields, amount)));
+  // Weapon damage uses the same canonical pools as NPC hulls. Environmental
+  // percentage penalties keep their existing units. Saved player values remain percentages.
+  const pools = options.combatUnits ? getNpcCombatDurability(state.playership) : {hull:100, shields:100};
+  const availableShields = state.shields * pools.shields / 100;
+  const absorbed = Math.min(availableShields, amount);
+  const shieldDamage = Math.min(state.shields, pools.shields > 0 ? absorbed * 100 / pools.shields : 0, MAX_PLAYER_SHIELD_DAMAGE_PER_HIT);
+  const hullDamage = Math.min(MAX_PLAYER_HULL_DAMAGE_PER_HIT, Math.max(0, amount - absorbed) * 100 / pools.hull);
   state.lastShieldHitAt = gameNow();
   if (shieldDamage > 0) {
     const visual = getShipVisualProfile(state.playership);
@@ -15778,7 +15967,7 @@ function fireNpcWeapon(npc, target = playerWorldPosition(), targetType = 'player
       };
     const impact = getWeaponImpactPoint(targetType === 'player' ? null : target, origin, targetType);
     recordSensorHit(targetType === 'player' ? state : target, sensorAttackSnapshot(npc));
-    if (targetType === 'player') applyPlayerDamage(damage, shotColor, { impactPoint: impact });
+    if (targetType === 'player') applyPlayerDamage(damage, shotColor, { impactPoint: impact, combatUnits: true });
     else damageCombatTarget(target, damage, isPlayerEscortNpc(npc) ? 'playerEscort' : 'npc', shotColor, impact);
     if (isCuttingBeamWeapon(weapon)) {
       addCuttingBeamEffects({
@@ -15870,7 +16059,7 @@ function fireStationWeapon(station, target, now = gameNow()) {
       : origin;
     const impact = getWeaponImpactPoint(targetType === 'player' ? null : target, beamOrigin, targetType);
     recordSensorHit(targetType === 'player' ? state : target, sensorAttackSnapshot(station));
-    if (targetType === 'player') applyPlayerDamage(damage, shotColor, { impactPoint: impact });
+    if (targetType === 'player') applyPlayerDamage(damage, shotColor, { impactPoint: impact, combatUnits: true });
     else damageCombatTarget(target, damage, 'station', shotColor, impact);
     if (isCuttingBeamWeapon(weapon)) {
       addCuttingBeamEffects({
@@ -16013,6 +16202,7 @@ function destroyNpcShip(npc) {
 
 function destroyStation(station) {
   for(const order of fleetBook().orders)if(order.stationId===station.id&&!['delivered','lost'].includes(order.status))order.status='lost';
+  addGalaxyReport({id:`station-loss:${station.id}`,systemIndex:state.currentPlanet,kind:'Installation lost',confidence:'Confirmed local observation',text:`${station.name} destroyed in ${state.planets[state.currentPlanet]?.name}. ${state.activeFleetAttack ? formatFaction(state.activeFleetAttack.faction) + ' raid reported in the system.' : 'Combat attribution not confirmed.'}`});
   station.destroyed = true;
   station.hostile = false;
   station.attitude = 'destroyed';
@@ -16151,7 +16341,7 @@ function updateProjectiles(frameScale = 1) {
       shot.x = impact.x;
       shot.y = impact.y;
       recordSensorHit(state,shot.attack);
-      applyPlayerDamage(shot.damage, shot.color || '#ff7777', { impactPoint: impact });
+      applyPlayerDamage(shot.damage, shot.color || '#ff7777', { impactPoint: impact, combatUnits: true });
       if (shot.kind === 'torpedo' || shot.kind === 'mine') {
         addWeaponEffect({
           kind: 'burst',
@@ -16540,6 +16730,7 @@ function spawnFleetAttack(systemIndex = state.currentPlanet, attackerFaction = c
     size,
   };
   state.fleetAttackControlSince = 0;
+  addGalaxyReport({id:attackId, systemIndex, kind:activity.type === 'battle' ? 'Major fleet action' : activity.type === 'skirmish' ? 'Minor fleet action' : 'Raid', confidence:'Confirmed local contact', text:`${formatFaction(attackerFaction)} forces engaged ${formatFaction(localFaction)} defenses near ${state.planets[systemIndex]?.name}. ${ships.length} attacking vessels detected.`});
   setLog(`${formatFaction(attackerFaction)} attack fleet entering ${state.planets[systemIndex]?.name || 'this system'}: ${size} ships inbound.`);
   return true;
 }
@@ -17008,6 +17199,7 @@ function tick(frameScale = 1) {
   if (state.gameOver || !state.gameStarted || playtestClock.stoppedAt !== null) return;
   if (state.warp.active) {
     const elapsed = gameNow() - state.warp.startedAt;
+    if (!state.warp.briefingSeen && elapsed >= state.warp.duration * 0.5) { openWarpBriefing(); return; }
     if (elapsed >= state.warp.duration) completeWarpTravel();
     return;
   }
@@ -20690,6 +20882,7 @@ function startWithFaction(key, options = {}) {
   renderStartMenu('main');
   playGameSound('shipLaunch', { cooldownKey: 'ship:new-game' });
   setLog(`${state.captainName} aboard ${state.shipName}. ${f.label} selected.`);
+  state.remoteStationId = null;
   syncLegacyState();
   updateStats();
 }
@@ -21117,6 +21310,7 @@ function advanceFleetCalendar(days, id) {
     complete(day) {
       advanceWorldDiplomacy(day);
       advanceFactionReconstruction(day);
+      collectGalaxyReports(day);
       completeFleetJourneys();
       const completed = completeDueStationConstructions({ silent: true, deferScene: state.warp.active });
       if (state.warp.active) state.warp.completedStations = (state.warp.completedStations || 0) + completed;
@@ -21163,7 +21357,7 @@ function startBoardingTarget(target = getSelectedCombatTarget(), confirm = true)
   if (
     confirm &&
     !window.confirm(
-      `Attempt boarding? Estimated success ${odds}. Failure loses the team and scuttles the ship. Already launched weapons can still destroy it.`,
+      `Attempt boarding? Estimated success ${odds}. Resolves immediately. Failure loses the team and scuttles the ship.`,
     )
   )
     return false;
@@ -21177,7 +21371,7 @@ function startBoardingTarget(target = getSelectedCombatTarget(), confirm = true)
   state.lastPlayerAggressionTargetSide = getNpcSideId(target);
   alertLocalDefenseAgainstPlayer(getNpcSideId(target));
   capturePrizeVisit(state.currentPlanet);
-  setLog('Boarding team deploying.');
+  updateBoarding(Fleet.FLEET_RULES.deploymentSeconds + Fleet.FLEET_RULES.boardingSeconds);
   return true;
 }
 function updateBoarding(seconds) {
@@ -21275,11 +21469,11 @@ function autoAssignFleet(ship) {
 function fleetLocalActor(id) {
   return state.npcShips.find((n) => n.fleetId === id && !n.destroyed);
 }
-function fleetServiceAllowed(npc) {
-  const st = getCurrentDockedStation();
+function fleetServiceAllowed(npc, physical = false) {
+  const st = getCurrentServiceStation();
   return (
     !!npc &&
-    state.docked &&
+    (physical ? state.docked : hasServiceConnection()) &&
     !npc.destroyed &&
     distanceToPlayer(npc) <= 2400 &&
     !npc.power?.combat &&
@@ -21295,7 +21489,7 @@ function fleetServiceAllowed(npc) {
 }
 function repairFleetVessel(id) {
   const npc = id === 'player' ? null : fleetLocalActor(id);
-  if (id === 'player' ? !requireDocked() : !fleetServiceAllowed(npc)) return false;
+  if (id === 'player' ? !requireDocked() : !fleetServiceAllowed(npc, true)) return false;
   if (npc) ensureNpcCombatStats(npc);
   const shipId = npc ? npc.shipId : state.playership,
     max = npc ? npc.maxCombatHull : getNpcCombatDurability(shipId).hull,
@@ -21354,7 +21548,7 @@ function sellFleetVessel(id, confirm = true) {
   updateStats();
   return true;
 }
-function fleetStationServices(station = getCurrentDockedStation()) {
+function fleetStationServices(station = getCurrentServiceStation()) {
   if (!station) return { sell: true, refit: true, build: false, training: false };
   const stats = getShipStats(station.stationTypeId),
     name = String(stats.name || '').toLowerCase();
@@ -21396,7 +21590,7 @@ function fleetShipStock(shipId, system = state.currentPlanet) {
         if (!fleetStationServices(st).smallOnly || getShipStats(id).mass <= 4) add(id, st.id);
   // A current vendor's permitted fallback is also a real offer; it cannot replace an authored list.
   if (system === state.currentPlanet)
-    for (const ship of getShipyardStock()) add(ship.id, getCurrentDockedStation()?.id || 'planet-fallback');
+    for (const ship of getShipyardStock()) add(ship.id, getCurrentServiceStation()?.id || 'planet-fallback');
   for (const [id, provenance] of sources) Fleet.ensureStock(b, system, id, state.day, 2, provenance);
   return b.stock[`${system}:${resolveShipId(shipId)}`] || null;
 }
@@ -21406,7 +21600,7 @@ function fleetStockAvailable(shipId) {
 function fleetPlanStatus(shipId) {
   const ship = getShipStats(shipId),
     services = fleetStationServices(),
-    st = getCurrentDockedStation();
+    st = getCurrentServiceStation();
   const base = ship.purchaseRequirements?.factionStanding ?? PURCHASE_TIER_STANDING[ship.purchaseTier] ?? 0;
   const faction = getCurrentPurchaseVendor(st).standingFaction,
     required = Fleet.planStanding(base),
@@ -21415,8 +21609,8 @@ function fleetPlanStatus(shipId) {
   const offered = getShipyardStock(st).some((s) => s.id === Number(shipId));
   const reason = known
     ? 'Already licensed'
-    : !state.docked
-      ? 'Dock to buy plans'
+    : !hasServiceConnection()
+      ? 'Hail a station to buy plans'
       : !services.sell
         ? 'No ship plans here'
         : !offered
@@ -21452,11 +21646,11 @@ function fleetBuildStationStatus(stationId, system) {
   return 'owned';
 }
 function orderFleetBuild(shipId, confirm = true) {
-  const st = getCurrentDockedStation(),
+  const st = getCurrentServiceStation(),
     b = fleetBook(),
     ship = getShipStats(shipId);
   if (
-    !state.docked ||
+    !hasServiceConnection() ||
     !st ||
     !fleetStationServices(st).build ||
     fleetBuildStationStatus(st.id, state.currentPlanet) !== 'owned' ||
@@ -21544,7 +21738,7 @@ function refitFleetWeapon(id, slot, weaponId, buy = false) {
       )
         return false;
       if (weapon.guidance === 'home-on-jam' && !getHojPurchaseDecision().canBuy) return false;
-      if (serviceRefusal(getCurrentDockedStation()?.faction || getSystemFaction(state.currentPlanet)))
+      if (serviceRefusal(getCurrentServiceStation()?.faction || getSystemFaction(state.currentPlanet)))
         return false;
       state.latinum -= getWeaponPrice(weapon);
       npc.weaponInventory.push(weaponId);
@@ -21714,7 +21908,7 @@ function renderFleetManager(open = false) {
     )}</select>${btn('dispatch', 'Dispatch to system', g.id)}</div>`,
     )
     .join('');
-  const ships = state.docked ? getShipyardStock() : [];
+  const ships = hasServiceConnection() ? getShipyardStock() : [];
   const plans = ships
     .map((s) => {
       const p = fleetPlanStatus(s.id),
@@ -21746,8 +21940,8 @@ document.addEventListener('click', (event) => {
   if (action === 'board') startBoardingTarget();
   if (action === 'cancel') Fleet.cancelBoarding(b);
   if (action === 'pay') Fleet.payDebt(b, state, state.day);
-  if (action === 'recruit' && state.docked) Fleet.recruitTeam(b, state);
-  if (action === 'train' && state.docked && fleetStationServices().training) Fleet.trainTeam(b, state);
+  if (action === 'recruit' && requireServiceConnection()) Fleet.recruitTeam(b, state);
+  if (action === 'train' && requireServiceConnection() && fleetStationServices().training) Fleet.trainTeam(b, state);
   if (action === 'group') Fleet.addFormation(b, `Fleet ${b.formations.length + 1}`);
   if (action === 'repair') repairFleetVessel(id);
   if (action === 'sell') sellFleetVessel(id);

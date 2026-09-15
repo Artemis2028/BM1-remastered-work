@@ -38,7 +38,8 @@
     "test:fleets:ingame": "node scripts/ship-fleet-probe.mjs",
     "test:world": "node scripts/faction-world-test.mjs",
     "test:playtest": "node scripts/playtest-probe.cjs",
-    "test:stations": "node scripts/station-defense-probe.cjs"
+    "test:stations": "node scripts/station-defense-probe.cjs",
+    "test:briefing": "node scripts/captains-briefing-probe.cjs"
   },
   "license": "SEE LICENSE IN LICENSE.md",
   "devDependencies": {
