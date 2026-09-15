@@ -15,7 +15,7 @@ const shim = `window.__fleet={Fleet,state,startWithFaction,createNpcShip,ensureN
  fleetBook,vesselDefaults,getScaledWeaponDamage,get WEAPON_CATALOG(){return WEAPON_CATALOG;},fleetServiceAllowed,captureShipPowerState,restoreFleetPower,applySystemState,saveGame,loadGame,playerWorldPosition,
  getPlayerEscortNpcShips,getPlayerFleetNpcShips,getPlayerEscortFleetShips,getShipStats,getOriginalShipWeaponSlots,getWeapon,
  startBoardingTarget,updateBoarding,canFleetDepart,physicalNpcId,beginAmbientTrafficArrival,advanceFleetCalendar,
- openFleetPurchaseModal,renderFleetPurchaseModal,closeFleetPurchaseModal,getShipyardStock,fleetShipStock,fleetStockAvailable,buyEscortShip,buyFleetShip,buyEWModule,buySensorSuite,completeDueStationConstructions,syncPlayerBuiltStationDefinitions,repairHull,repairFleetVessel,sellFleetVessel,
+ getCurrentPurchaseVendor,transferSystemControlToPlayer,openFleetPurchaseModal,renderFleetPurchaseModal,closeFleetPurchaseModal,getShipyardStock,fleetShipStock,fleetStockAvailable,buyEscortShip,buyFleetShip,buyEWModule,buySensorSuite,completeDueStationConstructions,syncPlayerBuiltStationDefinitions,repairHull,repairFleetVessel,sellFleetVessel,
  transferFleetCommand,renderFleetManager,refitFleetWeapon,orderFleetBuild,fleetBuildStationStatus,fleetPlanStatus,buyFleetPlan,
  buildPurchaseContext,getCurrentPurchaseVendor,isUnbalancedPrototype,getFactionStanding,adjustFactionStanding,getStationOwner,getShipPrice,completeFleetJourneys,fleetStationServices,tick,hojEmitterKey,sensorKey,sensorWorld,sensorAttackSnapshot,launchHoj,updateProjectiles,
  ensureActorEW,ensureActorSensors,ensurePlayerPower,updatePowerSystems,updateSensorSystems,applyVesselDisablement,
@@ -145,7 +145,7 @@ try {
       s.currentPlanet=B.getSystemIndexByName(name);s.myplanet=s.currentPlanet+1;s.dockedStationId=null;
       const listed=B.getShipyardStock(null).map(ship=>ship.id),authored=s.planets[s.currentPlanet].shipStockIds.map(B.resolveShipId);
       const context=B.buildPurchaseContext(B.getCurrentPurchaseVendor(null));
-      const eligible=[...new Set(authored.filter(id=>{const ship=s.shipStatsById[id];return ship&&ship.assetType==='ship'&&B.getShipPrice(ship)>0&&!['retired','prototype'].includes(ship.rosterState)&&!B.isUnbalancedPrototype(ship)&&s.shipCatalog.eligibleForStock(id,context);} ))];
+      const eligible=[...new Set(authored.filter(id=>{const ship=s.shipStatsById[id];return ship&&ship.assetType==='ship'&&B.getShipPrice(ship)>0&&!['retired','prototype'].includes(ship.rosterState)&&!B.isUnbalancedPrototype(ship)&&s.shipCatalog.eligibleForStock(id,context)&&(context.standingFaction==='neutral'||ship.faction==='neutral'||ship.faction===context.standingFaction);} ))];
       test(`${name} exposes complete eligible authored list`,JSON.stringify(listed)===JSON.stringify(eligible),{listed,eligible});
       console.log('FLEET_MARKET',JSON.stringify({name,authored:authored.length,eligible:eligible.length,offered:listed.length}));
     }
@@ -431,7 +431,7 @@ try {
       B.closeFleetPurchaseModal();
       const stock = B.fleetShipStock(offer.id);
       stock.quantity = 1;
-      B.adjustFactionStanding(B.getShipStats(offer.id).faction, 100, { silent: true });
+      B.adjustFactionStanding(B.getCurrentPurchaseVendor().standingFaction, 100, { silent: true });
       const prior = s.playerFleet.length;
       B.buyEscortShip(offer.id);
       B.buyEscortShip(offer.id);
@@ -493,8 +493,9 @@ try {
       s.fleetTrafficProfiles.length === 101 &&
         s.fleetTrafficProfiles.every((p, i) => p.systemIndex === i && p.source && p.rationale),
     );
-    // Exercise production and refit at an actual authored, player-owned ship service.
+    // Explicitly acquire this test holding: faction membership no longer grants ownership.
     B.startWithFaction('terran');
+    B.transferSystemControlToPlayer(s.currentPlanet);
     s.latinum = 100000000;
     s.mylatinum = s.latinum;
     s.duranium = 100000;
@@ -512,7 +513,7 @@ try {
       s.dockedStationId = yard.id;
       B.setCamera(yard.x, yard.y);
       const hull = B.getShipyardStock(yard)[0];
-      B.adjustFactionStanding(hull.purchaseRequirements?.faction || hull.faction, 100, { silent: true });
+      B.adjustFactionStanding(B.getCurrentPurchaseVendor().standingFaction, 100, { silent: true });
       const funds = s.latinum,
         plan = B.fleetPlanStatus(hull.id);
       test(

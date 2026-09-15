@@ -35,7 +35,10 @@
     "test:ew:performance:plan": "scripts/ew-campaign.sh --plan",
     "test:debug:ingame": "node scripts/debug-menu-probe.cjs",
     "test:fleets": "node scripts/ship-fleet-test.mjs",
-    "test:fleets:ingame": "node scripts/ship-fleet-probe.mjs"
+    "test:fleets:ingame": "node scripts/ship-fleet-probe.mjs",
+    "test:world": "node scripts/faction-world-test.mjs",
+    "test:playtest": "node scripts/playtest-probe.cjs",
+    "test:stations": "node scripts/station-defense-probe.cjs"
   },
   "license": "SEE LICENSE IN LICENSE.md",
   "devDependencies": {

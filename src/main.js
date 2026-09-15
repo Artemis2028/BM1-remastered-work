@@ -1,8 +1,10 @@
+import * as World from './faction-world.mjs';
 import * as Fleet from './ship-fleet.mjs';
 import { HOJ_WEAPON_ID, createHojFlight, stepHojFlight, sampleHojIfDue } from './ship-hoj.mjs';
 import { EW_MODULES, sanitizeEW, snapshotEW, stopEW, rollEW, manageEW, fundElectronics } from './ship-ew.mjs';
 import { SENSOR_RULES, SENSOR_SUITES, SensorWorld, sensorProfile, ensureSensorEquipment, defaultTransponder, fundSensors, sensorDistance, visualReach, freshTrack, receivedDeclaration, pointImpact } from './ship-sensors.mjs';
 import {
+  isDominionCoreSystem,
   loadGameShipCatalog,
   mergeCatalogIntoEntities,
   buildSpawnContext,
@@ -21,6 +23,14 @@ import {
   powerWeaponFactor, powerEngineFactor, weaponPowerCost, spendPower, stepShipPower,
   assignPowerCrew, managePowerCrew, crewAllowsShot, powerSnapshot,
 } from './ship-power.mjs';
+
+const playtestClock = { stoppedAt: null, offset: 0 };
+function gameNow() { return (playtestClock.stoppedAt ?? performance.now()) - playtestClock.offset; }
+function pauseGameClock() { if (playtestClock.stoppedAt === null) playtestClock.stoppedAt = performance.now(); }
+function resumeGameClock() {
+  if (playtestClock.stoppedAt !== null) { playtestClock.offset += performance.now() - playtestClock.stoppedAt; playtestClock.stoppedAt = null; }
+  keys.clear(); heldWeaponInputs.clear();
+}
 
 const canvas = document.getElementById('game');
 const gameCtx = canvas.getContext('2d');
@@ -156,7 +166,7 @@ const DEFAULT_SECURITY_POLICY = Object.freeze({
 // Phase 3: holding zones and compliance. A zone is centred on the system's planet (planets orbit on
 // PLANET_ORBIT_BASE_MS, hours per revolution, so planet-relative markers are effectively stable);
 // its radius is derived from the authority's own planet-anchored installations. All durations are
-// on the local simulation clock (frameScale * 16.667 ms per tick), never on performance.now().
+// on the local simulation clock (frameScale * 16.667 ms per tick), never on gameNow().
 const SECURITY_ZONE_MIN_RADIUS = 560;
 const SECURITY_ZONE_MAX_RADIUS = 1100;
 const SECURITY_ZONE_RADIUS_MARGIN = 260; // beyond the authority's farthest planet-anchored installation
@@ -838,7 +848,7 @@ function playGameSound(key, options = {}) {
   const entry = getAudioSoundEntry(key);
   const source = getAudioSource(entry);
   if (!entry || !source) return null;
-  const now = performance.now();
+  const now = gameNow();
   const cooldownKey = options.cooldownKey || key;
   const cooldownMs = Math.max(0, finiteNumber(options.cooldownMs, entry.cooldownMs || 0));
   if (cooldownMs > 0 && now - finiteNumber(audioRuntime.recent.get(cooldownKey), 0) < cooldownMs) {
@@ -1312,6 +1322,7 @@ function getCurrentPurchaseVendor(station = getCurrentDockedStation()) {
     systemName: getCurrentSystemName(),
     stationName: String(station?.name || stationStats?.name || ''),
     vendor: station?.shipVendor || null,
+    standingFaction: getTradeStandingFaction(state.currentPlanet, station) || 'neutral',
   };
 }
 
@@ -1528,7 +1539,7 @@ function createNpcShip({
     combatShields: null,
     maxCombatShields: null,
     lastShieldHitAt: 0,
-    lastShotAt: performance.now() + 700 + seeded(seed + 13) * 1500,
+    lastShotAt: gameNow() + 700 + seeded(seed + 13) * 1500,
     destroyed: false,
     scale: getNpcSpriteScale(shipId, seed + 11),
     role,
@@ -1619,7 +1630,7 @@ function getOrbitPeriodMs(distance, anchorMass = 1, seedValue = 1, kind = 'plane
   return Math.round(clamp(base * distanceFactor * variance / massFactor, minPeriod, maxPeriod));
 }
 
-function getOrbitalPosition(anchor, orbit, now = performance.now()) {
+function getOrbitalPosition(anchor, orbit, now = gameNow()) {
   if (!anchor || !orbit) return null;
   const period = Math.max(1000, finiteNumber(orbit.orbitPeriod, PLANET_ORBIT_BASE_MS));
   const direction = finiteNumber(orbit.orbitDirection, 1) >= 0 ? 1 : -1;
@@ -1638,7 +1649,7 @@ function hasExplicitStationOrbit(station = {}) {
     && Number.isFinite(Number(station.orbitAngle));
 }
 
-function getStationDefinitionWorldPoint(station, star, planet, now = performance.now()) {
+function getStationDefinitionWorldPoint(station, star, planet, now = gameNow()) {
   if (hasExplicitStationOrbit(station)) {
     const anchor = station.orbitAnchor === 'planet' ? planet : star;
     const position = getOrbitalPosition(anchor, station, now);
@@ -2047,7 +2058,7 @@ function hasTravelRoute(from, to) {
 
 function getRouteNeighbors(index = state.currentPlanet) {
   return state.travelRoutes
-    .filter((route) => route.from === index || route.to === index)
+    .filter((route) => (route.from === index || route.to === index) && isChartSystemVisible(route.from) && isChartSystemVisible(route.to))
     .map((route) => (route.from === index ? route.to : route.from))
     .sort((a, b) => a - b);
 }
@@ -2060,7 +2071,7 @@ function selectRouteNeighbor(direction = 1) {
     ? (direction > 0 ? 0 : neighbors.length - 1)
     : (current + direction + neighbors.length) % neighbors.length;
   state.selectedPlanet = neighbors[next];
-  setLog(`Route target: ${state.planets[state.selectedPlanet].name}`);
+  setLog(`Route target: ${chartSystemLabel(state.selectedPlanet)}`);
   updateStats();
 }
 
@@ -2392,7 +2403,7 @@ function ensureSystemState(systemIndex) {
   const stationDefs = state.stationDefinitions.filter((station) => station.systemIndex === systemIndex);
   const stations = stationDefs.map((station, i) => {
     const stationTypeId = getStationTypeId(station);
-    const typedStation = { ...station, stationTypeId };
+    const typedStation = { ...station, stationTypeId, ...(!station.builtByPlayer ? stationRoleOrbit({...station,stationTypeId},i) : {}) };
     const visual = getStationVisualProfile(typedStation);
     const defenseProfile = getStationDefenseProfile(typedStation);
     // Owner comes from records/data, never from who controls the system; the flag follows the owner.
@@ -2434,7 +2445,8 @@ function ensureSystemState(systemIndex) {
   const destinations = getTrafficDestinations(stations, planet, star, wormhole, base);
   const npcCount = fleetTrafficCount(systemIndex,stations);
   const localFaction = getSystemFaction(systemIndex);
-  const localPatrolCount = localFaction === 'neutral' ? 0 : Math.min(2, npcCount);
+  const activity = getSystemActivity(systemIndex);
+  const localPatrolCount = localFaction === 'neutral' || activity.type === 'quiet' ? 0 : Math.min(activity.type === 'battle' ? 3 : 1, npcCount);
   const localTrafficCount = localFaction === 'neutral'
     ? 0
     : Math.min(npcCount, Math.max(localPatrolCount, Math.ceil(npcCount * 0.65)));
@@ -2445,9 +2457,7 @@ function ensureSystemState(systemIndex) {
     const offset = 40 + seeded(shipSeed + 3) * 120;
     const angle = seeded(shipSeed + 4) * Math.PI * 2;
     const role = i < localPatrolCount ? 'patrol' : i < localTrafficCount ? 'localTraffic' : 'traffic';
-    const shipId = i < localTrafficCount
-      ? getNpcShipIdForFaction(localFaction, shipSeed + 10, role)
-      : getNpcShipId(shipSeed + 10, role);
+    const shipId = activityTrafficShip(systemIndex, shipSeed + 10, role);
     if (shipId == null) return null;
     const faction = getShipFaction(shipId);
     const flight = getNpcFlightProfile(shipId, shipSeed);
@@ -2499,13 +2509,14 @@ function ensureSystemState(systemIndex) {
 }
 
 function applySystemState(systemIndex) {
+  captureWorldEncounter(systemIndex);
   capturePrizeVisit(systemIndex);
   // The NPCs currently live belong to securityLiveSystemIndex; snapshot the participants of that
   // system's active orders before they are discarded (travel, reload, or a same-system regeneration).
   captureShipPowerState();
   captureSecurityParticipants(state.securityLiveSystemIndex);
   const s = ensureSystemState(systemIndex);
-  const now = performance.now();
+  const now = gameNow();
   state.systemStar = { ...s.star };
   state.systemPlanet = { ...s.planet };
   state.systemBodies = (s.bodies || []).map((body) => ({ ...body }));
@@ -2554,7 +2565,7 @@ function applySystemState(systemIndex) {
       faction,
       sideId,
       attitude,
-      hostile: state.systemAttitude === 'hostile' && attitude !== 'friendly',
+      hostile: attitude === 'hostile',
       scale: getNpcSpriteScale(patrolShipId, ship.seed + 11),
       lastShotAt: now + 700 + seeded(ship.seed + 13) * 1500,
     };
@@ -2580,11 +2591,12 @@ function applySystemState(systemIndex) {
   state.combatTargetType = 'ship';
   state.securityLiveSystemIndex = Number(systemIndex);
   reconcileSecurityParticipants(systemIndex);
+  restoreWorldEncounter(systemIndex);
   restorePrizeVisit(systemIndex);
   for (const npc of state.npcShips) ensureNpcPower(npc);
 }
 
-function updateSystemOrbits(now = performance.now()) {
+function updateSystemOrbits(now = gameNow()) {
   const previousDockPoint = state.docked
     ? state.dockedStationId
       ? state.stations.find((station) => station.id === state.dockedStationId)
@@ -3047,7 +3059,7 @@ function getPlanetDockDistance(planet = state.planets[state.currentPlanet]) {
 function showPlanetCallout(index = state.currentPlanet) {
   state.planetCallout = {
     index,
-    born: performance.now(),
+    born: gameNow(),
     ttl: 4500,
   };
 }
@@ -3519,7 +3531,7 @@ function completeWormholeTransit(targetIndex, wormhole = state.wormhole, options
   state.combatTargetType = 'ship';
   applySystemState(state.currentPlanet);
   calmHomeSystem();
-  scheduleNextFleetAttack(performance.now() + 45000);
+  scheduleNextFleetAttack(gameNow() + 45000);
   if (state.wormhole) {
     setCamera(state.wormhole.x + 90, state.wormhole.y + 60);
   } else {
@@ -3555,7 +3567,7 @@ function startWormholeTransit(targetIndex, wormhole = state.wormhole) {
     from: state.currentPlanet,
     to: targetIndex,
     name: wormholeName,
-    startedAt: performance.now(),
+    startedAt: gameNow(),
     duration: WORMHOLE_TRANSIT_DURATION_MS,
     switched: false,
   };
@@ -3565,7 +3577,7 @@ function startWormholeTransit(targetIndex, wormhole = state.wormhole) {
   return true;
 }
 
-function updateWormholeTransit(now = performance.now()) {
+function updateWormholeTransit(now = gameNow()) {
   const transit = state.wormholeTransit;
   if (!transit?.active) return;
   const progress = clamp((now - transit.startedAt) / Math.max(1, transit.duration), 0, 1);
@@ -3670,6 +3682,7 @@ function getRouteOtherEnd(route, index) {
 }
 
 function getPlottedRoute(from = state.currentPlanet, to = state.selectedPlanet) {
+  if (!isChartSystemVisible(from) || !isChartSystemVisible(to)) return null;
   if (from === to) {
     return { from, to, legs: [], systems: [from], distance: 0, antimatter: 0 };
   }
@@ -3692,6 +3705,7 @@ function getPlottedRoute(from = state.currentPlanet, to = state.selectedPlanet) 
     if (current === -1 || current === to) break;
     visited.add(current);
     for (const route of state.travelRoutes) {
+    if (!isChartSystemVisible(route.from) || !isChartSystemVisible(route.to)) continue;
       const next = getRouteOtherEnd(route, current);
       if (next === null || visited.has(next)) continue;
       const candidate = distance[current] + getRouteWarpDistance(route);
@@ -3795,7 +3809,7 @@ function ensureStationCombatStats(station) {
   }
 }
 
-function regenerateShieldPool(entity, maxShield, regenPerSecond, frameScale = 1, now = performance.now()) {
+function regenerateShieldPool(entity, maxShield, regenPerSecond, frameScale = 1, now = gameNow()) {
   if (!Number.isFinite(maxShield) || maxShield <= 0) return false;
   const shieldKey = Object.prototype.hasOwnProperty.call(entity, 'combatShields') ? 'combatShields' : 'shields';
   const current = clamp(finiteNumber(entity[shieldKey], maxShield), 0, maxShield);
@@ -3807,7 +3821,7 @@ function regenerateShieldPool(entity, maxShield, regenPerSecond, frameScale = 1,
 }
 
 function updateShieldRegeneration(frameScale = 1) {
-  const now = performance.now();
+  const now = gameNow();
   // Ships recover through the shared energy budget in updatePowerSystems.
   for (const station of state.stations) {
     if (station.destroyed) continue;
@@ -4235,9 +4249,8 @@ function getFactionAttitude(faction = 'neutral') {
   if (faction === 'borg') return state.playerFaction === 'borg' ? 'friendly' : 'hostile';
   if (faction === 'pirate') return 'hostile';
   if (faction === state.playerFaction) return 'friendly';
-  const relation = getFactionRelations(state.playerFaction);
-  if (relation.friendly?.includes(faction)) return 'friendly';
-  if (relation.hostile?.includes(faction)) return 'hostile';
+  if (areFactionsOpposed(state.playerFaction,faction)) return 'hostile';
+  if (areFactionsAligned(state.playerFaction,faction)) return 'friendly';
   return 'neutral';
 }
 
@@ -4283,6 +4296,7 @@ function adjustFactionStanding(faction, delta, opts = {}) {
   const before = getFactionStanding(key);
   const after = clamp(before + Math.round(finiteNumber(delta, 0)), STANDING_MIN, STANDING_MAX);
   state.factionStanding[key] = after;
+  if(after<STANDING_MAX)for(const [i,p] of Object.entries(state.playtest?.delegatedPolicies||{}))if(p.controller===key)delete state.playtest.delegatedPolicies[i];
   if (!opts.silent) {
     if (before > STANDING_HOSTILE_AT && after <= STANDING_HOSTILE_AT) setLog(`${formatFaction(key)} now treats you as hostile.`);
     else if (before < STANDING_FRIENDLY_AT && after >= STANDING_FRIENDLY_AT) setLog(`${formatFaction(key)} now regards you as a friend.`);
@@ -4310,7 +4324,6 @@ function isUnlockedFaction(faction = 'neutral') {
   const key = normalizeFactionKey(faction);
   const feats = state.feats && typeof state.feats === 'object' ? state.feats : {};
   if (key === 'cardassian' && !feats.bajoranFleetDown && getFactionStanding('cardassian') < 50) return false;
-  if (key === 'romulan' && !feats.vexBorgDown && getFactionStanding('romulan') < 50) return false;
   return true;
 }
 function serviceRefusal(faction = 'neutral') {
@@ -4318,7 +4331,6 @@ function serviceRefusal(faction = 'neutral') {
   if (getEffectiveAttitude(key) === 'hostile') return `${formatFaction(key)} ports refuse you. Standing ${getFactionStanding(key)}. Repair it by trading elsewhere.`;
   if (!isUnlockedFaction(key)) {
     if (key === 'cardassian') return 'The Cardassian Order will only deal with whoever destroys the Bajoran system defenses.';
-    if (key === 'romulan') return 'The Romulans will only deal with whoever destroys the Borg in the Vex system.';
   }
   return null;
 }
@@ -4737,7 +4749,7 @@ function sensorPursuitPoint(npc, target, type = 'ship') {
 }
 
 function updateSensorSystems(frameScale = 1) {
-  const sensorUpdateStart=performance.now();
+  const sensorUpdateStart=gameNow();
   const profile=globalThis.__ewProfile;
   const dt = clamp(frameScale / 60, 0, 1);
   sensorClock += dt;
@@ -4757,10 +4769,10 @@ function updateSensorSystems(frameScale = 1) {
       saved.at));
   }
   if (sensorAccumulator + .000001 >= .2) {
-    passStart = performance.now();
+    passStart = gameNow();
     const elapsed = Math.min(sensorAccumulator, 1);
     sensorAccumulator = 0;
-    const snapStart=profile?performance.now():0;
+    const snapStart=profile?gameNow():0;
     const zone = getSecurityZone(),
       entities = [state, ...state.npcShips.filter(n => !n.destroyed && n.trafficWarp?.phase !== 'away'), ...state
         .stations.filter(n => !n.destroyed && !n.underConstruction)
@@ -4772,10 +4784,10 @@ function updateSensorSystems(frameScale = 1) {
         sensorWorld.restore(a.key, a.entity.sensorReports, sensorClock);
         delete a.entity.sensorReports;
       }
-    if(profile)profile.snapshotMs=(profile.snapshotMs||0)+performance.now()-snapStart;
-    const passWorkStart=profile?performance.now():0;
+    if(profile)profile.snapshotMs=(profile.snapshotMs||0)+gameNow()-snapStart;
+    const passWorkStart=profile?gameNow():0;
     sensorWorld.pass(actors, sensorClock, elapsed);
-    if(profile)profile.passMs=(profile.passMs||0)+performance.now()-passWorkStart;
+    if(profile)profile.passMs=(profile.passMs||0)+gameNow()-passWorkStart;
     for(const a of actors) a.entity.ewReception=a.ewReception;
     for (const a of actors) {
       const equip = ensureActorSensors(a.entity);
@@ -4796,21 +4808,21 @@ function updateSensorSystems(frameScale = 1) {
       }
     }
     // Detection-pass only (sharing included). Not the 2/4 full-workload gate.
-    sensorWorld.metrics.elapsedMs = performance.now() - passStart;
+    sensorWorld.metrics.elapsedMs = gameNow() - passStart;
     sensorWorld.metrics.detectionMs = sensorWorld.metrics.elapsedMs;
     sensorWorld.metrics.passOpen = true;
   }
-  const scanStart=profile?performance.now():0;
+  const scanStart=profile?gameNow():0;
   for (const a of sensorActors.values())
     if (!a.station) advanceSensorScan(a.entity, dt);
-  if(profile)profile.scanMs=(profile.scanMs||0)+performance.now()-scanStart;
+  if(profile)profile.scanMs=(profile.scanMs||0)+gameNow()-scanStart;
   if (passStart!==null) {
     // Scan on this pass, still not the full-workload gate (that is power+sensors).
-    sensorWorld.metrics.passMs = performance.now() - passStart;
+    sensorWorld.metrics.passMs = gameNow() - passStart;
     sensorWorld.metrics.seekerSampleMs = 0;
     sensorWorld.metrics.seekerSamples = 0;
   }
-  sensorWorld.metrics.updateMs=performance.now()-sensorUpdateStart;
+  sensorWorld.metrics.updateMs=gameNow()-sensorUpdateStart;
 }
 
 function snapshotActorSensors(entity, systemIndex = state.currentPlanet) {
@@ -4951,7 +4963,7 @@ function recordSensorHit(target, attack) {
   if (source && attack.system === state.currentPlanet) {
     if (source === state) recordPlayerAggressionAgainst(a);
     else {
-      source.lastAggressionAt = performance.now();
+      source.lastAggressionAt = gameNow();
       source.lastAggressionSystemIndex = state.currentPlanet;
       source.lastAggressionTargetSide = sensorSide(a);
     }
@@ -5025,7 +5037,7 @@ function liveJammerSignal(entity) {
   return liveJammerScratch;
 }
 function sampleDueHojSeekers(readSignal=null) {
-  const started=performance.now();
+  const started=gameNow();
   let ready=false;
   const read=readSignal||(key=>{
     if(!ready){
@@ -5042,7 +5054,7 @@ function sampleDueHojSeekers(readSignal=null) {
     if(shot.guidance!=='home-on-jam'||shot.dead||shot.system!==state.currentPlanet)continue;
     if(sampleHojIfDue(shot,read))n++;
   }
-  const ms=performance.now()-started;
+  const ms=gameNow()-started;
   if(sensorWorld.metrics.passOpen){
     sensorWorld.metrics.seekerSampleMs=ms;
     sensorWorld.metrics.seekerSamples=n;
@@ -5064,7 +5076,7 @@ function hojEngagementAllowed(source,target,explicit=false) {
     (isRaidingHere(a)&&sidesAligned(getDefendingSideId(),sensorSide(b)));
   return isNpcSystemAttacker(b,a);
 }
-function launchHoj(source,target,weapon,now=performance.now(),slot=0,explicit=false) {
+function launchHoj(source,target,weapon,now=gameNow(),slot=0,explicit=false) {
   const a=sensorEntity(source),b=sensorEntity(target),station=!!a.stationTypeId;
   if(a.fleetId && !fleetFirePermitted(a,b,b===state?'player':b.stationTypeId?'station':'ship',now))return false;
   if(now<(a.weaponReadyAt||0)||!target||vesselDisabled(a)||a.destroyed||a.underConstruction||a.trafficWarp?.phase==='away'||
@@ -5103,7 +5115,7 @@ function updateHojProjectile(shot,frameScale,bodies=null,readSignal=null) {
   }
 }
 
-function fireCounterfirePoint(entity, cue, weapon, now = performance.now(), slot = 0) {
+function fireCounterfirePoint(entity, cue, weapon, now = gameNow(), slot = 0) {
   const a = sensorEntity(entity);
   if (a.fleetId && ['hold','withdraw'].includes(fleetBook().formations.find(g=>g.members.includes(a.fleetId))?.order))return false;
   if (now<(a.weaponReadyAt||0) || vesselDisabled(a) || weapon.guidance === 'home-on-jam' || a.destroyed || a.underConstruction || !cue || cue.expiresAt < sensorClock || cue.system !== state.currentPlanet ||
@@ -5237,14 +5249,14 @@ function captureShipPowerState(systemIndex = state.securityLiveSystemIndex) {
     const power = powerSnapshot(ensureNpcPower(npc));
     const fields = { ...snapshotActorSensors(npc,systemIndex), power, crewSkill: npc.crewSkill, crewTemperament: npc.crewTemperament };
     const fleet = npc.fleetId && state.playerFleet.find(f => f.id === npc.fleetId);
-    if (fleet) { Object.assign(fleet, fields); fleet.vessel = Fleet.snapshotVessel(npc, vesselDefaults(npc.shipId), performance.now()); }
+    if (fleet) { Object.assign(fleet, fields); fleet.vessel = Fleet.snapshotVessel(npc, vesselDefaults(npc.shipId), gameNow()); }
     const cached = state.systemStates?.[systemIndex]?.npcShips?.find(n => n.id === npc.id && n.seed === npc.seed);
     if (cached) Object.assign(cached, fields);
   }
 }
 function restoreFleetPower(ship, fleetShip) {
   ensureNpcCombatStats(ship);
-  if (fleetShip.vessel) { Fleet.restoreVessel(ship, fleetShip.vessel, performance.now(), vesselDefaults(ship.shipId).cooldown); }
+  if (fleetShip.vessel) { Fleet.restoreVessel(ship, fleetShip.vessel, gameNow(), vesselDefaults(ship.shipId).cooldown); }
   else {
     ship.physicalId = fleetShip.id;
     ship.weaponSlots = getOriginalShipWeaponSlots(ship.shipId).slice(0,3);
@@ -5364,9 +5376,9 @@ function advanceActorPower(npc, frameScale, now) {
 }
 function updatePowerSystems(frameScale = 1) {
   if (state.gameOver || !state.gameStarted) return;
-  const now = performance.now();
+  const now = gameNow();
   const profile = globalThis.__ewProfile;
-  const fundStart = profile ? performance.now() : 0;
+  const fundStart = profile ? gameNow() : 0;
   const previousShieldPercent = Math.floor(state.shields);
   advanceActorPower(null, frameScale, now);
   if (Math.floor(state.shields) !== previousShieldPercent) updateStats();
@@ -5376,7 +5388,7 @@ function updatePowerSystems(frameScale = 1) {
     if (npc.destroyed) continue;
     advanceActorPower(npc, frameScale, now);
   }
-  if (profile) profile.fundMs = (profile.fundMs || 0) + performance.now() - fundStart;
+  if (profile) profile.fundMs = (profile.fundMs || 0) + gameNow() - fundStart;
   // Fleet records own their power snapshot even if another action wipes scene caches.
   for (const npc of state.npcShips || []) {
     const fleet = !npc.destroyed && npc.fleetId && state.playerFleet.find(f => f.id === npc.fleetId);
@@ -5838,7 +5850,13 @@ function setSecurityPolicyDefault(partial) {
   return getSecurityPolicyDefault();
 }
 function setSecurityPolicyOverride(systemIndex, partial) {
-  if (!getSystemControl(systemIndex).playerControlled) return null; // no authority, no override
+  if (!getSystemControl(systemIndex).playerControlled) {
+    if (!canDelegateSecurity(systemIndex) || partial.roe !== undefined) return null;
+    const previous = getDelegatedPolicy(systemIndex) || {};
+    const access = sanitizeSecurityPolicy({access: {...previous.access, ...partial.access}}).access;
+    ensurePlaytestState().delegatedPolicies[systemIndex] = {controller: getSystemControl(systemIndex).controller, access};
+    return {access};
+  }
   const policies = ensureSecurityPolicies();
   const key = Number(systemIndex);
   const current = policies.systems[key] || {};
@@ -5849,7 +5867,10 @@ function setSecurityPolicyOverride(systemIndex, partial) {
   return getEffectiveSecurityPolicy(key);
 }
 function clearSecurityPolicyOverride(systemIndex) {
-  delete ensureSecurityPolicies().systems[Number(systemIndex)];
+  if (getSystemControl(systemIndex).playerControlled) delete ensureSecurityPolicies().systems[Number(systemIndex)];
+  else if (canDelegateSecurity(systemIndex)) delete ensurePlaytestState().delegatedPolicies[systemIndex];
+  else return false;
+  return true;
 }
 
 // ---- Phase 3: holding zones and compliance ----
@@ -5968,14 +5989,14 @@ function getSecurityZone(systemIndex = state.currentPlanet) {
     label = `${state.planets[i]?.name || 'System'} Security`;
     access = { ...getEffectiveSecurityPolicy(i).access };
   } else {
-    const authored = SECURITY_AUTHORED_CHECKPOINTS.find((entry) => getSystemIndexByName(entry.systemName) === i);
+    const authored = SECURITY_AUTHORED_CHECKPOINTS.find((entry) => getSystemIndexByName(entry.systemName) === i) || (getDelegatedPolicy(i) ? {authority:control.controller,label:`${formatFaction(control.controller)} Orbital Authority`,anchorNames:getSecurityAnchorCandidates(i,control.controller).map(s=>s.name),access:DEFAULT_SECURITY_POLICY.access} : null);
     if (!authored || control.controller !== authored.authority) return null;
     const candidates = getSecurityAnchorCandidates(i, authored.authority);
     anchor = authored.anchorNames.map((name) => candidates.find((station) => station.name === name)).find(Boolean) || null;
     if (!anchor) return null;
     authority = authored.authority;
     label = authored.label;
-    access = { ...DEFAULT_SECURITY_POLICY.access, ...authored.access };
+    access = { ...DEFAULT_SECURITY_POLICY.access, ...authored.access, ...getDelegatedPolicy(i)?.access };
     foreign = true;
   }
   const radius = getSecurityZoneRadius(i, authority);
@@ -6218,6 +6239,7 @@ function closePlayerSecurityOrders(systemIndex, outcome = 'departed', reason = '
 // Every actual holder change: old instructions and clearances end and can never reactivate.
 function invalidateSecurityAuthority(systemIndex, reason = 'holder changed') {
   const i = Number(systemIndex);
+  if(state.playtest?.delegatedPolicies)delete state.playtest.delegatedPolicies[i];
   bumpSecurityAuthorityEpoch(i);
   closeSecurityOrdersForSystem(i, 'authority_changed', reason);
   const ledger = getSecurityLedger(i);
@@ -6238,7 +6260,7 @@ function endNpcSecurityObjective(npc, outcome) {
   const objective = npc.securityObjective;
   npc.securityObjective = null;
   if (!objective || npc.destroyed) return;
-  const now = performance.now();
+  const now = gameNow();
   npc.waitUntil = 0;
   const zone = getSecurityZone(state.currentPlanet);
   const leavesArea = outcome === 'withdrawn' || outcome === 'refused' || outcome === 'expired' || outcome === 'departed';
@@ -6262,7 +6284,7 @@ function endNpcSecurityObjective(npc, outcome) {
 }
 // Called from updateNpcShips before any combat or lane logic. Returns true when the ship is
 // holding and must not move this tick; otherwise the generic movement flies it to the point set here.
-function updateNpcSecurityObjective(npc, now = performance.now()) {
+function updateNpcSecurityObjective(npc, now = gameNow()) {
   const objective = npc.securityObjective;
   if (!objective) return false;
   const ledger = getSecurityLedger(state.currentPlanet);
@@ -6284,14 +6306,14 @@ function updateNpcSecurityObjective(npc, now = performance.now()) {
   objective.holding = false;
   return false;
 }
-function canNpcTakeSecurityOrders(npc, now = performance.now()) {
+function canNpcTakeSecurityOrders(npc, now = gameNow()) {
   if (!npc || npc.destroyed || isPlayerSideNpc(npc)) return false;
   if (npc.role !== 'traffic' && npc.role !== 'localTraffic') return false; // military and mission roles are not addressed this phase
   if (npc.hostile || npc.attackId || npc.trafficWarp || npc.fleetId) return false;
   if ((npc.playerAggroUntil && npc.playerAggroUntil > now) || (npc.playerEscortOrderUntil && npc.playerEscortOrderUntil > now)) return false;
   return true;
 }
-function isNpcSecurityPreempted(npc, now = performance.now()) {
+function isNpcSecurityPreempted(npc, now = gameNow()) {
   return Boolean(npc.hostile) || Boolean(npc.attackId) || Boolean(getNpcDefenseTarget(npc))
     || (Boolean(npc.playerAggroUntil) && npc.playerAggroUntil > now)
     || (Boolean(npc.playerEscortOrderUntil) && npc.playerEscortOrderUntil > now);
@@ -6309,7 +6331,7 @@ function updateSecurityEncounters(frameScale = 1) {
   const ledger = ensureSecurityLedger(systemIndex);
   const deltaMs = clamp(finiteNumber(frameScale, 1), 0, 2.5) * 16.6667;
   ledger.localElapsedMs += deltaMs;
-  const now = performance.now();
+  const now = gameNow();
   const activeOrders = getSecurityActiveOrders(ledger);
 
   if (!zone) {
@@ -6455,7 +6477,7 @@ function isSecurityEntityHolding(entity, target) {
   const position = securityEntityPosition(entity);
   if (Math.hypot(target.x - position.x, target.y - position.y) > SECURITY_HOLD_TOLERANCE) return false;
   if (entity === 'player') return finiteNumber(state.ship?.velocity, 0) <= 0.25;
-  return Boolean(entity.securityObjective?.holding) || (entity.waitUntil && entity.waitUntil > performance.now());
+  return Boolean(entity.securityObjective?.holding) || (entity.waitUntil && entity.waitUntil > gameNow());
 }
 function advanceSecurityOrder(ledger, zone, order, entity, contact, position, distance, deltaMs, now) {
   if (order.outcome) return;
@@ -6555,14 +6577,18 @@ function operateSecurityOrder(orderId, action) {
 // installations. Nothing else changes: concessions and private posts inside the zone still trade.
 function getSecurityDockingBlock(ownerSide) {
   const zone = getSecurityZone(state.currentPlanet);
-  if (!zone || zone.authority === PLAYER_SIDE || !ownerSide || ownerSide !== zone.authority) return null;
-  const order = getPlayerSecurityOrder(state.currentPlanet);
-  if (order) return order.kind === 'withdraw' || order.withdrawing
-    ? `${zone.label}: this area is closed to you. Withdraw beyond the marked exit.`
-    : `${zone.label}: hold at the marked point for clearance before docking.`;
+  if (!zone || !zone.foreign) return null;
+  const contact=getSecurityContact('player'), equipment=ensureActorSensors(state);
+  // An ordinary service request carries the captain's transmitted declaration at any distance.
+  const access = getVisitorAccessDecision(zone, equipment.transponder ? {...contact,broadcast:{source:'declared',faction:equipment.declaration || getPlayerFlag()}} : contact);
+  if (!access || access.decision === 'open') return null;
   const visitor = getSecurityVisitor(getSecurityLedger(state.currentPlanet), 'player');
-  if (visitor?.noncompliant) return `${zone.label}: you refused their instruction. Their installations will not receive you until you leave and return.`;
-  return null;
+  const order = getPlayerSecurityOrder(state.currentPlanet);
+  if (access.decision === 'closed' || order?.kind === 'withdraw' || order?.withdrawing) return `${zone.label}: restricted area. Security and distress channels remain available.`;
+  if (visitor?.noncompliant) return `${zone.label}: leave the perimeter and return to request a new check.`;
+  const clearance = visitor?.clearance;
+  if (clearance && clearance.epoch === zone.epoch && clearance.accessClass === access.class && accessDecisionFromSignature(clearance.accessSignature, access.class) === access.decision && !order) return null;
+  return `${zone.label}: approach the marked perimeter and complete clearance before station services or ordinary hails.`;
 }
 
 // Persistence of participants: the bounded snapshot needed to resume an active NPC order after the
@@ -6615,7 +6641,7 @@ function reconcileSecurityParticipants(systemIndex) {
       ew: sanitizeEW(snap.ew), sensors: snap.sensors ? ensureSensorEquipment(snap.sensors) : null, sensorReports: snap.sensorReports || [],
       broadcastSource: snap.broadcastSource || null, broadcastFaction: snap.broadcastFaction || null,
       attitude: getFactionAttitude(snap.faction), hostile: false, trafficWarp: null, waitUntil: 0, systemWarpIntensity: 0,
-      ambientWarpAt: performance.now() + 20000,
+      ambientWarpAt: gameNow() + 20000,
     });
     npc.securityObjective = snap.objective ? { ...snap.objective } : null;
     if (!npc.securityObjective) beginNpcSecurityObjective(npc, order);
@@ -6707,13 +6733,19 @@ function resetSecurityRecords() {
 // active, so the perimeter is seen before it is crossed. The player's own checkpoint never
 // relocates the player. Called after setCameraNearPlanet.
 function placePlayerAtSecurityApproach() {
+  if (!state.systemPlanet) return false;
   const zone = getSecurityZone(state.currentPlanet);
-  if (!zone || !zone.foreign) return false;
-  const star = state.systemStar || zone.centre;
-  const angle = Math.atan2(star.y - zone.centre.y, star.x - zone.centre.x);
-  const distance = zone.radius + SECURITY_ARRIVAL_MARGIN;
-  setCamera(zone.centre.x + Math.cos(angle) * distance, zone.centre.y + Math.sin(angle) * distance);
-  return true;
+  const centre = state.systemPlanet;
+  const star = state.systemStar || centre;
+  const objects = [{...centre, safeRadius: Math.max(240, getPlanetVisualSize(state.planets[state.currentPlanet]) * .8)}, {...star, safeRadius: 350}, ...state.stations.filter(s => !s.destroyed).map(s => ({...s,safeRadius:Math.max(180, getStationScreenRadius(s) + 100)}))];
+  const bearing = Math.atan2(star.y - centre.y, star.x - centre.x) + Math.PI;
+  const start = zone ? zone.radius + SECURITY_ARRIVAL_MARGIN : 700;
+  for (let ring = 0; ring < 12; ring++) for (let slot = 0; slot < 24; slot++) {
+    const angle = bearing + slot * Math.PI / 12;
+    const point = {x:centre.x + Math.cos(angle)*(start + ring*240), y:centre.y + Math.sin(angle)*(start + ring*240)};
+    if (objects.every(o => Math.hypot(point.x-o.x,point.y-o.y) > o.safeRadius)) {setCamera(point.x,point.y);return true;}
+  }
+  return false;
 }
 
 // The side that defends a system: the player when the player holds it, else the holding polity.
@@ -6737,6 +6769,7 @@ function transferSystemInstallations(systemIndex, fromOwnerId, toOwnerId) {
 function transferSystemControlToPlayer(systemIndex = state.currentPlanet) {
   const i = Number(systemIndex);
   const before = getSystemControl(i);
+  ensurePlaytestState().holdings[i] = { source: 'acquired', day: state.day };
   const fromOwner = before.playerControlled ? null : before.polityId;
   if (!state.controlledSystems.some((entry) => Number(entry) === i)) state.controlledSystems.push(i);
   if (state.factionSystemOverrides) delete state.factionSystemOverrides[i];
@@ -6809,7 +6842,7 @@ As an independent captain launching from New Switzerland, you begin with no flag
     profile: 'Ferengi: tricky, devious and obsessed with profit. Cowardly alone but predatory in groups.',
     lore: `Primary planet Ferenginar. The Ferengi are tricky, devious and obsessed with profit. Cowardly alone but predatory in groups, they will do anything for personal gain.
 
-They stayed out of the Imperial War and will trade with any side. Interaction: will sell to anyone, anything.`,
+They stayed out of the Imperial War and will trade with any side.`,
     faction: 'ferengi',
     playership: 18,
     myplanet: 14,
@@ -6824,7 +6857,7 @@ They stayed out of the Imperial War and will trade with any side. Interaction: w
     profile: 'Vulcans: former co-founders of the Empire, now disarmed isolationists devoted to peace, diplomacy and education.',
     lore: `The Vulcans have long been the close allies of the humans. In 2125 they helped found the Earth Empire. But a new faction emerged that emphasized peace and passivity, and a new age was declared.
 
-The humans, who still wanted power above all else, exiled the Vulcans from Imperial territory. The Vulcans chose to disarm completely and isolate themselves on their homeworld, devoted to diplomacy and education. They do not equip ships or stations with weapons. Interaction: will sell to anyone, but no weapons or anything of that nature.`,
+The humans, who still wanted power above all else, exiled the Vulcans from Imperial territory. The Vulcans chose to disarm completely and isolate themselves on their homeworld, devoted to diplomacy and education. They do not equip ships or stations with weapons.`,
     faction: 'vulcan',
     playership: 25,
     myplanet: 12,
@@ -6839,7 +6872,7 @@ The humans, who still wanted power above all else, exiled the Vulcans from Imper
     profile: 'Romulans: notoriously xenophobic isolationists since 2241, considered inconsequential, though rumors persist of massive ships.',
     lore: `The Romulans have been notoriously xenophobic since the dawn of time. They severed all ties with the Earth Empire in 2241 and kept out of the war. Generally left alone by the humans, they have no interest in how the war ends and very little in the way of ships or power.
 
-Rumors persist of Ferengi traders who have seen massive, powerful ships in Romulan space, but no one pays serious attention to rumors. Interaction: will sell to the player only if the player destroys the Borg in the Vex system.`,
+Rumors persist of Ferengi traders who have seen massive, powerful ships in Romulan space, but no one pays serious attention to rumors.`,
     faction: 'romulan',
     playership: 29,
     myplanet: 31,
@@ -6854,7 +6887,7 @@ Rumors persist of Ferengi traders who have seen massive, powerful ships in Romul
     profile: 'Cardassians: clever, wealthy and politically influential, staying out of the war like a sleeping giant.',
     lore: `Cardassians are a clever species who maintained a small government outside the Empire's direct control. Wealthy and politically influential, they have nothing to fear from anyone and have been preparing for years to defend themselves.
 
-Since they bowed out of the arms race with the Klingons against the humans and stayed out of the war completely, they wait like a sleeping giant to see if the opportunity for power presents itself. Interaction: will sell to the player only if the player destroys the Bajoran system.`,
+Since they bowed out of the arms race with the Klingons against the humans and stayed out of the war completely, they wait like a sleeping giant to see if the opportunity for power presents itself.`,
     faction: 'cardassian',
     playership: 16,
     myplanet: 50,
@@ -6863,13 +6896,13 @@ Since they bowed out of the arms race with the Klingons against the humans and s
     mytech1: 48,
   },
   terran: {
-    label: 'Terran Rebel',
+    label: 'Terran Officer',
     desc: 'Officer of the Earth Empire, now losing the Imperial War against the Klingons.',
     loreTitle: 'Human Refugee',
     profile: 'Humans: tyrannical founders of the Earth Empire, now desperate to survive after eight years of war and half their territory lost.',
     lore: `The humans have long been a tyrannical force in the galaxy. Their unyielding thirst for planetary domination led them to conquer half the quadrant and enslave the population. New reforms and a government overthrow in 2252 weakened the Empire considerably, and their strongest member, the Vulcans, were cast out in 2307.
 
-In 2357 the Klingons launched the first attack. With 8 years of war now behind them and half their territory lost to the Klingon Empire, the humans are utterly desperate to survive. No longer is it a matter of sustaining their imperial reign, it is now a struggle to escape total enslavement. Interaction: will sell anything so long as they are not a declared enemy, except capital ships and stations.`,
+In 2357 the Klingons launched the first attack. With 8 years of war now behind them and half their territory lost to the Klingon Empire, the humans are utterly desperate to survive. No longer is it a matter of sustaining their imperial reign, it is now a struggle to escape total enslavement.`,
     faction: 'terran',
     playership: 3,
     myplanet: 1,
@@ -6884,7 +6917,7 @@ In 2357 the Klingons launched the first attack. With 8 years of war now behind t
     profile: 'Klingons: former slaves of the Earth Empire, now furious conquerors determined to eliminate every last human.',
     lore: `For centuries the Klingons were slaves to the Earth Empire, a warrior class used as a soldier force for Earth's military. In 2252, upon the overthrow of the Earth government, the Klingons seized the opportunity to secretly build an armed force for a massive rebellion.
 
-In 2357 they launched the first attack. Most of the systems surrounding Earth were overtaken within a few years. The Klingons are dangerous, furious from their oppression and determined to eliminate every last human from the galaxy. Interaction: will sell anything so long as they have been declared an enemy of the humans.`,
+In 2357 they launched the first attack. Most of the systems surrounding Earth were overtaken within a few years. The Klingons are dangerous, furious from their oppression and determined to eliminate every last human from the galaxy.`,
     faction: 'klingon',
     playership: 39,
     myplanet: 38,
@@ -6911,10 +6944,10 @@ The fate of the wider Dominion is uncertain. Rumors of distant strength offer ho
   },
   tholian: {
     label: 'Tholian Web Captain',
-    desc: 'Holder of the Tholian Syndicate web; designers of the Isaac trader.',
+    desc: 'A ship designer rebuilding a civilian trade network after Imperial funding collapsed.',
     loreTitle: 'Tholian Web Captain',
-    profile: 'Tholians: designers of the popular Isaac Class trade ship.',
-    lore: `Tholians: designers of the popular Isaac Class trade ship. Little is known of their wider designs, but their traders are a common sight on the spacelanes.`,
+    profile: 'Tholian shipbuilding and commerce.',
+    lore: `Tholia preserved its independence through the skill of its ship designers. With Earth no longer funding their technology, its yards now concentrate on the Isaac-class trader, widely used across the civilian market. Your command begins in this trading tradition, with a galaxy divided by war beyond the shipyards.`,
     faction: 'tholian',
     playership: 20,
     myplanet: 18,
@@ -7656,7 +7689,7 @@ function showIntroStory() {
   introStoryEl.classList.remove('hidden', 'rolling');
   introStoryEl.setAttribute('aria-hidden', 'false');
   syncBackgroundAudio();
-  introStoryTextEl.getBoundingClientRect();
+  measureIntroCrawl();
   requestAnimationFrame(() => {
     if (state.introActive) introStoryEl.classList.add('rolling');
   });
@@ -7705,7 +7738,7 @@ window.addEventListener('keydown', (e) => {
   }
 }, { capture: true });
 window.addEventListener('keydown', (e) => {
-  if (debugMenuEl?.open) return;
+  if (debugMenuEl?.open || gameMenuEl?.open) return;
   const key = e.key.toLowerCase();
   const weaponSlot = getWeaponSlotForKeyEvent(e);
   if (state.missionCompleteNotice) {
@@ -7755,7 +7788,7 @@ window.addEventListener('keydown', (e) => {
   if (flightKeys.has(key)) keys.add(key);
 });
 window.addEventListener('keyup', (e) => {
-  if (debugMenuEl?.open) return;
+  if (debugMenuEl?.open || gameMenuEl?.open) return;
   const key = e.key.toLowerCase();
   if (state.gameStarted && flightKeys.has(key)) e.preventDefault();
   const weaponSlot = getWeaponSlotForKeyEvent(e);
@@ -7782,7 +7815,7 @@ function addWorldPop(x, y, text, color = '#ffd66e') {
     y,
     text,
     color,
-    born: performance.now(),
+    born: gameNow(),
     ttl: 1300,
   });
 }
@@ -8016,6 +8049,7 @@ function normalizeContract(contract) {
     employerFaction: Object.prototype.hasOwnProperty.call(contract, 'employerFaction')
       ? contract.employerFaction
       : getTradeStandingFaction(Number(contract.originIndex)),
+    showMarker: contract.showMarker !== false,
     negotiated: Boolean(contract.negotiated),
     createdAt: Number(contract.createdAt || Date.now()),
   };
@@ -8086,8 +8120,8 @@ function renderOpenContractsPanel() {
     return '<div class="contracts"><div class="panel-head">Contracts</div><div class="meta">No active contracts.</div></div>';
   }
   const rows = contracts.map((contract) => `<div class="contract-cardline">
-    <div class="contract-route">${escapeHtml(contract.originName)} -> ${escapeHtml(contract.targetName)}</div>
-    <div class="contract-load">${escapeHtml(contract.tons)}t ${escapeHtml(contract.goods)} | ${escapeHtml(getContractTotal(contract))}L</div>
+    <div class="contract-route">${escapeHtml(contract.originName)} → ${escapeHtml(chartSystemLabel(getContractTargetIndex(contract)))}</div>
+    <div class="contract-load">${escapeHtml(contract.tons)}t ${escapeHtml(contract.goods)} | ${escapeHtml(getContractTotal(contract))}L</div><button data-contract-marker="${escapeHtml(contract.id)}" aria-pressed="${contract.showMarker}">${contract.showMarker ? 'Hide' : 'Show'} destination marker</button>
   </div>`).join('');
   return `<div class="contracts"><div class="panel-head">Contracts</div>${rows}</div>`;
 }
@@ -8129,6 +8163,8 @@ function applyDebugCommand(raw) {
     const next = debugInteger(value, STANDING_MIN, STANDING_MAX);
     adjustFactionStanding(faction, next - getFactionStanding(faction), { silent: true });
     message = `${formatFaction(faction)} standing set to ${next}.`;
+  } else if (['war','peace','crisis'].includes(command) && args.length===2) {
+    message=changeDiplomacy(args[0],args[1],command);
   } else if (Object.hasOwn(debugResourceFields, command) && args.length === 1) {
     const field = debugResourceFields[command];
     state[command] = debugInteger(args[0], field.min, field.max());
@@ -8177,6 +8213,7 @@ function syncDebugVesselCondition() {
 }
 
 function refreshDebugReadout() {
+  const bulletin=debugMenuEl.querySelector('[data-diplomacy-bulletin]');if(bulletin)bulletin.innerHTML=renderDiplomacyBulletin();
   const resource = debugMenuEl.querySelector('[name="resource"]').value;
   debugMenuEl.querySelector('[name="amount"]').max = debugResourceFields[resource].max();
   const faction = debugMenuEl.querySelector('[name="faction"]').value;
@@ -8206,20 +8243,21 @@ function openDebugMenu() {
     return;
   }
   if (!debugMenuEl || debugMenuEl.open) return;
+  pauseGameClock(); stopAllGameAudioLoops();
   keys.clear();
   heldWeaponInputs.clear();
   const factionOptions = Object.keys(factionNames).sort((a, b) => formatFaction(a).localeCompare(formatFaction(b)))
     .map((key) => `<option value="${escapeHtml(key)}" ${key === getSystemFaction(state.currentPlanet) ? 'selected' : ''}>${escapeHtml(formatFaction(key))} (${escapeHtml(key)})</option>`).join('');
   const shipOptions = getGodModeShips().map((ship) => `<option value="${ship.id}" ${Number(ship.id) === Number(state.playership) ? 'selected' : ''}>${escapeHtml(ship.name)} (${ship.id})</option>`).join('');
   debugMenuEl.innerHTML = `<div class="debug-heading"><h2 id="cheats-debug-title">Cheats &amp; Debug</h2><button type="button" data-debug-close aria-label="Close Cheats & Debug">Close</button></div>
-    <p>Changes apply immediately and are included when you save. Flight continues while this menu is open. Resource cheats leave existing debt and bills unchanged.</p>
+    <p>Changes apply immediately and are included when you save. Game paused while this menu is open. Resource cheats leave existing debt and bills unchanged.</p>
     <p data-debug-status role="status" aria-live="polite">Choose a control or enter a code.</p>
     <section><h3>Faction standing</h3>
       <form data-debug-form="standing"><label>Faction<select name="faction">${factionOptions}</select></label>
         <label>Standing (−100 to 100)<input name="standing" type="number" min="-100" max="100" step="1" required></label>
         <button type="submit">Set standing</button></form>
       <div class="debug-actions"><button type="button" data-debug-delta="-10">−10</button><button type="button" data-debug-delta="10">+10</button><button type="button" data-debug-preset="-100">Minimum</button><button type="button" data-debug-preset="0">Reset to 0</button><button type="button" data-debug-preset="100">Maximum</button></div>
-      <p data-debug-standing-status></p><p>Standing does not change faction membership or system ownership. Existing faction rules and milestones still determine access.</p>
+      <p data-debug-standing-status></p><p>Standing does not change faction membership or system ownership. Vendor standing and restricted-stock rules still apply.</p>
     </section>
     <section><h3>Resources &amp; ship condition</h3><p data-debug-resources></p><button type="button" data-debug-refresh>Refresh values</button>
       <form data-debug-form="resource"><label>Value<select name="resource">${Object.entries(debugResourceFields).map(([key, field]) => `<option value="${key}">${field.label}</option>`).join('')}</select></label>
@@ -8228,12 +8266,13 @@ function openDebugMenu() {
       <p>God Mode grants resources, weapons, station plans and larger capacities. Disabling it keeps those grants. Loading with God Mode on refills its resources. Setting hull also updates the disabled state; repair restores control immediately. Vessel changes are blocked during boarding.</p>
       <form data-debug-form="ship"><label>Player ship<select name="ship">${shipOptions}</select></label><button type="submit">Fly ship + enable God Mode</button></form>
     </section>
-    <section><h3>Milestones</h3><p>Toggle the existing trade-unlock flags for testing.</p><div class="debug-actions">
+    <section><h3>Milestones</h3><p>Toggle recorded milestones. Ordinary Romulan trade uses standing.</p><div class="debug-actions">
       <button type="button" data-debug-code="feat vexBorgDown on">Vex Borg: complete</button><button type="button" data-debug-code="feat vexBorgDown off">Vex Borg: reset</button>
       <button type="button" data-debug-code="feat bajoranFleetDown on">Bajoran fleet: complete</button><button type="button" data-debug-code="feat bajoranFleetDown off">Bajoran fleet: reset</button></div></section>
+    <section><h3>Wars, peace &amp; crises</h3><form data-debug-form="diplomacy"><label>First faction<select name="diplomacy-a">${factionOptions}</select></label><label>Second faction<select name="diplomacy-b">${factionOptions}</select></label><label>Relationship<select name="diplomacy-state"><option value="crisis">Crisis</option><option value="war">War</option><option value="peace">Peace</option></select></label><button type="submit">Set relationship</button></form><div data-diplomacy-bulletin>${renderDiplomacyBulletin()}</div></section>
     <section><h3>Cheat codes</h3><form data-debug-form="code"><label>Code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="standing romulan 50" required></label><button type="submit">Run code</button></form>
       <details><summary>Remaster code list</summary><p>Codes are case-insensitive. Faction keys appear in the selector above.</p><ul>
-        <li><code>standing romulan 50</code> — set one faction's standing.</li><li><code>latinum 10000</code>, <code>duranium 500</code>, <code>antimatter 6</code> — set resources.</li>
+        <li><code>crisis romulan klingon</code>, <code>war romulan klingon</code>, <code>peace romulan klingon</code> — change bilateral relations.</li><li><code>standing romulan 50</code> — set one faction's standing.</li><li><code>latinum 10000</code>, <code>duranium 500</code>, <code>antimatter 6</code> — set resources.</li>
         <li><code>hull 50</code>, <code>shields 0</code> — set ship condition; hull minimum is 1%.</li><li><code>repair</code>, <code>refill</code> — restore condition or fuel.</li>
         <li><code>god on</code>, <code>god off</code> — toggle God Mode.</li><li><code>ship ${state.playership}</code> — switch to a loaded ship ID and enable God Mode.</li>
         <li><code>feat vexBorgDown on</code>, <code>feat bajoranFleetDown off</code> — set or reset a milestone.</li></ul></details></section>`;
@@ -8244,7 +8283,7 @@ function openDebugMenu() {
 }
 
 document.getElementById('btn-cheats-debug')?.addEventListener('click', openDebugMenu);
-debugMenuEl?.addEventListener('close', () => { keys.clear(); heldWeaponInputs.clear(); });
+debugMenuEl?.addEventListener('close', () => { if (!gameMenuEl?.open && !debugMenuEl?.open) resumeGameClock(); });
 debugMenuEl?.addEventListener('change', (event) => {
   if (event.target.name === 'faction') {
     debugMenuEl.querySelector('[name="standing"]').value = getFactionStanding(event.target.value);
@@ -8275,11 +8314,831 @@ debugMenuEl?.addEventListener('click', (event) => {
 debugMenuEl?.addEventListener('submit', (event) => {
   event.preventDefault();
   const form = event.target;
-  if (form.dataset.debugForm === 'standing') runDebugCommand(`standing ${form.elements.faction.value} ${form.elements.standing.value}`);
+  if (form.dataset.debugForm === 'diplomacy') runDebugCommand(`${form.elements['diplomacy-state'].value} ${form.elements['diplomacy-a'].value} ${form.elements['diplomacy-b'].value}`);
+  else if (form.dataset.debugForm === 'standing') runDebugCommand(`standing ${form.elements.faction.value} ${form.elements.standing.value}`);
   if (form.dataset.debugForm === 'resource') runDebugCommand(`${form.elements.resource.value} ${form.elements.amount.value}`);
   if (form.dataset.debugForm === 'ship') runDebugCommand(`ship ${form.elements.ship.value}`);
   if (form.dataset.debugForm === 'code') runDebugCommand(form.elements.code.value);
 });
+
+// Playtest follow-ups: campaign metadata is saved separately from disposable scenes.
+function ensurePlaytestState() {
+  if (!state.playtest || state.playtest.version !== 1) state.playtest = { version: 1 };
+  const p = state.playtest;
+  for (const key of [
+    'holdings',
+    'delegatedPolicies',
+    'activities',
+    'reconstruction',
+    'factionBudgets',
+  ])
+    p[key] ||= {};
+  return p;
+}
+function canDelegateSecurity(index = state.currentPlanet) {
+  const c = getSystemControl(index);
+  return (
+    !c.playerControlled &&
+    isRecognizedFactionKey(c.controller) &&
+    state.playerFaction === c.controller &&
+    getFactionStanding(c.controller) === STANDING_MAX
+  );
+}
+function getDelegatedPolicy(index = state.currentPlanet) {
+  const p = ensurePlaytestState().delegatedPolicies[index];
+  return canDelegateSecurity(index) && p?.controller === getSystemControl(index).controller
+    ? p
+    : null;
+}
+function reviewLegacyHolding(keep) {
+  const p = ensurePlaytestState(),
+    i = p.legacyHolding;
+  if (!Number.isInteger(i)) return false;
+  if (!keep) {
+    state.controlledSystems = state.controlledSystems.filter((x) => Number(x) !== i);
+    for (const station of state.stationDefinitions) {
+      if (Number(station.systemIndex) !== i || station.builtByPlayer) continue;
+      const originOwner = getStationDataOwner(station) || getSystemGovernmentOwnerId(i);
+      if (
+        state.stationOwners[station.id] === PLAYER_SIDE &&
+        originOwner === getSystemGovernmentOwnerId(i)
+      )
+        delete state.stationOwners[station.id];
+    }
+    delete state.securityPolicies.systems[i];
+    delete ensureSecurityZones().systems[i];
+    invalidateSecurityAuthority(i, 'legacy starting grant released');
+    refreshCachedStationOwnership(i);
+    if (i === state.currentPlanet) refreshStationOwnership(i);
+  }
+  p.holdings[i] = { source: keep ? 'legacy-confirmed' : 'legacy-start-released', day: state.day };
+  delete p.legacyHolding;
+  updateStats();
+  return true;
+}
+
+const gameMenuEl = document.getElementById('game-menu');
+function openGameMenu() {
+  if (!state.gameStarted || gameMenuEl.open) return;
+  pauseGameClock();
+  keys.clear();
+  heldWeaponInputs.clear();
+  stopAllGameAudioLoops();
+  const legacy = ensurePlaytestState().legacyHolding;
+  gameMenuEl.innerHTML = `<div class="debug-heading"><h2 id="game-menu-title">Game menu</h2><button data-game-menu="resume">Resume</button></div>
+    <p>Game paused.</p>
+    <div class="debug-actions"><button data-game-menu="save">Save to slot ${state.currentSaveSlot || 1}</button><button data-game-menu="save-exit">Save and return to main menu</button><button data-game-menu="exit">Return without saving</button><button data-game-menu="settings">Settings &amp; save slots</button><button data-game-menu="debug">Cheats &amp; Debug</button></div>
+<label>Alert posture <select data-alert-select><option value="green" ${getAlertStatus() === 'green' ? 'selected' : ''}>Green</option><option value="yellow" ${getAlertStatus() === 'yellow' ? 'selected' : ''}>Yellow</option><option value="red" ${getAlertStatus() === 'red' ? 'selected' : ''}>Red</option></select></label><p>Recent combat forces red. Alert posture does not issue attack orders.</p><details><summary>Galactic affairs</summary>${renderDiplomacyBulletin()}</details><p data-menu-status role="status"></p>
+
+    <div data-discard-confirm hidden><p>Discard unsaved progress and return to the main menu?</p><button data-game-menu="discard">Discard and return</button><button data-game-menu="cancel-discard">Keep playing</button></div>
+    ${Number.isInteger(legacy) ? `<section data-legacy-holding><h3>Review older save ownership</h3><p>This save predates ownership history. ${escapeHtml(state.planets[legacy]?.name)} may be the automatic starting grant. Keep it if you acquired it legitimately. Releasing it returns its original government stations; your built stations, ships and other holdings stay yours.</p><button data-game-menu="keep-holding">Keep as acquired holding</button><button data-game-menu="release-holding">Release starting grant</button></section>` : ''}`;
+  gameMenuEl.showModal();
+}
+function returnToMainMenu() {
+  state.gameStarted = false;
+  state.warp.active = false;
+  clearWormholeTransit();
+  for (const key of [
+    'pendingContractOffer',
+    'missionCompleteNotice',
+    'pendingShipPurchase',
+    'pendingFleetPurchase',
+    'pendingStationBuild',
+    'pendingWormholeBuild',
+  ])
+    state[key] = null;
+  for (const panel of [
+    contractModalEl,
+    missionCompleteModalEl,
+    shipPurchaseModalEl,
+    fleetPurchaseModalEl,
+    stationBuildModalEl,
+    wormholeModalEl,
+  ])
+    panel?.classList.add('hidden');
+  fleetManagerEl?.close();
+  state.introActive = false;
+  state.mapOpen = false;
+  state.topLeftPanelOpen = false;
+  state.planetMenuOpen = false;
+  keys.clear();
+  heldWeaponInputs.clear();
+  gameMenuEl.close();
+  closePlanetMenu();
+  topLeftPanelEl?.classList.add('hidden');
+  targetWindowEl?.classList.add('hidden');
+  document.getElementById('station-comms')?.close();
+  stopAllGameAudioLoops();
+  renderStartMenu('main');
+  updateStats();
+  syncGameOverMenu();
+  updateRecoveryPanel();
+  syncInterstellarMapFrame();
+}
+function closeGameMenu() {
+  gameMenuEl.close();
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-alert-control]')) openGameMenu();
+});
+document.addEventListener('change', (e) => {
+  if (
+    e.target.matches('[data-alert-select]') &&
+    ['green', 'yellow', 'red'].includes(e.target.value)
+  ) {
+    ensurePlaytestState().alertLevel = e.target.value;
+    updateStats();
+  }
+});
+document.getElementById('btn-game-menu')?.addEventListener('click', openGameMenu);
+gameMenuEl?.addEventListener('close', () => {
+  if (!debugMenuEl?.open && !gameMenuEl?.open) resumeGameClock();
+});
+gameMenuEl?.addEventListener('click', (e) => {
+  const action = e.target.closest('[data-game-menu]')?.dataset.gameMenu;
+  if (!action) return;
+  if (action === 'resume') closeGameMenu();
+  if (action === 'exit') gameMenuEl.querySelector('[data-discard-confirm]').hidden = false;
+  if (action === 'cancel-discard') gameMenuEl.querySelector('[data-discard-confirm]').hidden = true;
+  if (action === 'discard') returnToMainMenu();
+  if (action === 'save' || action === 'save-exit') {
+    try {
+      if (!saveGame()) {
+        gameMenuEl.querySelector('[data-menu-status]').textContent = state.log;
+        return;
+      }
+      if (action === 'save-exit') returnToMainMenu();
+      else gameMenuEl.querySelector('[data-menu-status]').textContent = state.log;
+    } catch {
+      gameMenuEl.querySelector('[data-menu-status]').textContent =
+        'Save failed. You are still in the current run.';
+    }
+  }
+  if (action === 'settings') {
+    closeGameMenu();
+    openTopLeftTab('settings');
+  }
+  if (action === 'debug') {
+    closeGameMenu();
+    openDebugMenu();
+  }
+  if (action === 'keep-holding' || action === 'release-holding') {
+    reviewLegacyHolding(action === 'keep-holding');
+    gameMenuEl.querySelector('[data-legacy-holding]')?.remove();
+    gameMenuEl.querySelector('[data-menu-status]').textContent =
+      'Ownership decision recorded. Save to keep it.';
+  }
+});
+
+function getRecoveryStatus() {
+  const b = fleetBook();
+  if (b.personalCondition !== 'disabled')
+    return { available: false, reason: 'Ship is operational.' };
+  if (state.recoveryAt)
+    return {
+      available: false,
+      reason: `Recovery in progress: ${Math.max(0, Math.ceil((state.recoveryAt - gameNow()) / 1000))} seconds remaining.`,
+    };
+  if (b.boarding)
+    return {
+      available: false,
+      reason:
+        b.boarding.phase === 'deployment'
+          ? 'Cancel boarding deployment to request recovery.'
+          : 'Boarding is committed. Recovery becomes available when it resolves.',
+    };
+  const max = getNpcCombatDurability(state.playership).hull;
+  const restored = Math.max(state.hull, 20, (100 * (Fleet.disableThreshold(max) + 1)) / max);
+  const quote = Fleet.repairQuote(
+    getShipPrice(getShipStats(state.playership)),
+    (state.hull * max) / 100,
+    max,
+    (restored * max) / 100,
+  );
+  return {
+    available: true,
+    amount: quote.amount,
+    restored,
+    reason: `Recovery costs ${quote.amount} latinum and takes 5 seconds. Unpaid costs become debt; cash and docking are not required.`,
+  };
+}
+let recoveryPanelSignature = '';
+function updateRecoveryPanel() {
+  const panel = document.getElementById('disabled-recovery');
+  const visible =
+    state.gameStarted && !state.gameOver && fleetBook().personalCondition === 'disabled';
+  panel.classList.toggle('hidden', !visible);
+  if (!visible) {
+    recoveryPanelSignature = '';
+    return;
+  }
+  const status = getRecoveryStatus(),
+    boarding = fleetBook().boarding;
+  const choices = state.playerFleet.filter((f) => {
+    const actor = fleetLocalActor(f.id);
+    return (
+      !f.destroyed &&
+      actor &&
+      actor.condition !== 'disabled' &&
+      distanceToPlayer(actor) <= 250 &&
+      !boarding
+    );
+  });
+  const signature = JSON.stringify([status, boarding?.phase, choices.map((f) => [f.id, f.name])]);
+  if (signature === recoveryPanelSignature) return;
+  recoveryPanelSignature = signature;
+  panel.innerHTML = `<h2>Ship disabled</h2><p role="status">${escapeHtml(status.reason)}</p><div class="debug-actions"><button data-recovery="request" ${status.available ? '' : 'disabled'}>Request recovery</button><button data-recovery="fleet">Transfer command / Fleet</button>${boarding ? '<button data-recovery="boarding">Boarding status / cancel</button>' : ''}</div><p>${choices.length ? 'Open Fleet to choose an eligible nearby vessel for command transfer.' : 'No other local fleet vessel is available for command transfer.'}</p>`;
+}
+document.getElementById('disabled-recovery')?.addEventListener('click', (e) => {
+  const action = e.target.closest('[data-recovery]')?.dataset.recovery;
+  if (action === 'request') {
+    recoverDisabledPlayer();
+    updateStats();
+    updateRecoveryPanel();
+  }
+  if (action === 'fleet' || action === 'boarding') {
+    renderFleetManager(true);
+  }
+});
+
+function measureIntroCrawl() {
+  if (!introStoryTextEl || !introStoryEl) return;
+  const viewport = introStoryTextEl.parentElement.clientHeight;
+  const height = introStoryTextEl.scrollHeight;
+  introStoryEl.style.setProperty('--crawl-end', `${-height - 96}px`);
+  introStoryEl.style.setProperty(
+    '--crawl-duration',
+    `${Math.max(48, (viewport + height + 96) / 26)}s`,
+  );
+}
+window.addEventListener('resize', measureIntroCrawl);
+document.fonts?.ready.then(measureIntroCrawl);
+function isChartSystemVisible(index) {
+  if (!isDominionCoreSystem(state.planets[index]?.name)) return true;
+  return (state.visitedSystems || []).some((i) => isDominionCoreSystem(state.planets[i]?.name));
+}
+function chartSystemLabel(index) {
+  return state.visitedSystems.includes(Number(index)) || Number(index) === state.currentPlanet
+    ? state.planets[index]?.name || 'Unknown system'
+    : 'Uncharted system';
+}
+document.addEventListener('click', (e) => {
+  const button = e.target.closest('[data-contract-marker]');
+  if (!button) return;
+  const contract = getOpenContracts().find((c) => c.id === button.dataset.contractMarker);
+  if (contract) {
+    contract.showMarker = !contract.showMarker;
+    renderTopLeftPanel();
+  }
+});
+function isDefensePlatform(station) {
+  const stats = getShipStats(station.stationTypeId);
+  return /platform/i.test(String(stats.name));
+}
+// Separate ring radii guarantee clearance even when independently orbiting stations align.
+function stationRoleOrbit(station, index) {
+  const name = `${station.name} ${getShipStats(station.stationTypeId).name}`;
+  const peers = state.stationDefinitions.filter(
+    (s) => s.systemIndex === station.systemIndex && !s.builtByPlayer && !s.reconstructionId,
+  );
+  const ordered = [...peers].sort((a, b) => {
+    const rank = (s) =>
+      /defen[cs]e|platform|shipyard/i.test(`${s.name} ${getShipStats(s.stationTypeId).name}`)
+        ? 0
+        : /starbase|station|habitat/i.test(`${s.name} ${getShipStats(s.stationTypeId).name}`)
+          ? 1
+          : 2;
+    return rank(a) - rank(b) || String(a.id).localeCompare(String(b.id));
+  });
+  const place = Math.max(
+    0,
+    ordered.findIndex((s) => s.id === (station.replacesStationId || station.id)),
+  );
+  let distance = 270,
+    previousRadius = 0;
+  for (let i = 0; i <= place; i++) {
+    const visual = getStationVisualProfile(ordered[i] || station),
+      radius = Math.max(visual.width, visual.height) * 0.5;
+    distance += Math.max(190, previousRadius + radius + 100);
+    previousRadius = radius;
+  }
+  return {
+    orbitAnchor: 'planet',
+    orbitDistance: distance,
+    orbitAngle: seeded((station.systemIndex + 1) * 217 + place * 31) * Math.PI * 2,
+  };
+}
+const SYSTEM_ACTIVITY_WEIGHTS = [
+  ['quiet', 0.4],
+  ['patrol', 0.3],
+  ['scout', 0.15],
+  ['skirmish', 0.08],
+  ['raid', 0.05],
+  ['battle', 0.02],
+];
+function getSystemActivity(index = state.currentPlanet) {
+  const records = ensurePlaytestState().activities;
+  const cycle = Math.floor((Math.max(1, state.day) - 1) / 7);
+  let record = records[index];
+  if (!record || record.cycle !== cycle) {
+    const seed = hashString(`${fleetBook().campaignId}:${index}:${cycle}:activity`);
+    let pick = seeded(seed),
+      type = 'quiet';
+    for (const [name, weight] of SYSTEM_ACTIVITY_WEIGHTS) {
+      pick -= weight;
+      if (pick < 0) {
+        type = name;
+        break;
+      }
+    }
+    record = records[index] = {
+      cycle,
+      seed,
+      type,
+      createdDay: state.day,
+      combatElapsed: 0,
+      triggered: false,
+      outcome: null,
+    };
+  }
+  return record;
+}
+function activityTrafficShip(index, seed, role) {
+  const faction = getSystemFaction(index);
+  if (role === 'patrol' || role === 'localTraffic')
+    return getNpcShipIdForFaction(faction, seed, role);
+  const candidates = [
+    'neutral',
+    ...Object.keys(World.FACTION_TRAFFIC).filter(
+      (f) => f !== 'neutral' && f !== faction && isRecognizedFactionKey(f),
+    ),
+  ];
+  const weighted = candidates
+    .map((f) => [f, World.civilianWeight(f, faction, areFactionsOpposed(f, faction))])
+    .filter(([, w]) => w > 0);
+  let roll = seeded(seed) * weighted.reduce((n, [, w]) => n + w, 0);
+  for (const [origin, weight] of weighted) {
+    roll -= weight;
+    if (roll <= 0) {
+      const id = getNpcShipIdForFaction(origin, seed, 'traffic');
+      if (id != null) return id;
+    }
+  }
+  return (
+    getNpcShipIdForFaction('neutral', seed, 'traffic') ??
+    getNpcShipIdForFaction(faction, seed, 'localTraffic')
+  );
+}
+function updateSystemActivity(frameScale) {
+  const record = getSystemActivity();
+  if (
+    record.triggered ||
+    !['scout', 'skirmish', 'raid', 'battle'].includes(record.type) ||
+    state.warp.active
+  )
+    return;
+  record.combatElapsed += Math.min(100, Math.max(0, (frameScale * 1000) / 60));
+  const wait = { scout: 60000, skirmish: 120000, raid: 180000, battle: 240000 }[record.type];
+  if (record.combatElapsed < wait) return;
+  if (record.type === 'scout') {
+    const faction = getSystemFaction(),
+      id = getNpcShipIdForFaction(faction, record.seed, 'patrol');
+    if (id != null)
+      state.npcShips.push(
+        createNpcShip({
+          id: `scout-${state.currentPlanet}-${record.cycle}`,
+          shipId: id,
+          faction,
+          role: 'patrol',
+          seed: record.seed,
+          from: { x: state.systemPlanet.x + 1800, y: state.systemPlanet.y },
+          destination: { x: state.systemPlanet.x + 1300, y: state.systemPlanet.y + 700 },
+          destinationName: 'reconnaissance patrol',
+        }),
+      );
+    record.triggered = true;
+    record.outcome = 'scout dispatched';
+  } else {
+    const attacker = chooseActivityAttacker(record);
+    if (!attacker) {
+      record.triggered = true;
+      record.outcome = 'no war; patrol only';
+    } else if (spawnFleetAttack(state.currentPlanet, attacker)) record.triggered = true;
+  }
+}
+function chooseActivityAttacker(record) {
+  const local = getSystemFaction();
+  const candidates = Object.keys(factionNames).filter(
+    (f) => isRecognizedFactionKey(f) && areFactionsOpposed(f, local),
+  );
+  const total = candidates.reduce((n, f) => n + (World.FACTION_TRAFFIC[f]?.warDeployment || 1), 0);
+  let roll = seeded(record.seed + 17) * total;
+  return (
+    candidates.find((f) => (roll -= World.FACTION_TRAFFIC[f]?.warDeployment || 1) <= 0) || null
+  );
+}
+// Construction has a distinct incarnation and paid materials; ruins never spring back to life.
+function queueFactionReconstruction(station) {
+  const p = ensurePlaytestState();
+  if (station.reconstructionId) {
+    const old = p.reconstruction[station.reconstructionId];
+    if (old && old.status === 'building') {
+      old.status = 'lost';
+      return;
+    }
+  }
+  const owner = getStationOwner(station, state.currentPlanet);
+  const control = getSystemControl();
+  if (
+    !owner ||
+    owner === PLAYER_SIDE ||
+    station.builtByPlayer ||
+    (owner !== control.polityId && !String(owner).startsWith('private:'))
+  )
+    return;
+  const id = `rebuild:${station.id}`;
+  if (p.reconstruction[id]) return;
+  const definition = state.stationDefinitions.find((s) => s.id === station.id);
+  if (!definition) return;
+  const cost = getStationBuildCost(getShipStats(station.stationTypeId));
+  const materials = Math.max(20, Math.ceil(cost / 500));
+  p.factionBudgets[owner] ||= { latinum: 120000, duranium: 1200, lastDay: state.day };
+  p.reconstruction[id] = {
+    id,
+    systemIndex: state.currentPlanet,
+    owner,
+    governor: control.controller,
+    sourceId: station.id,
+    status: 'waiting',
+    cost,
+    materials,
+    queuedDay: state.day,
+    definition: {
+      ...Fleet.copy(definition),
+      orbitAnchor: station.orbitAnchor,
+      orbitDistance: station.orbitDistance,
+      orbitAngle: station.orbitAngle,
+      orbitPeriod: station.orbitPeriod,
+      orbitDirection: station.orbitDirection,
+    },
+  };
+}
+function syncFactionReconstruction() {
+  state.stationDefinitions = state.stationDefinitions.filter((s) => !s.reconstructionId);
+  for (const order of Object.values(ensurePlaytestState().reconstruction)) {
+    if (!order.newDefinition) continue;
+    state.stationDefinitions.push({
+      ...order.newDefinition,
+      underConstruction: order.status !== 'complete',
+    });
+  }
+}
+function advanceFactionReconstruction(day) {
+  const p = ensurePlaytestState();
+  let changed = false;
+  for (const [owner, budget] of Object.entries(p.factionBudgets)) {
+    const worlds = state.planets.filter((_, i) => getSystemControl(i).polityId === owner).length;
+    const businesses = String(owner).startsWith('private:')
+      ? state.stationDefinitions.filter(
+          (s) =>
+            !state.destroyedStations[s.id] &&
+            !s.underConstruction &&
+            getStationOwner(s, s.systemIndex) === owner,
+        ).length
+      : 0;
+    const elapsed = Math.max(0, day - budget.lastDay);
+    budget.latinum = Math.min(500000, budget.latinum + elapsed * (worlds * 750 + businesses * 250));
+    budget.duranium = Math.min(5000, budget.duranium + elapsed * (worlds * 6 + businesses * 2));
+    budget.lastDay = day;
+  }
+  for (const order of Object.values(p.reconstruction)) {
+    if (!['waiting', 'building'].includes(order.status)) continue;
+    if (
+      getSystemControl(order.systemIndex).controller !== (order.governor ?? order.owner) ||
+      getStationOwner(order.definition, order.systemIndex) !== order.owner
+    ) {
+      order.status = 'cancelled';
+      if (order.newDefinition) state.destroyedStations[order.newDefinition.id] = true;
+      changed = true;
+      continue;
+    }
+    if (order.newDefinition && state.destroyedStations[order.newDefinition.id]) {
+      order.status = 'lost';
+      continue;
+    }
+    if (order.status === 'waiting') {
+      const budget = p.factionBudgets[order.owner];
+      if (
+        day <= order.queuedDay ||
+        budget.latinum < order.cost ||
+        budget.duranium < order.materials
+      )
+        continue;
+      const original = order.definition;
+      const occupied = state.stationDefinitions.some(
+        (s) =>
+          s.systemIndex === order.systemIndex &&
+          s.id !== order.sourceId &&
+          !state.destroyedStations[s.id] &&
+          s.orbitAnchor === original.orbitAnchor &&
+          Math.abs((s.orbitDistance || 0) - (original.orbitDistance || 0)) < 80 &&
+          Math.abs((s.orbitAngle || 0) - (original.orbitAngle || 0)) < 0.1,
+      );
+      if (occupied) continue;
+      budget.latinum -= order.cost;
+      budget.duranium -= order.materials;
+      order.status = 'building';
+      order.startedDay = day;
+      order.dueDay = day + 7;
+      order.newDefinition = {
+        ...original,
+        id: `${order.sourceId}:replacement:${day}`,
+        name: `${original.name} (replacement)`,
+        reconstructionId: order.id,
+        replacesStationId: order.sourceId,
+        underConstruction: true,
+        constructionStartedDay: day,
+        constructionDays: 7,
+        builtByPlayer: false,
+      };
+      state.stationOwners[order.newDefinition.id] = order.owner;
+      changed = true;
+    } else if (day >= order.dueDay) {
+      order.status = 'complete';
+      order.completedDay = day;
+      order.newDefinition.underConstruction = false;
+      changed = true;
+    }
+  }
+  if (changed) {
+    syncFactionReconstruction();
+    state.systemStates = {};
+    if (!state.warp.active) applySystemState(state.currentPlanet);
+  }
+}
+function openStationComms(stationId = null) {
+  if (!state.gameStarted || state.warp.active || isWormholeTransitActive()) return;
+  const el = document.getElementById('station-comms');
+  const block = getSecurityDockingBlock();
+  const station = state.stations.find(
+    (s) => s.id === stationId && !s.destroyed && !s.underConstruction,
+  );
+  el.innerHTML = `<h2>System communications</h2><button data-comms="close">Close</button><p>${escapeHtml(block || 'Station channels available throughout this system.')}</p><button data-comms="security">Security channel</button><button data-comms="distress">Distress / recovery</button>${station ? `<h3>${escapeHtml(station.name)}</h3><p>${block ? 'Ordinary communication awaits clearance.' : `${escapeHtml(formatFaction(station.faction))} installation. Docking range ${Math.round(distanceToPlayer(station))}. Approach physically for repairs, refits and purchases.`}</p>` : ''}<div class="debug-grid">${state.stations
+    .filter((s) => !s.destroyed && !s.underConstruction)
+    .map(
+      (s) =>
+        `<button data-station-hail="${escapeHtml(s.id)}" ${block ? 'disabled' : ''}>Hail ${escapeHtml(s.name)}</button>`,
+    )
+    .join('')}</div>`;
+  if (!el.open) el.showModal();
+}
+document.addEventListener('click', (e) => {
+  const hail = e.target.closest('[data-station-hail]');
+  if (hail) {
+    openStationComms(hail.dataset.stationHail);
+    return;
+  }
+  const button = e.target.closest('[data-comms]');
+  if (!button) return;
+  if (button.dataset.comms === 'open') {
+    openStationComms();
+    return;
+  }
+  document.getElementById('station-comms').close();
+  if (button.dataset.comms === 'security') {
+    updateSecurityEncounters(0);
+    updateSecurityOrderPanel();
+  }
+  if (button.dataset.comms === 'distress') {
+    updateRecoveryPanel();
+    if (getRecoveryStatus().available) recoverDisabledPlayer();
+    else setLog(getRecoveryStatus().reason);
+  }
+});
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if (
+      e.key === 'Escape' &&
+      state.gameStarted &&
+      (state.warp.active || isWormholeTransitActive()) &&
+      !gameMenuEl.open &&
+      !debugMenuEl.open
+    ) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      openGameMenu();
+    }
+  },
+  true,
+);
+
+function diplomacyBook() {
+  const p = ensurePlaytestState();
+  return (p.diplomacy ||= World.createDiplomacy(fleetBook().campaignId, state.day));
+}
+function baseFactionWar(a, b) {
+  return Boolean(
+    factionRelations[a]?.hostile?.includes(b) || factionRelations[b]?.hostile?.includes(a),
+  );
+}
+function worldRelation(a, b) {
+  return World.relation(ensurePlaytestState().diplomacy, a, b, baseFactionWar(a, b));
+}
+function diplomaticPairs() {
+  if (!state.travelRoutes.length) rebuildTravelRoutes();
+  const pairs = new Map();
+  for (const route of state.travelRoutes) {
+    const a = getSystemControl(route.from).controller,
+      b = getSystemControl(route.to).controller;
+    if (
+      a !== b &&
+      [a, b].every((f) => isRecognizedFactionKey(f) && !['borg', 'pirate', 'neutral'].includes(f))
+    )
+      pairs.set(World.pairKey(a, b), [a, b]);
+  }
+  for (const pair of Object.values(diplomacyBook().pairs))
+    if (pair.a && pair.b) pairs.set(World.pairKey(pair.a, pair.b), [pair.a, pair.b]);
+  return [...pairs.values()].sort((a, b) => World.pairKey(...a).localeCompare(World.pairKey(...b)));
+}
+function reconcileDiplomacy() {
+  const now = gameNow();
+  for (const npc of state.npcShips || []) {
+    if (isPlayerSideNpc(npc)) continue;
+    const activePersonalAttack = npc.playerAggroUntil > now;
+    npc.attitude = getFactionAttitude(npc.faction);
+    npc.hostile =
+      activePersonalAttack ||
+      getFactionStanding(npc.faction) <= -50 ||
+      areFactionsOpposed(npc.faction, getPlayerFlag());
+    if (npc.attackId && !areFactionsOpposed(npc.faction, getSystemFaction())) {
+      npc.attackId = null;
+      npc.role = 'ceasefireWithdrawal';
+      npc.destination = { x: state.systemStar.x + 2200, y: state.systemStar.y + 1800 };
+      npc.destinationName = 'ceasefire withdrawal';
+    }
+  }
+  if (
+    state.activeFleetAttack &&
+    !areFactionsOpposed(state.activeFleetAttack.faction, getSystemFaction())
+  ) {
+    getSystemActivity().outcome = 'ceasefire';
+    state.activeFleetAttack = null;
+    state.fleetAttackControlSince = 0;
+  }
+  updateStats();
+}
+function advanceWorldDiplomacy(day) {
+  const book = diplomacyBook(),
+    last = book.history.at(-1);
+  World.advanceDiplomacy(book, day, diplomaticPairs(), baseFactionWar);
+  const event = book.history.at(-1);
+  if (event !== last && event) {
+    reconcileDiplomacy();
+    if (event.status === 'war' || event.status === 'crisis') {
+      for (let i = 0; i < state.planets.length; i++) {
+        const faction = getSystemFaction(i);
+        if (faction !== event.a && faction !== event.b) continue;
+        const r = getSystemActivity(i);
+        if (!r.triggered) {
+          r.type = event.status === 'war' ? 'raid' : 'patrol';
+          r.combatElapsed = 0;
+        }
+      }
+    }
+    setLog(
+      `${formatFaction(event.a)} / ${formatFaction(event.b)}: ${event.status}. ${event.reason}.`,
+    );
+  }
+}
+function changeDiplomacy(a, b, status) {
+  if (!isRecognizedFactionKey(a) || !isRecognizedFactionKey(b))
+    throw new Error('Unknown diplomatic faction.');
+  const event = World.setDiplomacy(diplomacyBook(), a, b, status, state.day, baseFactionWar(a, b));
+  if (status === 'war' || status === 'crisis')
+    for (let i = 0; i < state.planets.length; i++) {
+      if (![a, b].includes(getSystemFaction(i))) continue;
+      const activity = getSystemActivity(i);
+      if (!activity.triggered) {
+        activity.type = status === 'war' ? 'raid' : 'patrol';
+        activity.combatElapsed = 0;
+      }
+    }
+  reconcileDiplomacy();
+  return `${formatFaction(a)} and ${formatFaction(b)}: ${event.status}.`;
+}
+function renderDiplomacyBulletin() {
+  const book = diplomacyBook();
+  return `<h3>Galactic affairs</h3><p>Crises can escalate into war or resolve through diplomacy. Peace treaties suppress fresh incidents for ${World.DIPLOMACY_RULES.treatyDays} days. Personal standing and recent attacks still matter.</p>${
+    book.history.length
+      ? book.history
+          .slice(-8)
+          .reverse()
+          .map(
+            (e) =>
+              `<p>Day ${e.day}: ${escapeHtml(formatFaction(e.a))} / ${escapeHtml(formatFaction(e.b))} — ${escapeHtml(e.status)}. ${escapeHtml(e.reason)}</p>`,
+          )
+          .join('')
+      : '<p>No new diplomatic incidents.</p>'
+  }`;
+}
+
+function captureWorldEncounter(nextSystem = state.securityLiveSystemIndex) {
+  const index = state.securityLiveSystemIndex;
+  if (index == null || !state.gameStarted) return;
+  const p = ensurePlaytestState();
+  p.encounters ||= {};
+  const now = gameNow();
+  p.encounters[index] = {
+    day: state.day,
+    cycle: getSystemActivity(index).cycle,
+    attack: Fleet.copy(state.activeFleetAttack),
+    controlElapsed: state.fleetAttackControlSince ? now - state.fleetAttackControlSince : null,
+    stations: (state.stations || [])
+      .filter((s) => s.maxCombatHull > 0)
+      .map((s) =>
+        Object.fromEntries(
+          ['id', 'combatHull', 'maxCombatHull', 'combatShields', 'maxCombatShields'].map((k) => [
+            k,
+            s[k],
+          ]),
+        ),
+      ),
+    ships: (state.npcShips || [])
+      .filter(
+        (n) => !n.fleetId && (Number(nextSystem) === Number(index) || n.condition !== 'disabled'),
+      )
+      .map((n) => ({
+        actor: Object.fromEntries(
+          [
+            'id',
+            'shipId',
+            'seed',
+            'faction',
+            'sideId',
+            'name',
+            'role',
+            'securityInstanceId',
+            'x',
+            'y',
+            'heading',
+            'destroyed',
+            'attackId',
+            'destination',
+            'destinationName',
+            'hostile',
+            'attitude',
+            'identityLocked',
+          ]
+            .filter((k) => n[k] !== undefined)
+            .map((k) => [k, Fleet.copy(n[k])]),
+        ),
+        vessel: Fleet.snapshotVessel(n, vesselDefaults(n.shipId), now),
+        aggression: n.lastAggressionAt
+          ? {
+              elapsed: now - n.lastAggressionAt,
+              system: n.lastAggressionSystemIndex,
+              side: n.lastAggressionTargetSide,
+            }
+          : null,
+      })),
+  };
+}
+function restoreWorldEncounter(index) {
+  const snap = ensurePlaytestState().encounters?.[index];
+  if (!snap) return;
+  for (const saved of snap.stations || []) {
+    const station = state.stations.find((s) => s.id === saved.id && !s.destroyed);
+    if (station) Object.assign(station, saved);
+  }
+  if (snap.cycle !== getSystemActivity(index).cycle) return;
+  const now = gameNow();
+  const restored = snap.ships.map((item) => {
+    const npc = createNpcShip({ ...item.actor, from: item.actor });
+    Object.assign(npc, item.actor);
+    Fleet.restoreVessel(npc, item.vessel, now, vesselDefaults(npc.shipId).cooldown);
+    if (item.aggression)
+      Object.assign(npc, {
+        lastAggressionAt: now - item.aggression.elapsed,
+        lastAggressionSystemIndex: item.aggression.system,
+        lastAggressionTargetSide: item.aggression.side,
+      });
+    return npc;
+  });
+  state.npcShips = [...restored, ...state.npcShips.filter((n) => n.fleetId)];
+  state.activeFleetAttack = Fleet.copy(snap.attack);
+  state.fleetAttackControlSince = snap.controlElapsed == null ? 0 : now - snap.controlElapsed;
+  if (
+    state.activeFleetAttack &&
+    !areFactionsOpposed(state.activeFleetAttack.faction, getSystemFaction(index))
+  ) {
+    state.activeFleetAttack = null;
+    for (const n of restored) {
+      n.attackId = null;
+      n.hostile = false;
+    }
+  }
+}
 
 function getGodModeShips() {
   const classOrder = {
@@ -8508,7 +9367,7 @@ function isWeaponSlotCloakingDevice(slot = 1) {
   return weaponId ? isCloakingDevice(getWeapon(weaponId)) : false;
 }
 
-function getActiveTractorBeamForNpc(npc, now = performance.now()) {
+function getActiveTractorBeamForNpc(npc, now = gameNow()) {
   if (!npc?.id) return null;
   return (state.tractorBeams || []).find((beam) => (
     beam.targetType === 'ship'
@@ -8517,7 +9376,7 @@ function getActiveTractorBeamForNpc(npc, now = performance.now()) {
   )) || null;
 }
 
-function isNpcTractorHeld(npc, now = performance.now()) {
+function isNpcTractorHeld(npc, now = gameNow()) {
   return Boolean(getActiveTractorBeamForNpc(npc, now));
 }
 
@@ -8543,11 +9402,11 @@ function getWeaponSpriteFile(weapon = getWeapon()) {
   return 'phaser.png';
 }
 
-function isPlayerCloaked(now = performance.now()) {
+function isPlayerCloaked(now = gameNow()) {
   return Boolean(state.cloak?.active && now - state.cloak.startedAt < state.cloak.duration);
 }
 
-function setPlayerCloak(active, now = performance.now(), silent = false) {
+function setPlayerCloak(active, now = gameNow(), silent = false) {
   if(active&&vesselDisabled(state))return false;
   if(active)stopEW(ensureActorEW(state),true);
   const cloakSettings = getCloakItemSettings();
@@ -8567,7 +9426,7 @@ function setPlayerCloak(active, now = performance.now(), silent = false) {
   updateStats();
 }
 
-function updateCloakState(now = performance.now()) {
+function updateCloakState(now = gameNow()) {
   if (!state.cloak?.active) return;
   if (getPowerDist('reserve') >= 10) {
     state.cloak.startedAt = now;
@@ -8579,7 +9438,7 @@ function updateCloakState(now = performance.now()) {
   }
 }
 
-function getPlayerCloakAlpha(now = performance.now()) {
+function getPlayerCloakAlpha(now = gameNow()) {
   if (!state.cloak?.active) return 1;
   const cloakSettings = getCloakItemSettings();
   const age = now - state.cloak.startedAt;
@@ -8661,7 +9520,7 @@ function getStationDefenseProfile(station = {}) {
   const strongestDamage = Math.max(...activeWeapons.map((weapon) => finiteNumber(weapon.damage, STATION_WEAPON_DAMAGE)));
   const multiWeaponBonus = activeWeapons.length > 1 ? 0.82 : 1.05;
   const damageMultiplier = clamp(0.55 + tier * 0.42 + Math.sqrt(power) / 240 + activeWeapons.length * 0.06, 0.58, 1.65);
-  const roleDamageScale = clamp(0.62 + tier * 0.42, 0.55, 1.22);
+  const roleDamageScale = clamp(0.62 + tier * 0.42, 0.55, 1.22) * (isDefensePlatform(station) ? 1.15 : 1);
   return {
     weaponIds: activeWeapons.map((weapon) => weapon.id),
     range: Math.round(clamp(longestWeaponRange * (0.78 + tier * 0.13) + Math.sqrt(power) * 1.2 + mass * 10, 520, 1250)),
@@ -8916,7 +9775,7 @@ function getShipyardStockContext(station = getCurrentDockedStation()) {
     planet,
     station,
     stationName,
-    localFaction: station?.faction || state.systemFaction || getSystemFaction(state.currentPlanet),
+    localFaction: getTradeStandingFaction(state.currentPlanet, station) || 'neutral',
     market,
     seedBase: (state.currentPlanet + 1) * 1009 + Math.round(finiteNumber(station?.stationTypeId, 0)) * 37 + Math.round(finiteNumber(station?.offsetX, 0)),
     maxPrice: Math.round(clamp(6500 + market * market * 520 + stationBonus, 9000, isHeavy ? 260000 : 185000)),
@@ -8926,11 +9785,7 @@ function getShipyardStockContext(station = getCurrentDockedStation()) {
 }
 
 function isFactionShipStockEligible(shipFaction, localFaction) {
-  if (!shipFaction || shipFaction === 'neutral') return true;
-  if (!localFaction || localFaction === 'neutral') return true;
-  if (shipFaction === localFaction) return true;
-  const relation = getFactionRelations(localFaction);
-  return Boolean(relation.friendly?.includes(shipFaction));
+  return !shipFaction || shipFaction === 'neutral' || shipFaction === localFaction;
 }
 
 function scoreShipyardStock(ship, context) {
@@ -8968,7 +9823,8 @@ function getUnfilteredShipyardStock(station = getCurrentDockedStation()) {
       .map((id) => state.shipStatsById[resolveShipId(id)])
       .filter((ship) => ship && ship.assetType === 'ship' && getShipPrice(ship) > 0)
       .filter((ship) => ship.rosterState !== 'retired' && ship.rosterState !== 'prototype' && !isUnbalancedPrototype(ship))
-      .filter(stockEligible);
+      .filter(stockEligible)
+      .filter(ship => purchaseContext.vendor || getTradeStandingFaction(state.currentPlanet,station)==='neutral' || isFactionShipStockEligible(ship.faction,getTradeStandingFaction(state.currentPlanet,station)) || (!station && getCurrentSystemName().toLowerCase()==='blender' && ship.faction==='dominion'));
     const authored = [...new Map(localStock.map(ship => [ship.id, ship])).values()];
     return station ? authored.slice(0, SHIPYARD_STOCK_SIZE) : authored;
   }
@@ -9331,7 +10187,7 @@ function zoomStationBuildViewport(delta, anchorEvent, mapEl) {
   });
 }
 
-function getDynamicStationBuildOrbit(point, stationTypeId, now = performance.now()) {
+function getDynamicStationBuildOrbit(point, stationTypeId, now = gameNow()) {
   const selectedPoint = clampStationBuildPoint(point);
   const star = state.systemStar || { x: SYSTEM_W * 0.5, y: SYSTEM_H * 0.5 };
   const planet = state.systemPlanet || FLIGHT_PLANET_POSITION;
@@ -9379,7 +10235,7 @@ function getDynamicStationBuildOrbit(point, stationTypeId, now = performance.now
   };
 }
 
-function getStationBuildPositionFromOrbit(orbit, stationTypeId, now = performance.now()) {
+function getStationBuildPositionFromOrbit(orbit, stationTypeId, now = gameNow()) {
   const planet = state.systemPlanet || FLIGHT_PLANET_POSITION;
   const phaseAngle = finiteNumber(orbit.phaseAngle, orbit.angle - (now / Math.max(1000, orbit.period)) * Math.PI * 2 * orbit.direction);
   return {
@@ -9724,7 +10580,7 @@ function getPlayerEmpireSystemIndexes() {
   return [...indexes].sort((a, b) => String(state.planets[a]?.name || '').localeCompare(String(state.planets[b]?.name || '')));
 }
 
-function getPlayerFleetNpcShips(systemIndex = state.currentPlanet, now = performance.now()) {
+function getPlayerFleetNpcShips(systemIndex = state.currentPlanet, now = gameNow()) {
   const stationAnchor = state.stations.find((station) => !station.destroyed && (station.faction === state.playerFaction || station.builtByPlayer))
     || state.stations.find((station) => !station.destroyed)
     || state.systemPlanet;
@@ -9761,7 +10617,7 @@ function getPlayerFleetNpcShips(systemIndex = state.currentPlanet, now = perform
   });
 }
 
-function getPlayerEscortFormationPoint(index = 0, now = performance.now()) {
+function getPlayerEscortFormationPoint(index = 0, now = gameNow()) {
   const player = playerWorldPosition();
   const escortRecord=getPlayerEscortFleetShips()[index],escortActor=escortRecord&&fleetLocalActor(escortRecord.id);
   const grouped=escortActor&&fleetFormationPoint(escortActor,now);if(grouped)return grouped;
@@ -9777,7 +10633,7 @@ function getPlayerEscortFormationPoint(index = 0, now = performance.now()) {
   };
 }
 
-function getPlayerEscortNpcShips(now = performance.now()) {
+function getPlayerEscortNpcShips(now = gameNow()) {
   const player = playerWorldPosition();
   return getPlayerEscortFleetShips().map((fleetShip, index) => {
     const seed = finiteNumber(fleetShip.seed, (state.currentPlanet + 1) * 1301 + index * 67);
@@ -9820,7 +10676,7 @@ function syncPlayerBuiltStationDefinitions(options = {}) {
   if (options.invalidateCache !== false) state.systemStates = {};
 }
 
-function lockStationOrbitToCurrentPosition(station, star, planet, now = performance.now()) {
+function lockStationOrbitToCurrentPosition(station, star, planet, now = gameNow()) {
   const anchor = station.orbitAnchor === 'planet' ? planet : star;
   if (!anchor) return station;
   const period = Math.max(1000, finiteNumber(station.orbitPeriod, STATION_ORBIT_BASE_MS));
@@ -9831,13 +10687,13 @@ function lockStationOrbitToCurrentPosition(station, star, planet, now = performa
   return station;
 }
 
-function createRuntimeStationFromDefinition(station, systemIndex = state.currentPlanet, index = state.stations.length, now = performance.now()) {
+function createRuntimeStationFromDefinition(station, systemIndex = state.currentPlanet, index = state.stations.length, now = gameNow()) {
   const systemState = state.systemStates[systemIndex] || ensureSystemState(systemIndex);
   const star = systemIndex === state.currentPlanet ? state.systemStar : systemState.star;
   const planet = systemIndex === state.currentPlanet ? state.systemPlanet : systemState.planet;
   const base = systemIndex + 1;
   const stationTypeId = getStationTypeId(station);
-  const typedStation = { ...station, stationTypeId };
+  const typedStation = { ...station, stationTypeId, ...(!station.builtByPlayer ? stationRoleOrbit({...station,stationTypeId},i) : {}) };
   const visual = getStationVisualProfile(typedStation);
   const defenseProfile = getStationDefenseProfile(typedStation);
   const stationFaction = station.faction || getSystemFaction(systemIndex);
@@ -9870,12 +10726,12 @@ function createRuntimeStationFromDefinition(station, systemIndex = state.current
   return lockStationOrbitToCurrentPosition(withStationOrbit(runtimeStation, star, planet, base, index), star, planet, now);
 }
 
-function createLightweightRuntimeStation(station, systemIndex = state.currentPlanet, index = state.stations.length, now = performance.now()) {
+function createLightweightRuntimeStation(station, systemIndex = state.currentPlanet, index = state.stations.length, now = gameNow()) {
   const star = state.systemStar || { x: SYSTEM_W * 0.5, y: SYSTEM_H * 0.5 };
   const planet = state.systemPlanet || FLIGHT_PLANET_POSITION;
   const base = systemIndex + 1;
   const stationTypeId = getStationTypeId(station);
-  const typedStation = { ...station, stationTypeId };
+  const typedStation = { ...station, stationTypeId, ...(!station.builtByPlayer ? stationRoleOrbit({...station,stationTypeId},i) : {}) };
   const visual = getStationVisualProfile(typedStation);
   const stationPoint = getStationDefinitionWorldPoint(typedStation, star, planet, now);
   return lockStationOrbitToCurrentPosition(withStationOrbit({
@@ -10095,6 +10951,7 @@ function getClaimSystemStatus(systemIndex = state.currentPlanet) {
 
 function getMapSystemInfo(systemIndex = state.selectedPlanet) {
   const index = Math.max(0, Math.min(state.planets.length - 1, Number(systemIndex) || 0));
+  if(!state.visitedSystems.includes(index) && index!==state.currentPlanet)return {faction:'neutral',relation:'Unsurveyed',visited:false,power:'?',stations:'?',patrols:'?',fleet:'?'};
   const system = ensureSystemState(index);
   const faction = getSystemFaction(index);
   const controlledByPlayer = state.controlledSystems.includes(index);
@@ -10432,7 +11289,7 @@ function realignPlayerAssetsToFaction(faction = state.playerFaction) {
     return {
       ...npc,
       attitude,
-      hostile: state.systemAttitude === 'hostile' && attitude !== 'friendly',
+      hostile: attitude === 'hostile',
     };
   });
 }
@@ -10657,7 +11514,7 @@ function renderPlanetMenu() {
     { id: 'market', label: 'Market' },
     ...(!station ? [{ id: 'ships', label: 'Shipyard' }] : []),
     ...(!station ? [{ id: 'construction', label: 'Build' }] : []),
-    ...(!station && isSystemControlled(state.currentPlanet) ? [{ id: 'security', label: 'Security' }] : []),
+    ...(!station && (isSystemControlled(state.currentPlanet) || canDelegateSecurity(state.currentPlanet)) ? [{ id: 'security', label: 'Security' }] : []),
   ];
   if (station) state.dockMenuTab = 'market';
   if (state.dockMenuTab === 'flags' || state.dockMenuTab === 'weapons') state.dockMenuTab = 'market';
@@ -10804,7 +11661,7 @@ function updateStats() {
     ? getCurrentDockedStation()?.name || state.planets[state.dockedPlanetIndex]?.name || 'Docked'
     : 'In Flight');
   statsEl.innerHTML = `<div class="top-strip">
-      <div class="top-slot top-ship alert-${getAlertStatus()}">${escapeHtml(mode)} &middot; ${getAlertStatus().toUpperCase()}</div>
+      <button data-alert-control class="top-slot top-ship alert-${getAlertStatus()}" title="Change alert posture">${escapeHtml(mode)} &middot; ${getAlertStatus().toUpperCase()}</button>
       <div class="top-slot top-message">${escapeHtml(message)}</div>
       <div class="top-stat"><span>AM</span>${state.antimatter}/${state.fuelCap}</div>
       <div class="top-stat"><span>SHLD</span>${Math.round(clamp(finiteNumber(state.shields, 0), 0, 100))}%</div>
@@ -10890,6 +11747,8 @@ function requireDocked() {
     setLog('You must dock at a planet first (fly to planet and click it).');
     return false;
   }
+  const block = getSecurityDockingBlock();
+  if (block) { setLog(block); return false; }
   return true;
 }
 
@@ -11254,7 +12113,7 @@ function buyFleetShip(shipId, systemIndex = state.currentPlanet) {
   if (!status.ok) {
     setLog(status.reason === 'Control system'
       ? 'Fleet ships can only be assigned to systems you control.'
-        : `Need ${getFleetShipCost(ship)} latinum to commission ${ship.name}.`);
+        : status.reason === 'Need latinum' ? `Need ${getFleetShipCost(ship)} latinum to commission ${ship.name}.` : status.reason);
     return;
   }
   const cost = getFleetShipCost(ship);
@@ -11304,7 +12163,7 @@ function buyEscortShip(shipId) {
   if (!status.ok) {
     setLog(status.reason === 'Control system'
       ? 'Escort ships can only be commissioned from systems you control.'
-        : `Need ${getFleetShipCost(ship)} latinum to commission ${ship.name}.`);
+        : status.reason === 'Need latinum' ? `Need ${getFleetShipCost(ship)} latinum to commission ${ship.name}.` : status.reason);
     return;
   }
   const cost = getFleetShipCost(ship);
@@ -11402,6 +12261,7 @@ function updateMenu(menu = state.mymenu, panel = state.cargopanel) {
 }
 
 function saveGame(slot = state.currentSaveSlot || 1) {
+  captureWorldEncounter();
   capturePrizeVisit(state.currentPlanet,true);
   snapshotPersonalVessel();
   snapshotFleetProjectiles();
@@ -11410,7 +12270,8 @@ function saveGame(slot = state.currentSaveSlot || 1) {
   normalizePlayerFleetNames();
   const saveSlot = clamp(Math.round(Number(slot) || 1), 1, SAVE_SLOT_COUNT);
   const payload = {
-    pendingJourney:state.warp.active?{...Fleet.copy(state.warp),elapsed:Math.max(0,performance.now()-state.warp.startedAt)}:null,
+    playtest: Fleet.copy(ensurePlaytestState()),
+    pendingJourney:state.warp.active?{...Fleet.copy(state.warp),elapsed:Math.max(0,gameNow()-state.warp.startedAt)}:null,
     fleetBook: Fleet.copy(Fleet.compactFinancialBook(fleetBook())),
     sensorVersion: 1, ...snapshotActorSensors(state), sensorArchives: snapshotSensorArchives(),
     savedAt: new Date().toISOString(),
@@ -11429,6 +12290,7 @@ function saveGame(slot = state.currentSaveSlot || 1) {
     hull: state.hull,
     shields: state.shields,
     lastShieldHitAt: state.lastShieldHitAt,
+    lastShieldHitAge: state.lastShieldHitAt ? Math.max(0, gameNow()-state.lastShieldHitAt) : null,
     day: state.day,
     deliveredCargo: state.deliveredCargo,
     tradeLaneRestored: state.tradeLaneRestored,
@@ -11504,6 +12366,7 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   const raw = getSaveSlotRaw(saveSlot);
   if (!raw) return setLog(`No save found in slot ${saveSlot}.`);
   const s = JSON.parse(raw);
+  state.playtest = s.playtest?.version === 1 ? Fleet.copy(s.playtest) : { version: 1 };
   state.fleetBook = s.fleetBook?.version === 1 ? Fleet.copy(s.fleetBook) : Fleet.createFleetBook(s.day ?? 1, `legacy-${s.savedAt || saveSlot}`);
   state.currentSaveSlot = saveSlot;
   Object.assign(state.ship, s.ship || {});
@@ -11521,7 +12384,7 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   syncFuelToAntimatter();
   state.hull = s.hull ?? 100;
   state.shields = s.shields ?? 100;
-  state.lastShieldHitAt = s.lastShieldHitAt ?? 0;
+  state.lastShieldHitAt = Number.isFinite(s.lastShieldHitAge) ? gameNow()-Math.max(0,s.lastShieldHitAge) : 0;
   state.day = s.day ?? 1;
   state.deliveredCargo = s.deliveredCargo ?? 0;
   state.tradeLaneRestored = Boolean(s.tradeLaneRestored ?? (s.victory && state.deliveredCargo >= state.missionCargoGoal));
@@ -11557,7 +12420,7 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   state.factionStanding = (s.factionStanding && typeof s.factionStanding === 'object') ? s.factionStanding : {};
   state.feats = (s.feats && typeof s.feats === 'object') ? s.feats : {};
   state.autoTarget = s.autoTarget !== false;
-  state.spawnProtectionUntil = performance.now() + 8000;
+  state.spawnProtectionUntil = gameNow() + 8000;
   state.fleetStance = typeof s.fleetStance === 'string' ? s.fleetStance : 'follow';
   state.auxLaunched = Boolean(s.auxLaunched);
   state.power = { energy: finiteNumber(s.power?.energy, 200), dist: normalizePowerDist(s.power?.dist) };
@@ -11601,7 +12464,7 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   state.securityOutcomeNotice = null;
   state.controlledSystems = Array.isArray(s.controlledSystems)
     ? s.controlledSystems.map((index) => Number(index)).filter(Number.isFinite)
-    : [state.currentPlanet];
+    : [];
   state.visitedSystems = Array.isArray(s.visitedSystems)
     ? s.visitedSystems.map((index) => Number(index)).filter(Number.isFinite)
     : [state.currentPlanet];
@@ -11626,11 +12489,17 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   state.currentPlanet = Math.max(0, state.myplanet - 1);
   markSystemVisited(state.currentPlanet);
   syncPlayerBuiltStationDefinitions();
+  syncFactionReconstruction();
   // Saves from before ownership records existed: derive them once from held systems, so the
   // answers an old save gave keep holding, then record everything explicitly from here on.
   if (!state.stationOwners) state.stationOwners = migrateStationOwners();
+  if (!s.playtest) {
+    const start = Object.entries(factionDefs).find(([key,f]) => (f.faction || key) === state.playerFaction)?.[1];
+    const i = start ? (start.myplanet - 1) % state.planets.length : -1;
+    if (state.controlledSystems.includes(i)) ensurePlaytestState().legacyHolding = i;
+  }
   applySystemState(state.currentPlanet);
-  scheduleNextFleetAttack(performance.now() + 20000);
+  scheduleNextFleetAttack(gameNow() + 20000);
   if (!s.camera) setCameraNearPlanet();
   state.latinum = state.mylatinum;
   syncFuelToAntimatter();
@@ -11639,13 +12508,14 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   if (state.godMode) grantGodResources({ refresh: false, announce: false });
   normalizeWeaponLoadout();
   recalcCargoFromPods();
-  const savedPhysical=fleetBook().personal,loadNow=performance.now();
+  const savedPhysical=fleetBook().personal,loadNow=gameNow();
   state.recoveryAt=savedPhysical?.recoveryMs?loadNow+savedPhysical.recoveryMs:0;
   if(savedPhysical?.weaponCooldowns)state.weaponLastFiredAt=[0,1,2].map(i=>loadNow+(savedPhysical.weaponCooldowns[i]||0)-getScaledWeaponCooldown(state.playership,getWeapon(state.weaponSlots[i])));
   restoreFleetProjectiles();
   const journey=s.pendingJourney;
-  if(journey?.active&&journey.from===state.currentPlanet&&state.planets[journey.to]&&typeof journey.journeyId==='string'&&Number.isInteger(journey.travelDays)&&journey.travelDays>0)state.warp={...journey,startedAt:performance.now()-Math.min(journey.duration,journey.elapsed||0)};
+  if(journey?.active&&journey.from===state.currentPlanet&&state.planets[journey.to]&&typeof journey.journeyId==='string'&&Number.isInteger(journey.travelDays)&&journey.travelDays>0)state.warp={...journey,startedAt:gameNow()-Math.min(journey.duration,journey.elapsed||0)};
   state.gameStarted = true;
+  if (!s.camera) placePlayerAtSecurityApproach();
   if (startMenuEl) startMenuEl.style.display = 'none';
   stopAllGameAudioLoops();
   playGameSound('shipLaunch', { cooldownKey: 'ship:load' });
@@ -11875,7 +12745,7 @@ function getNpcHailTone(npc) {
   return 'neutral';
 }
 
-function getNpcHailBlockReason(npc, now = performance.now()) {
+function getNpcHailBlockReason(npc, now = gameNow()) {
   if (!npc || npc.destroyed) return 'No signal.';
   if (npc.playerAggroUntil && npc.playerAggroUntil > now) return 'Combat channel closed. This ship is actively engaged.';
   const destinationName = String(npc.destinationName || '').toLowerCase();
@@ -11893,7 +12763,7 @@ function getNpcHailBlockReason(npc, now = performance.now()) {
 }
 
 function createShipHailSession(npc) {
-  const seedBase = finiteNumber(npc?.seed, 1) + state.currentPlanet * 977 + Math.floor(performance.now() / 1500);
+  const seedBase = finiteNumber(npc?.seed, 1) + state.currentPlanet * 977 + Math.floor(gameNow() / 1500);
   const tone = getNpcHailTone(npc);
   const lines = shipHailLines[tone] || shipHailLines.neutral;
   const line = lines[Math.floor(seeded(seedBase + 11) * lines.length) % lines.length];
@@ -12031,7 +12901,9 @@ function updatePlanetMarketVariance() {
 }
 
 function createCargoRunOffer() {
-  const targetIndex = (state.currentPlanet + 1 + Math.floor(Math.random() * (state.planets.length - 1))) % state.planets.length;
+  const destinations=state.planets.map((p,i)=>i).filter(i=>i!==state.currentPlanet&&isChartSystemVisible(i)&&getPlottedRoute(state.currentPlanet,i));
+  if(!destinations.length)return null;
+  const targetIndex=destinations[Math.floor(Math.random()*destinations.length)];
   const targetSystem = ensureSystemState(targetIndex);
   const goods = state.tradeGoodsArray[Math.floor(Math.random() * state.tradeGoodsArray.length)];
   const tons = 2 + Math.floor(Math.random() * 5);
@@ -12280,7 +13152,7 @@ function openMap() {
   state.mapOpen = true;
   state.selectedPlanet = state.currentPlanet;
   if (!wasOpen) {
-    state.starChart.openedAt = performance.now();
+    state.starChart.openedAt = gameNow();
     focusStarChartOnSystem(state.currentPlanet);
   }
   syncInterstellarMapFrame();
@@ -12568,7 +13440,7 @@ function beginWarpTravel(targetIndex, plan) {
     route: plan,
     travelDays: Fleet.travelDays(plan?.distance ?? plan?.range ?? (plan?.legs || []).reduce((n,l) => n + getRouteWarpDistance(l),0)),
     journeyId: Fleet.nextId(fleetBook(), 'journey'),
-    startedAt: performance.now(),
+    startedAt: gameNow(),
     duration: WARP_DURATION_MS,
     message: plan?.legs?.length > 1
       ? `Warp drive engaged for ${target?.name || 'target system'} over ${plan.legs.length} route legs...`
@@ -12594,7 +13466,7 @@ function completeWarpTravel() {
   applySystemState(state.currentPlanet);
   const completedBuilds = state.warp.completedStations || 0;
   state.warp.completedStations = 0;
-  scheduleNextFleetAttack(performance.now() + 30000);
+  scheduleNextFleetAttack(gameNow() + 30000);
   setCameraNearPlanet();
   placePlayerAtSecurityApproach();
   state.ship.velocity = 0;
@@ -12675,7 +13547,7 @@ function handleTargetWindowAction(e, fromPointer = false) {
   e.preventDefault();
   e.stopPropagation();
   if (action.disabled) return true;
-  const now = performance.now();
+  const now = gameNow();
   if (!fromPointer && now - lastTargetWindowActionAt < 350) return true;
   lastTargetWindowActionAt = now;
   targetWindowInteractionLockUntil = now + 700;
@@ -12684,7 +13556,7 @@ function handleTargetWindowAction(e, fromPointer = false) {
   if (value === 'scan') scanSelectedShip();
   if (value === 'buy-cargo') buyCargoFromHailedShip();
   if (value === 'sell-cargo') sellCargoToHailedShip();
-  targetWindowInteractionLockUntil = performance.now() + 700;
+  targetWindowInteractionLockUntil = gameNow() + 700;
   return true;
 }
 
@@ -12761,7 +13633,7 @@ securityOrderPanelEl?.addEventListener('click', (e) => {
 
 // World markers: the perimeter, the issuing installation, and the player's holding or exit point.
 // The legal perimeter is drawn distinctly from any physical map edge.
-function drawSecurityZoneMarkers(now = performance.now()) {
+function drawSecurityZoneMarkers(now = gameNow()) {
   const zone = getSecurityZone(state.currentPlanet);
   if (!zone) return;
   const centre = worldToScreen(zone.centre);
@@ -13141,7 +14013,11 @@ panelEl?.addEventListener('click', (e) => {
 // Security tab (Phase 2): rules of engagement for this holding. Shown only where the player's side
 // has authority. Access and alert controls are deliberately absent until enforcement exists.
 function renderSecurityPanelMarkup(systemIndex = state.currentPlanet) {
-  if (!isSystemControlled(systemIndex)) return '<div class="meta">Security policy requires authority over this system.</div>';
+  if (!isSystemControlled(systemIndex)) {
+    if (!canDelegateSecurity(systemIndex)) return '<div class="meta">Local security requires ownership, or 100 standing as an officer of the governing faction.</div>';
+    const access = {...DEFAULT_SECURITY_POLICY.access, ...SECURITY_AUTHORED_CHECKPOINTS.find(e => getSystemIndexByName(e.systemName) === Number(systemIndex))?.access, ...getDelegatedPolicy(systemIndex)?.access};
+    return `<div class="panel-head">Delegated local security</div><p>Your governing faction authorizes access policy at 100 standing. Installations and weapons remain under its command.</p>${SECURITY_ACCESS_CLASSES.map(cls => `<div class="security-access-row"><strong>${escapeHtml(cls)}</strong>${SECURITY_ACCESS_VALUES.map(value => `<button data-security-access="${cls}:${value}" aria-pressed="${access[cls] === value}">${value}</button>`).join('')}</div>`).join('')}<button data-security-action="use-default">Restore governing policy</button>`;
+  }
   const effective = getEffectiveSecurityPolicy(systemIndex);
   const override = getSecurityPolicyOverride(systemIndex);
   const empire = getSecurityPolicyDefault();
@@ -13285,11 +14161,11 @@ planetMenuEl?.addEventListener('click', (e) => {
   }
   const securityAction = e.target.closest('[data-security-action]');
   if (securityAction) {
-    if (!isSystemControlled(state.currentPlanet)) return;
+    if (!isSystemControlled(state.currentPlanet) && !canDelegateSecurity(state.currentPlanet)) return;
     if (securityAction.dataset.securityAction === 'use-default') {
       clearSecurityPolicyOverride(state.currentPlanet);
       setLog(`${state.planets[state.currentPlanet]?.name || 'System'} now uses the empire default security policy.`);
-    } else if (securityAction.dataset.securityAction === 'set-default') {
+    } else if (securityAction.dataset.securityAction === 'set-default' && isSystemControlled(state.currentPlanet)) {
       setSecurityPolicyDefault(getEffectiveSecurityPolicy(state.currentPlanet));
       setLog('Empire default security policy updated.');
     }
@@ -13402,7 +14278,7 @@ planetMenuEl?.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 window.addEventListener('keydown', (e) => {
-  if (debugMenuEl?.open) return;
+  if (debugMenuEl?.open || gameMenuEl?.open) return;
   if (!state.gameStarted || state.warp.active || isWormholeTransitActive()) return;
   const key = e.key.toLowerCase();
   const typingInField = e.target?.matches?.('input, textarea, select, [contenteditable="true"]');
@@ -13448,7 +14324,7 @@ window.addEventListener('keydown', (e) => {
   if (key === '-' || key === '_') deselectTarget();
   if (key === '`' || key === '~') toggleAutoTarget();
 
-  if (key === 'escape') closeMap();
+  if (key === 'escape') { if (state.mapOpen) closeMap(); else openGameMenu(); }
   if (key === 't') transport();
   if (key === 'n') negotiateContract();
   if (key === 'e') tradeAtPlanet();
@@ -13546,6 +14422,7 @@ function handleGameCanvasClick(e) {
     let closestIndex = -1;
     let closestDistance = Infinity;
     for (let i = 0; i < state.planets.length; i++) {
+      if (!isChartSystemVisible(i)) continue;
       const screen = getStarChartSystemScreen(i);
       const d = Math.hypot(mx - screen.x, my - screen.y);
       if (d < closestDistance) {
@@ -13567,7 +14444,7 @@ function handleGameCanvasClick(e) {
             return;
           }
           state.selectedPlanet = closestIndex;
-          setLog(`Route plotted to ${target.name}: ${plan.legs.length} leg${plan.legs.length === 1 ? '' : 's'}. Click ${target.name} again to engage warp.`);
+          setLog(`Route plotted to ${chartSystemLabel(closestIndex)}: ${plan.legs.length} leg${plan.legs.length === 1 ? '' : 's'}. Click this system again to engage warp.`);
         } else {
           state.selectedPlanet = closestIndex;
           setLog(`No plotted route to ${target.name} from here.`);
@@ -13880,21 +14757,21 @@ function addProjectile({
     turnRate,
     heading,
     hitRadius,
-    born: performance.now(),
+    born: gameNow(),
     ttl: ttl ?? (owner === 'player' ? 1050 : 1250),
   });
 }
 
 function addWeaponEffect(effect) {
   state.weaponEffects.push({
-    born: performance.now(),
+    born: gameNow(),
     ttl: effect.ttl || 180,
     ...effect,
   });
 }
 
 function addShieldFlare(point, faction = 'neutral', options = {}) {
-  const now = performance.now();
+  const now = gameNow();
   const rotation = finiteNumber(options.rotation, 0);
   const impactPoint = options.impactPoint || null;
   const impactOffset = impactPoint && Number.isFinite(impactPoint.x) && Number.isFinite(impactPoint.y)
@@ -14023,7 +14900,7 @@ function applyPlayerDamage(damage, color = '#ff7777', options = {}) {
   if (amount <= 0) return { shieldDamage: 0, hullDamage: 0 };
   if (state.godMode) {
     const visual = getShipVisualProfile(state.playership);
-    state.lastShieldHitAt = performance.now();
+    state.lastShieldHitAt = gameNow();
     addShieldFlare(playerWorldPosition(), state.playerFaction, {
       shipId: state.playership,
       maxWidth: visual.width,
@@ -14043,7 +14920,7 @@ function applyPlayerDamage(damage, color = '#ff7777', options = {}) {
   state.shields = clamp(finiteNumber(state.shields, 0), 0, 100);
   const shieldDamage = Math.min(state.shields, amount, MAX_PLAYER_SHIELD_DAMAGE_PER_HIT);
   const hullDamage = Math.min(MAX_PLAYER_HULL_DAMAGE_PER_HIT, Math.max(0, amount - Math.min(state.shields, amount)));
-  state.lastShieldHitAt = performance.now();
+  state.lastShieldHitAt = gameNow();
   if (shieldDamage > 0) {
     const visual = getShipVisualProfile(state.playership);
     state.shields = Math.max(0, state.shields - shieldDamage);
@@ -14088,7 +14965,7 @@ function damageNpcShip(npc, damage, source = 'player', color = '#74d6ff', impact
   if (amount <= 0) return { shieldDamage: 0, hullDamage: 0 };
   const shieldDamage = Math.min(npc.combatShields, amount);
   const hullDamage = Math.max(0, amount - shieldDamage);
-  npc.lastShieldHitAt = performance.now();
+  npc.lastShieldHitAt = gameNow();
   npc.lastDamageSource = source;
   if (shieldDamage > 0) {
     const visual = getShipVisualProfile(npc.shipId);
@@ -14112,7 +14989,7 @@ function damageNpcShip(npc, damage, source = 'player', color = '#74d6ff', impact
   }
   playImpactSound({ shieldDamage, hullDamage }, { cooldownKey: hullDamage > 0 ? `impact:ship-hull:${npc.id}` : `impact:ship-shield:${npc.id}`, volume: 0.92 });
   if (isPlayerKillCreditSource(source)) {
-    const now = performance.now();
+    const now = gameNow();
     npc.attitude = 'hostile';
     npc.hostile = true;
     npc.playerAggroUntil = now + NPC_PLAYER_AGGRO_MS;
@@ -14128,7 +15005,7 @@ function damageNpcShip(npc, damage, source = 'player', color = '#74d6ff', impact
 // copies included) and all player-side ships are never alerted against the player, whatever flag
 // the victim flies.
 function alertLocalDefenseAgainstPlayer(victimSide, attackedStation = null) {
-  const now = performance.now();
+  const now = gameNow();
   const target = typeof victimSide === 'string' && victimSide ? victimSide : getDefendingSideId(state.currentPlanet);
   if (!target || target === PLAYER_SIDE) return;
   const shouldAlert = (side) => sidesAligned(side, target);
@@ -14165,7 +15042,7 @@ function damageStation(station, damage, source = 'player', color = '#74d6ff', im
   if (amount <= 0) return { shieldDamage: 0, hullDamage: 0 };
   const shieldDamage = Math.min(station.combatShields, amount);
   const hullDamage = Math.max(0, amount - shieldDamage);
-  station.lastShieldHitAt = performance.now();
+  station.lastShieldHitAt = gameNow();
   if (shieldDamage > 0) {
     station.combatShields = Math.max(0, station.combatShields - shieldDamage);
     addShieldFlare(station, station.faction || state.systemFaction, {
@@ -14190,7 +15067,7 @@ function damageStation(station, damage, source = 'player', color = '#74d6ff', im
   playImpactSound({ shieldDamage, hullDamage }, { cooldownKey: hullDamage > 0 ? `impact:station-hull:${station.id}` : `impact:station-shield:${station.id}`, volume: 1.05 });
   station.lastDamageSource = source;
   if (isPlayerKillCreditSource(source) && getStationOwner(station, state.currentPlanet) !== PLAYER_SIDE) {
-    const now = performance.now();
+    const now = gameNow();
     station.attitude = 'hostile';
     station.hostile = true;
     station.playerEscortOrderUntil = now + PLAYER_ESCORT_ORDER_MS;
@@ -14289,10 +15166,10 @@ function updateTargetWindow() {
   const knowledge=sensorDisplayContact(target);
   if(!knowledge.own){
     const key=`sensor:${target.id}:${Math.floor(sensorClock*5)}:${target.hailSession?.id||''}`;
-    if(!targetWindowForceRender&&(!targetWindowEl.classList.contains('hidden'))&&(targetWindowEl.dataset.renderKey===key||targetWindowInteractionLockUntil>performance.now()))return;
+    if(!targetWindowForceRender&&(!targetWindowEl.classList.contains('hidden'))&&(targetWindowEl.dataset.renderKey===key||targetWindowInteractionLockUntil>gameNow()))return;
     targetWindowEl.dataset.renderKey=key;
     targetWindowEl.classList.remove('hidden');
-    targetWindowEl.innerHTML=`<div class="target-window-head"><span>CONTACT</span><b>${escapeHtml(knowledge.report?.hull||'Unidentified contact')}</b></div><div class="target-hail-note">Declared: ${escapeHtml(knowledge.declaration||'Unknown')}<br>${knowledge.report?'Assessment '+Math.max(0,sensorClock-knowledge.report.assessedAt).toFixed(1)+'s old<br>':''}${knowledge.report?.weapons?'Weapons: '+escapeHtml(knowledge.report.weapons.join(', ')||'None')+'<br>'+escapeHtml(knowledge.report.condition)+'<br>'+escapeHtml(knowledge.report.crew):'Technical assessment unavailable'}</div><button data-hail-action="scan">Focused scan</button>${!target.stationTypeId?renderShipHailPanel(target,distanceToPlayer(target)):''}`;
+    targetWindowEl.innerHTML=`<div class="target-window-head"><span>CONTACT</span><b>${escapeHtml(knowledge.report?.hull||'Unidentified contact')}</b></div><div class="target-hail-note">Declared: ${escapeHtml(knowledge.declaration||'Unknown')}<br>${knowledge.report?'Assessment '+Math.max(0,sensorClock-knowledge.report.assessedAt).toFixed(1)+'s old<br>':''}${knowledge.report?.weapons?'Weapons: '+escapeHtml(knowledge.report.weapons.join(', ')||'None')+'<br>'+escapeHtml(knowledge.report.condition)+'<br>'+escapeHtml(knowledge.report.crew):'Technical assessment unavailable'}</div><button data-hail-action="scan">Focused scan</button>${!target.stationTypeId?renderShipHailPanel(target,distanceToPlayer(target)):`<button data-station-hail="${escapeHtml(target.id)}">Hail station</button>`}`;
     return;
   }
   ensureCombatTargetStats(target);
@@ -14309,7 +15186,7 @@ function updateTargetWindow() {
   const hailRangeState = isStation ? 'station' : distance <= SHIP_HAIL_RANGE ? 'hail-in' : 'hail-out';
   const spriteSrc = getShipImageSrc(targetId);
   const attitude = isStation ? '' : target.attitude || 'neutral';
-  const now = performance.now();
+  const now = gameNow();
   if (
     !targetWindowForceRender
     && !targetWindowEl.classList.contains('hidden')
@@ -14354,7 +15231,7 @@ function updateTargetWindow() {
         ${renderTargetMeter('Hull', target.combatHull, target.maxCombatHull, hullColor)}
       </div>
     </div>
-    ${isStation ? '' : renderShipHailPanel(target, distance)}`;
+    ${isStation ? `<button data-station-hail="${escapeHtml(target.id)}">Hail station</button>` : renderShipHailPanel(target, distance)}`;
 }
 
 function damageCombatTarget(target, damage, source = 'player', color = '#74d6ff', impactPoint = null) {
@@ -14364,12 +15241,12 @@ function damageCombatTarget(target, damage, source = 'player', color = '#74d6ff'
 }
 
 const FLEET_STANCES = ['follow', 'attack', 'seek', 'planet', 'explore', 'trade'];
-function getAlertStatus(now = performance.now()) {
+function getAlertStatus(now = gameNow()) {
   const stance = getFleetStance();
   if (stance === 'attack' || stance === 'seek') return 'red';
-  if (now - finiteNumber(state.lastShieldHitAt, 0) < 6000) return 'red';
-  if (stance === 'explore' || stance === 'planet' || stance === 'trade') return 'yellow';
-  return 'green';
+  if (state.lastShieldHitAt && now - state.lastShieldHitAt < 6000) return 'red';
+  if (stance === 'explore' || stance === 'planet' || stance === 'trade') return ensurePlaytestState().alertLevel==='red'?'red':'yellow';
+  return ensurePlaytestState().alertLevel || 'green';
 }
 function getFleetStance() {
   const s = state.fleetStance;
@@ -14384,7 +15261,7 @@ function getEscortAuxShips() {
 function isAuxSeeker(npc) {
   return Boolean(state.auxLaunched && npc && npc.fleetId && getEscortAuxShips().some((s) => s.id === npc.fleetId));
 }
-function getEscortDestination(fleetShip, index, formation, now = performance.now()) {
+function getEscortDestination(fleetShip, index, formation, now = gameNow()) {
   const stance = getFleetStance();
   const isAux = getEscortAuxShips().some((s) => s.id === fleetShip.id);
   if (state.auxLaunched && isAux) {
@@ -14424,7 +15301,7 @@ function getEscortDestination(fleetShip, index, formation, now = performance.now
   return formation;
 }
 function retaskEscortWing() {
-  const now = performance.now();
+  const now = gameNow();
   const escorts = getPlayerEscortFleetShips();
   escorts.forEach((fleetShip, i) => {
     const npc = state.npcShips.find((n) => n.fleetId === fleetShip.id && !n.destroyed);
@@ -14439,7 +15316,7 @@ function fleetOrder(slot) {
     setLog('No escort wing to order.');
     return;
   }
-  const now = performance.now();
+  const now = gameNow();
   if (slot === 1) {
     state.fleetStance = 'follow';
     retaskEscortWing();
@@ -14486,7 +15363,7 @@ function fleetOrder(slot) {
   }
   updateStats();
 }
-function markPlayerEscortAttackOrder(target, now = performance.now()) {
+function markPlayerEscortAttackOrder(target, now = gameNow()) {
   if (!target || target.destroyed) return;
   // No orders against the player's own installations or ships: refuse before touching the target.
   if (target.stationTypeId ? getStationOwner(target, state.currentPlanet) === PLAYER_SIDE : isPlayerSideNpc(target)) return;
@@ -14500,7 +15377,7 @@ function markPlayerEscortAttackOrder(target, now = performance.now()) {
   }
 }
 
-function applyPlayerTractorBeam(weapon, target, slotIndex = 0, now = performance.now()) {
+function applyPlayerTractorBeam(weapon, target, slotIndex = 0, now = gameNow()) {
   if (!target || target.destroyed || target.stationTypeId) return false;
   const tractorSettings = getTractorBeamItemSettings();
   const player = playerWorldPosition();
@@ -14542,11 +15419,11 @@ function applyPlayerTractorBeam(weapon, target, slotIndex = 0, now = performance
   return true;
 }
 
-function isNpcEngineDisabled(npc, now = performance.now()) {
+function isNpcEngineDisabled(npc, now = gameNow()) {
   return finiteNumber(npc?.engineDisabledUntil, 0) > now;
 }
 
-function applyPlayerEngineDisruptorPulse(weapon, slotIndex = 0, now = performance.now()) {
+function applyPlayerEngineDisruptorPulse(weapon, slotIndex = 0, now = gameNow()) {
   const disruptorSettings = getEngineDisruptorItemSettings();
   const disableMs = finiteNumber(disruptorSettings.disableMs, ENGINE_DISRUPTOR_DISABLE_MS);
   const waveMs = finiteNumber(disruptorSettings.waveMs, ENGINE_DISRUPTOR_WAVE_MS);
@@ -14586,7 +15463,7 @@ function applyPlayerEngineDisruptorPulse(weapon, slotIndex = 0, now = performanc
   return affected;
 }
 
-function applyPlayerThaleronCloud(weapon, slotIndex = 0, now = performance.now()) {
+function applyPlayerThaleronCloud(weapon, slotIndex = 0, now = gameNow()) {
   const thaleronSettings = getThaleronItemSettings();
   const cloudMs = finiteNumber(thaleronSettings.cloudMs, THALERON_CLOUD_MS);
   const player = playerWorldPosition();
@@ -14624,7 +15501,7 @@ function applyPlayerThaleronCloud(weapon, slotIndex = 0, now = performance.now()
 }
 
 function updateTractorBeams(frameScale = 1) {
-  const now = performance.now();
+  const now = gameNow();
 
   const tractorSettings = getTractorBeamItemSettings();
   const rangeGrace = finiteNumber(tractorSettings.rangeGrace, TRACTOR_BEAM_RANGE_GRACE);
@@ -14681,7 +15558,7 @@ function updateTractorBeams(frameScale = 1) {
 function firePlayerWeapon(slot = 1) {
   if (fleetBook().personalCondition === 'disabled') return;
   if (state.gameOver || !state.gameStarted || state.warp.active) return;
-  const now = performance.now();
+  const now = gameNow();
   normalizeWeaponLoadout();
   const slotIndex = clamp(Math.round(Number(slot) || 1), 1, 3) - 1;
   const weaponId = state.weaponSlots[slotIndex];
@@ -14854,7 +15731,7 @@ function processHeldWeaponInputs() {
   }
 }
 
-function fireNpcWeapon(npc, target = playerWorldPosition(), targetType = 'player', now = performance.now()) {
+function fireNpcWeapon(npc, target = playerWorldPosition(), targetType = 'player', now = gameNow()) {
   if (now<(npc.weaponReadyAt||0) || npc.condition === 'disabled' || npc.destroyed || !fleetFirePermitted(npc, target, targetType, now)) return;
   if (!sensorCanTrack(npc, targetType === 'player' ? state : target)) return;
   const weaponId = fleetNpcWeapon(npc);
@@ -14939,7 +15816,7 @@ function fireNpcWeapon(npc, target = playerWorldPosition(), targetType = 'player
   });
 }
 
-function fireStationWeapon(station, target, now = performance.now()) {
+function fireStationWeapon(station, target, now = gameNow()) {
   if (station.destroyed || station.underConstruction) return;
   if (!sensorCanTrack(station,target.id ? target : state)) return;
   const candidateIds=(station.stationWeaponIds?.length?station.stationWeaponIds:getStationWeaponIds(station)).filter(id=>isCombatWeapon(getWeapon(id)));
@@ -15037,14 +15914,14 @@ function fireStationWeapon(station, target, now = performance.now()) {
       kind: projectileKind,
       turnRate: getProjectileTurnRate(weapon, 'station'),
       hitRadius: projectileKind === 'torpedo' ? 36 : null,
-      ttl: Math.max(800, Math.round((weapon.range || station.defenseRange || STATION_DEFENSE_RANGE) / Math.max(1, weapon.speed || 10.5) * 16.6667)),
+      ttl: Math.max(800, Math.round((isDefensePlatform(station) ? Math.max(weapon.range || 0, station.defenseRange || STATION_DEFENSE_RANGE) : (weapon.range || station.defenseRange || STATION_DEFENSE_RANGE)) / Math.max(1, weapon.speed || 10.5) * 16.6667)),
     });
   }
 }
 
 function updateStationDefenses() {
   if (!state.stations.length) return;
-  const now = performance.now();
+  const now = gameNow();
   const playerCloaked = isPlayerCloaked(now);
   for (const station of state.stations) {
     if (station.destroyed || station.underConstruction) continue;
@@ -15077,7 +15954,7 @@ function destroyNpcShip(npc) {
   if (systemShip) systemShip.destroyed = true;
   if (npc.fleetId) {
     const fleetShip = state.playerFleet.find((ship) => ship.id === npc.fleetId);
-    if (fleetShip) {fleetShip.destroyed=true;fleetShip.vessel=Fleet.snapshotVessel(npc,vesselDefaults(npc.shipId),performance.now());Fleet.removeVessel(fleetBook(),fleetShip.id);}
+    if (fleetShip) {fleetShip.destroyed=true;fleetShip.vessel=Fleet.snapshotVessel(npc,vesselDefaults(npc.shipId),gameNow());Fleet.removeVessel(fleetBook(),fleetShip.id);}
     const isEscort = fleetShip?.assignment === 'escort' || isPlayerEscortNpc(npc);
     setLog(isEscort
       ? `${getShipDisplayName(npc)} lost from your travelling escort.`
@@ -15115,7 +15992,7 @@ function destroyNpcShip(npc) {
         if (state.feats.vexBorgKills >= 5) {
           state.feats.vexBorgDown = true;
           adjustFactionStanding('romulan', 15);
-          setLog('Borg purged from the Vex system. The Romulans will now deal with you.');
+          setLog('Borg losses in Vex have improved your Romulan standing.');
         } else {
           setLog(`Borg destroyed in Vex (${Math.round(state.feats.vexBorgKills)}/5).`);
         }
@@ -15139,6 +16016,7 @@ function destroyStation(station) {
   });
   playGameSound('explosion', { cooldownKey: `destroy:station:${station.id}`, volume: 1.12, rateJitter: 0.12 });
   state.destroyedStations[station.id] = true;
+  queueFactionReconstruction(station);
   const systemStation = state.systemStates[state.currentPlanet]?.stations?.find((entry) => entry.id === station.id);
   if (systemStation) {
     systemStation.destroyed = true;
@@ -15174,7 +16052,7 @@ function destroyStation(station) {
 }
 
 function updateProjectiles(frameScale = 1) {
-  const now = performance.now();
+  const now = gameNow();
   const player = playerWorldPosition();
   const playerCloaked = isPlayerCloaked(now);
   let collisionBodies=null;
@@ -15287,12 +16165,14 @@ function isNpcStationTarget(npc, station) {
   if (!station || station.destroyed || station.attitude === 'destroyed') return false;
   // Own or allied installations are never targets; two unrelated independents are not "the same".
   const owner = getStationOwner(station, state.currentPlanet);
-  return !sidesAligned(getNpcSideId(npc), owner);
+  const side=getNpcSideId(npc);
+  return !sidesAligned(side,owner) && (sidesOpposed(side,owner) || hasRecentAggressionAgainst(station,side) || (isRaidingHere(npc) && sidesAligned(owner,getDefendingSideId())));
 }
 
 function areFactionsAligned(a = 'neutral', b = 'neutral') {
   if (!a || !b || a === 'neutral' || b === 'neutral') return false;
   if (a === b) return true;
+  if (worldRelation(a,b).status === 'war') return false;
   const aRelations = getFactionRelations(a);
   const bRelations = getFactionRelations(b);
   return Boolean(aRelations.friendly?.includes(b) || bRelations.friendly?.includes(a));
@@ -15303,9 +16183,7 @@ function areFactionsOpposed(a = 'neutral', b = 'neutral') {
   if (a === b) return false;
   if (a === 'borg' || b === 'borg') return true;
   if (a === 'pirate' || b === 'pirate') return true;
-  const aRelations = getFactionRelations(a);
-  const bRelations = getFactionRelations(b);
-  return Boolean(aRelations.hostile?.includes(b) || bRelations.hostile?.includes(a));
+  return worldRelation(a,b).status === 'war';
 }
 
 // Whether a ship may act as a defender in this system. Ownership and command are not changed by
@@ -15313,7 +16191,7 @@ function areFactionsOpposed(a = 'neutral', b = 'neutral') {
 // Whether it actually engages a given attacker is decided per attacker, relative to this ship
 // (isNpcSystemAttacker), from its own relationships and observed aggression, not the local flag.
 function isNpcSystemDefender(npc) {
-  if (!npc || npc.destroyed) return false;
+  if (!npc || npc.destroyed || npc.role==='ceasefireWithdrawal') return false;
   if (isPlayerSideNpc(npc)) return true;
   const side = getNpcSideId(npc);
   if (side === 'pirate') return false;
@@ -15334,17 +16212,17 @@ function isRaidingHere(entity, systemIndex = state.currentPlanet) {
   return Boolean(entity?.attackId) && Boolean(attack) && attack.id === entity.attackId
     && Number(attack.systemIndex) === Number(systemIndex);
 }
-function hasRecentAggressionAgainst(entity, side, now = performance.now(), systemIndex = state.currentPlanet) {
+function hasRecentAggressionAgainst(entity, side, now = gameNow(), systemIndex = state.currentPlanet) {
   return Boolean(entity?.lastAggressionAt) && now - entity.lastAggressionAt < NPC_AGGRESSION_MEMORY_MS
     && Number(entity.lastAggressionSystemIndex) === Number(systemIndex)
     && sidesAligned(entity.lastAggressionTargetSide, side);
 }
-function hasRecentPlayerAggressionAgainst(side, now = performance.now(), systemIndex = state.currentPlanet) {
+function hasRecentPlayerAggressionAgainst(side, now = gameNow(), systemIndex = state.currentPlanet) {
   return Boolean(state.lastPlayerAggressionAt) && now - state.lastPlayerAggressionAt < NPC_AGGRESSION_MEMORY_MS
     && Number(state.lastPlayerAggressionSystemIndex) === Number(systemIndex)
     && sidesAligned(state.lastPlayerAggressionTargetSide, side);
 }
-function recordPlayerAggressionAgainst(target, now = performance.now()) {
+function recordPlayerAggressionAgainst(target, now = gameNow()) {
   if (!target) return;
   const side = target.stationTypeId
     ? getStationOwner(target, state.currentPlanet)
@@ -15366,7 +16244,7 @@ function resolveDefenderSide(defender) {
 // otherwise allies never count; a fleet raiding this system counts against its holder; and, for
 // the player's side only under `defend`, ships hostile to the player or at war with the player's
 // flag count on sight. Under `return-fire` nothing counts without evidence.
-function isNpcSystemAttacker(npc, defender = null, now = performance.now()) {
+function isNpcSystemAttacker(npc, defender = null, now = gameNow()) {
   if (!npc || npc.destroyed) return false;
   const attackerSide = getNpcSideId(npc);
   const defenderSide = resolveDefenderSide(defender);
@@ -15411,7 +16289,7 @@ function isPlayerEscortNpc(npc) {
   return npc?.role === 'playerEscort' && npc.fleetId;
 }
 
-function isPlayerEscortShipTarget(npc, now = performance.now()) {
+function isPlayerEscortShipTarget(npc, now = gameNow()) {
   if (!npc || npc.destroyed || isPlayerSideNpc(npc)) return false;
   if (npc.playerEscortOrderUntil && npc.playerEscortOrderUntil > now) return true; // explicit orders override ROE
   // Evidence always suffices: attacks on the player's side seen here, or a raid on this holding.
@@ -15421,7 +16299,7 @@ function isPlayerEscortShipTarget(npc, now = performance.now()) {
   return getPlayerRoeAt(state.currentPlanet) === 'defend' && isNpcSystemAttacker(npc, null, now);
 }
 
-function isPlayerEscortStationTarget(station, now = performance.now()) {
+function isPlayerEscortStationTarget(station, now = gameNow()) {
   if (!station || station.destroyed) return false;
   // The player's own installations are never targets, not even under explicit orders.
   if (getStationOwner(station, state.currentPlanet) === PLAYER_SIDE) return false;
@@ -15433,7 +16311,7 @@ function isPlayerEscortStationTarget(station, now = performance.now()) {
   return getPlayerRoeAt(state.currentPlanet) === 'defend' && (Boolean(station.hostile) || station.attitude === 'hostile');
 }
 
-function getPlayerEscortPriorityTarget(escort, now = performance.now()) {
+function getPlayerEscortPriorityTarget(escort, now = gameNow()) {
   const group=fleetBook().formations.find(g=>g.members.includes(escort.fleetId));
   if(['hold','withdraw'].includes(group?.order))return null;
   if(group?.order==='attack'){const t=state.npcShips.find(n=>n.id===group.targetId&&!n.destroyed)||state.stations.find(n=>n.id===group.targetId&&!n.destroyed);if(t&&sensorCanTrack(escort,t)&&(t.stationTypeId?isPlayerEscortStationTarget(t):isPlayerEscortShipTarget(t)))return {target:t,type:t.stationTypeId?'station':'ship',distance:sensorDistance(escort,sensorKnownPosition(escort,t))};}
@@ -15487,7 +16365,7 @@ function getPlayerEscortPriorityTarget(escort, now = performance.now()) {
     .sort((a, b) => a.playerDistance - b.playerDistance)[0] || null;
 }
 
-function shouldNpcTargetPlayer(npc, playerDistance, stationTarget, now = performance.now()) {
+function shouldNpcTargetPlayer(npc, playerDistance, stationTarget, now = gameNow()) {
   if (!sensorCanTrack(npc,state)) return false;
   if (isPlayerCloaked(now)) return false;
   if (isSpawnProtected(now)) return false;
@@ -15517,7 +16395,7 @@ function getNpcCombatStandoff(npc, targetType = 'player') {
   return clamp(classRadius + targetBonus + seedOffset, NPC_COMBAT_MIN_STANDOFF, NPC_COMBAT_MAX_STANDOFF);
 }
 
-function getNpcCombatManeuverPoint(npc, target, targetType = 'player', now = performance.now()) {
+function getNpcCombatManeuverPoint(npc, target, targetType = 'player', now = gameNow()) {
   const targetKey = targetType === 'player' ? 'player' : `${targetType}:${target.id || target.name || 'target'}`;
   const distance = Math.max(1, Math.hypot(target.x - npc.x, target.y - npc.y));
   const desiredRadius = getNpcCombatStandoff(npc, targetType);
@@ -15552,7 +16430,7 @@ function getNpcCombatManeuverPoint(npc, target, targetType = 'player', now = per
   };
 }
 
-function scheduleNextFleetAttack(now = performance.now()) {
+function scheduleNextFleetAttack(now = gameNow()) {
   state.nextFleetAttackAt = now + FLEET_ATTACK_MIN_INTERVAL_MS
     + seeded(now * 0.017 + state.currentPlanet * 31) * (FLEET_ATTACK_MAX_INTERVAL_MS - FLEET_ATTACK_MIN_INTERVAL_MS);
 }
@@ -15568,7 +16446,7 @@ function chooseFleetAttackFaction(systemIndex = state.currentPlanet) {
     && (areFactionsOpposed(faction, localFaction) || areFactionsOpposed(faction, state.playerFaction))
   ));
   if (candidates.length) {
-    return candidates[Math.floor(seeded(performance.now() * 0.011 + systemIndex * 97) * candidates.length) % candidates.length];
+    return candidates[Math.floor(seeded(gameNow() * 0.011 + systemIndex * 97) * candidates.length) % candidates.length];
   }
   return localFaction === 'pirate' ? 'terran' : 'pirate';
 }
@@ -15598,7 +16476,8 @@ function spawnFleetAttack(systemIndex = state.currentPlanet, attackerFaction = c
   if (localFaction === 'neutral' && !state.controlledSystems.includes(Number(systemIndex))) return false;
   setLog(fleetAttackHerald(attackerFaction, systemIndex));
   const attackId = `raid-${systemIndex}-${Date.now().toString(36)}`;
-  const size = getFleetRaidSize(systemIndex);
+  const activity=getSystemActivity(systemIndex);
+  const size = {skirmish:2,raid:4,battle:7}[activity.type] || getFleetRaidSize(systemIndex);
   const baseSeed = hashString(attackId);
   const originAngle = seeded(baseSeed + 13) * Math.PI * 2;
   const originDistance = 1150 + seeded(baseSeed + 17) * 420;
@@ -15640,7 +16519,7 @@ function spawnFleetAttack(systemIndex = state.currentPlanet, attackerFaction = c
     id: attackId,
     systemIndex,
     faction: attackerFaction,
-    startedAt: performance.now(),
+    startedAt: gameNow(),
     size,
   };
   state.fleetAttackControlSince = 0;
@@ -15648,7 +16527,7 @@ function spawnFleetAttack(systemIndex = state.currentPlanet, attackerFaction = c
   return true;
 }
 
-function getFleetAttackDefenders(attackFaction = state.activeFleetAttack?.faction, attackers = [], now = performance.now()) {
+function getFleetAttackDefenders(attackFaction = state.activeFleetAttack?.faction, attackers = [], now = gameNow()) {
   const control = getSystemControl(state.currentPlanet);
   const localFaction = control.allegiance || 'neutral';
   const defendingSide = getDefendingSideId(state.currentPlanet);
@@ -15690,16 +16569,13 @@ function getFleetAttackDefenders(attackFaction = state.activeFleetAttack?.factio
   };
 }
 
-function updateFleetAttacks(now = performance.now()) {
-  if (!state.nextFleetAttackAt) scheduleNextFleetAttack(now + 20000);
-  if (!state.activeFleetAttack && now >= state.nextFleetAttackAt) {
-    spawnFleetAttack(state.currentPlanet);
-    scheduleNextFleetAttack(now);
-  }
+function updateFleetAttacks(now = gameNow()) {
+  // Raids are launched once by the saved system activity, not by an endless wall-clock timer.
   const attack = state.activeFleetAttack;
   if (!attack || Number(attack.systemIndex) !== Number(state.currentPlanet)) return;
   const attackers = state.npcShips.filter((npc) => !npc.destroyed && npc.attackId === attack.id);
   if (!attackers.length) {
+    getSystemActivity().outcome='repelled';
     setLog(`${formatFaction(attack.faction)} fleet attack repelled.`);
     state.activeFleetAttack = null;
     state.fleetAttackControlSince = 0;
@@ -15717,6 +16593,7 @@ function updateFleetAttacks(now = performance.now()) {
     return;
   }
   if (now - state.fleetAttackControlSince < FLEET_ATTACK_CONTROL_DELAY_MS) return;
+  getSystemActivity().outcome='system captured';
   transferSystemControlToFaction(state.currentPlanet, attack.faction);
   state.systemFaction = attack.faction;
   state.systemAttitude = getFactionAttitude(attack.faction);
@@ -15732,13 +16609,13 @@ function updateFleetAttacks(now = performance.now()) {
   updateStats();
 }
 
-function scheduleAmbientTrafficWarp(npc, now = performance.now()) {
+function scheduleAmbientTrafficWarp(npc, now = gameNow()) {
   const seed = finiteNumber(npc.seed, 1) + finiteNumber(npc.leg, 0) * 73 + Math.floor(now / 1000) * 17;
   npc.ambientWarpAt = now + AMBIENT_TRAFFIC_WARP_NEXT_MIN_MS
     + seeded(seed) * (AMBIENT_TRAFFIC_WARP_NEXT_MAX_MS - AMBIENT_TRAFFIC_WARP_NEXT_MIN_MS);
 }
 
-function isAmbientTrafficWarpEligible(npc, now = performance.now()) {
+function isAmbientTrafficWarpEligible(npc, now = gameNow()) {
   if (npc.condition === 'disabled' || fleetBook().boarding?.targetId === physicalNpcId(npc)) return false;
   if (!npc || npc.destroyed || npc.trafficWarp) return false;
   if (npc.role !== 'traffic' && npc.role !== 'localTraffic') return false;
@@ -15757,9 +16634,7 @@ function chooseAmbientTrafficShipId(npc, seed) {
   let candidate = npc.shipId;
   for (let attempt = 0; attempt < 6; attempt += 1) {
     const trialSeed = seed + attempt * 43;
-    candidate = localTraffic
-      ? getNpcShipIdForFaction(localFaction, trialSeed, npc.role || 'localTraffic')
-      : getNpcShipId(trialSeed, npc.role || 'traffic');
+    candidate = activityTrafficShip(state.currentPlanet, trialSeed, npc.role || 'traffic');
     if (candidate == null) return null;
     if (candidate !== npc.shipId) break;
   }
@@ -15782,7 +16657,7 @@ function syncAmbientTrafficVariant(npc) {
   systemShip.crewTemperament = npc.crewTemperament;
 }
 
-function beginAmbientTrafficArrival(npc, now = performance.now()) {
+function beginAmbientTrafficArrival(npc, now = gameNow()) {
   if (npc.condition === 'disabled' || npc.fleetId || fleetBook().boarding?.targetId === physicalNpcId(npc)) return false;
   const replacementSeed = hashString(`${npc.id}:${npc.seed}:${Math.floor(now)}`);
   const shipId = chooseAmbientTrafficShipId(npc, replacementSeed);
@@ -15852,7 +16727,7 @@ function beginAmbientTrafficArrival(npc, now = performance.now()) {
   syncAmbientTrafficVariant(npc);
 }
 
-function startAmbientTrafficDeparture(npc, now = performance.now()) {
+function startAmbientTrafficDeparture(npc, now = gameNow()) {
   const seed = hashString(`${npc.id}:${npc.seed}:${npc.leg}:${Math.floor(now)}`);
   const awayMs = AMBIENT_TRAFFIC_WARP_AWAY_MIN_MS
     + seeded(seed + 17) * (AMBIENT_TRAFFIC_WARP_AWAY_MAX_MS - AMBIENT_TRAFFIC_WARP_AWAY_MIN_MS);
@@ -15869,7 +16744,7 @@ function startAmbientTrafficDeparture(npc, now = performance.now()) {
   state.trafficWarpCooldownUntil = npc.trafficWarp.returnAt + AMBIENT_TRAFFIC_WARP_IN_MS + 1800;
 }
 
-function updateAmbientTrafficWarp(npc, now = performance.now(), frameScale = 1) {
+function updateAmbientTrafficWarp(npc, now = gameNow(), frameScale = 1) {
   const warp = npc.trafficWarp;
   if (warp?.phase === 'departing') {
     const progress = clamp((now - warp.startedAt) / Math.max(1, warp.endsAt - warp.startedAt), 0, 1);
@@ -15921,7 +16796,7 @@ function updateAmbientTrafficWarp(npc, now = performance.now(), frameScale = 1) 
 }
 
 function updateNpcShips(frameScale = 1) {
-  const now = performance.now();
+  const now = gameNow();
   const playerCloaked = isPlayerCloaked(now);
   for (const npc of state.npcShips) {
     if (npc.destroyed) continue;
@@ -16057,7 +16932,7 @@ function updateNpcShips(frameScale = 1) {
 }
 
 function updateAsteroids(frameScale = 1) {
-  const now = performance.now();
+  const now = gameNow();
   for (const asteroid of state.asteroids || []) {
     if (!asteroid || asteroid.depleted) continue;
     const seed = finiteNumber(asteroid.driftSeed, 1);
@@ -16113,9 +16988,9 @@ function updateStationDebris(frameScale = 1) {
 }
 
 function tick(frameScale = 1) {
-  if (state.gameOver || !state.gameStarted) return;
+  if (state.gameOver || !state.gameStarted || playtestClock.stoppedAt !== null) return;
   if (state.warp.active) {
-    const elapsed = performance.now() - state.warp.startedAt;
+    const elapsed = gameNow() - state.warp.startedAt;
     if (elapsed >= state.warp.duration) completeWarpTravel();
     return;
   }
@@ -16127,6 +17002,7 @@ function tick(frameScale = 1) {
   updateSystemOrbits();
   updateAsteroids(frameScale);
   updateStationDebris(frameScale);
+  updateSystemActivity(frameScale);
   updateFleetAttacks();
   updatePowerSystems(frameScale);
   updateSensorSystems(frameScale);
@@ -16136,7 +17012,7 @@ function tick(frameScale = 1) {
   updateProjectiles(frameScale);
   updateShieldRegeneration(frameScale);
   updateBoarding(frameScale / 60);
-  if (fleetBook().personalCondition === 'disabled') { state.ship.velocity = 0; state.ship.turnVelocity = 0; tickDisabledVessel(null, performance.now()); updateSecurityEncounters(frameScale); return; }
+  if (fleetBook().personalCondition === 'disabled') { state.ship.velocity = 0; state.ship.turnVelocity = 0; tickDisabledVessel(null, gameNow()); updateSecurityEncounters(frameScale); return; }
   processHeldWeaponInputs();
   const s = state.ship;
   const up = keys.has('w') || keys.has('arrowup');
@@ -16145,7 +17021,7 @@ function tick(frameScale = 1) {
   const right = keys.has('d') || keys.has('arrowright');
   const turnInput = Number(right) - Number(left);
   const baseMaxSpeed = Math.max(1, finiteNumber(s.baseMaxSpeed, s.maxSpeed || 3.5));
-  const movementNow = performance.now();
+  const movementNow = gameNow();
   if (up && !down && !state.docked) {
     if (!s.forwardThrustStartedAt) s.forwardThrustStartedAt = movementNow;
   } else {
@@ -16196,7 +17072,7 @@ function tick(frameScale = 1) {
   updateTractorBeams(frameScale);
   updateSecurityEncounters(frameScale);
 
-  const now = performance.now();
+  const now = gameNow();
   if ((up || down || left || right || s.velocity > 0) && now - lastMotionStatsAt > 250) {
     lastMotionStatsAt = now;
     updateStats();
@@ -16848,7 +17724,7 @@ function drawPlanetRings(p, x, y, size, alpha = 0.9, layer = 'full') {
   return true;
 }
 
-function getPlanetSpinAngle(p, now = performance.now()) {
+function getPlanetSpinAngle(p, now = gameNow()) {
   const period = Math.max(4000, finiteNumber(p?.spinPeriod, 26000));
   const direction = finiteNumber(p?.spinDirection, 1) >= 0 ? 1 : -1;
   return (now / period) * Math.PI * 2 * direction;
@@ -16894,7 +17770,7 @@ function drawPlanetInnerEdgeShadow(p, x, y, size) {
   ctx.restore();
 }
 
-function drawSpinningPlanetSprite(img, p, x, y, size, now = performance.now()) {
+function drawSpinningPlanetSprite(img, p, x, y, size, now = gameNow()) {
   if (!img?.complete || img.naturalWidth <= 0) return false;
   const spinAngle = getPlanetSpinAngle(p, now);
   const fit = Math.min(size / img.naturalWidth, size / img.naturalHeight);
@@ -16938,10 +17814,10 @@ function getStarChartViewport() {
 
 function getStarChartBounds() {
   if (!state.planets.length) return { minX: -100, maxX: 100, minY: -100, maxY: 100, cx: 0, cy: 0, width: 200, height: 200 };
-  const minX = Math.min(...state.planets.map((p) => p.x));
-  const maxX = Math.max(...state.planets.map((p) => p.x));
-  const minY = Math.min(...state.planets.map((p) => p.y));
-  const maxY = Math.max(...state.planets.map((p) => p.y));
+  const minX = Math.min(...state.planets.filter((p,i)=>isChartSystemVisible(i)).map((p) => p.x));
+  const maxX = Math.max(...state.planets.filter((p,i)=>isChartSystemVisible(i)).map((p) => p.x));
+  const minY = Math.min(...state.planets.filter((p,i)=>isChartSystemVisible(i)).map((p) => p.y));
+  const maxY = Math.max(...state.planets.filter((p,i)=>isChartSystemVisible(i)).map((p) => p.y));
   return {
     minX,
     maxX,
@@ -16971,6 +17847,7 @@ function getStarChartTransform() {
 }
 
 function focusStarChartOnSystem(systemIndex = state.currentPlanet, zoom = STAR_CHART_FOCUSED_ZOOM) {
+  if(!isChartSystemVisible(systemIndex))systemIndex=state.currentPlanet;
   const system = state.planets[systemIndex] || state.planets[state.currentPlanet];
   if (!system) {
     state.starChart.panX = 0;
@@ -17034,6 +17911,7 @@ function getStarChartSystemLayout() {
       for (let b = a + 1; b < positions.length; b++) {
         const pa = positions[a];
         const pb = positions[b];
+        if (!isChartSystemVisible(pa.index) || !isChartSystemVisible(pb.index)) continue;
         const dx = pb.x - pa.x;
         const dy = pb.y - pa.y;
         const distance = Math.max(0.01, Math.hypot(dx, dy));
@@ -17248,12 +18126,13 @@ function drawStarChartNebulaRegions() {
   if (isPerformanceMode()) return;
   const nebula = getNebulaSprite();
   if (!nebula) return;
-  const elapsed = performance.now() - finiteNumber(state.starChart.openedAt, performance.now());
+  const elapsed = gameNow() - finiteNumber(state.starChart.openedAt, gameNow());
   const baseFade = clamp(elapsed / 1050, 0, 1);
   const easedFade = 1 - Math.pow(1 - baseFade, 3);
   ctx.save();
   ctx.globalCompositeOperation = 'screen';
   for (let i = 0; i < state.planets.length; i++) {
+    if (!isChartSystemVisible(i)) continue;
     const system = ensureSystemState(i);
     if (!system.hasNebula) continue;
     const stagger = seeded(i + 52) * 0.22;
@@ -17285,6 +18164,7 @@ function drawTravelRoutes() {
   ctx.save();
   ctx.lineCap = 'round';
   for (const route of state.travelRoutes) {
+    if (!isChartSystemVisible(route.from) || !isChartSystemVisible(route.to)) continue;
     if (!state.planets[route.from] || !state.planets[route.to]) continue;
     const aScreen = getStarChartSystemScreen(route.from);
     const bScreen = getStarChartSystemScreen(route.to);
@@ -17325,6 +18205,7 @@ function getMapFactionTerritoryClusters() {
   };
 
   for (const route of state.travelRoutes) {
+    if (!isChartSystemVisible(route.from) || !isChartSystemVisible(route.to)) continue;
     const fromFaction = getSystemFaction(route.from);
     const toFaction = getSystemFaction(route.to);
     if (fromFaction !== toFaction || fromFaction === 'neutral') continue;
@@ -17421,7 +18302,7 @@ function getTerritoryExclusionSystems(cluster, shape) {
   const memberSystems = new Set(cluster.systems.map((index) => Number(index)));
   const blockers = [];
   for (let i = 0; i < state.planets.length; i++) {
-    if (memberSystems.has(i)) continue;
+    if (!isChartSystemVisible(i) || memberSystems.has(i)) continue;
     const faction = getSystemFaction(i);
     if (faction === cluster.faction) continue;
     const point = getStarChartSystemScreen(i);
@@ -17726,7 +18607,7 @@ function drawMapLegend() {
   ctx.strokeRect(boxX, boxY, boxW, boxH);
   ctx.fillStyle = '#dfeaff';
   ctx.font = canvasUiFont(13);
-  drawFittedMapText(`Current: ${p?.name || 'Unknown'}    Target: ${target?.name || 'None'}`, boxX + 14, boxY + 20, boxW - 28);
+  drawFittedMapText(`Current: ${p?.name || 'Unknown'}    Target: ${chartSystemLabel(state.selectedPlanet)}`, boxX + 14, boxY + 20, boxW - 28);
   ctx.fillStyle = getMapFactionColor(systemInfo.faction);
   ctx.font = canvasUiFont(12, 'bold');
   drawFittedMapText(
@@ -17745,6 +18626,7 @@ function drawMapLegend() {
 }
 
 function drawMapSystemNode(p, i, size) {
+  if (!isChartSystemVisible(i)) return;
   const screen = getStarChartSystemScreen(i);
   const system = ensureSystemState(i);
   const selected = i === state.selectedPlanet;
@@ -17774,6 +18656,12 @@ function drawMapSystemNode(p, i, size) {
     ctx.stroke();
   }
 
+  const deliveries = getOpenContracts().filter(c => c.showMarker && getContractTargetIndex(c) === i);
+  if (deliveries.length) {
+    ctx.strokeStyle = '#ffe38a'; ctx.lineWidth = 2;
+    ctx.beginPath();ctx.arc(screen.x,screen.y,radius+7,0,Math.PI*2);ctx.stroke();
+    ctx.fillStyle='#ffe38a';ctx.font=canvasUiFont(11);ctx.fillText(`Cargo ×${deliveries.length}`,screen.x+radius+10,screen.y+4);
+  }
   if (system.hasNebula) {
     ctx.fillStyle = 'rgba(216, 196, 255, 0.78)';
     ctx.beginPath();
@@ -17784,6 +18672,7 @@ function drawMapSystemNode(p, i, size) {
 }
 
 function drawPlanetMarker(p, i) {
+  if (state.mapOpen && !isChartSystemVisible(i)) return;
   const size = state.mapOpen ? MAP_PLANET_DRAW_SIZE : (p.drawSize || getPlanetVisualSize(p));
   const radius = size * 0.42;
   if (state.mapOpen) {
@@ -17796,7 +18685,8 @@ function drawPlanetMarker(p, i) {
       ctx.fillStyle = i === state.selectedPlanet ? '#ffd66e' : '#dfeaff';
       ctx.font = canvasUiFont(11);
       ctx.textAlign = 'center';
-      const label = p.name.length > 14 ? `${p.name.slice(0, 13)}.` : p.name;
+      const chartName = chartSystemLabel(i);
+      const label = chartName.length > 14 ? `${chartName.slice(0,13)}.` : chartName;
       ctx.fillText(label, screen.x, screen.y - size / 2 - 8);
       ctx.textAlign = 'start';
     }
@@ -17815,11 +18705,11 @@ function drawPlanetMarker(p, i) {
   drawPlanetRings(p, p.x, p.y, size, 0.82, 'front');
 }
 
-function getAnimatedSystemBodyPosition(body, now = performance.now()) {
+function getAnimatedSystemBodyPosition(body, now = gameNow()) {
   return body;
 }
 
-function drawDecorativeSystemBody(body, now = performance.now()) {
+function drawDecorativeSystemBody(body, now = gameNow()) {
   const screen = worldToScreen(body);
   const size = finiteNumber(body.drawSize, body.kind === 'moon' ? 26 : 72);
   const radius = size * 0.42;
@@ -17850,12 +18740,12 @@ function drawDecorativeSystemBody(body, now = performance.now()) {
   ctx.restore();
 }
 
-function drawDecorativeSystemBodies(now = performance.now()) {
+function drawDecorativeSystemBodies(now = gameNow()) {
   if (isPerformanceMode()) return;
   for (const body of state.systemBodies || []) drawDecorativeSystemBody(body, now);
 }
 
-function drawPlanetCallout(marker, now = performance.now()) {
+function drawPlanetCallout(marker, now = gameNow()) {
   const callout = state.planetCallout;
   if (!callout || callout.index !== state.currentPlanet) return;
   const age = now - callout.born;
@@ -17893,7 +18783,7 @@ function drawPlanetCallout(marker, now = performance.now()) {
   ctx.restore();
 }
 
-function drawWorldPops(now = performance.now()) {
+function drawWorldPops(now = gameNow()) {
   state.worldPops = state.worldPops.filter((pop) => now - pop.born < pop.ttl);
   for (const pop of state.worldPops) {
     const age = now - pop.born;
@@ -17916,7 +18806,7 @@ function drawWorldPops(now = performance.now()) {
   }
 }
 
-function drawWeaponEffects(now = performance.now(), layer = 'all') {
+function drawWeaponEffects(now = gameNow(), layer = 'all') {
   state.weaponEffects = state.weaponEffects.filter((effect) => now - effect.born < effect.ttl);
   const effectAlphaScale = isReducedEffectsMode() ? 0.62 : 1;
   ctx.save();
@@ -18132,7 +19022,7 @@ function drawWeaponEffects(now = performance.now(), layer = 'all') {
   ctx.restore();
 }
 
-function drawActiveTractorBeams(now = performance.now()) {
+function drawActiveTractorBeams(now = gameNow()) {
   const beams = (state.tractorBeams || []).filter((beam) => finiteNumber(beam.expiresAt, 0) > now);
   if (!beams.length) return;
   const tractorSettings = getTractorBeamItemSettings();
@@ -18362,7 +19252,7 @@ function drawShieldBubble(effect, p, rotation = 0, alpha = 1, progress = 0) {
   ctx.restore();
 }
 
-function drawShieldEffects(now = performance.now()) {
+function drawShieldEffects(now = gameNow()) {
   ctx.save();
   ctx.globalCompositeOperation = 'screen';
   for (const effect of state.weaponEffects) {
@@ -18456,7 +19346,7 @@ function drawProjectiles() {
   ctx.restore();
 }
 
-function drawPlayerCloakEffect(now = performance.now()) {
+function drawPlayerCloakEffect(now = gameNow()) {
   if (!state.cloak?.active) return;
   const alpha = 1 - getPlayerCloakAlpha(now);
   const radius = getShipScreenRadius(state.playership, state.ship.drawScale);
@@ -18726,7 +19616,7 @@ function drawStarField() {
   }
 }
 
-function drawInSystemWarpStreaks(now = performance.now()) {
+function drawInSystemWarpStreaks(now = gameNow()) {
   const intensity = clamp(finiteNumber(state.ship.systemWarpIntensity, 0), 0, 1);
   if (intensity < IN_SYSTEM_WARP_MIN_INTENSITY) return;
   const radians = state.ship.rotation * Math.PI / 180;
@@ -18787,7 +19677,7 @@ function drawShipCruiseWarpTrail(screenPoint, heading, intensity = 0, radius = 3
 function drawAmbientTrafficWarpFlash(screenPoint, npc, radius) {
   const warp = npc.trafficWarp;
   if (!warp || (warp.phase !== 'departing' && warp.phase !== 'arriving')) return;
-  const progress = clamp((performance.now() - warp.startedAt) / Math.max(1, warp.endsAt - warp.startedAt), 0, 1);
+  const progress = clamp((gameNow() - warp.startedAt) / Math.max(1, warp.endsAt - warp.startedAt), 0, 1);
   const pulse = warp.phase === 'arriving' ? 1 - progress : progress;
   const ringRadius = radius * (1.15 + pulse * 2.1);
   const alpha = 0.16 + pulse * 0.4;
@@ -18807,7 +19697,7 @@ function drawAmbientTrafficWarpFlash(screenPoint, npc, radius) {
   ctx.restore();
 }
 
-function drawSystemStar(now = performance.now()) {
+function drawSystemStar(now = gameNow()) {
   const star = worldToScreen(state.systemStar);
   const pulse = 1 + Math.sin(now * 0.0011 + state.currentPlanet * 0.7) * 0.035;
   const glowRadius = SYSTEM_STAR_GLOW_RADIUS * pulse;
@@ -19044,7 +19934,7 @@ function drawFlightNebula() {
   if (!nebula) return;
   if (isPerformanceMode()) return;
   const seed = (state.currentPlanet + 1) * 101;
-  const now = performance.now();
+  const now = gameNow();
   const anchor = state.systemStar || state.systemPlanet || { x: SYSTEM_W * 0.5, y: SYSTEM_H * 0.5 };
   const coverW = canvas.width * (1.86 + seeded(seed + 1) * 0.22);
   const coverH = canvas.height * (1.86 + seeded(seed + 2) * 0.22);
@@ -19074,7 +19964,7 @@ function drawFlightNebula() {
   ctx.restore();
 }
 
-function drawWarpSplash(now = performance.now()) {
+function drawWarpSplash(now = gameNow()) {
   const warp = state.warp;
   const target = state.planets[warp.to];
   const progress = clamp((now - warp.startedAt) / warp.duration, 0, 1);
@@ -19182,7 +20072,7 @@ function drawWarpSplash(now = performance.now()) {
   ctx.restore();
 }
 
-function drawWormholeTransit(now = performance.now()) {
+function drawWormholeTransit(now = gameNow()) {
   const transit = state.wormholeTransit;
   if (!transit?.active) return;
   const progress = clamp((now - transit.startedAt) / Math.max(1, transit.duration), 0, 1);
@@ -19270,7 +20160,7 @@ function drawWormholeTransit(now = performance.now()) {
   ctx.restore();
 }
 
-function drawStationConstructionSite(station, p, stationRadius, now = performance.now()) {
+function drawStationConstructionSite(station, p, stationRadius, now = gameNow()) {
   const progress = getStationConstructionProgress(station);
   const remaining = getStationConstructionRemaining(station);
   const pulse = 0.5 + Math.sin(now * 0.006) * 0.5;
@@ -19356,7 +20246,7 @@ function render() {
   if (renderMapPanel) state.mapOpen = false;
 
   drawStarField();
-  const now = performance.now();
+  const now = gameNow();
   drawInSystemWarpStreaks(now);
   drawFlightNebula();
   drawSystemStar(now);
@@ -19482,8 +20372,8 @@ function render() {
   ctx.restore();
   drawPlayerCloakEffect();
   drawProjectiles();
-  drawWeaponEffects(performance.now(), 'all');
-  drawActiveTractorBeams(performance.now());
+  drawWeaponEffects(gameNow(), 'all');
+  drawActiveTractorBeams(gameNow());
   drawShieldEffects();
 
   drawWorldPops();
@@ -19519,6 +20409,9 @@ function syncGameOverMenu() {
 }
 
 function resetRunState() {
+  state.stationDefinitions=state.stationDefinitions.filter(s=>!s.reconstructionId);
+  state.playtest = { version: 1 };
+  resumeGameClock();
   state.fleetBook = Fleet.createFleetBook(1, Fleet.createCampaignId());
   state.recoveryAt=0;
   state.cargo = 0;
@@ -19696,7 +20589,7 @@ function restartInEscapePod() {
   syncFuelToAntimatter();
   syncPlayerBuiltStationDefinitions();
   applySystemState(state.currentPlanet);
-  scheduleNextFleetAttack(performance.now() + 30000);
+  scheduleNextFleetAttack(gameNow() + 30000);
   setCameraNearPlanet();
   state.ship.x = canvas.width * 0.5;
   state.ship.y = canvas.height * 0.5;
@@ -19714,14 +20607,14 @@ function restartInEscapePod() {
   syncGameOverMenu();
 }
 
-function isSpawnProtected(now = performance.now()) {
+function isSpawnProtected(now = gameNow()) {
   return finiteNumber(state.spawnProtectionUntil, 0) > now;
 }
 // Arrival protection is personal: the player cannot be targeted for a short window (see
 // isSpawnProtected, honored by NPC targeting and station defenses). It does not delete hostile
 // fleets, erase their orders, change attitudes or ownership, or manufacture a ceasefire.
 function calmHomeSystem() {
-  state.spawnProtectionUntil = performance.now() + 20000;
+  state.spawnProtectionUntil = gameNow() + 20000;
 }
 function startWithFaction(key, options = {}) {
   const f = factionDefs[key];
@@ -19748,7 +20641,7 @@ function startWithFaction(key, options = {}) {
   state.stationOwners = {};
   state.securityPolicies = { default: null, systems: {} };
   resetSecurityRecords();
-  transferSystemControlToPlayer(state.currentPlanet); // the start system's government installations are the side's
+  // An officer belongs to a faction; its territory and government stations stay faction-owned.
   state.myantimatter = f.myantimatter;
   state.antimatter = f.myantimatter;
   state.mylatinum = f.mylatinum;
@@ -19758,6 +20651,7 @@ function startWithFaction(key, options = {}) {
   state.mytech = [undefined, f.mytech1];
   applyCurrentShipStats(true);
   state.gameStarted = true;
+  diplomacyBook();
   state.mapOpen = false;
   state.planetMenuOpen = false;
   state.dockMenuTab = 'services';
@@ -19766,7 +20660,7 @@ function startWithFaction(key, options = {}) {
   state.dockedStationId = null;
   closePlanetMenu();
   applySystemState(state.currentPlanet);
-  scheduleNextFleetAttack(performance.now() + 30000);
+  scheduleNextFleetAttack(gameNow() + 30000);
   setCameraNearPlanet();
   state.ship.x = canvas.width * 0.5;
   state.ship.y = canvas.height * 0.5;
@@ -19775,6 +20669,7 @@ function startWithFaction(key, options = {}) {
   state.ship.forwardThrustStartedAt = 0;
   state.ship.systemWarpIntensity = 0;
   state.ship.rotation = 0;
+  placePlayerAtSecurityApproach();
   renderStartMenu('main');
   playGameSound('shipLaunch', { cooldownKey: 'ship:new-game' });
   setLog(`${state.captainName} aboard ${state.shipName}. ${f.label} selected.`);
@@ -19934,8 +20829,9 @@ let lastFrameTime = performance.now();
 function loop(now = performance.now()) {
   const frameScale = Math.min(2.5, Math.max(0.25, (now - lastFrameTime) / 16.6667));
   lastFrameTime = now;
-  tick(frameScale);
+  if (playtestClock.stoppedAt === null) tick(frameScale);
   render();
+  updateRecoveryPanel();
   requestAnimationFrame(loop);
 }
 
@@ -19946,9 +20842,8 @@ applyGameOptions();
 showIntroStory();
 syncLegacyState();
 resizeCanvasDisplay();
-loadSourceData();
+loadSourceData().then(loadPlanetModels);
 loadFlaHints();
-loadPlanetModels();
 loadShipManifest();
 loop();
 
@@ -20018,13 +20913,13 @@ function snapshotPersonalVessel() {
       weaponCooldowns: state.weaponLastFiredAt.map((t, i) =>
         Math.max(
           0,
-          t + getScaledWeaponCooldown(state.playership, getWeapon(state.weaponSlots[i])) - performance.now(),
+          t + getScaledWeaponCooldown(state.playership, getWeapon(state.weaponSlots[i])) - gameNow(),
         ),
       ),
       prizeStabilized: b.personal?.prizeStabilized,
     },
     d,
-    performance.now(),
+    gameNow(),
   );
   b.personal.shotCooldownMs = Math.max(0, ...b.personal.weaponCooldowns);
   b.personal.shipId = state.playership;
@@ -20158,7 +21053,7 @@ function capturePrizeVisit(nextSystem, includeFlightParticipants = false) {
         y: n.y,
         heading: n.heading,
       },
-      vessel: Fleet.snapshotVessel(n, vesselDefaults(n.shipId), performance.now()),
+      vessel: Fleet.snapshotVessel(n, vesselDefaults(n.shipId), gameNow()),
     })),
   };
 }
@@ -20166,7 +21061,7 @@ function restorePrizeVisit(system) {
   const visit = fleetBook().visit;
   if (!visit || visit.system !== Number(system)) return;
   for (const item of visit.ships) {
-    let npc = state.npcShips.find((n) => n.securityInstanceId === item.actor.securityInstanceId);
+    let npc = state.npcShips.find((n) => item.actor.securityInstanceId ? n.securityInstanceId === item.actor.securityInstanceId : n.id === item.actor.id);
     if (!npc) {
       npc = createNpcShip({ ...item.actor, from: item.actor });
       const slot = state.npcShips.findIndex((n) => n.id === item.actor.id);
@@ -20174,7 +21069,7 @@ function restorePrizeVisit(system) {
       else state.npcShips.push(npc);
     }
     Object.assign(npc, item.actor);
-    Fleet.restoreVessel(npc, item.vessel, performance.now(), vesselDefaults(npc.shipId).cooldown);
+    Fleet.restoreVessel(npc, item.vessel, gameNow(), vesselDefaults(npc.shipId).cooldown);
   }
 }
 function canFleetDepart() {
@@ -20207,6 +21102,8 @@ function advanceFleetCalendar(days, id) {
           );
     },
     complete(day) {
+      advanceWorldDiplomacy(day);
+      advanceFactionReconstruction(day);
       completeFleetJourneys();
       const completed = completeDueStationConstructions({ silent: true, deferScene: state.warp.active });
       if (state.warp.active) state.warp.completedStations = (state.warp.completedStations || 0) + completed;
@@ -20262,7 +21159,7 @@ function startBoardingTarget(target = getSelectedCombatTarget(), confirm = true)
     sourceId: b.personalId,
     resistance: policy.resistance,
   });
-  state.lastPlayerAggressionAt = performance.now();
+  state.lastPlayerAggressionAt = gameNow();
   state.lastPlayerAggressionSystemIndex = state.currentPlanet;
   state.lastPlayerAggressionTargetSide = getNpcSideId(target);
   alertLocalDefenseAgainstPlayer(getNpcSideId(target));
@@ -20317,7 +21214,7 @@ function updateBoarding(seconds) {
       assignment: 'escort',
       systemIndex: state.currentPlanet,
       faction: state.playerFaction,
-      vessel: Fleet.snapshotVessel(target, vesselDefaults(target.shipId), performance.now()),
+      vessel: Fleet.snapshotVessel(target, vesselDefaults(target.shipId), gameNow()),
     };
     state.playerFleet.push(record);
     autoAssignFleet(record);
@@ -20373,7 +21270,7 @@ function fleetServiceAllowed(npc) {
     !npc.destroyed &&
     distanceToPlayer(npc) <= 2400 &&
     !npc.power?.combat &&
-    (!npc.lastShieldHitAt || performance.now() - npc.lastShieldHitAt > 5000) &&
+    (!npc.lastShieldHitAt || gameNow() - npc.lastShieldHitAt > 5000) &&
     !fleetBook().boarding &&
     (!st ||
       (!st.destroyed &&
@@ -20399,10 +21296,10 @@ function repairFleetVessel(id) {
   if (npc) {
     npc.combatHull = quote.hull;
     if (npc.condition === 'disabled' && npc.combatHull >= npc.maxCombatHull * 0.2)
-      npc.recoveryAt = performance.now() + 5000;
+      npc.recoveryAt = gameNow() + 5000;
   } else {
     state.hull = (quote.hull / max) * 100;
-    if (vesselDisabled(state) && state.hull >= 20) state.recoveryAt = performance.now() + 5000;
+    if (vesselDisabled(state) && state.hull >= 20) state.recoveryAt = gameNow() + 5000;
   }
   captureShipPowerState();
   syncLegacyState();
@@ -20498,7 +21395,7 @@ function fleetPlanStatus(shipId) {
     services = fleetStationServices(),
     st = getCurrentDockedStation();
   const base = ship.purchaseRequirements?.factionStanding ?? PURCHASE_TIER_STANDING[ship.purchaseTier] ?? 0;
-  const faction = ship.purchaseRequirements?.faction || ship.faction || 'neutral',
+  const faction = getCurrentPurchaseVendor(st).standingFaction,
     required = Fleet.planStanding(base),
     price = 4 * getShipPrice(ship);
   const known = fleetBook().shipPlans.includes(Number(shipId));
@@ -20609,7 +21506,7 @@ function deliverFleetBuild(order) {
     from: station || state.systemPlanet,
   });
   restoreFleetPower(npc, record);
-  record.vessel = Fleet.snapshotVessel(npc, vesselDefaults(record.shipId), performance.now());
+  record.vessel = Fleet.snapshotVessel(npc, vesselDefaults(record.shipId), gameNow());
   state.playerFleet.push(record);
   autoAssignFleet(record);
   if (!state.warp.active && order.system === state.currentPlanet) state.npcShips.push(npc);
@@ -20799,7 +21696,7 @@ function renderFleetManager(open = false) {
       g.order,
     )}</select>
     <select data-fleet-destination="${escapeHtml(g.id)}">${options(
-      state.planets.map((p, i) => [i, p.name]),
+      state.planets.map((p, i) => [i, chartSystemLabel(i)]).filter(([i])=>isChartSystemVisible(i)),
       g.destination ?? state.currentPlanet,
     )}</select>${btn('dispatch', 'Dispatch to system', g.id)}</div>`,
     )
@@ -20892,7 +21789,7 @@ document.addEventListener('change', (event) => {
           len = Math.hypot(dx, dy) || 1;
         g.point = { x: origin.x + ((dx || 1) / len) * 1400, y: origin.y + (dy / len) * 1400 };
       }
-      if (g.order === 'attack' && t) markPlayerEscortAttackOrder(t, performance.now());
+      if (g.order === 'attack' && t) markPlayerEscortAttackOrder(t, gameNow());
     }
   }
   if (el.dataset.fleetDestination) {
@@ -20924,7 +21821,7 @@ function transferFleetCommand(id) {
   captureShipPowerState();
   const old = Fleet.copy(snapshotPersonalVessel()),
     incoming = Fleet.copy(record.vessel);
-  const now = performance.now(),
+  const now = gameNow(),
     oldPosition = playerWorldPosition(),
     incomingPosition = { x: destination.x, y: destination.y };
   const oldSensor = sensorKey(state),
@@ -21111,19 +22008,15 @@ function remapFleetSecurity(destination, former) {
   captureSecurityParticipants(state.currentPlanet);
 }
 function recoverDisabledPlayer() {
+  if (!state.gameStarted || state.gameOver) { setLog('Recovery requires an active run.'); return false; }
+  const status = getRecoveryStatus();
+  if (!status.available) { setLog(status.reason); return false; }
   const b = fleetBook();
-  if (b.personalCondition !== 'disabled' || b.boarding || state.recoveryAt) return false;
-  const max = getNpcCombatDurability(state.playership).hull;
-  const quote = Fleet.repairQuote(
-    getShipPrice(getShipStats(state.playership)),
-    (state.hull / 100) * max,
-    max,
-    Math.max(0.2 * max, (state.hull / 100) * max),
-  );
-  Fleet.recordBill(b, state, Fleet.nextId(b, 'rescue'), 'rescue', quote.amount, state.day);
-  state.hull = Math.max(20, state.hull);
-  state.recoveryAt = performance.now() + 5000;
-  setLog('Recovery crew stabilizing propulsion. Repair charge recorded in the financial book.');
+  Fleet.recordBill(b, state, Fleet.nextId(b, 'rescue'), 'rescue', status.amount, state.day);
+  state.hull = status.restored;
+  state.recoveryAt = gameNow() + 5000;
+  syncLegacyState();
+  setLog('Recovery crew stabilizing propulsion. Unpaid costs are recorded as debt.');
   return true;
 }
 function dispatchFleetFormation(id) {
@@ -21264,7 +22157,7 @@ function beginVesselDamageClip(actor, point, radius) {
 
 function snapshotFleetProjectiles() {
   const actors = [state, ...state.npcShips, ...state.stations],
-    now = performance.now();
+    now = gameNow();
   const physical = (a) =>
     a === state ? fleetBook().personalId : a.stationTypeId ? `station:${a.id}` : physicalNpcId(a);
   const sensorLookup = new Map(actors.map((a) => [sensorKey(a), physical(a)])),
@@ -21295,7 +22188,7 @@ function restoreFleetProjectiles() {
       source = actors.get(saved.source),
       emitter = actors.get(saved.emitter),
       target = actors.get(saved.target);
-    shot.born = performance.now() - saved.age;
+    shot.born = gameNow() - saved.age;
     if (source) shot.excludeKey = sensorKey(source);
     if (emitter) shot.emitterKey = hojEmitterKey(emitter);
     if (target) {

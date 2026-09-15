@@ -91,7 +91,7 @@ export function createShipCatalog(manifest, sourceMap, sizeConfig) {
     const explicit = ship.purchaseRequirements?.factionStanding;
     const configured = context.tierThresholds?.[ship.purchaseTier];
     const requiredStanding = explicit ?? configured;
-    const requiredFaction = ship.purchaseRequirements?.faction || ship.faction || 'neutral';
+    const requiredFaction = context.standingFaction || ship.purchaseRequirements?.faction || ship.faction || 'neutral';
     const currentStanding = Number.isFinite(context.standings?.[requiredFaction]) ? context.standings[requiredFaction] : 0;
     if (!Number.isFinite(requiredStanding) || requiredStanding < 0) return {allowed: false, reason: 'standing-threshold-unconfigured'};
     if (currentStanding < requiredStanding) return {allowed: false, reason: 'faction-standing', requiredStanding, requiredFaction, currentStanding};
