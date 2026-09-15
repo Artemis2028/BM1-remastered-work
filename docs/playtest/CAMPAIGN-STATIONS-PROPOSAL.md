@@ -8,7 +8,11 @@ Earth and the Klingons begin in a sustained war. Stalemate means the front has s
 
 Give the Klingons more ready combat power at the start and Earth more replacement capacity. A starting ratio around 1.2–1.3 Klingon ready strength to 1.0 Terran strength is worth testing, with Terran production around 1.2 times Klingon production. This produces pressure without scripting which worlds must fall. Those ratios must come from actual hulls, facilities and resources; avoid invisible combat bonuses.
 
-Track three quantities separately:
+The player's own empire is a full strategic actor, alongside Romulus, Cardassia and every other active faction. It has its own territory, treasury, stations, production queues, supply network, diplomacy and fleets. Flying a faction flag or serving a faction does not merge these holdings into that faction's economy. Player-owned resources are counted once under their actual owner, and joint operations require an explicit agreement.
+
+Every active power can accumulate strength while others fight, launch an offensive against another power, or become the leading contender. Romulan restraint and Cardassian opportunism influence decisions, not a permanent ceiling on their potential. Smaller factions can also rise through trade, industry, alliances or conquest. Respect existing dormant/discovery gates: this rule does not spontaneously activate the Gorn or reveal the Dominion core. Hidden buildup must be earned through the same resources, construction time and persistent hulls as visible buildup; reports may lag behind it.
+
+Track three quantities separately for each faction and the player's empire:
 
 | Measure | What contributes | What the player can change |
 | --- | --- | --- |
@@ -16,11 +20,11 @@ Track three quantities separately:
 | Production capacity | Operational yard berths, industrial workforce, feedstock and energy | Rescue engineers, supply yards, rebuild facilities, capture industry |
 | Ready military strength | Surviving hulls, weapons, condition, trained crews, fuel and supply access | Win fights, repair ships, escort replacements, cut supply, rescue crews |
 
-Do not reduce these to one victory score. A rich faction with wrecked yards cannot replace a fleet; a large fleet with no fuel cannot exploit a victory. Display our faction's known values and estimates/ranges for others. Readiness is derived from real vessels; production queues consume real resources and produce those vessels once.
+Do not reduce these to one victory score. A rich faction with wrecked yards cannot replace a fleet; a large fleet with no fuel cannot exploit a victory. Display the player empire's own values, information shared by its current partners, and estimates/ranges for other powers. Readiness is derived from real vessels; production queues consume real resources and produce those vessels once.
 
 Suggested bookkeeping: operating income minus upkeep changes treasury; mines/imports change material stocks; each yard advances work by its berth capacity multiplied by condition, workforce availability and supply factor. A completed order deducts reserved inputs once and creates a persistent hull. Repair ties up capacity that could otherwise build replacements. Refugees and damaged housing affect workforce gradually, not as instantaneous population switches.
 
-## Six possible campaign stories
+## Ten possible campaign stories
 
 | Scenario | Conditions | Events and player choices |
 | --- | --- | --- |
@@ -30,8 +34,12 @@ Suggested bookkeeping: operating income minus upkeep changes treasury; mines/imp
 | The brokers' war | Ferengi supply both sides; a third faction's entry changes the balance | Contract profits rise, embargoes split routes, allies make demands. Romulans can intervene after sufficient tension or a deliberate diplomatic plot, then negotiate their own exit. |
 | Communications blackout | A chain of relays is captured or destroyed during a major offensive | Orders arrive late; fleets execute standing instructions. Rescue a courier, rebuild a relay or investigate a forged stand-down message before a real Dominion incursion. |
 | Player breaks the expected cycle | The player preserves both sides' strength, exposes infiltration or forces a credible settlement | The Dominion still invades, but meets stronger, better prepared opponents. Its staging and attack axis can adapt to the actual front. Do not manufacture losses to force a collapse; preparation should pay off. |
+| Player empire becomes a great power | The captain establishes major holdings and builds an independent industrial and military base | The player can challenge Earth, Qonos, Romulus, Cardassia or the Dominion, defend neutrality, or support a temporary partner. AI factions evaluate the empire's actual strength and interests. |
+| Romulan reserve becomes an offensive | Romulus stays out of costly fighting while building crews, reserves and supply | A prepared Romulan offensive can threaten any reachable rival. Capturing a qualifying major Terran world can later support Terran hull production. Intelligence may reveal only fragments of the buildup. |
+| Cardassian expansion while rivals are distracted | Cardassia secures major worlds and strengthens industry during another faction's war | Cardassia can emerge as a principal rival to Earth, the Klingons, Romulus, the player empire or the Dominion. Joining the Dominion is never a required outcome. |
+| An overlooked power rises | Any active smaller faction turns trade, reconstruction and territorial gains into ready strength | Its formerly minor fleets become a serious contender. The player can partner with it, compete economically or fight it; status follows actual capability rather than a fixed major/minor label. |
 
-The normal route is the first scenario, with the others emerging from the same state. A faction can win a battle while its campaign position deteriorates.
+The opening Earth–Klingon conflict creates the initial pressure; subsequent stories emerge from the strength and choices of all powers. A faction can win a battle while its campaign position deteriorates.
 
 Suggested resolution gates: a sustained and supplied advantage, decisive objectives held long enough to matter, and political willingness. Test a 1.7:1 ready-strength advantage held for 20 days with a major industrial/capital objective; treat this as an offer/decision threshold, not an automatic surrender. Mutual exhaustion plus a verified outside threat can make a negotiated ceasefire attractive, but neither a ceasefire nor a coalition is compulsory. A frozen front alone never ends the war.
 
@@ -39,7 +47,15 @@ Suggested resolution gates: a sustained and supplied advantage, decisive objecti
 
 Use phases: dormant → reconnaissance/infiltration → staging → intervention. Keep the hidden core hidden until its existing discovery rule permits disclosure. Naming the Dominion in a rumor is not discovery or activation.
 
-The invasion is the campaign transition, not an optional protection offer. Use a scheduled staging window and actual reachable invasion routes. Terran/Klingon losses, production damage and supply disruption affect the Dominion's opportunity, target selection and likely success; low combined readiness must not be a mandatory trigger that lets a strong player prevent the campaign transition indefinitely. Timing still needs tuning against travel and production rates. If the player disrupts one staging route, the Dominion must rebuild or find another real route rather than teleport an invasion force.
+The invasion is the campaign transition, not an optional protection offer. Use a scheduled staging window and actual reachable invasion routes. The strength of every relevant faction, including the player empire, affects the Dominion's opportunity, target selection and likely success; low combined readiness must not be a mandatory trigger that lets a strong player prevent the campaign transition indefinitely. Timing still needs tuning against travel and production rates. A blocked entry remains blocked until real military or engineering action changes it; the invasion schedule cannot override a successful defense or create an unsupported alternate route.
+
+### Preferred entry: the Bajoran wormhole
+
+The Dominion should prioritize the Bajoran wormhole for its first major entry and Gamma Quadrant reinforcement convoys. This is grounded in Star Trek's Dominion buildup through that wormhole; mining the entrance also prevented further reinforcements. [StarTrek.com: Captains Janeway and Sisko Overcome the Odds](https://www.startrek.com/news/captains-janeway-and-sisko-overcome-the-odds). In the game data the Bajoran homeworld is named Bajora; map the route by its actual endpoint ids rather than matching display-name spelling.
+
+Whoever holds the local approach—Bajorans, Cardassians, another faction or the player's empire—becomes strategically important. The Dominion must transit the endpoint, contest its defenses and secure a bridgehead before advancing along reachable routes. Ownership of Bajora alone must not automatically destroy or seal the wormhole; defenses and interdiction have to function physically. The player may defend the entrance, attack the blockade for the Dominion, supply either force or attempt to control the corridor independently.
+
+Keep the Bajoran wormhole as the only assumed initial interquadrant entry. An alternative requires an explicitly authored, discovered and functioning connection to the Dominion's staging region. A generic wormhole-generator station does not automatically provide that connection. An engineered gate could be a later costly, telegraphed project if we choose to add it; ordinary long-range warp should not be assumed to cross quadrants within campaign timescales. Once inside, surviving Dominion fleets and functioning captured/local yards can sustain a war from their bridgehead even when Gamma reinforcements are cut off. No random appearance behind a defended chokepoint.
 
 There must be at least two actionable warnings before the first major assault: missing patrols, unexplained supply purchases, unfamiliar warship signatures or a colony requesting help. Subsequent stages require resources, routes and actual staging fleets. The Dominion cannot spawn arbitrary ships beside an unreachable world. Destroying its staging logistics reduces or delays the invasion. Rumors remain fallible; campaign triggers read actual persistent events, not generated report text.
 
@@ -49,7 +65,7 @@ Special events can deliberately raise tensions with any faction. An allegation a
 
 The Dominion enters as an independent belligerent with a powerful, finite expedition. Klingon Houses do not accept Dominion protection as the setup for its entry. There is no scripted Dominion victory, compulsory Terran–Klingon alliance or chosen player side.
 
-Any active faction can win through surviving forces, economic resources, production and captured territory. The Dominion can exploit the exhausted powers and conquer them, lose its expedition to determined resistance, or become one of several enduring contenders. Other belligerents can join or leave wars according to their interests. A victorious pre-invasion faction faces the Dominion with the strength it actually preserved.
+Any active faction or the player's independent empire can win through surviving forces, economic resources, production and captured territory. Romulus, Cardassia and smaller powers remain potential challengers to any other side throughout the campaign, before and after Dominion arrival. The Dominion can exploit the exhausted powers and conquer them, lose its expedition to determined resistance, or become one of several enduring contenders. Other belligerents can join or leave wars according to their interests. A victorious pre-invasion faction faces the Dominion with the strength it actually preserved.
 
 The player can serve the Dominion, fight it, remain loyal to another faction, change allegiance, trade across the conflict or build an independent power. The campaign does not assign a side or require participation in a final battle. Existing access, reputation and ownership consequences still apply to the player's actions; choosing a side never grants ownership of all its worlds.
 
@@ -59,17 +75,30 @@ Invasion arrival and each major capture change the strategic situation, not the 
 
 Use the existing ownership transfer and capture/reclaim protections. Strategic AI should choose reachable objectives, commit real forces, defeat the defending force and hold the objective through a capture period. Abstract offscreen combat must reconcile with exactly those forces when the player enters. Never simulate a second offscreen fight alongside a loaded battle.
 
-Distinguish controller, original culture and individual station owner. Capturing a Cardassian world gives access to its surviving industry; it does not make every local facility Terran-owned or erase private concessions. Damaged yards need repairs, workers and secure supply before contributing. A contested world starts at reduced output; peaceful integration is faster than repeated occupation. Populations need housing and relief as well as garrisons.
+Distinguish controller, original culture and individual station owner. Any conquering faction, including the player empire, can take control of a world's surviving industry. Conquest does not automatically transfer foreign/private concessions to the conqueror. Major-world qualification governs access to the world's ship designs, as defined below. Damaged yards need repairs, workers and secure supply before contributing. A contested world starts at reduced output; peaceful integration is faster than repeated occupation. Populations need housing and relief as well as garrisons.
 
-## Rotating stock without faction soup
+## Rotating stock and captured-world designs
 
 Keep each vendor's currently eligible catalog as its base pool. On a saved calendar schedule, choose a changing subset of that pool. Initial tuning: every 10 campaign days, staggered by vendor, with 3–5 available designs and limited quantities. Opening a menu, saving, loading or making a short jump must not reroll stock. If a pool has fewer designs than slots, all may remain available while quantities change.
 
-Earth's ordinary market remains Terran and its already authorized independent designs. Cardassian designs can be added only after Earth's controller holds a Cardassian-origin world with a surviving/recovered production license and a secure supply link. Being allied to Cardassia, owning a lone captured ship or hearing a rumor is insufficient. Private concessions keep their own provenance; a foreign-owned vendor on Earth is distinguishable from Earth's planetary stock.
+The captured-industry rule applies in every faction pairing, including the player's independent empire. A controller can gain production access to a captured world's native ship designs when that world qualifies as major through **substantial population OR a substantial number of operational stations**. Either route qualifies; do not require both. Set the population threshold and station-count threshold from the actual campaign distribution during balancing, and expose the qualification reason in the world panel. An isolated minor colony does not grant an entire faction's technology simply because its flag changed.
+
+Count real, completed and operational stations associated with that world for the station threshold; destroyed, abandoned or unfinished structures do not qualify. The station count measures the scale of the world, not ownership of every counted facility: private concessions can exist there without becoming the conqueror's property. Qualification grants a route to eligible native designs; construction still needs a surviving/recovered design license, suitable controlled or explicitly cooperating yards, resources, integration/retooling time and a working supply route. A major population center without a yard can qualify, but needs a yard built or connected before hulls can be produced. Station-rich worlds can qualify with smaller populations, provided actual production has the crews and supplies it needs.
+
+| Conqueror | Captured qualifying major world | Newly possible production |
+| --- | --- | --- |
+| Romulan faction | Terran-origin world | Eligible Terran hulls |
+| Terran faction | Cardassian-origin world | Eligible Cardassian hulls |
+| Cardassian faction | Romulan-origin world | Eligible Romulan hulls |
+| Player empire or any other active faction | Any other faction's qualifying major world | That world's eligible native designs, under the same rules |
+
+Earth-to-Cardassia was an example, not a special-case restriction. Normal stock continues to rotate inside each vendor's existing pool plus legitimately acquired production additions. Designs follow recorded cultural/industrial provenance, not whichever flag the previous occupier happened to fly: taking a Romulan-held Terran world does not automatically grant both entire catalogs. Preserve per-design catalog, secrecy, discovery and named-vendor exceptions rather than treating conquest as an unlock-all cheat. Being allied, capturing a lone ship or hearing a rumor does not meet the major-world rule.
+
+Record acquisition provenance and retooling progress explicitly. Once a design has actually been integrated into another compatible yard, losing the original world should not erase that knowledge; it can still disrupt resources and replenishment. Mere occupation without completed integration does not create a permanent license. Private concessions retain their own stock and access rules; their presence is not permission to sell the same designs everywhere.
 
 Purchases reduce quantity immediately; production and replenishment fill it on calendar ticks. Stable prices and existing purchase eligibility/standing gates should stay until separately balanced. Keep a catalog/commission option so rare designs are discoverable even when temporarily out of stock. Advertise the next resupply estimate if known. Previously accepted cargo contracts keep their prices.
 
-Represent provenance explicitly: vendor id, native pool, temporary captured-industry additions, eligible license ids, last replenishment cycle, next due day and remaining quantities. The transaction must recheck quantity, control, access and range, not trust a rendered button. Bound records by existing vendors/designs, and seed migration once from current campaign state.
+Represent provenance explicitly: vendor id, native pool, captured-industry additions and their acquisition/integration status, eligible license ids, last replenishment cycle, next due day and remaining quantities. The transaction must recheck quantity, control, access and range, not trust a rendered button. Bound records by existing vendors/designs, and seed migration once from current campaign state.
 
 ## Destroyed stations must not erase a ship design forever
 
@@ -156,6 +185,6 @@ Useful missions: escort replacement relay cores; verify a corrupted order; resto
 4. Add reachable objectives, occupation and supply, then strategic settlements and the Dominion phase controller.
 5. Add station missions and archive recovery using one bounded contract per lost license/source event.
 
-Required checks: menu/save/jump reads cannot reroll; every currently obtainable design stays obtainable under its existing gates; Earth gains no unauthorized Cardassian stock; loss/reclaim never changes foreign/private owners; days advanced daily, in chunks and once produce identical books; no double-produced hull or double-resolved battle; no unknown-location report leak; connected/disconnected fleet orders acknowledge once; losing a relay never resets standing orders; central-war settlement only follows explicit campaign/debug action; intervention staging obeys discovery and reach; invasion arrival neither forces an alliance nor assigns the player a faction; a prepared faction can defeat the Dominion without a scripted reversal; player support for any active side remains available.
+Required checks: menu/save/jump reads cannot reroll; every currently obtainable design stays obtainable under its existing gates; every conqueror/source-faction pairing, including the player empire, follows the same major-world rule; population-only and station-count-only qualification both work; minor captures grant no bulk design access; integrated designs retain recorded provenance; loss/reclaim never changes foreign/private owners; days advanced daily, in chunks and once produce identical books; no double-produced hull or double-resolved battle; no unknown-location report leak; connected/disconnected fleet orders acknowledge once; losing a relay never resets standing orders; central-war settlement only follows explicit campaign/debug action; intervention staging obeys discovery and reach; invasion arrival neither forces an alliance nor assigns the player a faction; a prepared faction can defeat the Dominion without a scripted reversal; player support for any active side remains available; the independent player empire is accounted for separately and can become dominant; Romulan, Cardassian and other active factions can build strength and challenge any reachable rival; Bajoran entry and reinforcement interdiction use real routes without bypass spawns; all named exceptions above remain in the design.
 
 The immediate reports/cargo candidate deliberately leaves these proposed systems out of runtime. That keeps the next implementation tied to reviewed gameplay decisions rather than silently inventing an economic campaign.
