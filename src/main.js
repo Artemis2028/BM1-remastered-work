@@ -7705,6 +7705,7 @@ window.addEventListener('keydown', (e) => {
   }
 }, { capture: true });
 window.addEventListener('keydown', (e) => {
+  if (debugMenuEl?.open) return;
   const key = e.key.toLowerCase();
   const weaponSlot = getWeaponSlotForKeyEvent(e);
   if (state.missionCompleteNotice) {
@@ -7754,6 +7755,7 @@ window.addEventListener('keydown', (e) => {
   if (flightKeys.has(key)) keys.add(key);
 });
 window.addEventListener('keyup', (e) => {
+  if (debugMenuEl?.open) return;
   const key = e.key.toLowerCase();
   if (state.gameStarted && flightKeys.has(key)) e.preventDefault();
   const weaponSlot = getWeaponSlotForKeyEvent(e);
@@ -8094,6 +8096,190 @@ function updatePanel() {
   if (panelEl) panelEl.innerHTML = '';
   renderTopLeftPanel();
 }
+
+// Public cheats use a fixed command list; entered text is never executable code.
+const debugMenuEl = document.getElementById('cheats-debug');
+const debugResourceFields = Object.freeze({
+  latinum: { label: 'Latinum', min: 0, max: () => GOD_MODE_LATINUM },
+  duranium: { label: 'Duranium', min: 0, max: () => GOD_MODE_DURANIUM },
+  antimatter: { label: 'Antimatter', min: 0, max: () => state.fuelCap },
+  hull: { label: 'Hull (%)', min: 1, max: () => 100 },
+  shields: { label: 'Shields (%)', min: 0, max: () => 100 },
+});
+
+function debugInteger(raw, min, max) {
+  const text = String(raw ?? '').trim();
+  const value = Number(text);
+  if (!text || !Number.isSafeInteger(value) || value < min || value > max) {
+    throw new Error(`Enter a whole number from ${min} to ${max}.`);
+  }
+  return value;
+}
+
+function applyDebugCommand(raw) {
+  if (!state.gameStarted || state.gameOver) throw new Error('Start or load a living captain first.');
+  if (state.warp.active || isWormholeTransitActive()) throw new Error('Finish transit before changing game values.');
+  const [command, ...args] = String(raw).trim().toLowerCase().split(/\s+/);
+  let message;
+  const changesVessel = ['hull', 'repair', 'ship'].includes(command) || (command === 'god' && args[0] === 'on');
+  if (changesVessel && fleetBook().boarding) throw new Error('Finish or cancel boarding before changing the vessel.');
+  if (command === 'standing' && args.length === 2) {
+    const [faction, value] = args;
+    if (!Object.hasOwn(factionNames, faction)) throw new Error('Unknown faction key. Choose a faction from the menu.');
+    const next = debugInteger(value, STANDING_MIN, STANDING_MAX);
+    adjustFactionStanding(faction, next - getFactionStanding(faction), { silent: true });
+    message = `${formatFaction(faction)} standing set to ${next}.`;
+  } else if (Object.hasOwn(debugResourceFields, command) && args.length === 1) {
+    const field = debugResourceFields[command];
+    state[command] = debugInteger(args[0], field.min, field.max());
+    if (command === 'hull') syncDebugVesselCondition();
+    message = `${field.label} set to ${state[command]}.`;
+  } else if (command === 'repair' && !args.length) {
+    state.hull = 100;
+    state.shields = 100;
+    state.lastShieldHitAt = 0;
+    syncDebugVesselCondition();
+    message = 'Hull and shields restored; disabled state cleared.';
+  } else if (command === 'refill' && !args.length) {
+    state.antimatter = state.fuelCap;
+    message = 'Antimatter refilled to current capacity.';
+  } else if (command === 'god' && args.length === 1 && ['on', 'off'].includes(args[0])) {
+    if (args[0] === 'on') { grantGodResources({ refresh: false, announce: false }); syncDebugVesselCondition(); }
+    else state.godMode = false;
+    message = args[0] === 'on'
+      ? 'God Mode enabled; resources, weapons and station plans granted.'
+      : 'God Mode disabled. Previously granted items and capacities are retained.';
+  } else if (command === 'ship' && args.length === 1) {
+    const id = debugInteger(args[0], 1, Number.MAX_SAFE_INTEGER);
+    if (state.shipStatsById[id]?.assetType !== 'ship') throw new Error('Choose a loaded ship from the menu.');
+    switchGodShip(id);
+    syncDebugVesselCondition();
+    message = `Switched to ${state.shipStatsById[id].name}. God Mode is enabled.`;
+  } else if (command === 'feat' && args.length === 2 && ['vexborgdown', 'bajoranfleetdown'].includes(args[0]) && ['on', 'off'].includes(args[1])) {
+    const key = args[0] === 'vexborgdown' ? 'vexBorgDown' : 'bajoranFleetDown';
+    if (!state.feats || typeof state.feats !== 'object') state.feats = {};
+    state.feats[key] = args[1] === 'on';
+    message = `${key} set to ${args[1]}.`;
+  } else {
+    throw new Error('Unknown code or arguments. See the code list below.');
+  }
+  syncLegacyState();
+  updateStats();
+  setLog(`Cheat: ${message}`);
+  return message;
+}
+
+function syncDebugVesselCondition() {
+  state.recoveryAt = 0;
+  const maxHull = getNpcCombatDurability(state.playership).hull;
+  if (Fleet.classifyDamage(state.hull * maxHull / 100, maxHull) === 'disabled') applyVesselDisablement(null);
+  else fleetBook().personalCondition = 'operational';
+}
+
+function refreshDebugReadout() {
+  const resource = debugMenuEl.querySelector('[name="resource"]').value;
+  debugMenuEl.querySelector('[name="amount"]').max = debugResourceFields[resource].max();
+  const faction = debugMenuEl.querySelector('[name="faction"]').value;
+  const refusal = serviceRefusal(faction);
+  debugMenuEl.querySelector('[data-debug-standing-status]').textContent =
+    `Standing: ${getFactionStanding(faction)} | Attitude: ${getEffectiveAttitude(faction)} | ${refusal || 'Faction permits port services.'}`;
+  debugMenuEl.querySelector('[data-debug-resources]').textContent =
+    `Last refreshed: Latinum ${state.latinum} · Duranium ${state.duranium} · Antimatter ${state.antimatter}/${state.fuelCap} · Hull ${Math.round(state.hull)}% · Shields ${Math.round(state.shields)}% · Condition: ${fleetBook().personalCondition} · God Mode ${state.godMode ? 'on' : 'off'}`;
+}
+
+function runDebugCommand(raw) {
+  const status = debugMenuEl.querySelector('[data-debug-status]');
+  try {
+    status.textContent = applyDebugCommand(raw);
+    status.classList.remove('debug-error');
+    refreshDebugReadout();
+  } catch (error) {
+    status.textContent = error.message;
+    status.classList.add('debug-error');
+  }
+}
+
+function openDebugMenu() {
+  if (!state.gameStarted || state.gameOver) return;
+  if (state.warp.active || isWormholeTransitActive()) {
+    setLog('Finish transit before opening Cheats & Debug.');
+    return;
+  }
+  if (!debugMenuEl || debugMenuEl.open) return;
+  keys.clear();
+  heldWeaponInputs.clear();
+  const factionOptions = Object.keys(factionNames).sort((a, b) => formatFaction(a).localeCompare(formatFaction(b)))
+    .map((key) => `<option value="${escapeHtml(key)}" ${key === getSystemFaction(state.currentPlanet) ? 'selected' : ''}>${escapeHtml(formatFaction(key))} (${escapeHtml(key)})</option>`).join('');
+  const shipOptions = getGodModeShips().map((ship) => `<option value="${ship.id}" ${Number(ship.id) === Number(state.playership) ? 'selected' : ''}>${escapeHtml(ship.name)} (${ship.id})</option>`).join('');
+  debugMenuEl.innerHTML = `<div class="debug-heading"><h2 id="cheats-debug-title">Cheats &amp; Debug</h2><button type="button" data-debug-close aria-label="Close Cheats & Debug">Close</button></div>
+    <p>Changes apply immediately and are included when you save. Flight continues while this menu is open. Resource cheats leave existing debt and bills unchanged.</p>
+    <p data-debug-status role="status" aria-live="polite">Choose a control or enter a code.</p>
+    <section><h3>Faction standing</h3>
+      <form data-debug-form="standing"><label>Faction<select name="faction">${factionOptions}</select></label>
+        <label>Standing (−100 to 100)<input name="standing" type="number" min="-100" max="100" step="1" required></label>
+        <button type="submit">Set standing</button></form>
+      <div class="debug-actions"><button type="button" data-debug-delta="-10">−10</button><button type="button" data-debug-delta="10">+10</button><button type="button" data-debug-preset="-100">Minimum</button><button type="button" data-debug-preset="0">Reset to 0</button><button type="button" data-debug-preset="100">Maximum</button></div>
+      <p data-debug-standing-status></p><p>Standing does not change faction membership or system ownership. Existing faction rules and milestones still determine access.</p>
+    </section>
+    <section><h3>Resources &amp; ship condition</h3><p data-debug-resources></p><button type="button" data-debug-refresh>Refresh values</button>
+      <form data-debug-form="resource"><label>Value<select name="resource">${Object.entries(debugResourceFields).map(([key, field]) => `<option value="${key}">${field.label}</option>`).join('')}</select></label>
+        <label>Amount<input name="amount" type="number" min="0" max="${GOD_MODE_LATINUM}" step="1" value="${state.latinum}" required></label><button type="submit">Set value</button></form>
+      <div class="debug-actions"><button type="button" data-debug-code="repair">Repair hull &amp; shields</button><button type="button" data-debug-code="refill">Refill antimatter</button><button type="button" data-debug-code="god on">Enable God Mode</button><button type="button" data-debug-code="god off">Disable God Mode</button></div>
+      <p>God Mode grants resources, weapons, station plans and larger capacities. Disabling it keeps those grants. Loading with God Mode on refills its resources. Setting hull also updates the disabled state; repair restores control immediately. Vessel changes are blocked during boarding.</p>
+      <form data-debug-form="ship"><label>Player ship<select name="ship">${shipOptions}</select></label><button type="submit">Fly ship + enable God Mode</button></form>
+    </section>
+    <section><h3>Milestones</h3><p>Toggle the existing trade-unlock flags for testing.</p><div class="debug-actions">
+      <button type="button" data-debug-code="feat vexBorgDown on">Vex Borg: complete</button><button type="button" data-debug-code="feat vexBorgDown off">Vex Borg: reset</button>
+      <button type="button" data-debug-code="feat bajoranFleetDown on">Bajoran fleet: complete</button><button type="button" data-debug-code="feat bajoranFleetDown off">Bajoran fleet: reset</button></div></section>
+    <section><h3>Cheat codes</h3><form data-debug-form="code"><label>Code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="standing romulan 50" required></label><button type="submit">Run code</button></form>
+      <details><summary>Remaster code list</summary><p>Codes are case-insensitive. Faction keys appear in the selector above.</p><ul>
+        <li><code>standing romulan 50</code> — set one faction's standing.</li><li><code>latinum 10000</code>, <code>duranium 500</code>, <code>antimatter 6</code> — set resources.</li>
+        <li><code>hull 50</code>, <code>shields 0</code> — set ship condition; hull minimum is 1%.</li><li><code>repair</code>, <code>refill</code> — restore condition or fuel.</li>
+        <li><code>god on</code>, <code>god off</code> — toggle God Mode.</li><li><code>ship ${state.playership}</code> — switch to a loaded ship ID and enable God Mode.</li>
+        <li><code>feat vexBorgDown on</code>, <code>feat bajoranFleetDown off</code> — set or reset a milestone.</li></ul></details></section>`;
+  const faction = debugMenuEl.querySelector('[name="faction"]').value;
+  debugMenuEl.querySelector('[name="standing"]').value = getFactionStanding(faction);
+  refreshDebugReadout();
+  debugMenuEl.showModal();
+}
+
+document.getElementById('btn-cheats-debug')?.addEventListener('click', openDebugMenu);
+debugMenuEl?.addEventListener('close', () => { keys.clear(); heldWeaponInputs.clear(); });
+debugMenuEl?.addEventListener('change', (event) => {
+  if (event.target.name === 'faction') {
+    debugMenuEl.querySelector('[name="standing"]').value = getFactionStanding(event.target.value);
+    refreshDebugReadout();
+  }
+  if (event.target.name === 'resource') {
+    const field = debugResourceFields[event.target.value];
+    const amount = debugMenuEl.querySelector('[name="amount"]');
+    amount.min = field.min;
+    amount.max = field.max();
+    amount.value = Math.round(state[event.target.value]);
+  }
+});
+debugMenuEl?.addEventListener('click', (event) => {
+  const button = event.target.closest('button');
+  if (!button) return;
+  if (button.hasAttribute('data-debug-close')) { debugMenuEl.close(); return; }
+  if (button.hasAttribute('data-debug-refresh')) { refreshDebugReadout(); return; }
+  if (button.dataset.debugCode) { runDebugCommand(button.dataset.debugCode); return; }
+  if (button.hasAttribute('data-debug-delta') || button.hasAttribute('data-debug-preset')) {
+    const faction = debugMenuEl.querySelector('[name="faction"]').value;
+    const next = button.hasAttribute('data-debug-preset') ? Number(button.dataset.debugPreset)
+      : clamp(getFactionStanding(faction) + Number(button.dataset.debugDelta), STANDING_MIN, STANDING_MAX);
+    runDebugCommand(`standing ${faction} ${next}`);
+    debugMenuEl.querySelector('[name="standing"]').value = getFactionStanding(faction);
+  }
+});
+debugMenuEl?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const form = event.target;
+  if (form.dataset.debugForm === 'standing') runDebugCommand(`standing ${form.elements.faction.value} ${form.elements.standing.value}`);
+  if (form.dataset.debugForm === 'resource') runDebugCommand(`${form.elements.resource.value} ${form.elements.amount.value}`);
+  if (form.dataset.debugForm === 'ship') runDebugCommand(`ship ${form.elements.ship.value}`);
+  if (form.dataset.debugForm === 'code') runDebugCommand(form.elements.code.value);
+});
 
 function getGodModeShips() {
   const classOrder = {
@@ -13216,6 +13402,7 @@ planetMenuEl?.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 window.addEventListener('keydown', (e) => {
+  if (debugMenuEl?.open) return;
   if (!state.gameStarted || state.warp.active || isWormholeTransitActive()) return;
   const key = e.key.toLowerCase();
   const typingInField = e.target?.matches?.('input, textarea, select, [contenteditable="true"]');
