@@ -369,14 +369,16 @@ const server = http.createServer((req, res) => {
       });
     },
   );
-  await check('remote comms lists stations but keeps physical service distance', async () => {
-    await evaluate(() => testBM1.openStationComms());
+  await check('station hails open transporter trade without docking', async () => {
+    await evaluate(() => { testBM1.startWithFaction('terran'); testBM1.openStationComms(); });
     assert.equal(await page.locator('#station-comms').evaluate((el) => el.open), true);
     assert.ok((await page.locator('[data-station-hail]').count()) > 0);
-    await page.locator('[data-station-hail]').first().click();
-    assert.match(await page.locator('#station-comms').textContent(), /Approach physically/);
+    const yardId = await evaluate(() => testBM1.state.stations.find(s => /shipyard|starbase/i.test(testBM1.getShipStats(s.stationTypeId).name)).id);
+    await page.locator(`[data-station-hail="${yardId}"]`).click();
+    assert.match(await page.locator('#planet-menu').textContent(), /Transporter trade channel/);
+    assert.equal(await page.locator('[data-planet-action="repair"]:enabled').count(), 0);
     assert.equal(await evaluate(() => testBM1.state.docked), false);
-    await page.locator('[data-comms="close"]').click();
+    await page.locator('#planet-menu [data-planet-action="close"]').click();
   });
   await check(
     'faction rebuild pays once, produces a new installation offscreen and survives reload',

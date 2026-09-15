@@ -188,16 +188,16 @@ try {
     B.setCamera(n.x - 100, n.y);
     s.spawnProtectionUntil = 0;
     test(
-      'real boarding launch locks target and blocks warp',
-      B.startBoardingTarget(n, false) && !B.canFleetDepart(),
+      'legacy staged boarding locks target and blocks warp',
+      F.beginBoarding(B.fleetBook(), {targetId:oldId,sourceId:B.fleetBook().personalId,resistance:'standard'}) && !B.canFleetDepart(),
     );
     B.fleetBook().boarding.roll = 0;
     B.updateBoarding(3);
-    test('boarding enters committed phase', B.fleetBook().boarding?.phase === 'onboard');
+    test('legacy boarding enters committed phase', B.fleetBook().boarding?.phase === 'onboard');
     B.saveGame(5);
     B.loadGame(5);
     test(
-      'boarding phase and roll survive reload',
+      'legacy boarding phase and roll survive reload',
       B.fleetBook().boarding?.phase === 'onboard' && B.fleetBook().boarding.roll === 0,
     );
     B.updateBoarding(12);

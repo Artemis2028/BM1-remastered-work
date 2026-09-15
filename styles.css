@@ -4283,7 +4283,7 @@ button:disabled {
 .fleet-manager label {display:inline-block;margin:6px;}
 
 /* Public Cheats & Debug dialog: independent of the frequently redrawn HUD. */
-:is(#cheats-debug, #game-menu, #station-comms) {
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) {
   box-sizing: border-box;
   width: min(760px, calc(100vw - 24px));
   max-height: calc(100dvh - 32px);
@@ -4295,24 +4295,29 @@ button:disabled {
   color: #f1edf7;
   font: 16px/1.5 system-ui, sans-serif;
 }
-:is(#cheats-debug, #game-menu, #station-comms)::backdrop { background: rgba(0, 0, 0, .72); }
-:is(#cheats-debug, #game-menu, #station-comms) .debug-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-:is(#cheats-debug, #game-menu, #station-comms) h2 { margin: 0; font-size: 23px; }
-:is(#cheats-debug, #game-menu, #station-comms) h3 { margin: 0 0 10px; font-size: 18px; }
-:is(#cheats-debug, #game-menu, #station-comms) section { border-top: 1px solid #565064; padding-top: 16px; margin-top: 16px; }
-:is(#cheats-debug, #game-menu, #station-comms) p { overflow-wrap: anywhere; margin: 10px 0; }
-:is(#cheats-debug, #game-menu, #station-comms) form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 12px 0; }
-:is(#cheats-debug, #game-menu, #station-comms) label { display: grid; gap: 5px; flex: 1 1 190px; min-width: 0; }
-:is(#cheats-debug, #game-menu, #station-comms) input, :is(#cheats-debug, #game-menu, #station-comms) select { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px; background: #222638; color: #fff; border: 1px solid #9b90ae; border-radius: 4px; font: inherit; }
-:is(#cheats-debug, #game-menu, #station-comms) button { min-height: 40px; max-width: 100%; padding: 8px 12px; white-space: normal; font: inherit; }
-:is(#cheats-debug, #game-menu, #station-comms) .debug-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-:is(#cheats-debug, #game-menu, #station-comms) [data-debug-status] { padding: 10px; background: #252a3d; border-radius: 4px; }
-:is(#cheats-debug, #game-menu, #station-comms) .debug-error { color: #ffb8ad; }
-:is(#cheats-debug, #game-menu, #station-comms) summary { cursor: pointer; }
-:is(#cheats-debug, #game-menu, #station-comms) code { overflow-wrap: anywhere; }
-:is(#cheats-debug, #game-menu, #station-comms) :focus-visible { outline: 2px solid #ffd18c; outline-offset: 3px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports)::backdrop { background: rgba(0, 0, 0, .72); }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) .debug-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) h2 { margin: 0; font-size: 23px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) h3 { margin: 0 0 10px; font-size: 18px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) section { border-top: 1px solid #565064; padding-top: 16px; margin-top: 16px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) p { overflow-wrap: anywhere; margin: 10px 0; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 12px 0; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) label { display: grid; gap: 5px; flex: 1 1 190px; min-width: 0; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) input, :is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) select { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px; background: #222638; color: #fff; border: 1px solid #9b90ae; border-radius: 4px; font: inherit; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) button { min-height: 40px; max-width: 100%; padding: 8px 12px; white-space: normal; font: inherit; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) .debug-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) [data-debug-status] { padding: 10px; background: #252a3d; border-radius: 4px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) .debug-error { color: #ffb8ad; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) summary { cursor: pointer; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) code { overflow-wrap: anywhere; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) :focus-visible { outline: 2px solid #ffd18c; outline-offset: 3px; }
 
 #disabled-recovery { position:fixed; right:16px; bottom:92px; z-index:80; width:min(380px,calc(100vw - 32px)); max-height:45vh; overflow:auto; box-sizing:border-box; background:#241b16; border:2px solid #ffd18c; padding:14px; color:#fff; font:15px/1.4 system-ui,sans-serif; }
 #disabled-recovery.hidden { display:none; }
 #disabled-recovery h2 { font-size:20px; margin:0; }
 #disabled-recovery button { white-space:normal; margin:4px; min-height:40px; }
+
+#galaxy-reports .report-list {display:grid;gap:12px;}
+#galaxy-reports .galaxy-report {padding:14px;background:#181f30;border-left:3px solid #e8bb6c;border-radius:5px;}
+#galaxy-reports h3 {margin:6px 0;}
+#galaxy-reports p {line-height:1.5;overflow-wrap:anywhere;}

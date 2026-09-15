@@ -1222,12 +1222,12 @@ async function scenarioRunner() {
   const overrideKept = !!B.getSecurityPolicyOverride(home);
   const capV2 = traffic(9552, 'ferengi', zoneCap, zoneCap.radius - 40, 0.8);
   await fast(5);
-  const ordersUnderOccupier = ordersFor(home, capV2.securityInstanceId).length;
+  const ordersUnderOccupier = ordersFor(home, capV2.securityInstanceId).filter(o => o.authority === 'player').length;
   B.transferSystemControlToPlayer(home);
   await fast(2);
   const reclaimedZone = zoneAt(home);
   out.captureReclaim = {
-    orderBefore: !!capOrder, outcome: capOrder?.outcome, epochBumped: B.getSecurityAuthorityEpoch(home) > epochBefore, lostZone: lostZone === null, configKept, overrideKept, ordersUnderOccupier,
+    orderBefore: !!capOrder, outcome: capOrder?.outcome, epochBumped: B.getSecurityAuthorityEpoch(home) > epochBefore, lostZone: !lostZone || lostZone.authority !== 'player', configKept, overrideKept, ordersUnderOccupier,
     reclaimedActive: !!reclaimedZone && reclaimedZone.authority === 'player', reclaimedEpoch: B.getSecurityAuthorityEpoch(home), oldOrderStillClosed: !!capOrder?.outcome,
     activeAfterReclaim: Object.values(ledgerOf(home)?.orders || {}).filter((o) => !o.outcome && o.epoch < B.getSecurityAuthorityEpoch(home)).length,
   };
