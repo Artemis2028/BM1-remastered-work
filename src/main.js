@@ -8989,31 +8989,26 @@ function hasIntelShips(index) {
     && f.vessel?.condition !== 'destroyed' && (!f.vessel || f.vessel.hull > 0)
     && (f.assignment === 'escort' ? !state.warp.active && !isWormholeTransitActive() && index === state.currentPlanet : Number(f.systemIndex) === index));
 }
-function regionalIntelFactions(index) {
-  // A reported identity needs a neighboring territorial origin and a legal hull.
-  const neighbors = new Set([index]);
-  for (const route of state.travelRoutes) {
-    const other = getRouteOtherEnd(route,index);
-    if (other != null && isChartSystemVisible(other)) neighbors.add(other);
-  }
-  const defender = getSystemFaction(index);
-  return [...new Set([...neighbors].map(i=>getSystemFaction(i)))].filter(f=>
-    isRecognizedFactionKey(f) && areFactionsOpposed(f,defender)
-    && (!state.shipCatalog || pickCatalogSpawnId('fleetAttack',f,1,index) != null));
+function intelIdentityCandidates() {
+  // Mistaken attribution can accuse any named faction, including allies and
+  // distant or dormant powers. This pool never authorizes a real deployment.
+  return Object.keys(factionNames).filter(isRecognizedFactionKey);
 }
 function recordLocalIntel() {
   if (!state.gameStarted || state.warp.active || isWormholeTransitActive()) return;
   const attack = state.activeFleetAttack;
-  const scouts = state.npcShips.some(n=>!n.destroyed && String(n.id).startsWith(`scout-${state.currentPlanet}-`));
+  const scoutPrefix = `scout-${state.currentPlanet}-`;
+  const scouts = state.npcShips.some(n=>!n.destroyed && typeof n.id==='string' && n.id.startsWith(scoutPrefix));
   const kind = attack ? (attack.size >= 7 ? 'battle' : attack.size >= 4 ? 'raid' : 'skirmish') : scouts ? 'scout' : 'quiet';
   const previous = ensurePlaytestState().news?.observations?.[state.currentPlanet];
   if (previous?.day === state.day && previous.kind === kind && previous.attacker === (attack?.faction || null)) return;
   galaxyNewsBook().observations[state.currentPlanet] = {day:state.day, kind, attacker:attack?.faction || null};
 }
 function makeIntelReport(index, observation, id, day) {
+  if (!observation || !state.planets[index]) return null;
   const ownShips = hasIntelShips(index);
   const estimate = assessIntel(observation,{seed:`${fleetBook().campaignId}:${id}`,ownShips,
-    age:Math.max(0,day-observation.day),candidates:regionalIntelFactions(index)});
+    age:Math.max(0,day-observation.day),candidates:intelIdentityCandidates()});
   const known = isReportSystemKnown(index);
   const place = known ? `near ${state.planets[index].name}` : 'beyond surveyed space';
   const source = ownShips ? 'Fleet observers' : 'Civilian relays';
@@ -9043,7 +9038,8 @@ function collectRegionalIntel(day) {
     const observation = news.observations[i];
     // No observation is a gap, not proof of a raid or a quiet system.
     if (!observation) continue;
-    news.pending.push(makeIntelReport(i,observation,`intel:${cycle}:${i}`,day));
+    const report = makeIntelReport(i,observation,`intel:${cycle}:${i}`,day);
+    if (report) news.pending.push(report);
   }
   news.pending = news.pending.slice(-120);
 }
@@ -15213,7 +15209,8 @@ function applyPlayerDamage(damage, color = '#ff7777', options = {}) {
   const shieldDamage = Math.min(state.shields, pools.shields > 0 ? absorbed * 100 / pools.shields : 0, MAX_PLAYER_SHIELD_DAMAGE_PER_HIT);
   let hullDamage = Math.min(MAX_PLAYER_HULL_DAMAGE_PER_HIT, Math.max(0, amount - absorbed) * 100 / pools.hull);
   const threshold = 100 * Fleet.disableThreshold(pools.hull) / pools.hull;
-  if (options.combatUnits && !vesselDisabled(state) && state.hull > threshold && state.hull - hullDamage <= threshold) {
+  const crossedDisableBand = options.combatUnits && !vesselDisabled(state) && state.hull > threshold && state.hull - hullDamage <= threshold;
+  if (crossedDisableBand) {
     hullDamage = state.hull - threshold;
     state.disableGrace = {personalId:fleetBook().personalId,until:gameNow()+PLAYER_DISABLE_GRACE_MS};
   }
@@ -15237,7 +15234,7 @@ function applyPlayerDamage(damage, color = '#ff7777', options = {}) {
     const impactScreen = impact ? worldToScreen(impact) : null;
     state.hull = Math.max(0, state.hull - hullDamage);
     if (state.hull > 0) {
-      if (options.combatUnits && state.disableGrace?.until > gameNow() && state.disableGrace.personalId === fleetBook().personalId) state.hull = Math.min(state.hull,threshold - 1e-8);
+      if (crossedDisableBand) state.hull = Math.min(state.hull,threshold - 1e-8);
       applyVesselDisablement(null);
     }
     addHullExplosion(playerWorldPosition(), color, {
@@ -16783,6 +16780,7 @@ function fleetAttackHerald(faction, systemIndex) {
   return `${formatFaction(key)} raiders inbound on ${system}.`;
 }
 function spawnFleetAttack(systemIndex = state.currentPlanet, attackerFaction = chooseFleetAttackFaction(systemIndex)) {
+  if (Number(systemIndex) !== state.currentPlanet) return false;
   if (state.activeFleetAttack || state.gameOver || !state.gameStarted || state.warp.active) return false;
   const localFaction = getSystemFaction(systemIndex);
   if (localFaction === 'neutral' && !state.controlledSystems.includes(Number(systemIndex))) return false;
@@ -16836,8 +16834,8 @@ function spawnFleetAttack(systemIndex = state.currentPlanet, attackerFaction = c
   };
   state.fleetAttackControlSince = 0;
   recordLocalIntel();
-  const report = makeIntelReport(systemIndex,galaxyNewsBook().observations[systemIndex],attackId,state.day);
-  addGalaxyReport({...report,day:state.day});
+  addGalaxyReport({id:attackId,systemIndex,day:state.day,kind:'Local fleet attack',confidence:'Local encounter record',
+    text:`${ships.length} ${formatFaction(attackerFaction)} attacking vessels entered ${state.planets[systemIndex].name}. Their wider objectives are unconfirmed.`});
   setLog(`${formatFaction(attackerFaction)} attack fleet entering ${state.planets[systemIndex]?.name || 'this system'}: ${size} ships inbound.`);
   return true;
 }
@@ -21719,7 +21717,7 @@ function fleetPlanStatus(shipId) {
   const reason = known
     ? 'Already licensed'
     : !hasServiceConnection()
-      ? 'Hail a station to buy plans'
+      ? getServiceTransferBlock()
       : !services.sell
         ? 'No ship plans here'
         : !offered
@@ -22017,7 +22015,7 @@ function renderFleetManager(open = false) {
     )}</select>${btn('dispatch', 'Dispatch to system', g.id)}</div>`,
     )
     .join('');
-  const ships = hasServiceConnection() ? getShipyardStock() : [];
+  const ships = hasServiceChannel() ? getShipyardStock() : [];
   const plans = ships
     .map((s) => {
       const p = fleetPlanStatus(s.id),

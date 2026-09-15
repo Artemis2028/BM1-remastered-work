@@ -4,7 +4,7 @@ export function intelRandom(seed) {
   let value = 2166136261;
   for (const c of String(seed)) value = Math.imul(value ^ c.charCodeAt(0), 16777619);
   return () => {
-    value += 0x6D2B79F5;
+    value = (value + 0x6D2B79F5) | 0;
     let t = value;
     t = Math.imul(t ^ t >>> 15, t | 1);
     t ^= t + Math.imul(t ^ t >>> 7, t | 61);
@@ -21,7 +21,7 @@ export function assessIntel(observation, {seed, ownShips = false, candidates = [
   const alternatives = INTEL_KINDS.filter(kind => kind !== truth);
   const kind = correct ? truth : alternatives[Math.floor(random() * alternatives.length)];
   // An actual recorded incursion can be identified far from its home territory.
-  // Mistaken identities are restricted to plausible regional candidates.
+  // Mistaken identities can name any faction supplied by the report adapter.
   const attacker = ['skirmish', 'raid', 'battle'].includes(kind)
     ? (correct && observation.attacker ? observation.attacker : candidates[Math.floor(random() * candidates.length)] || null)
     : null;
