@@ -42,7 +42,12 @@
     "test:briefing": "node scripts/captains-briefing-probe.cjs",
     "test:intelligence": "node scripts/galaxy-intelligence-test.mjs",
     "test:intelligence:ingame": "node scripts/intelligence-followup-probe.cjs",
-    "test:briefing:cargo": "node scripts/briefing-cargo-probe.cjs"
+    "test:briefing:cargo": "node scripts/briefing-cargo-probe.cjs",
+    "test:stations:roles": "node scripts/station-roles-test.mjs",
+    "test:stations:offers": "node scripts/station-offer-gate.cjs",
+    "test:campaign": "node scripts/campaign-strategy-test.mjs",
+    "test:campaign:ingame": "node scripts/campaign-probe.cjs",
+    "test:campaign:balance": "node scripts/campaign-balance-run.cjs"
   },
   "license": "SEE LICENSE IN LICENSE.md",
   "devDependencies": {

@@ -481,12 +481,14 @@
     "./data/stationData.json",
     "./data/station_manifest.json",
     "./index.html",
+    "./src/campaign-strategy.mjs",
     "./src/faction-world.mjs",
     "./src/galaxy-intelligence.mjs",
     "./src/main.js",
     "./src/pwa-register.js",
     "./src/ship-catalog-integration.mjs",
     "./src/ship-economy.mjs",
+    "./src/station-roles.mjs",
     "./styles.css",
     "./sw.js"
   ]

@@ -4283,7 +4283,7 @@ button:disabled {
 .fleet-manager label {display:inline-block;margin:6px;}
 
 /* Public Cheats & Debug dialog: independent of the frequently redrawn HUD. */
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) {
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) {
   box-sizing: border-box;
   width: min(760px, calc(100vw - 24px));
   max-height: calc(100dvh - 32px);
@@ -4295,24 +4295,26 @@ button:disabled {
   color: #f1edf7;
   font: 16px/1.5 system-ui, sans-serif;
 }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports)::backdrop { background: rgba(0, 0, 0, .72); }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) .debug-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) h2 { margin: 0; font-size: 23px; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) h3 { margin: 0 0 10px; font-size: 18px; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) section { border-top: 1px solid #565064; padding-top: 16px; margin-top: 16px; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) p { overflow-wrap: anywhere; margin: 10px 0; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 12px 0; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) label { display: grid; gap: 5px; flex: 1 1 190px; min-width: 0; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) input, :is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) select { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px; background: #222638; color: #fff; border: 1px solid #9b90ae; border-radius: 4px; font: inherit; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) button { min-height: 40px; max-width: 100%; padding: 8px 12px; white-space: normal; font: inherit; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) .debug-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) [data-debug-status] { padding: 10px; background: #252a3d; border-radius: 4px; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) .debug-error { color: #ffb8ad; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) summary { cursor: pointer; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) code { overflow-wrap: anywhere; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) :focus-visible { outline: 2px solid #ffd18c; outline-offset: 3px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel)::backdrop { background: rgba(0, 0, 0, .72); }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) .debug-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) h2 { margin: 0; font-size: 23px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) h3 { margin: 0 0 10px; font-size: 18px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) section { border-top: 1px solid #565064; padding-top: 16px; margin-top: 16px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) p { overflow-wrap: anywhere; margin: 10px 0; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 12px 0; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) label { display: grid; gap: 5px; flex: 1 1 190px; min-width: 0; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) input, :is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) select { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px; background: #222638; color: #fff; border: 1px solid #9b90ae; border-radius: 4px; font: inherit; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) button { min-height: 40px; max-width: 100%; padding: 8px 12px; white-space: normal; font: inherit; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) .debug-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) [data-debug-status] { padding: 10px; background: #252a3d; border-radius: 4px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) .debug-error { color: #ffb8ad; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) summary { cursor: pointer; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) code { overflow-wrap: anywhere; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) :focus-visible { outline: 2px solid #ffd18c; outline-offset: 3px; }
 
-#disabled-recovery { position:fixed; right:16px; bottom:92px; z-index:80; width:min(380px,calc(100vw - 32px)); max-height:45vh; overflow:auto; box-sizing:border-box; background:#241b16; border:2px solid #ffd18c; padding:14px; color:#fff; font:15px/1.4 system-ui,sans-serif; }
+/* Review fix: the recovery panel sits centred above the quick-action dock, out of the right-hand column
+   shared by the map thumbnail and the incoming-hail panel. */
+#disabled-recovery { position:fixed; left:50%; transform:translateX(-50%); bottom:92px; z-index:80; width:min(380px,calc(100vw - 32px)); max-height:45vh; overflow:auto; box-sizing:border-box; background:#241b16; border:2px solid #ffd18c; padding:14px; color:#fff; font:15px/1.4 system-ui,sans-serif; }
 #disabled-recovery.hidden { display:none; }
 #disabled-recovery h2 { font-size:20px; margin:0; }
 #disabled-recovery button { white-space:normal; margin:4px; min-height:40px; }
@@ -4326,3 +4328,19 @@ button:disabled {
 #galaxy-reports .report-section {margin:14px 0;}
 #galaxy-reports .report-section summary {padding:10px 0;font-weight:bold;}
 #galaxy-reports .report-pages {display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:12px;}
+
+/* Empire & campaign panel: same dialog family as the reports; tables collapse on narrow screens. */
+#campaign-panel .report-folders {display:flex;flex-wrap:wrap;gap:6px;margin:12px 0;}
+#campaign-panel .report-folders [aria-pressed="true"] {outline:2px solid #ffd18c;outline-offset:1px;}
+#campaign-panel .campaign-body ul {margin:8px 0;padding-left:20px;}
+#campaign-panel .campaign-body li {margin:4px 0;overflow-wrap:anywhere;}
+#campaign-panel .campaign-body .meta {color:#c8c0d8;font-size:14px;}
+#campaign-panel .campaign-table {width:100%;border-collapse:collapse;font-size:15px;}
+#campaign-panel .campaign-table th,#campaign-panel .campaign-table td {text-align:left;padding:6px 8px;border-bottom:1px solid #3a3550;vertical-align:top;}
+#campaign-panel .campaign-body button {min-height:34px;padding:4px 10px;margin:2px 0;}
+@media (max-width: 640px) {
+  #campaign-panel .campaign-table thead {display:none;}
+  #campaign-panel .campaign-table tr {display:block;border-bottom:1px solid #565064;padding:6px 0;}
+  #campaign-panel .campaign-table td {display:block;border:0;padding:2px 0;}
+  #campaign-panel .campaign-table td:first-child {font-weight:bold;}
+}
