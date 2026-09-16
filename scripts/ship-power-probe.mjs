@@ -5,7 +5,9 @@ import path from 'node:path';
 import http from 'node:http';
 import {fileURLToPath} from 'node:url';
 import {chromium} from 'playwright';
-const root=path.resolve(fileURLToPath(new URL('../',import.meta.url)));
+// BM1_TEST_ROOT selects the tree this gate serves, so it can be pointed at the built dist; without
+// it the repository root is served, which is what this gate used to do unconditionally.
+const root=path.resolve(process.env.BM1_TEST_ROOT||fileURLToPath(new URL('../',import.meta.url)));
 const shim=`window.__power={state,keys,startWithFaction,applyCurrentShipStats,applyShipDefaultWeapons,
  getShipStats,getWeapon,getOriginalShipWeaponSlots,getDefaultWeaponId,getWeaponEnergyCost,
  getScaledWeaponCooldown,getActorPowerProfile,ensurePlayerPower,ensureNpcPower,getPowerMaxEnergy,getScaledWeaponDamage,

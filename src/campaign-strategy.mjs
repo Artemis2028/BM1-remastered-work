@@ -87,7 +87,12 @@ export const CAMPAIGN_RULES = Object.freeze({
   historyLimit: 300,
   maxOperations: 60,
   maxQueuePerPolity: 12,
-  maxHullsPerPolity: 120,
+  maxHullsPerPolity: 120,          // standing hulls, not hulls ever built: losses free capacity
+  maxLiveRecoveries: 40,           // open recovery contracts; the bound is enforced at creation, not by deleting offers
+  maxLiveMissions: 60,             // open (offered or active) contracts; likewise enforced at creation
+  maxOrders: 40,
+  maxCatchUpDays: 2000,            // days a single advancement call will step; beyond this the remainder is recorded as unobserved
+  foreignDesignShare: 0.35,        // share of AI build orders drawn from licensed foreign designs when any are held
 });
 
 export const STANDING_TIERS = Object.freeze([0, 15, 30, 50, 75, 100]);
@@ -126,6 +131,22 @@ export function createCampaignBook(seed, day = 1, config = {}) {
 }
 export function nextCampaignId(book, type) { return `${book.seed}:${type}:${++book.counter}`; }
 
+// A book is persisted with its config inline, and the version is only bumped when the book must be
+// rebuilt. So a save written by an older build arrives with that build's rule set and none of the keys
+// added since — which silently removed four bounds and two repairs. Backfill anything missing from the
+// current rules, leaving every value the save already carries untouched, and make sure the collections
+// later code indexes into exist. Idempotent; safe to call on every access.
+export function upgradeCampaignBook(book) {
+  if (!book || typeof book !== 'object') return book;
+  book.config = { ...CAMPAIGN_RULES, ...(book.config || {}) };
+  book.discoveries ||= { gorn: false };
+  for (const key of ['polities', 'designs', 'incomeLedger', 'restoredStations', 'activatedStations', 'unstaffedStations', 'occupations']) book[key] ||= {};
+  for (const key of ['operations', 'recoveries', 'missions', 'orders', 'history']) if (!Array.isArray(book[key])) book[key] = [];
+  book.dominion ||= { phase: 'dormant', phaseDay: null, warnings: [], entrySystem: null, stagingSystem: null, expeditionOpId: null, reinforcementCut: false, convoys: 0, lastConvoyDay: null };
+  book.stats ||= { battlesResolved: 0, captures: 0, hullsBuilt: 0, hullsLost: 0 };
+  return book;
+}
+
 function polity(book, id) {
   return (book.polities[id] ||= {
     id, kind: id === 'player' ? 'player' : 'faction', active: true,
@@ -146,11 +167,15 @@ function addHistory(book, day, kind, text, extra = {}) {
 function controlled(world, polityId) { return world.systems.filter((s) => s.controller === polityId); }
 function systemStations(world, index) { return world.stationsBySystem(index).filter((s) => !s.destroyed); }
 function isOperationalStation(st) { return Boolean(st) && !st.destroyed && Boolean(st.cap) && ['operational', 'damaged', 'unstaffed'].includes(st.cap.status); }
+// Installations a polity may actually draw on: its own, plus unowned infrastructure in the system.
+// Holding the space a foreign or private station sits in does not hand its berths, workforce, repair
+// slips or takings to the holder — a Klingon yard inside Earth orbit is still a Klingon yard. Taxing a
+// foreign installation is a separate question and is deliberately left to the economy pass.
 function stationEffects(world, index, ownerId = null) {
   const total = {};
   for (const st of systemStations(world, index)) {
     if (!isOperationalStation(st)) continue;
-    if (ownerId && st.owner !== ownerId) continue;
+    if (ownerId != null && st.owner != null && st.owner !== ownerId) continue;
     for (const [k, v] of Object.entries(st.cap.effects)) total[k] = (total[k] || 0) + v;
   }
   return total;
@@ -172,15 +197,15 @@ export function polityReadiness(book, world, id) {
 export function polityProduction(book, world, id) {
   let berths = 0, heavyBerths = 0, workforce = 0, energy = 0, repair = 0, yards = 0;
   for (const sys of controlled(world, id)) {
-    const fx = stationEffects(world, sys.index, null);
+    const fx = stationEffects(world, sys.index, id);
     const occupation = book.occupations[sys.index];
     const factor = occupation ? occupationFactor(book, occupation) : 1;
     berths += (fx.berths || 0) * factor; heavyBerths += (fx.heavyBerths || 0) * factor;
     workforce += (fx.workforce || 0) * factor; energy += (fx.energy || 0); repair += (fx.repairCapacity || 0) * factor;
-    yards += systemStations(world, sys.index).filter((s) => isOperationalStation(s) && s.cap.services.construction !== 'none').length;
+    yards += systemStations(world, sys.index).filter((s) => isOperationalStation(s) && s.cap.services.construction !== 'none' && (s.owner == null || s.owner === id)).length;
   }
   const p = polity(book, id);
-  const busy = p.queue.filter((q) => q.status === 'building').length;
+  const busy = p.queue.filter((q) => q.status === 'building' || q.status === 'awaiting-commission').length;
   return { berths: Math.round(berths), heavyBerths: Math.round(heavyBerths), workforce: Math.round(workforce), energy: Math.round(energy), repairCapacity: Math.round(repair), yards, queued: p.queue.length, building: busy };
 }
 export function polityEconomy(book, world, id) {
@@ -196,6 +221,17 @@ function occupationFactor(book, occupation) {
 // ---------- initialisation ----------
 export function initializeCampaign(book, world) {
   if (book.initialized) return book;
+  // A campaign that first runs on a save already 200 days old still gets the whole expedition arc.
+  // The Dominion phase days are offsets from the first campaign day, not from day 1 of a fresh game,
+  // so a migrated save cannot emit the warnings and the invasion in the same week.
+  if (book.day > 1 && book.dominion.anchorDay == null) {
+    const shift = book.day - 1;
+    book.config = { ...book.config,
+      dominionReconDay: book.config.dominionReconDay + shift,
+      dominionStagingDay: book.config.dominionStagingDay + shift,
+      dominionInvasionDay: book.config.dominionInvasionDay + shift };
+  }
+  book.dominion.anchorDay ??= book.day;
   const c = book.config;
   const factions = new Set(world.systems.map((s) => s.controller).filter((id) => id && id !== 'player' && world.isFaction(id)));
   for (const id of factions) {
@@ -239,9 +275,21 @@ export function initializeCampaign(book, world) {
   book.initialized = true;
   return book;
 }
+function livingHulls(p) { return p.hulls.filter((h) => h.status !== 'lost'); }
+// Destroyed hulls are kept only while an unresolved operation still names them, then cleared. Without
+// this the fleet cap counts the dead and a polity that has fought a war can never build again.
+function pruneLostHulls(book) {
+  for (const id of Object.keys(book.polities)) {
+    const p = book.polities[id];
+    if (!p.hulls.some((h) => h.status === 'lost')) continue;
+    const referenced = new Set();
+    for (const op of book.operations) if (op.status !== 'resolved' && op.faction === id) for (const hid of op.hullIds) referenced.add(hid);
+    p.hulls = p.hulls.filter((h) => h.status !== 'lost' || referenced.has(h.id));
+  }
+}
 function addHull(book, world, polityId, systemIndex, seedKey, shipId = null) {
   const p = polity(book, polityId);
-  if (p.hulls.length >= book.config.maxHullsPerPolity) return null;
+  if (livingHulls(p).length >= book.config.maxHullsPerPolity) return null;
   const id = shipId ?? world.pickHull(polityId, seededUnit(book.seed, seedKey));
   if (id == null) return null;
   const stats = world.shipStats(id) || {};
@@ -251,26 +299,103 @@ function addHull(book, world, polityId, systemIndex, seedKey, shipId = null) {
   return hull;
 }
 
-// ---------- daily advancement ----------
-// Advances exactly one day. Returns effects for the engine to apply. Idempotent per day: calling with
-// a day <= book.settled is a no-op, so replays cannot double-settle.
+// ---------- the bulk shadow ----------
+// A private, mutable view of the world for a multi-day call. Controllers, installation ownership,
+// individual station records and relations can all be overridden without touching the caller's
+// snapshot; everything else delegates to it.
+function shadowWorld(world) {
+  const overrides = { stationOwners: new Map(), stationRecords: new Map(), relations: new Map() };
+  const baseStations = world.stationsBySystem;
+  const baseRelation = world.relation;
+  return {
+    ...world,
+    systems: world.systems.map((s) => ({ ...s })),
+    shadow: overrides,
+    stationsBySystem: (index) => baseStations(index).map((st) => {
+      const record = overrides.stationRecords.get(st.id) || st;
+      if (!overrides.stationOwners.has(st.id)) return record;
+      const owner = overrides.stationOwners.get(st.id);
+      return owner === record.owner ? record : { ...record, owner };
+    }),
+    relation: (a, b) => overrides.relations.get(`${a}:${b}`) ?? overrides.relations.get(`${b}:${a}`) ?? baseRelation(a, b),
+  };
+}
+// Reduce one day's conquests into the shadow before the next day runs. This part is the model's own
+// rule: the displaced government's installations change hands with the world, and foreign or private
+// owners keep theirs. Everything an engine has to interpret is settled separately, through the
+// per-internal-day hook below.
+function reduceIntoShadow(shadow, world, effects) {
+  for (const e of effects) {
+    if (e.type !== 'captureSystem') continue;
+    const index = Number(e.systemIndex);
+    const sys = shadow.systems[index];
+    if (sys) sys.controller = e.by;
+    if (e.from == null) continue;
+    for (const st of world.stationsBySystem(index)) {
+      const current = shadow.shadow.stationOwners.get(st.id) ?? st.owner;
+      if (current === e.from) shadow.shadow.stationOwners.set(st.id, e.by);
+    }
+  }
+}
+
+// ---------- advancement ----------
+// Settles every day up to and including `day`. Returns effects for the engine to apply. Idempotent:
+// a day at or before book.settled is a no-op, so replays cannot double-settle. A caller that jumps —
+// a long warp, a debug skip, a migrated save — gets the book a caller that stepped would get, for any
+// gap up to maxCatchUpDays; that is the bound, and past it the remainder is deliberately recorded as
+// unobserved time rather than stepped, so two callers whose gap exceeds it do NOT agree. Non-finite
+// and absurd inputs are refused rather than trusted.
 export function advanceCampaignDay(book, world, day) {
   const effects = [];
   if (!book.initialized) initializeCampaign(book, world);
-  if (day <= book.settled) return effects;
+  const target = Math.floor(Number(day));
+  if (!Number.isFinite(target) || target <= book.settled) return effects;
+  const limit = Math.max(1, Math.floor(book.config.maxCatchUpDays) || 1);
+  const last = Math.min(target, book.settled + limit);
+  // Every call steps against a private shadow of the world, into which each day's effects are reduced
+  // before the next day runs. The engine only applies those effects to the real world after the call
+  // returns, so without this the days after a capture still see the old holder and the old yard
+  // owners: the same world is taken again and again and the book diverges from the one daily stepping
+  // produces. The caller's snapshot is never touched. A single-day call takes the same path on
+  // purpose, so that what the engine is handed on the day it settles does not depend on how many days
+  // the caller asked for — the day's own conquests are reduced before the engine settles that day,
+  // whether it is day one of two hundred or the only one.
+  const stepWorld = shadowWorld(world);
+  for (let d = book.settled + 1; d <= last; d++) {
+    const mark = effects.length;
+    settleCampaignDay(book, stepWorld, d, effects);
+    const dayEffects = effects.slice(mark);
+    if (dayEffects.length) reduceIntoShadow(stepWorld, world, dayEffects);
+    // The consequences only an engine can settle are settled here, once per internal day, whether the
+    // caller stepped one day or jumped two hundred: what a damaged installation's capabilities become,
+    // how much of that damage its owner's repair capacity heals before the next day runs, what a
+    // settlement does to a relation. A hook that runs once per CALL rather than once per day is the
+    // whole defect this exists to prevent — a day of damage and a day of repair have to land in the
+    // same order at the same rate either way. Engines may decline to provide it; what nobody settles
+    // is the documented limit of bulk equivalence, not a silent one.
+    world.settleDay?.(stepWorld, d, dayEffects);
+  }
+  if (target > last) {
+    addHistory(book, target, 'calendar', `${target - last} days passed unobserved; the strategic record resumes on day ${target}.`);
+    book.day = target; book.settled = target;
+  }
+  return effects;
+}
+function settleCampaignDay(book, world, day, effects) {
   book.day = day;
   settleEconomy(book, world, day, effects);
   advanceProduction(book, world, day, effects);
   advanceRepairs(book, world, day);
   advanceIntegrations(book, world, day, effects);
+  enforceRelations(book, world, day, effects);
   planOperations(book, world, day, effects);
   advanceOperations(book, world, day, effects);
   advanceDominion(book, world, day, effects);
   resolveCentralWar(book, world, day, effects);
   advanceRecoveries(book, world, day, effects);
   expireMissions(book, day, effects);
+  pruneLostHulls(book);
   book.settled = day;
-  return effects;
 }
 
 function settleEconomy(book, world, day, effects) {
@@ -280,7 +405,7 @@ function settleEconomy(book, world, day, effects) {
     const worlds = controlled(world, id);
     let revenue = 0, materials = 0, food = 0, housing = 0;
     for (const sys of worlds) {
-      const fx = stationEffects(world, sys.index, null);
+      const fx = stationEffects(world, sys.index, id);
       const factor = book.occupations[sys.index] ? occupationFactor(book, book.occupations[sys.index]) : 1;
       revenue += (c.worldRevenueBase + c.worldRevenuePerPopulation * (sys.population || 0) + (fx.revenue || 0)) * factor * (1 + (fx.customs || 0) / 100);
       materials += (c.materialsPerWorld + (fx.mining || 0)) * factor;
@@ -300,6 +425,7 @@ function settleEconomy(book, world, day, effects) {
       p.materials = bounded(p.materials + materials, 0, c.materialsCap);
     }
     // crew recovery at worlds with morale
+    // Morale is a place, not an asset: shore leave at any operational station in the system counts.
     for (const h of p.hulls) if (h.status === 'ready' && (stationEffects(world, h.systemIndex, null).morale || 0) > 0) h.crew = bounded((h.crew ?? 1) + c.crewRecoveryPerDay, 0, 1);
   }
 }
@@ -311,11 +437,14 @@ export function queueBuild(book, world, polityId, shipId, systemIndex, day) {
   if (p.queue.filter((q) => q.status !== 'delivered' && q.status !== 'lost').length >= c.maxQueuePerPolity) return { ok: false, reason: 'Queue full' };
   const stats = world.shipStats(shipId);
   if (!stats) return { ok: false, reason: 'Unknown design' };
+  // Ordering and building must agree: production capacity is only ever gathered from systems the
+  // polity controls, so a yard it owns inside someone else's space cannot accept a keel either.
+  if (!controlled(world, polityId).some((s) => s.index === Number(systemIndex))) return { ok: false, reason: 'That system is not held' };
   const yards = systemStations(world, systemIndex).filter((s) => isOperationalStation(s) && s.owner === polityId && s.cap.services.construction !== 'none');
   if (!yards.length) return { ok: false, reason: 'No owned operational yard in that system' };
   const heavy = (Number(stats.mass) || 1) >= c.heavyMass;
   if (heavy && !yards.some((s) => s.cap.services.construction === 'heavy')) return { ok: false, reason: 'Heavy design needs a heavy berth' };
-  if (!polityCanBuildDesign(book, world, polityId, shipId)) return { ok: false, reason: 'No licence for that design' };
+  if (!polityCanBuildDesign(book, world, polityId, shipId)) return { ok: false, reason: 'No licence for that design, or it is not produced in general yards' };
   const recipe = buildRecipe(c, stats);
   if (polityId !== 'player') { if (p.treasury < recipe.latinum) return { ok: false, reason: 'Insufficient treasury' }; if (p.materials < recipe.materials) return { ok: false, reason: 'Insufficient materials' }; p.treasury -= recipe.latinum; p.materials -= recipe.materials; }
   const item = { id: nextCampaignId(book, 'build'), polityId, shipId: Number(shipId), systemIndex: Number(systemIndex), stationId: yards[0].id, heavy, remainingDays: recipe.days, reserved: recipe, status: 'queued', queuedDay: day, deliveredHullId: null };
@@ -326,11 +455,52 @@ export function buildRecipe(c, stats) {
   const mass = Math.max(1, Number(stats.mass) || 1), price = Math.max(0, Number(stats.price) || 0);
   return { latinum: Math.round(price * c.buildLatinumFactor), materials: Math.max(1, Math.ceil(mass * c.buildMaterialsPerMass)), days: Math.max(2, Math.ceil(Math.sqrt(mass) * c.buildDaysPerSqrtMass)) };
 }
+function factionOf(world, polityId) { return polityId === 'player' ? world.playerFaction : polityId; }
+// Whether a design may be laid down at all: a captured licence grants access to a catalogue, never an
+// exemption from the rules that keep special-vendor, non-shipyard and secret hulls out of general
+// production. The engine owns that judgement; the model only refuses to bypass it.
+function designEligible(world, shipId, polityId) {
+  return world.designEligible ? Boolean(world.designEligible(Number(shipId), polityId)) : true;
+}
+// Whether a captured yard's own catalogue can keep being built once the industry is integrated. This
+// is a different question from whether a general yard stocks the hull by default: taking a culture's
+// major world is supposed to give you that culture's ships, apart from the named exceptions the
+// campaign rules list. The engine owns the exception list.
+function designIndustrial(world, shipId) {
+  return world.designIndustrial ? Boolean(world.designIndustrial(Number(shipId))) : designEligible(world, shipId, null);
+}
 function polityCanBuildDesign(book, world, polityId, shipId) {
   const p = polity(book, polityId);
   const stats = world.shipStats(shipId) || {};
-  const native = !stats.faction || stats.faction === 'neutral' || stats.faction === polityId;
-  return native || Boolean(p.licenses[shipId]);
+  const native = !stats.faction || stats.faction === 'neutral' || stats.faction === factionOf(world, polityId);
+  // A licence is a captured yard and its drawings: what that yard could build, it can go on building,
+  // subject only to the named exceptions. A design the polity has no licence for has to clear the
+  // ordinary general-production rule instead.
+  if (p.licenses[shipId]) return designIndustrial(world, shipId);
+  if (!native) return false;
+  return designEligible(world, shipId, polityId);
+}
+// Licensed foreign designs a polity can pay for today, in a stable order so the draw is deterministic.
+export function licensedDesigns(book, world, polityId) {
+  const p = polity(book, polityId), c = book.config;
+  return Object.keys(p.licenses).map(Number).filter((id) => {
+    if (!Number.isFinite(id)) return false;
+    if (!polityCanBuildDesign(book, world, polityId, id)) return false;
+    const stats = world.shipStats(id);
+    if (!stats) return false;
+    const r = buildRecipe(c, stats);
+    return p.treasury >= r.latinum && p.materials >= r.materials;
+  }).sort((a, b) => a - b);
+}
+// The native pool keeps its lore weighting; a share of orders is drawn from the captured catalogue,
+// which is the entire point of taking a shipyard.
+function pickBuildDesign(book, world, polityId, day, u) {
+  const native = world.pickHull(polityId, u);
+  const licensed = licensedDesigns(book, world, polityId);
+  if (!licensed.length) return native;
+  const pickForeign = () => licensed[Math.floor(seededUnit(book.seed, 'foreign-pick', polityId, day) * licensed.length) % licensed.length];
+  if (native == null) return pickForeign();
+  return seededUnit(book.seed, 'foreign-share', polityId, day) < book.config.foreignDesignShare ? pickForeign() : native;
 }
 function advanceProduction(book, world, day, effects) {
   const c = book.config;
@@ -340,13 +510,16 @@ function advanceProduction(book, world, day, effects) {
     if (id !== 'player' && day % c.planningIntervalDays === 0) {
       const alive = p.hulls.filter((h) => h.status !== 'lost').length;
       const active = p.queue.filter((q) => q.status !== 'delivered' && q.status !== 'lost').length;
-      const target = Math.max(4, Math.round((p.readinessBaselineHulls ||= alive)));
+      // Never order a hull there is no standing-fleet room to commission: the yard would finish her and
+      // the order would wait for ever while the treasury paid for the next one, and the next.
+      const room = Math.max(0, c.maxHullsPerPolity - alive - active);
+      const target = Math.min(Math.max(4, Math.round((p.readinessBaselineHulls ||= alive))), c.maxHullsPerPolity);
       // Replace losses toward the opening count; with a full war chest, grow beyond it (one order per interval).
-      if (alive + active < target || (p.treasury > c.aiWarChest && active < 2 && alive < c.maxHullsPerPolity)) {
+      if (room > 0 && (alive + active < target || (p.treasury > c.aiWarChest && active < 2))) {
         const yardSystems = controlled(world, id).filter((s) => systemStations(world, s.index).some((st) => isOperationalStation(st) && st.owner === id && st.cap.services.construction !== 'none'));
         if (yardSystems.length) {
           const sys = yardSystems[Math.floor(seededUnit(book.seed, 'build-site', id, day) * yardSystems.length)];
-          const shipId = world.pickHull(id, seededUnit(book.seed, 'build-hull', id, day));
+          const shipId = pickBuildDesign(book, world, id, day, seededUnit(book.seed, 'build-hull', id, day));
           if (shipId != null) queueBuild(book, world, id, shipId, sys.index, day);
         }
       }
@@ -354,7 +527,7 @@ function advanceProduction(book, world, day, effects) {
     // Capacity: per system, berths minus those consumed by repairs.
     const capacity = {};
     for (const sys of controlled(world, id)) {
-      const fx = stationEffects(world, sys.index, null);
+      const fx = stationEffects(world, sys.index, id);
       const factor = book.occupations[sys.index] ? occupationFactor(book, book.occupations[sys.index]) : 1;
       const supply = bounded(p.supply, c.supplyFloor, 1);
       const repairBerths = Math.floor((p.repairedToday?.[sys.index] || 0) / c.repairPointsPerBerthDay);
@@ -375,12 +548,26 @@ function advanceProduction(book, world, day, effects) {
       if (cap[slotKey] <= 0 || cap.workforce < c.workforcePerBerth || (item.heavy && cap.energy < 0 && cap.energy < -c.energyPerHeavyBerth * 3)) { item.status = 'queued'; continue; }
       cap[slotKey]--; cap.workforce -= c.workforcePerBerth;
       item.status = 'building';
-      item.remainingDays -= cap.supply;
+      if (item.remainingDays > 0) item.remainingDays -= cap.supply;
       if (item.remainingDays <= 0 && !item.deliveredHullId) {
         const hull = addHull(book, world, id, item.systemIndex, `build:${item.id}`, item.shipId);
-        item.status = 'delivered'; item.deliveredDay = day; item.deliveredHullId = hull?.id || null;
+        if (!hull) {
+          // The yard finished her; the polity has no standing-fleet capacity left to commission her.
+          // The order holds at completion and is retried. It is never marked delivered, never counted
+          // as a built hull, and the latinum and materials it already consumed are never charged twice.
+          // Announced once for the life of the order. The status cannot carry that fact: a day with no
+          // free berth sends the item back to 'queued' before this runs, which is what made the earlier
+          // guard log every few days and evict the whole campaign history.
+          if (item.awaitingSince == null) {
+            item.awaitingSince = day;
+            addHistory(book, day, 'production', `${world.factionName(id)} completed a hull at ${world.systems[item.systemIndex]?.name} with no fleet capacity to commission her; the order waits.`, { polityId: id, systemIndex: item.systemIndex });
+          }
+          item.status = 'awaiting-commission'; item.remainingDays = 0;
+          continue;
+        }
+        item.status = 'delivered'; item.deliveredDay = day; item.deliveredHullId = hull.id; item.awaitingSince = null;
         p.builtHulls++; book.stats.hullsBuilt++;
-        effects.push({ type: 'hullBuilt', polityId: id, systemIndex: item.systemIndex, shipId: item.shipId, hullId: hull?.id || null, day });
+        effects.push({ type: 'hullBuilt', polityId: id, systemIndex: item.systemIndex, shipId: item.shipId, hullId: hull.id, day });
         if (id === 'player') effects.push({ type: 'playerHullDelivered', item: copy(item) });
       }
     }
@@ -393,7 +580,7 @@ function advanceRepairs(book, world, day) {
   for (const id of Object.keys(book.polities)) {
     const p = polity(book, id);
     const budget = {};
-    for (const sys of controlled(world, id)) budget[sys.index] = stationEffects(world, sys.index, null).repairCapacity || 0;
+    for (const sys of controlled(world, id)) budget[sys.index] = stationEffects(world, sys.index, id).repairCapacity || 0;
     const yards = Object.keys(budget).map(Number).filter((i) => budget[i] > 0);
     p.repairedToday = {};
     for (const h of p.hulls) {
@@ -447,11 +634,13 @@ function advanceIntegrations(book, world, day, effects) {
       if (!stillHeld) { integ.progress = 0; integ.qualification = { ...integ.qualification, qualifies: false, reason: 'control lost before integration completed' }; continue; }
       integ.qualification = majorWorldQualification(book, world, sysIndex);
       if (!integ.qualification.qualifies) continue;
-      const yard = systemStations(world, sysIndex).some((s) => isOperationalStation(s) && s.cap.services.construction !== 'none');
+      // A foreign-owned yard in a captured system is not the conqueror's to retool. Same ownership rule
+      // as production capacity: your own installations, plus unowned infrastructure.
+      const yard = systemStations(world, sysIndex).some((s) => isOperationalStation(s) && s.cap.services.construction !== 'none' && (s.owner == null || s.owner === id));
       integ.progress += yard ? 1 : 0.5; // retooling needs a working yard; population alone integrates at half speed
       if (integ.progress >= c.integrationDays) {
         integ.completedDay = day;
-        integ.designs = world.nativeDesigns(integ.sourceFaction, sysIndex);
+        integ.designs = (world.nativeDesigns(integ.sourceFaction, sysIndex) || []).filter((shipId) => designIndustrial(world, shipId));
         for (const shipId of integ.designs) if (!p.licenses[shipId]) p.licenses[shipId] = { source: 'integration', from: integ.sourceFaction, systemIndex: sysIndex, acquiredDay: day };
         addHistory(book, day, 'integration', `${world.factionName(id)} integrated ${world.factionName(integ.sourceFaction)} industry at ${world.systems[sysIndex]?.name}: ${integ.designs.length} designs.`, { systemIndex: sysIndex, polityId: id });
         effects.push({ type: 'integrationComplete', polityId: id, systemIndex: sysIndex, designs: integ.designs.slice(), day });
@@ -475,6 +664,28 @@ function reachableEnemyTargets(book, world, id) {
   }
   return out.sort((a, b) => a.hops - b.hops);
 }
+// Everyone whose forces actually stand between an attacker and this world: the controller and any
+// polity allied to it, the attacker excluded. The same list decides how strong the defence is and who
+// takes the losses, so nothing can raise a defence it is never asked to pay for. The player's empire
+// is one of these polities — its hulls are the real fleet vessels synchronised by the engine — which
+// is why there is no second, lossless "extra defence" term.
+export function defendingPolityIds(book, world, systemIndex, attackerId = null) {
+  const controller = world.systems[systemIndex]?.controller;
+  if (!controller) return [];
+  const out = [];
+  for (const id of Object.keys(book.polities)) {
+    if (id === attackerId) continue;
+    if (id === controller) { out.push(id); continue; }
+    const relation = world.relation(factionOf(world, id), factionOf(world, controller));
+    if (relation === 'allied') { out.push(id); continue; }
+    // The captain's own vessels stand with any holder they are not at war with — their own worlds,
+    // allies, and neutral hosts such as Bajora against the Dominion. That is the rule the removed
+    // extraDefense hook encoded and it is kept here, except that now those ships can also be lost.
+    // Whether an AI third power joins someone else's defence is a planning question, not a repair.
+    if (id === 'player' && relation !== 'war') out.push(id);
+  }
+  return out;
+}
 export function localDefenseStrength(book, world, systemIndex) {
   const sys = world.systems[systemIndex];
   // Only installations owned by the controller (or a side not at war with it) defend the world.
@@ -482,18 +693,14 @@ export function localDefenseStrength(book, world, systemIndex) {
   for (const st of systemStations(world, systemIndex)) {
     if (!isOperationalStation(st)) continue;
     const owner = st.owner;
-    const hostileToController = sys?.controller && owner && owner !== sys.controller && world.relation(owner === 'player' ? world.playerFaction : owner, sys.controller === 'player' ? world.playerFaction : sys.controller) === 'war';
+    const hostileToController = sys?.controller && owner && owner !== sys.controller && world.relation(factionOf(world, owner), factionOf(world, sys.controller)) === 'war';
     if (hostileToController) continue;
     defense += st.cap.effects.defense || 0;
   }
   let strength = defense * book.config.garrisonStrengthPerDefense;
-  for (const id of Object.keys(book.polities)) {
-    if (!sys?.controller) continue;
-    const allied = id === sys.controller || (world.relation(id, sys.controller === 'player' ? world.playerFaction : sys.controller) === 'allied');
-    if (!allied) continue;
+  for (const id of defendingPolityIds(book, world, systemIndex)) {
     for (const h of polity(book, id).hulls) if (h.status === 'ready' && h.systemIndex === systemIndex) strength += hullStrength(book, world, h);
   }
-  strength += world.extraDefense?.(systemIndex) || 0; // player fleet ships stationed here, live defences
   return strength;
 }
 function planOperations(book, world, day, effects) {
@@ -504,7 +711,7 @@ function planOperations(book, world, day, effects) {
     if (day - p.lastPlanDay < c.planningIntervalDays) continue;
     p.lastPlanDay = day;
     if (book.operations.filter((o) => o.faction === id && o.status !== 'resolved').length >= 2) continue;
-    const targets = reachableEnemyTargets(book, world, id);
+    let targets = reachableEnemyTargets(book, world, id);
     if (!targets.length) continue;
     if (id === 'dominion' && book.dominion.phase !== 'invasion') continue; // the expedition opens hostilities, never a routine raid
     const ready = p.hulls.filter((h) => h.status === 'ready');
@@ -512,7 +719,12 @@ function planOperations(book, world, day, effects) {
     const perSystem = {};
     for (const h of ready) perSystem[h.systemIndex] = (perSystem[h.systemIndex] || 0) + 1;
     const held = new Set(controlled(world, id).map((s) => s.index));
-    const spare = ready.filter((h) => { if (!held.has(h.systemIndex)) return true; if (perSystem[h.systemIndex] > c.homeGarrisonPerWorld) { perSystem[h.systemIndex]--; return true; } return false; });
+    let spare = ready.filter((h) => { if (!held.has(h.systemIndex)) return true; if (perSystem[h.systemIndex] > c.homeGarrisonPerWorld) { perSystem[h.systemIndex]--; return true; } return false; });
+    if (id === 'dominion') {
+      const bound = dominionPlanningBounds(book, world, targets, spare);
+      if (!bound) continue;
+      targets = bound.targets; spare = bound.spare;
+    }
     if (spare.length < 3) continue;
     const doctrine = world.doctrine?.(id) || { aggression: 1 };
     const commit = bounded(Math.round(spare.length * c.attackCommitFraction * doctrine.aggression), 3, spare.length);
@@ -523,9 +735,38 @@ function planOperations(book, world, day, effects) {
     launchOperation(book, world, id, chosen, target.index, day, target.hops, 'assault', effects);
   }
 }
+// Systems reachable from the wormhole's near terminus without transiting the wormhole. The expedition's
+// entry constraint lives in the map, so nothing can satisfy it by naming a faction.
+export function nearSideSystems(world, entrySystem) {
+  const isWormholeEdge = (a, b) => world.wormholes.some((w) => (w.from === a && w.to === b) || (w.to === a && w.from === b));
+  const seen = new Set([Number(entrySystem)]);
+  const queue = [Number(entrySystem)];
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const n of world.neighbours(cur)) { if (isWormholeEdge(cur, n) || seen.has(Number(n))) continue; seen.add(Number(n)); queue.push(Number(n)); }
+  }
+  return seen;
+}
+// Until the Dominion holds ground on this side of the wormhole, the bridgehead is its only objective
+// and the force has to come through the wormhole to reach it. Once it holds ground, operations are
+// mounted from that ground — never from the far side of the galaxy, and never from the home region
+// straight past an entry it does not control.
+function dominionPlanningBounds(book, world, targets, spare) {
+  const d = book.dominion;
+  if (d.entrySystem == null) return null;
+  const near = nearSideSystems(world, d.entrySystem);
+  const heldNear = controlled(world, 'dominion').map((s) => s.index).filter((i) => near.has(Number(i)));
+  if (!heldNear.length) return { targets: targets.filter((t) => Number(t.index) === Number(d.entrySystem)), spare: spare.filter((h) => !near.has(Number(h.systemIndex))) };
+  const staging = new Set([...heldNear.map(Number), Number(d.stagingSystem)]);
+  return { targets: targets.filter((t) => near.has(Number(t.index))), spare: spare.filter((h) => staging.has(Number(h.systemIndex))) };
+}
 export function launchOperation(book, world, factionId, hulls, targetSystem, day, hops, kind = 'assault', effects = []) {
   if (book.operations.length >= book.config.maxOperations) book.operations = book.operations.filter((o) => o.status !== 'resolved').concat(book.operations.filter((o) => o.status === 'resolved').slice(-20));
+  // A raid can be drawn from more than one nearby system. Each hull remembers its own departure point
+  // so survivors are not all returned to the first one's, which silently relocated ships between
+  // neighbouring systems after every mixed-origin raid.
   const originSystem = hulls[0]?.systemIndex ?? null;
+  for (const h of hulls) h.originSystem = h.systemIndex;
   const op = { id: nextCampaignId(book, 'op'), faction: factionId, kind, targetSystem: Number(targetSystem), originSystem, hullIds: hulls.map((h) => h.id), committed: hulls.length,
     status: 'moving', createdDay: day, arriveDay: day + Math.max(1, hops), engagedDay: null, holdDays: 0, resolvedDay: null, outcome: null, resolvedBy: null, losses: 0, defenderLosses: 0 };
   for (const h of hulls) { h.status = 'assigned'; h.opId = op.id; }
@@ -537,6 +778,50 @@ export function launchOperation(book, world, factionId, hulls, targetSystem, day
 export function operationHulls(book, op) {
   const p = polity(book, op.faction);
   return op.hullIds.map((id) => p.hulls.find((h) => h.id === id)).filter((h) => h && h.status !== 'lost');
+}
+// Terminating a faction's live operations deliberately — a settlement applied by the engine, or a
+// debug control winding the Dominion back. Hulls are released the ordinary way; an operation record
+// that is simply deleted leaves its hulls assigned to an opId that no longer exists.
+export function terminateOperations(book, world, factionId, day, effects = [], note = null) {
+  const ended = [];
+  for (const op of book.operations) {
+    if (op.status === 'resolved' || op.faction !== factionId) continue;
+    op.standDownPending = false;
+    op.resolvedBy = null;
+    finishOperation(book, world, op, day, 'stood-down', effects, 'diplomacy',
+      note || `${world.factionName(factionId)} recalled its forces from ${world.systems[op.targetSystem]?.name || `system ${op.targetSystem}`}.`);
+    ended.push(op.id);
+  }
+  return ended;
+}
+// An operation outlives the war that authorised it unless something ends it. Every day, before new
+// plans are made, each live operation is re-checked against the relationship it was launched under: a
+// settlement, an alliance, or the objective changing hands to a power the attacker is not at war with
+// all make the operation illegal, and it stands down the same day. An operation the loaded scene has
+// claimed is left alone, so a battle in progress is never yanked out from under the player;
+// releaseOperationFromScene clears resolvedBy and the next day's pass stands it down for the same
+// reason it could not this day. standDownPending records that pending state for the engine and the
+// gates to read; it is not what drives the stand-down.
+export function operationIsAuthorised(book, world, op) {
+  if (!op || op.status === 'resolved') return true;
+  const owner = world.systems[op.targetSystem]?.controller ?? null;
+  if (owner == null) return true;                 // an unheld objective is nobody's peace to break
+  if (owner === op.faction) return true;          // already ours; advanceOperations absorbs it
+  return world.relation(factionOf(world, op.faction), factionOf(world, owner)) === 'war';
+}
+function enforceRelations(book, world, day, effects) {
+  for (const op of book.operations) {
+    if (op.status === 'resolved') continue;
+    if (operationIsAuthorised(book, world, op)) { op.standDownPending = false; continue; }
+    if (op.resolvedBy === 'local') { op.standDownPending = true; continue; }
+    const target = world.systems[op.targetSystem]?.name || `system ${op.targetSystem}`;
+    const note = `${world.factionName(op.faction)} broke off the operation at ${target}: the objective is no longer a legal target.`;
+    op.standDownPending = false;
+    // One terminal effect, whatever ended the operation. A second, purpose-built effect alongside the
+    // generic one meant peace produced two reports, and the panel picked the generic "Fleet defeat"
+    // with the raw outcome string in its text.
+    finishOperation(book, world, op, day, 'stood-down', effects, 'diplomacy', note);
+  }
 }
 function advanceOperations(book, world, day, effects) {
   const c = book.config;
@@ -617,14 +902,22 @@ function applyLosses(book, world, hulls, fraction, op, day) {
   }
 }
 function applyDefenderLosses(book, world, systemIndex, fraction, op, day, effects) {
-  const sys = world.systems[systemIndex];
-  for (const id of Object.keys(book.polities)) {
-    if (id === op.faction) continue;
-    const allied = id === sys?.controller;
-    if (!allied) continue;
-    const local = polity(book, id).hulls.filter((h) => h.status === 'ready' && h.systemIndex === systemIndex);
+  for (const id of defendingPolityIds(book, world, systemIndex, op.faction)) {
+    const p = polity(book, id);
+    const local = p.hulls.filter((h) => h.status === 'ready' && h.systemIndex === systemIndex);
+    if (!local.length) continue;
     let budget = local.reduce((n, h) => n + h.maxHull, 0) * fraction, i = 0;
-    for (const h of local) { if (budget <= 0) break; const dmg = Math.min(h.hull, budget * (0.5 + seededUnit(book.seed, 'ddmg', op.id, day, i++))); h.hull -= dmg; budget -= dmg; if (h.hull <= 0) { h.hull = 0; h.status = 'lost'; op.defenderLosses++; polity(book, id).lostHulls++; book.stats.hullsLost++; } }
+    const report = [];
+    for (const h of local) {
+      if (budget <= 0) break;
+      const dmg = Math.min(h.hull, budget * (0.5 + seededUnit(book.seed, 'ddmg', op.id, day, id, i++)));
+      h.hull -= dmg; budget -= dmg;
+      if (h.hull <= 0) { h.hull = 0; h.status = 'lost'; op.defenderLosses++; p.lostHulls++; book.stats.hullsLost++; }
+      report.push({ hullId: h.id, shipId: h.shipId, hull: h.hull, maxHull: h.maxHull, destroyed: h.status === 'lost' });
+    }
+    // The engine owns the player's vessels; it is told exactly which of them paid, so a fleet left at
+    // a world that is attacked while the captain is elsewhere is really damaged, never notionally.
+    if (report.length) effects.push({ type: 'defenderLosses', polityId: id, systemIndex, opId: op.id, day, attacker: op.faction, hulls: report });
   }
   // Station damage: fraction of the day's attack lands on the strongest defence installation.
   if (fraction > 0.12) {
@@ -632,12 +925,16 @@ function applyDefenderLosses(book, world, systemIndex, fraction, op, day, effect
     if (stations.length) { const target = stations[Math.floor(seededUnit(book.seed, 'station', op.id, day) * stations.length)]; effects.push({ type: 'stationDamaged', stationId: target.id, systemIndex, fraction: Math.min(0.5, fraction), opId: op.id, day }); }
   }
 }
-function finishOperation(book, world, op, day, outcome, effects, resolvedBy) {
+function finishOperation(book, world, op, day, outcome, effects, resolvedBy, note = null) {
   op.status = 'resolved'; op.resolvedDay = day; op.outcome = outcome; op.resolvedBy = op.resolvedBy || resolvedBy;
   book.stats.battlesResolved++;
   const survivors = operationHulls(book, op);
-  for (const h of survivors) { h.opId = null; h.status = 'ready'; if (outcome !== 'captured') h.systemIndex = op.originSystem ?? h.systemIndex; }
-  addHistory(book, day, 'battle', `${world.factionName(op.faction)} operation at ${world.systems[op.targetSystem]?.name}: ${outcome} (${op.losses} lost, ${op.defenderLosses} defenders lost).`, { opId: op.id, systemIndex: op.targetSystem, outcome, faction: op.faction });
+  for (const h of survivors) {
+    h.opId = null; h.status = 'ready';
+    if (outcome !== 'captured') h.systemIndex = h.originSystem ?? op.originSystem ?? h.systemIndex;
+    h.originSystem = null;
+  }
+  addHistory(book, day, 'battle', note || `${world.factionName(op.faction)} operation at ${world.systems[op.targetSystem]?.name}: ${outcome} (${op.losses} lost, ${op.defenderLosses} defenders lost).`, { opId: op.id, systemIndex: op.targetSystem, outcome, faction: op.faction });
   effects.push({ type: 'operationResolved', opId: op.id, faction: op.faction, targetSystem: op.targetSystem, outcome, losses: op.losses, defenderLosses: op.defenderLosses, day, resolvedBy: op.resolvedBy });
 }
 // Local scene reconciliation: the engine takes ownership of an engaged operation while the player is
@@ -736,14 +1033,28 @@ export function recordStationLoss(book, world, stationId, systemIndex, day, effe
     const survivingSources = d.sources.filter((s) => !d.lost.includes(s));
     if (survivingSources.length || d.relocatedTo) continue;
     if (book.recoveries.some((r) => r.shipId === Number(shipId) && r.status !== 'failed')) continue;
+    if (liveRecoveries(book).length >= book.config.maxLiveRecoveries) {
+      addHistory(book, day, 'recovery', `Sole vendor for design ${shipId} lost at ${stationId}; no recovery team is free to take the contract.`, { shipId: Number(shipId), systemIndex });
+      continue;
+    }
     const kinds = ['engineers', 'archive', 'broker'];
     const kind = kinds[Math.floor(seededUnit(book.seed, 'recovery', shipId, stationId) * 2)]; // engineers or archive first; broker is the last resort
     const r = { id: nextCampaignId(book, 'recovery'), shipId: Number(shipId), lostStationId: stationId, systemIndex, kind, status: 'available', createdDay: day, completedDay: null, relocatedTo: null, attempts: 0 };
     book.recoveries.push(r);
-    if (book.recoveries.length > 40) book.recoveries = book.recoveries.filter((x) => x.status !== 'completed').concat(book.recoveries.filter((x) => x.status === 'completed').slice(-10));
+    trimRecoveries(book);
     effects.push({ type: 'recoveryOffered', recoveryId: r.id, shipId: r.shipId, kind, systemIndex, day });
     addHistory(book, day, 'recovery', `Sole vendor for design ${shipId} lost at ${stationId}; ${kind} recovery contract available.`, { shipId: Number(shipId), systemIndex });
   }
+}
+function liveRecoveries(book) { return book.recoveries.filter((r) => r.status === 'available' || r.status === 'active'); }
+// Terminal records are archived, never the open ones: the stated bound is on contracts a player can
+// still act on, and it is enforced where they are created.
+function trimRecoveries(book) {
+  const live = liveRecoveries(book);
+  const done = book.recoveries.filter((r) => !live.includes(r));
+  const keep = Math.max(0, book.config.maxLiveRecoveries - live.length);
+  // slice(-0) is the whole array, not none of it, so an exhausted budget has to be handled explicitly.
+  if (done.length > keep) book.recoveries = live.concat(keep > 0 ? done.slice(-keep) : []);
 }
 export function designStatus(book, shipId) {
   const d = book.designs[shipId];
@@ -767,10 +1078,23 @@ export function completeRecovery(book, world, recoveryId, destinationStationId, 
 // An engineers/archive contract left unpursued for 400 days lapses; a neutral broker then offers one
 // last lead (once per design). After that there is no further respawn.
 function advanceRecoveries(book, world, day, effects) {
+  // A recovery pursued through a mission that has since expired, failed or vanished returns to the
+  // offer pool with its lapse clock still running. Without this the design stays lost for ever and the
+  // contract stays 'active' with nothing working on it.
+  for (const r of book.recoveries) {
+    if (r.status !== 'active' || !r.missionId) continue;
+    const m = book.missions.find((x) => x.id === r.missionId);
+    if (m && ['offered', 'active'].includes(m.status)) continue;
+    if (m && m.status === 'completed') continue;
+    r.status = 'available'; r.missionId = null; r.attempts = (r.attempts || 0) + 1;
+    effects.push({ type: 'recoveryReleased', recoveryId: r.id, shipId: r.shipId, kind: r.kind, systemIndex: r.systemIndex, day });
+    addHistory(book, day, 'recovery', `The recovery attempt for design ${r.shipId} lapsed; the contract is open again.`, { shipId: r.shipId, systemIndex: r.systemIndex });
+  }
   for (const r of book.recoveries.slice()) {
     if (r.status !== 'available' || day - r.createdDay <= book.config.recoveryOfferDays) continue;
     r.status = 'failed';
     if (r.kind === 'broker' || book.recoveries.some((x) => x.shipId === r.shipId && x.kind === 'broker')) continue;
+    if (liveRecoveries(book).length >= book.config.maxLiveRecoveries) continue;
     const b = { id: nextCampaignId(book, 'recovery'), shipId: r.shipId, lostStationId: r.lostStationId, systemIndex: r.systemIndex, kind: 'broker', status: 'available', createdDay: day, completedDay: null, relocatedTo: null, attempts: (r.attempts || 0) + 1 };
     book.recoveries.push(b);
     effects.push({ type: 'recoveryOffered', recoveryId: b.id, shipId: b.shipId, kind: 'broker', systemIndex: b.systemIndex, day });
@@ -784,11 +1108,20 @@ export function planQuote(hullPrice, baseStanding, alreadyOwned) {
 
 // ---------- missions ----------
 export const MISSION_KINDS = Object.freeze(['relief', 'escort', 'evacuation', 'repair', 'archive', 'recon', 'blockade', 'extraction']);
+export function liveMissions(book) { return book.missions.filter((m) => ['offered', 'active'].includes(m.status)); }
+// A caller may bring its own id. The engine does, because it offers contracts BETWEEN the days the
+// model settles: taking them from the model's counter made the strategic book's ids depend on how many
+// days a call happened to settle, and anything seeded from an id then diverged between a jump and a
+// walk. [fifth review]
 export function offerMission(book, mission, day) {
   if (book.missions.some((m) => m.key === mission.key && ['offered', 'active'].includes(m.status))) return null; // one open contract per key; finished ones may recur
-  const m = { id: nextCampaignId(book, 'mission'), status: 'offered', offeredDay: day, acceptedDay: null, completedDay: null, reason: null, ...mission };
+  if (liveMissions(book).length >= book.config.maxLiveMissions) return null;
+  const m = { id: mission.id || nextCampaignId(book, 'mission'), status: 'offered', offeredDay: day, acceptedDay: null, completedDay: null, reason: null, ...mission };
   book.missions.push(m);
-  if (book.missions.length > 60) book.missions = book.missions.filter((x) => ['offered', 'active'].includes(x.status)).concat(book.missions.filter((x) => !['offered', 'active'].includes(x.status)).slice(-20));
+  const live = liveMissions(book);
+  const done = book.missions.filter((x) => !live.includes(x));
+  const keep = Math.max(0, book.config.maxLiveMissions - live.length);
+  if (done.length > keep) book.missions = live.concat(keep > 0 ? done.slice(-keep) : []);
   return m;
 }
 export function acceptMission(book, id, day) { const m = book.missions.find((x) => x.id === id); if (!m || m.status !== 'offered') return false; m.status = 'active'; m.acceptedDay = day; return true; }
@@ -844,7 +1177,7 @@ export function queueDistantOrder(book, order, day, connected) {
   const o = { id: nextCampaignId(book, 'order'), ...order, queuedDay: day, acknowledgedDay: null, status: 'queued' };
   if (connected) { o.status = 'acknowledged'; o.acknowledgedDay = day; }
   book.orders.push(o);
-  if (book.orders.length > 40) book.orders = book.orders.slice(-40);
+  if (book.orders.length > book.config.maxOrders) book.orders = book.orders.slice(-book.config.maxOrders);
   return o;
 }
 export function acknowledgeQueuedOrders(book, day, connectedSystems) {
@@ -859,7 +1192,17 @@ export function politySummary(book, world, id) {
     integrations: Object.entries(polity(book, id).integrations).map(([s, i]) => ({ systemIndex: Number(s), ...i })), licenses: Object.keys(polity(book, id).licenses).length,
     operations: book.operations.filter((o) => o.faction === id && o.status !== 'resolved').length };
 }
+// Key-sorted serialisation, so a book that has been through storage and a book that was stepped in
+// memory hash the same whatever order their keys were created in.
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(',')}}`;
+  return JSON.stringify(value === undefined ? null : value);
+}
 export function checksum(book) {
-  // Order-independent structural digest for replay-equivalence tests.
-  return stableHash(JSON.stringify({ day: book.day, settled: book.settled, polities: book.polities, operations: book.operations, dominion: book.dominion, occupations: book.occupations, stats: book.stats, counter: book.counter }));
+  // The digest is the entire persisted book, not a chosen subset. An enumerated list drifts: the first
+  // version of it omitted history, designs, recoveries, missions, orders and discoveries, the second
+  // still omitted the seed, the war resolutions, relocated offers, assessments and the budget-migration
+  // flag. Anything added to the book from now on is covered without anyone remembering to add it.
+  return stableHash(canonicalJson(book));
 }

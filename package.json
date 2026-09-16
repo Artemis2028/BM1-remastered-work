@@ -47,7 +47,9 @@
     "test:stations:offers": "node scripts/station-offer-gate.cjs",
     "test:campaign": "node scripts/campaign-strategy-test.mjs",
     "test:campaign:ingame": "node scripts/campaign-probe.cjs",
-    "test:campaign:balance": "node scripts/campaign-balance-run.cjs"
+    "test:campaign:balance": "node scripts/campaign-balance-run.cjs",
+    "test:campaign:blockers": "node scripts/campaign-blocker-gate.mjs",
+    "test:campaign:blockers:ingame": "node scripts/campaign-blocker-probe.cjs"
   },
   "license": "SEE LICENSE IN LICENSE.md",
   "devDependencies": {
