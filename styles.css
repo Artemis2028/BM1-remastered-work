@@ -4321,3 +4321,8 @@ button:disabled {
 #galaxy-reports .galaxy-report {padding:14px;background:#181f30;border-left:3px solid #e8bb6c;border-radius:5px;}
 #galaxy-reports h3 {margin:6px 0;}
 #galaxy-reports p {line-height:1.5;overflow-wrap:anywhere;}
+#galaxy-reports .report-folders {display:flex;flex-wrap:wrap;gap:6px;margin:12px 0;}
+#galaxy-reports .report-folders [aria-pressed="true"] {outline:2px solid #ffd18c;outline-offset:1px;}
+#galaxy-reports .report-section {margin:14px 0;}
+#galaxy-reports .report-section summary {padding:10px 0;font-weight:bold;}
+#galaxy-reports .report-pages {display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:12px;}

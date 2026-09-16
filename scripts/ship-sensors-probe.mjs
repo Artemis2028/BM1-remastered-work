@@ -555,6 +555,8 @@ try {
     test('five real system geometries load, with remote secret installations', geometry.every(g => g.stations >
       0) && geometry.filter(g => ['Paso', 'Remus'].includes(g.name)).every(g => g.maximum > 5000), geometry);
 
+    // Resume observer-relative fixtures after the system/holding-marker tour moved the camera.
+    B.setCamera(at.x, at.y);
     reset();
     s.stations = [];
     const assessed = spawn(9640, 400, {

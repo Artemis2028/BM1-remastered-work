@@ -41,7 +41,8 @@
     "test:stations": "node scripts/station-defense-probe.cjs",
     "test:briefing": "node scripts/captains-briefing-probe.cjs",
     "test:intelligence": "node scripts/galaxy-intelligence-test.mjs",
-    "test:intelligence:ingame": "node scripts/intelligence-followup-probe.cjs"
+    "test:intelligence:ingame": "node scripts/intelligence-followup-probe.cjs",
+    "test:briefing:cargo": "node scripts/briefing-cargo-probe.cjs"
   },
   "license": "SEE LICENSE IN LICENSE.md",
   "devDependencies": {
