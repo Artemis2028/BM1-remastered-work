@@ -4152,6 +4152,8 @@ button:disabled {
   right: 18px;
   bottom: 274px;
   z-index: 28;
+  display: flex;
+  flex-direction: column;
   width: 300px;
   max-width: calc(100vw - 36px);
   color: var(--lcars-text);
@@ -4167,6 +4169,11 @@ button:disabled {
 .security-order-panel.hidden {
   display: none;
 }
+/* Set while an incoming hail needs the whole right-hand column on a short screen: the map thumbnail
+   is decoration and stands down rather than squeezing the hail's own controls out of reach. */
+#minimap-panel.crowded-out {
+  display: none;
+}
 .security-order-head {
   display: flex;
   justify-content: space-between;
@@ -4179,15 +4186,35 @@ button:disabled {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+/* The panel may be squeezed between the map thumbnail and the dock on a short screen. When that
+   happens the message is what gives way — it scrolls — and the actions stay where they are. An
+   incoming hail whose Accept and Refuse buttons have scrolled out of reach is worse than an
+   overlapping one. */
 .security-order-body {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 7px;
+  min-height: 0;
+  overflow: hidden;
   padding: 8px 10px 10px;
 }
+/* Controls and status never give way; only the prose does. The panel renders several shapes (a
+   checkpoint order, an arrival hail, an outcome notice) and some put bare buttons straight in the
+   body, so the rule is written on the children rather than on one class. */
+.security-order-body > * {
+  flex: 0 0 auto;
+}
+.security-order-body > p,
 .security-order-text {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   color: var(--lcars-cream);
   font-size: 11px;
   line-height: 1.3;
+}
+.security-order-head {
+  flex: 0 0 auto;
 }
 .security-order-status {
   color: var(--lcars-cyan);

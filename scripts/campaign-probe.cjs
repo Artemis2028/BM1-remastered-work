@@ -151,31 +151,51 @@ const EXPORTS = 'window.testBM1={state,startWithFaction,advanceFleetCalendar,fle
     assert.equal(r.back, 4); assert.equal(r.distinct, 4); assert.equal(r.claimedAgain, 'local'); assert.ok(r.halfHull, 'damage carried through the release');
   });
 
-  await check('ambient fleet actions draw real hulls from the attacker\'s pool and are marked assigned; a power with no available force sends nothing', async () => {
+  await check('ambient fleet actions draw only on forces within reach and never rewrite a distant hull\'s position; a power with nothing nearby sends nothing', async () => {
     await fresh('gate-F');
     const r = await ev(() => {
       const t = testBM1, s = t.state, book = t.campaign();
+      const world = t.buildCampaignWorld(true);
+      const here = Number(s.currentPlanet);
+      const adjacent = new Set((world.neighbours(here) || []).map(Number));
       const record = t.getSystemActivity(); Object.assign(record, { type: 'battle', triggered: false, combatElapsed: 1e9, seed: 4242 });
       s.activeFleetAttack = null;
+      // Every hostile hull is parked far away: nothing is near enough to raid this system.
+      const far = world.systems.findIndex((sys, i) => i !== here && !adjacent.has(i));
+      for (const id of Object.keys(book.polities)) for (const h of book.polities[id].hulls) h.systemIndex = far;
+      const noneNearby = t.chooseActivityAttacker(record);
+      const refusedFar = t.launchBudgetedAmbientRaid(Object.keys(book.polities).find((id) => id !== 'player'), record);
+
+      // Now bring one power's squadron to the neighbouring system: it, and only it, can mount a raid.
+      const candidate = Object.keys(book.polities).find((id) => id !== 'player' && book.polities[id].hulls.length >= 6 && t.areFactionsOpposed(id, t.getSystemFaction()));
+      const squadron = book.polities[candidate].hulls.slice(0, 6);
+      const neighbour = [...adjacent][0];
+      for (const h of squadron) { h.systemIndex = neighbour; h.status = 'ready'; }
+      const distantIds = book.polities[candidate].hulls.filter((h) => !squadron.includes(h)).map((h) => h.id);
       const attacker = t.chooseActivityAttacker(record);
-      const readyBefore = book.polities[attacker].hulls.filter((h) => h.status === 'ready').length;
-      t.updateSystemActivity(0);
-      const ships = s.npcShips.filter((n) => n.campaignHullId && n.attackId === s.activeFleetAttack?.id);
-      const assigned = book.polities[attacker].hulls.filter((h) => h.status === 'assigned').length;
-      const readyAfter = book.polities[attacker].hulls.filter((h) => h.status === 'ready').length;
-      const op = book.operations.at(-1);
-      const legal = ships.every((n) => book.polities[attacker].hulls.some((h) => h.id === n.campaignHullId && h.shipId === n.shipId));
-      // a power whose pool is exhausted cannot raid and is no longer a candidate attacker
-      for (const h of book.polities[attacker].hulls) if (h.status === 'ready') h.status = 'repairing';
       s.activeFleetAttack = null; Object.assign(record, { type: 'battle', triggered: false, combatElapsed: 1e9 });
-      const before = s.npcShips.length; const refused = t.launchBudgetedAmbientRaid(attacker, record);
-      return { attacker, readyBefore, triggered: record.triggered, outcome: record.outcome, ships: ships.length, faction: op?.faction, assigned, drawn: readyBefore - readyAfter, opKind: op?.kind, legal, exhausted: { ok: refused.ok, reason: refused.reason, added: s.npcShips.length - before, candidate: t.chooseActivityAttacker(record) === attacker } };
+      t.updateSystemActivity(0);
+      const pool = book.polities[candidate].hulls;
+      const ships = s.npcShips.filter((n) => n.campaignHullId && n.attackId === s.activeFleetAttack?.id);
+      const op = book.operations.at(-1);
+      const committed = op ? op.hullIds : [];
+      const movedDistant = distantIds.filter((id) => Number(pool.find((h) => h.id === id)?.systemIndex) === here);
+      const legal = ships.every((n) => pool.some((h) => h.id === n.campaignHullId && h.shipId === n.shipId));
+      return { far, neighbour, noneNearby, refusedFar: { ok: refusedFar.ok, reason: refusedFar.reason }, candidate, attacker,
+        faction: op?.faction, opKind: op?.kind, ships: ships.length, committed: committed.length,
+        committedFromSquadron: committed.every((id) => squadron.some((h) => h.id === id)), movedDistant: movedDistant.length, legal };
     });
-    assert.ok(r.attacker);
-    const drawn = Math.min(7, r.readyBefore);
-    assert.equal(r.ships, Math.min(6, drawn), JSON.stringify(r)); assert.equal(r.faction, r.attacker); assert.equal(r.drawn, drawn); assert.equal(r.assigned, drawn); assert.equal(r.opKind, 'battle'); assert.ok(r.legal);
-    console.log('AMBIENT_RAID', JSON.stringify({ attacker: r.attacker, ready: r.readyBefore, drawn }));
-    assert.deepEqual(r.exhausted, { ok: false, reason: 'no available force', added: 0, candidate: false });
+    assert.equal(r.noneNearby, null, 'a power with no force within reach must not be chosen to raid');
+    assert.deepEqual(r.refusedFar, { ok: false, reason: 'no available force' }, 'and cannot raid if asked directly');
+    assert.equal(r.attacker, r.candidate, 'the power whose squadron is next door can');
+    assert.equal(r.faction, r.candidate);
+    assert.equal(r.opKind, 'battle');
+    assert.ok(r.committed > 0 && r.committed <= 7, JSON.stringify(r));
+    assert.ok(r.committedFromSquadron, 'the raid is mounted only by hulls that were within reach');
+    assert.equal(r.movedDistant, 0, 'no hull elsewhere in the galaxy had its position rewritten to join');
+    assert.equal(r.ships, Math.min(6, r.committed));
+    assert.ok(r.legal);
+    console.log('AMBIENT_RAID', JSON.stringify({ attacker: r.attacker, neighbour: r.neighbour, committed: r.committed }));
   });
 
   await check('Dominion: dormant → reconnaissance → staging → invasion via the Bajoran wormhole with two warnings first; no Dominion operation before the invasion; convoys are finite', async () => {
@@ -407,6 +427,24 @@ const EXPORTS = 'window.testBM1={state,startWithFaction,advanceFleetCalendar,fle
       assert.ok(!overlaps(rects.hail, rects.mini), `${name}: hail overlaps minimap ${JSON.stringify(rects)}`);
       assert.ok(!overlaps(rects.hail, rects.recovery), `${name}: hail overlaps recovery ${JSON.stringify(rects)}`);
       assert.ok(rects.hail.b <= h && rects.hail.t >= 0, `${name}: hail panel within viewport`);
+      // Separation is not enough. The previous layout fix removed the overlap by collapsing the panel,
+      // which put its own buttons out of reach — a worse outcome that bounding boxes could not see.
+      const reach = await ev(() => {
+        const el = document.getElementById('security-order-panel');
+        const panel = el.getBoundingClientRect();
+        const buttons = [...el.querySelectorAll('button')];
+        const usable = buttons.filter((b) => {
+          const r = b.getBoundingClientRect();
+          if (r.width < 8 || r.height < 8) return false;
+          if (r.top < panel.top - 1 || r.bottom > panel.bottom + 1) return false;
+          if (r.top < 0 || r.bottom > window.innerHeight) return false;
+          const hit = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
+          return Boolean(hit && el.contains(hit));
+        });
+        return { buttons: buttons.length, usable: usable.length, height: Math.round(panel.height) };
+      });
+      assert.ok(reach.buttons > 0, `${name}: the hail rendered no actions`);
+      assert.equal(reach.usable, reach.buttons, `${name}: ${reach.buttons - reach.usable} of ${reach.buttons} hail actions were clipped or unclickable (panel ${reach.height}px)`);
       await page.screenshot({ path: path.join(OUT, `hail-layout-${name}.png`) });
     }
     await page.setViewportSize({ width: 1280, height: 800 });

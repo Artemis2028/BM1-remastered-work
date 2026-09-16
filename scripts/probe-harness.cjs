@@ -1,0 +1,38 @@
+// Shared Playwright harness for the in-game campaign gates: a static server over the built tree, a
+// page with the runtime's internals exposed as window.testBM1, and a seeded fresh start.
+const { chromium } = require('playwright');
+const http = require('node:http'), fs = require('node:fs'), path = require('node:path');
+
+const EXPORT_NAMES = 'state,startWithFaction,advanceFleetCalendar,fleetBook,Fleet,Campaign,campaign,campaignBook,buildCampaignWorld,openCampaignPanel,closeCampaignPanel,renderCampaignPanel,applyDebugCommand,saveGame,loadGame,getSystemControl,spawnFleetAttack,updateSystemActivity,getSystemActivity,launchBudgetedAmbientRaid,destroyStation,getStationOwner,ensurePlaytestState,advanceFactionReconstruction,applySystemState,tick,updateFleetAttacks,getShipyardStock,getStationWeaponStock,fleetStationServices,getSystemFaction,transferSystemControlToPlayer,transferSystemControlToFaction,campaignIntegrationOffers,fleetPlanStatus,buyFleetPlan,commissionStatus,commissionShip,fleetShipStock,getCurrentServiceStation,openRemoteStationShop,gameNow,pauseGameClock,resumeGameClock,ensureCombatTargetStats,getShipStats,changeDiplomacy,captureWorldEncounter,restoreWorldEncounter,maybeMaterializeCampaignOperation,dispatchFleetFormation,isSystemRelayConnected,campaignRelayCoverage,advanceCommissions,getShipPrice,setCamera,renderPlanetMenu,renderFleetManager,getAllWormholeLinks,triggerDebugEvent,getUnfilteredShipyardStock,startDesignRecovery,advanceRecoveryMissions,getStationCapabilities,getFactionStanding,adjustFactionStanding,galaxyNewsBook,visibleGalaxyReports,isChartSystemVisible,reconstructionFunds,syncPlayerPolity,offerStationMission,advanceStationMissions,keys,heldWeaponInputs,updateStats,getPlayerFleetShips,completeFleetJourneys,markSystemVisited,acknowledgeCampaignOrders,getStationEffectiveOffers,deliverFleetBuild,orderFleetBuild,chooseActivityAttacker,areFactionsOpposed,worldRelation,getSystemIndexByName,placePlayerAtSecurityApproach,updateSecurityOrderPanel,getSecurityZone,playerWorldPosition,getShipPurchaseStatus,fleetReservations,openDebugMenu,closePlanetMenu,openPlanetMenu,hasWorldCargoToDeliver,sellOrdinaryCargo,deliverContractCargo,tradeAtPlanet,recalcCargoFromPods,getCurrentDockedStation,autoAssignFleet,updateRecoveryPanel,applyPlayerDamage,applyCurrentShipStats,ensureSystemState,campaignSystemName,campaignMaskText,compatibleRecoveryYard,getNpcCombatDurability,commodityTradeBlock,currentMarketOffers,buyMarketGood,sellMarketGood,getStationPlanStockContext,fleetBuildStationStatus,campaignOperationKnowledge,campaignKnownOperations,addGalaxyReport,isPersonalGalaxyReport,applyCampaignEffects,stationConditionFraction,triggerCampaignDebug,getPlayerFlag,isGeneralProductionDesign,campaignRaidForce,formatFaction,fleetLocalActor,collectRegionalIntel,campaignIntelSource,advanceCampaign,getShipFaction,getCampaignDiscoveries,campaignAssessment,campaignFactionKeyFor,intelIdentityCandidates,getSecurityZone,PLAYER_SIDE,getStationOwner,getShipyardStockContext,buyFleetPlan,renderFleetManager,layoutSecurityOrderPanel,securityOrderPanelEl,World';
+// Each name is bound separately and tolerantly, so this harness also loads against an older tree that
+// does not have all of them. A gate that cannot even start against the candidate it is meant to
+// reproduce a defect on is not evidence.
+const EXPORTS = 'window.testBM1={};' + EXPORT_NAMES.split(',').map((n) => `try{window.testBM1.${n}=${n};}catch(e){}`).join('');
+
+function createServer(root) {
+  return http.createServer((req, res) => {
+    const rel = decodeURIComponent(req.url.split('?')[0]).replace(/^\/+/, '') || 'index.html';
+    const file = path.resolve(root, rel);
+    if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); res.end(); return; }
+    res.setHeader('Content-Type', { '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' }[path.extname(file)] || 'application/octet-stream');
+    fs.createReadStream(file).pipe(res);
+  });
+}
+
+async function startProbe(options = {}) {
+  const root = path.resolve(process.env.BM1_TEST_ROOT || path.join(__dirname, '..'));
+  const server = createServer(root);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const browser = await chromium.launch({ headless: true, executablePath: process.env.BM1_CHROMIUM_PATH, args: ['--single-process', '--no-zygote', '--no-sandbox', '--disable-dev-shm-usage', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  const page = await browser.newPage({ viewport: options.viewport || { width: 1280, height: 800 }, serviceWorkers: 'block' });
+  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+  await page.route('**/src/main.js*', async (route) => { const r = await route.fetch(); await route.fulfill({ response: r, body: (await r.text()) + '\n' + EXPORTS }); });
+  await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await page.waitForFunction(() => window.testBM1 && testBM1.state.shipCatalog && testBM1.state.planets.length > 10 && testBM1.state.flaHints?.symbols?.length > 0);
+  await page.evaluate(async () => { testBM1.startWithFaction('terran'); await new Promise((res) => { requestAnimationFrame = (cb) => { if (cb.name === 'loop') res(); return 0; }; }); });
+  const ev = (fn, arg) => page.evaluate(fn, arg);
+  const fresh = (seed = 'gate-seed') => ev((seed) => { const t = testBM1; t.startWithFaction('terran'); const p = t.ensurePlaytestState(); delete p.diplomacy; delete p.campaign; t.fleetBook().campaignId = seed; t.campaign(); }, seed);
+  return { root, server, browser, page, errors, ev, fresh, close: async () => { await browser.close(); server.close(); } };
+}
+
+module.exports = { EXPORTS, EXPORT_NAMES, createServer, startProbe };
