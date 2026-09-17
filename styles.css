@@ -4021,13 +4021,19 @@ button:disabled {
 }
 
 /* Bottom-center quick-action dock (BM1 control panel) */
+/* Ten quick actions, in the order the specification names them: COMMS, TARGET, HAIL, MAP, CARGO,
+   POWER, FLEET, EW, CONTRACT, SAVE. Two labels live in each button and exactly one of them is ever
+   visible — the hover-expansion this replaced showed both at once, which is where "COMMS Stations"
+   and "TGT Target" came from. Width decides which: wide shows the word, compact shows the code, and
+   small stacks two rows of five without either shrinking below a usable touch target. [playtest] */
 .bottom-dock {
   position: fixed;
   left: 50%;
   bottom: 14px;
   transform: translateX(-50%);
   z-index: 30;
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
   gap: 6px;
   padding: 8px 10px;
   background: rgba(5, 7, 14, 0.92);
@@ -4035,43 +4041,46 @@ button:disabled {
   border-top-color: var(--lcars-purple);
   border-radius: 16px;
   box-shadow: inset 0 0 0 2px #000, 0 0 18px rgba(0, 0, 0, 0.72);
-  max-width: calc(100vw - 720px);
+  max-width: calc(100vw - 28px);
 }
 .bottom-dock.hidden { display: none; }
 .bottom-dock button {
   display: flex;
   align-items: center;
-  min-height: 34px;
-  min-width: 46px;
-  max-width: 46px;
-  overflow: hidden;
-  white-space: nowrap;
+  justify-content: center;
+  min-width: 0;
+  min-height: 44px;
   padding: 0 8px;
   font-size: 12px;
   font-weight: 700;
+  line-height: 1.1;
+  text-align: center;
+  overflow: hidden;
   background: var(--lcars-amber);
   color: var(--lcars-black);
   border: 0;
   border-radius: 6px;
   cursor: pointer;
-  transition: max-width 0.15s ease-out, background 0.15s;
+  transition: background 0.15s;
 }
-.bottom-dock button b { flex: 0 0 auto; }
-.bottom-dock button span {
-  flex: 0 0 auto;
-  max-width: 0;
-  overflow: hidden;
-  opacity: 0;
-  transition: max-width 0.15s ease-out, opacity 0.15s, margin 0.15s;
-}
-.bottom-dock:hover button span, .bottom-dock button:focus-visible span {
-  max-width: 90px;
-  opacity: 1;
-  margin-left: 6px;
-}
-.bottom-dock:hover button, .bottom-dock button:focus-visible { max-width: 150px; }
 .bottom-dock button:hover { background: var(--lcars-orange); }
-@media (max-width: 900px) { .bottom-dock { max-width: calc(100vw - 40px); } }
+.bottom-dock button:focus-visible { outline: 2px solid var(--lcars-purple); outline-offset: 2px; }
+/* Wide: the word. */
+.bottom-dock button b { display: none; }
+.bottom-dock button span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Compact: the code, and only the code. */
+@media (max-width: 1100px) {
+  .bottom-dock button b { display: block; }
+  .bottom-dock button span { display: none; }
+}
+/* Small: two rows of five, still 44px tall. */
+@media (max-width: 680px) {
+  .bottom-dock {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    bottom: 8px;
+    max-width: calc(100vw - 16px);
+  }
+}
 
 .power-bar {
   height: 10px;
@@ -4370,4 +4379,40 @@ button:disabled {
   #campaign-panel .campaign-table tr {display:block;border-bottom:1px solid #565064;padding:6px 0;}
   #campaign-panel .campaign-table td {display:block;border:0;padding:2px 0;}
   #campaign-panel .campaign-table td:first-child {font-weight:bold;}
+}
+
+/* Alert posture and power, in the top strip where they can be reached while engaging. Both were behind
+   a modal before: the alert readout opened the game menu and power lived in a panel that covers the
+   view. Nothing here opens a dialog. [playtest] */
+.top-alert, .top-power { display: flex; align-items: center; gap: 4px; }
+.alert-chip {
+  min-width: 26px; min-height: 26px; padding: 0 6px;
+  font-size: 11px; font-weight: 700; line-height: 1;
+  border: 2px solid rgba(0, 0, 0, 0.55); border-radius: 5px;
+  background: rgba(10, 14, 24, 0.9); color: #cfe0ff; cursor: pointer;
+}
+.alert-chip.alert-green.active { background: #2f8f4f; color: #04120a; }
+.alert-chip.alert-yellow.active { background: var(--lcars-amber, #f3c05a); color: #1a1204; }
+.alert-chip.alert-red.active { background: #c2423a; color: #1a0605; }
+.alert-chip:hover { border-color: var(--lcars-orange); }
+.power-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 1px 4px; border-radius: 5px;
+  background: rgba(10, 14, 24, 0.9); border: 1px solid rgba(120, 150, 200, 0.35);
+}
+.power-chip b { font-size: 9px; letter-spacing: 0.04em; color: #9fb2d0; font-weight: 700; }
+.power-chip u { font-size: 11px; text-decoration: none; color: #dfeaff; min-width: 9px; text-align: right; }
+.power-chip i {
+  display: block; width: 26px; height: 5px; border-radius: 3px;
+  background: linear-gradient(to right, var(--lcars-amber, #f3c05a) var(--p, 0%), rgba(255, 255, 255, 0.14) var(--p, 0%));
+}
+.power-chip button {
+  min-width: 18px; min-height: 22px; padding: 0;
+  font-size: 12px; line-height: 1; color: #04121f;
+  background: var(--lcars-amber, #f3c05a); border: 0; border-radius: 4px; cursor: pointer;
+}
+.power-chip button:hover { background: var(--lcars-orange); }
+@media (max-width: 900px) {
+  .top-power .power-chip i { display: none; }
+  .top-power .power-chip b { font-size: 8px; }
 }

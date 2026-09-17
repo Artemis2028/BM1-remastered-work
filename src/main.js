@@ -1339,6 +1339,27 @@ function getTradeStandingFaction(systemIndex = state.currentPlanet, station = nu
   return side === 'neutral' || isRecognizedFactionKey(side) ? side : null;
 }
 
+// Your own holdings are your own. A world you hold, and a station you built on it, sell you what they
+// have without asking what a foreign government thinks of you: prestige is how strangers decide whether
+// to deal with you, and at your own yard there are no strangers. Everything else still applies — what
+// is actually in stock, what you can afford, security clearance, regional rules and the designs nobody
+// may build. This waives the standing test and nothing else. [playtest]
+function isOwnHoldingVendor(station = getCurrentServiceStation(), systemIndex = state.currentPlanet) {
+  const i = Number(station?.systemIndex ?? systemIndex);
+  if (station) return getStationOwner(station, i) === PLAYER_SIDE;
+  return Boolean(getSystemControl(i).playerControlled);
+}
+// The standings a purchase decision is judged against. Unchanged everywhere except at your own vendor,
+// where the standing that would be tested is your own and is therefore met.
+function purchaseStandings(station = getCurrentServiceStation()) {
+  const standings = Object.fromEntries(Object.keys(factionRelations).map((key) => [key, getFactionStanding(key)]));
+  if (!isOwnHoldingVendor(station)) return standings;
+  // Every standing, not just the one this vendor happens to quote: a design's tier may be measured
+  // against its own culture's opinion rather than the seller's, and at your own yard neither is being
+  // asked. Nothing else about the decision moves — stock, funds, region and the banned designs stand.
+  for (const key of Object.keys(standings)) standings[key] = STANDING_MAX;
+  return standings;
+}
 function getCurrentPurchaseVendor(station = getCurrentServiceStation()) {
   const stationStats = station ? getShipStats(station.stationTypeId) : null;
   return {
@@ -4376,6 +4397,13 @@ function isUnlockedFaction(faction = 'neutral') {
   if (key === 'cardassian' && !feats.bajoranFleetDown && getFactionStanding('cardassian') < 50) return false;
   return true;
 }
+// A refusal that never applies to your own holding. Every call that asks "will this vendor deal with
+// me" goes through here so the answer is the same in the shop, the market, the weapon rack and the
+// remote channel: your own station and your own world always will. [playtest]
+function vendorRefusal(station, faction) {
+  if (isOwnHoldingVendor(station)) return null;
+  return serviceRefusal(faction);
+}
 function serviceRefusal(faction = 'neutral') {
   const key = normalizeFactionKey(faction);
   if (getEffectiveAttitude(key) === 'hostile') return `${formatFaction(key)} ports refuse you. Standing ${getFactionStanding(key)}. Repair it by trading elsewhere.`;
@@ -5652,33 +5680,50 @@ function getBaseSystemFaction(index = state.currentPlanet) {
 
 // Name/description heuristics for worlds without a mapped government ID. Returns null, never
 // a default, so an unrecognized world stays unknown instead of quietly becoming independent.
-function matchSystemFactionByName(index = state.currentPlanet) {
+// The same rules the heuristics always used, as data, so they can be asked two different questions.
+// `names` match the world's own name and settle who its people are. `text` also matches the authored
+// description, which mentions powers rather than naming inhabitants — a world described as raided by
+// Klingons is not a Klingon world — so description matches answer "whose space is this" and never
+// "whose world is this". Order is significant and is the order these rules have always had.
+// New Switzerland is deliberately absent from the Terran names: it is one of the independents the
+// factions proposal names as a culture of its own, and matching it to Earth is what erased it. [playtest]
+const SYSTEM_NAME_RULES = Object.freeze([
+  { faction: 'pirate', names: ['pirates haven'], text: ['pirate'] },
+  { faction: 'terran', names: ['terra nova', 'andreas', 'mars', 'luna', 'proxima', 'tellar'], text: ['human colony', 'terran'] },
+  { faction: 'andorian', names: ['andoria'], text: [] },
+  { faction: 'ferengi', names: ['ferenginar', 'lappa', 'hupyrian'], text: ['ferengi'] },
+  { faction: 'vulcan', names: ['vulcan', "p'jem", "t'khut", "ni'var"], text: ['vulcan'] },
+  { faction: 'bajoran', names: ['bajora'], exact: true, text: [], special: 'bajoran' },
+  { faction: 'andorian', names: [], text: ['andorian'] },
+  { faction: 'gorn', names: ['gorn'], text: ['gorn'] },
+  { faction: 'hirogen', names: ['hirogen'], text: ['hirogen'] },
+  { faction: 'suliban', names: ['suliban'], text: ['suliban'] },
+  { faction: 'romulan', names: ['romulus', 'remus', 'rator', 'virinat', 'chaltok'], text: ['romulan', 'reman'] },
+  { faction: 'cardassian', names: ['cardassia', 'lakarian', 'arawath', 'monac'], text: ['cardassian'] },
+  { faction: 'klingon', names: ['qonos', 'worf', 'kah', 'boreth', "ty'gokor", 'narendra'], text: ['klingon'] },
+  { faction: 'breen', names: ['breen', 'brea'], text: ['breen'] },
+  { faction: 'sona', names: ['sonata', 'iritum', 'goralis'], text: ["son'a", 'briar patch'] },
+  { faction: 'dominion', names: ['dominica', 'vortara'], text: ['dominion', "jem'hadar", "jem'haddar", 'vorta', 'founder', 'karemma', 'dosi', 't-rogoran'] },
+  { faction: 'tholian', names: ['thol'], text: ['tholian'] },
+  { faction: 'delpin', names: ['delpi'], text: [] },
+  { faction: 'tarellian', names: ['tarellia'], text: [] },
+  { faction: 'promelli', names: ['promel'], text: [] },
+]);
+function matchSystemFactionByName(index = state.currentPlanet, { nameOnly = false } = {}) {
   const planet = state.planets[index] || {};
   const row = state.systemData[index] || [];
   const name = String(planet.name || row[0] || '').toLowerCase();
   const desc = String(row[7] || '').toLowerCase();
   const text = `${name} ${desc}`;
-
-  if (name.includes('pirates haven') || text.includes('pirate')) return 'pirate';
-  if (name.includes('terra nova') || name.includes('andreas') || name.includes('new switzerland') || name.includes('mars') || name.includes('luna') || name.includes('proxima') || name.includes('tellar') || text.includes('human colony') || text.includes('terran')) return 'terran';
-  if (name.includes('andoria')) return 'andorian';
-  if (name.includes('ferenginar') || name.includes('lappa') || name.includes('hupyrian') || text.includes('ferengi')) return 'ferengi';
-  if (name.includes('vulcan') || name.includes("p'jem") || name.includes("t'khut") || name.includes("ni'var") || text.includes('vulcan')) return 'vulcan';
-  if (name === 'bajora' || (text.includes('bajoran') && !text.includes('dominion'))) return 'bajoran';
-  if (text.includes('andorian')) return 'andorian';
-  if (name.includes('gorn') || text.includes('gorn')) return 'gorn';
-  if (name.includes('hirogen') || text.includes('hirogen')) return 'hirogen';
-  if (name.includes('suliban') || text.includes('suliban')) return 'suliban';
-  if (name.includes('romulus') || name.includes('remus') || name.includes('rator') || name.includes('virinat') || name.includes('chaltok') || text.includes('romulan') || text.includes('reman')) return 'romulan';
-  if (name.includes('cardassia') || name.includes('lakarian') || name.includes('arawath') || name.includes('monac') || text.includes('cardassian')) return 'cardassian';
-  if (name.includes('qonos') || name.includes('worf') || name.includes('kah') || name.includes('boreth') || name.includes("ty'gokor") || name.includes('narendra') || text.includes('klingon')) return 'klingon';
-  if (name.includes('breen') || name.includes('brea') || text.includes('breen')) return 'breen';
-  if (name.includes('sonata') || name.includes('iritum') || name.includes('goralis') || text.includes("son'a") || text.includes('briar patch')) return 'sona';
-  if (name.includes('dominica') || name.includes('vortara') || text.includes('dominion') || text.includes("jem'hadar") || text.includes("jem'haddar") || text.includes('vorta') || text.includes('founder') || text.includes('karemma') || text.includes('dosi') || text.includes('t-rogoran')) return 'dominion';
-  if (name.includes('thol') || text.includes('tholian')) return 'tholian';
-  if (name.includes('delpi')) return 'delpin';
-  if (name.includes('tarellia')) return 'tarellian';
-  if (name.includes('promel')) return 'promelli';
+  for (const rule of SYSTEM_NAME_RULES) {
+    if (rule.special === 'bajoran') {
+      if (name === 'bajora') return rule.faction;
+      if (!nameOnly && desc.includes('bajoran') && !text.includes('dominion')) return rule.faction;
+      continue;
+    }
+    if (rule.names.some((n) => name.includes(n))) return rule.faction;
+    if (!nameOnly && rule.text.some((t) => text.includes(t))) return rule.faction;
+  }
   return null;
 }
 
@@ -5766,12 +5811,36 @@ function getSystemControl(index = state.currentPlanet) {
 // gets its designs. So "occupation", "administration" and "annexed" are readable names for the three
 // things the model already does to a captured world. [playtest]
 const SYSTEM_SOVEREIGNTY_LEVELS = Object.freeze(['unclaimed', 'independent', 'colony', 'occupied', 'administered', 'annexed']);
+// Who the people of a world are. Deliberately separate from getBaseSystemOrigin, which answers who
+// governs it: the government table maps four of its ids to 'neutral', meaning "no great power governs
+// here", and because that is a value rather than a gap it short-circuited the name lookup behind it.
+// Fifty-eight of a hundred and one worlds therefore had no identity at all — Sonata, Dyson, Tepos and
+// Blender among the populous ones, and Terra Nova, Tellar, Rator, Virinat, Chaltok and P'Jem among the
+// named ones the matcher below already knew. Control is untouched by this: a world the table calls
+// neutral is still governed by nobody, it simply has a people now. [playtest]
+function getSystemCulture(index = state.currentPlanet) {
+  const i = Number(index);
+  const origin = getBaseSystemOrigin(i);
+  if (isRecognizedFactionKey(origin.faction)) return { id: origin.faction, label: formatFaction(origin.faction), source: origin.source };
+  const named = matchSystemFactionByName(i, { nameOnly: true });
+  if (named && isRecognizedFactionKey(named)) return { id: named, label: formatFaction(named), source: 'name' };
+  const planet = state.planets[i] || {};
+  // An inhabited world nobody else governs has a people of its own, and they are not a share of a
+  // universal "independent": a quarrel with New Switzerland is not a quarrel with Orilla.
+  if (finiteNumber(planet.population, 0) > 0 && planet.name) return { id: `world:${i}`, label: String(planet.name), source: 'local' };
+  return { id: null, label: null, source: 'none' };
+}
+
 function getSystemSovereignty(index = state.currentPlanet) {
   const i = Number(index);
   const control = getSystemControl(i);
   const book = campaignBook();
-  const culture = isRecognizedFactionKey(control.origin) ? control.origin : null;
+  const people = getSystemCulture(i);
+  const culture = people.id;
   const governor = control.playerControlled ? PLAYER_SIDE : (isRecognizedFactionKey(control.controller) ? control.controller : null);
+  // The legal claimant, which is not the same question as who holds it: a world's own people where it
+  // governs itself, its culture's power where one does, and it survives an occupation. [17SEP spec 3.2]
+  const sovereign = isRecognizedFactionKey(culture) ? culture : (culture ? `polity:${i}` : null);
   const occupation = book.occupations?.[i] || null;
   const contested = (book.operations || []).some((op) => Number(op.targetSystem) === i && op.status === 'engaged');
   const integratedDay = governor && governor !== PLAYER_SIDE
@@ -5786,9 +5855,13 @@ function getSystemSovereignty(index = state.currentPlanet) {
   else if (integratedDay) level = 'annexed';
   else if (occupation && heldDays < settledAfter) level = 'occupied';
   else level = 'administered';
-  const cultureLabel = culture ? formatFaction(culture) : null;
+  const cultureLabel = people.label;
   const governorLabel = governor === PLAYER_SIDE ? 'your flag' : (governor ? formatFaction(governor) : null);
-  const people = cultureLabel ? `${cultureLabel} world` : (level === 'unclaimed' ? 'Unclaimed world' : 'Unsettled world');
+  // A world whose people are its own is named for itself — "Orilla", not "Orilla world" and not
+  // "Orillan", which would be inventing a demonym the data never gave.
+  const inhabitants = cultureLabel
+    ? (people.source === 'local' ? cultureLabel : `${cultureLabel} world`)
+    : (level === 'unclaimed' ? 'Unclaimed world' : 'Unsettled world');
   let rule;
   if (level === 'independent') rule = 'self-governed';
   else if (level === 'unclaimed') rule = 'no government';
@@ -5797,9 +5870,9 @@ function getSystemSovereignty(index = state.currentPlanet) {
   else if (level === 'annexed') rule = `annexed by the ${governorLabel}`;
   else if (level === 'occupied') rule = `${governorLabel} occupation${heldDays == null ? '' : ` (day ${heldDays})`}`;
   else rule = `${governorLabel} administration`;
-  return { index: i, culture, governor, level, contested, heldDays,
-    cultureLabel, governorLabel, people, rule,
-    label: `${people} \u00b7 ${rule}${contested ? ' \u00b7 contested' : ''}` };
+  return { index: i, culture, cultureSource: people.source, sovereign, governor, level, contested, heldDays,
+    cultureLabel, governorLabel, people: inhabitants, rule,
+    label: `${inhabitants} \u00b7 ${rule}${contested ? ' \u00b7 contested' : ''}` };
 }
 
 function isPlayerSideNpc(npc) {
@@ -8564,6 +8637,12 @@ function closeGameMenu() {
   gameMenuEl.close();
 }
 document.addEventListener('click', (e) => {
+  const set = e.target.closest('[data-alert-set]');
+  if (set) {
+    const level = set.dataset.alertSet;
+    if (['green', 'yellow', 'red'].includes(level)) { ensurePlaytestState().alertLevel = level; updateStats(); }
+    return;
+  }
   if (e.target.closest('[data-alert-control]')) openGameMenu();
 });
 document.addEventListener('change', (e) => {
@@ -9076,7 +9155,7 @@ function requireServiceConnection() {
   if (rangeBlock) { setLog(rangeBlock); return false; }
   const st = getCurrentServiceStation();
   const block = getSecurityDockingBlock(st ? getStationOwner(st) : getSystemControl(state.currentPlanet).polityId)
-    || serviceRefusal(st?.faction || getSystemFaction(state.currentPlanet));
+    || vendorRefusal(st, st?.faction || getSystemFaction(state.currentPlanet));
   if (block) { setLog(block); return false; }
   return true;
 }
@@ -9084,7 +9163,7 @@ function openRemoteStationShop(id) {
   if (state.warp.active || isWormholeTransitActive() || !state.gameStarted) return false;
   const station = state.stations.find(s => s.id === id && !s.destroyed && !s.underConstruction);
   if (!station) return false;
-  const block = getSecurityDockingBlock(getStationOwner(station)) || serviceRefusal(station.faction);
+  const block = getSecurityDockingBlock(getStationOwner(station)) || vendorRefusal(station, station.faction);
   if (block) { setLog(block); openStationComms(id); return false; }
   document.getElementById('station-comms').close();
   state.remoteStationId = id;
@@ -9810,8 +9889,11 @@ function renderTopLeftPanel() {
     ? `God Mode active | ${state.latinum}L | ${state.duranium}D | AM ${state.antimatter}/${state.fuelCap}`
     : 'Enable God Mode to max credits, duranium and antimatter, then switch ships instantly.';
   const powerContent = `<div class="panel-head">Power (OPS)</div>${renderPowerPanel()}`;
+  const ewContent = `<div class="panel-head">Electronic warfare</div>${renderEWPanel()}`;
   const panelContent = state.topLeftTab === 'power'
     ? powerContent
+    : state.topLeftTab === 'ew'
+    ? ewContent
     : state.topLeftTab === 'settings'
     ? `<div class="panel-head">Settings</div>${gameOptions}<div class="panel-head">Save & Debug</div>${settingsActions}<div class="meta">${escapeHtml(godStatus)}</div><div class="panel-head">God Ship Switcher</div><div class="god-ship-switcher">${renderGodModeShipSwitcher()}</div>`
     : `<div class="panel-head">Inventory</div>${resources}${flags}${stationPlans}${weaponLine}${contract}<div class="panel-head">Cargo Pods</div><div class="pods">${pods}</div>`;
@@ -10212,7 +10294,7 @@ function buyWeapon(weaponId) {
   const weapon = getWeapon(weaponId);
   const wStation = getCurrentServiceStation();
   if(weapon.guidance==='home-on-jam'){const decision=getHojPurchaseDecision(wStation);if(!decision.canBuy){setLog(decision.reason);return;}}
-  const wRefusal = weapon.guidance==='home-on-jam' ? null : serviceRefusal((wStation && wStation.faction) || getSystemFaction(state.currentPlanet));
+  const wRefusal = weapon.guidance==='home-on-jam' ? null : vendorRefusal(wStation, (wStation && wStation.faction) || getSystemFaction(state.currentPlanet));
   if (wRefusal) {
     setLog(wRefusal);
     return;
@@ -10341,7 +10423,12 @@ function getShipyardStock(station = getCurrentServiceStation()) {
   return getUnfilteredShipyardStock(station).filter(ship=>!service.smallOnly||ship.mass<=4);
 }
 function getUnfilteredShipyardStock(station = getCurrentServiceStation()) {
-  const purchaseContext = buildPurchaseContext(getCurrentPurchaseVendor(station));
+  // Standings are supplied only at your own vendor. Everywhere else this context stays exactly as it
+  // was, so nobody else's shelf changes shape.
+  const own = isOwnHoldingVendor(station);
+  const purchaseContext = buildPurchaseContext(own
+    ? { ...getCurrentPurchaseVendor(station), standings: purchaseStandings(station), tierThresholds: getConfiguredPurchaseTierThresholds() }
+    : getCurrentPurchaseVendor(station));
   const stockEligible = (ship) => !state.shipCatalog || state.shipCatalog.eligibleForStock(ship.id, purchaseContext);
   const ships = Object.values(state.shipStatsById)
     .filter((ship) => ship && ship.assetType === 'ship')
@@ -12230,8 +12317,24 @@ function updateStats() {
   const message = state.log || (state.docked
     ? getCurrentDockedStation()?.name || state.planets[state.dockedPlanetIndex]?.name || 'Docked'
     : 'In Flight');
+  // Power and alert posture belong where they are needed, which is in a fight: both used to be behind a
+  // modal — the alert button opened the game menu and power lived in a panel that covers the view — so
+  // neither could be touched while engaging. They are controls in the top strip now, between the menu
+  // row and the ship readout, and nothing here opens a dialog. [playtest]
+  const alertNow = getAlertStatus();
+  const alertChoice = ensurePlaytestState().alertLevel || 'green';
+  const alertButtons = ['green', 'yellow', 'red'].map((level) => `<button data-alert-set="${level}" class="alert-chip alert-${level}${alertChoice === level ? ' active' : ''}" title="Set ${level} alert"${alertChoice === level ? ' aria-pressed="true"' : ''}>${level[0].toUpperCase()}</button>`).join('');
+  const powerChips = [['engines', 'ENG'], ['weapons', 'WPN'], ['shields', 'SHD'], ['sensors', 'SEN']].map(([key, label]) => {
+    const value = getPowerDist(key);
+    return `<span class="power-chip" title="${label} power ${value}/10">`
+      + `<button data-power-dist="${key}" data-power-dir="-1" aria-label="Less ${label} power">&minus;</button>`
+      + `<b>${label}</b><i style="--p:${value * 10}%"></i><u>${value}</u>`
+      + `<button data-power-dist="${key}" data-power-dir="1" aria-label="More ${label} power">+</button></span>`;
+  }).join('');
   statsEl.innerHTML = `<div class="top-strip">
-      <button data-alert-control class="top-slot top-ship alert-${getAlertStatus()}" title="Change alert posture">${escapeHtml(mode)} &middot; ${getAlertStatus().toUpperCase()}</button>
+      <div class="top-slot top-ship alert-${alertNow}" title="Current posture">${escapeHtml(mode)} &middot; ${alertNow.toUpperCase()}</div>
+      <div class="top-slot top-alert" role="group" aria-label="Alert posture">${alertButtons}</div>
+      <div class="top-slot top-power" role="group" aria-label="Power distribution">${powerChips}</div>
       <div class="top-slot top-message">${escapeHtml(message)}</div>
       <div class="top-stat"><span>AM</span>${state.antimatter}/${state.fuelCap}</div>
       <div class="top-stat"><span>SHLD</span>${Math.round(clamp(finiteNumber(state.shields, 0), 0, 100))}%</div>
@@ -12329,7 +12432,7 @@ function getCatalogPurchaseDecision(shipId, extra = {}) {
   return state.shipCatalog.getPurchaseDecision(shipId, buildPurchaseContext({
     ...vendorInfo,
     credits: extra.credits ?? state.latinum,
-    standings: Object.fromEntries(Object.keys(factionRelations).map(key => [key, getFactionStanding(key)])),
+    standings: extra.standings ?? purchaseStandings(),
     tierThresholds: extra.tierThresholds ?? getConfiguredPurchaseTierThresholds(),
     vendor: extra.vendor ?? vendorInfo.vendor,
   }));
@@ -12348,7 +12451,8 @@ function getShipSaleStatus(shipId) {
   }
   const station = getCurrentServiceStation();
   const securityBlock = getSecurityDockingBlock(station ? getStationOwner(station) : getSystemControl(state.currentPlanet).polityId);
-  const serviceBlock = securityBlock || serviceRefusal(station?.faction || getSystemFaction(state.currentPlanet));
+  // Your own yard does not refuse you over the attitude of whoever used to own it.
+  const serviceBlock = securityBlock || vendorRefusal(station, station?.faction || getSystemFaction(state.currentPlanet));
   if (serviceBlock) return { ok: false, reason: serviceBlock, ship };
   const catalogDecision = getCatalogPurchaseDecision(shipId);
   const price = catalogDecision?.price ?? getShipPrice(ship);
@@ -13731,7 +13835,7 @@ function buyMarketGood(slot = 0) {
   if (state.gameOver || !state.gameStarted) return;
   if (!requireServiceConnection()) return;
   updateMenu(1, 3);
-  const buyRefusal = serviceRefusal(getCurrentServiceStation()?.faction || getSystemFaction(state.currentPlanet));
+  const buyRefusal = vendorRefusal(getCurrentServiceStation(), getCurrentServiceStation()?.faction || getSystemFaction(state.currentPlanet));
   if (buyRefusal) {
     setLog(buyRefusal);
     updateStats();
@@ -13763,7 +13867,7 @@ function sellMarketGood(slot = 0) {
   if (state.gameOver || !state.gameStarted) return;
   if (!requireServiceConnection()) return;
   updateMenu(1, 5);
-  const sellRefusal = serviceRefusal(getCurrentServiceStation()?.faction || getSystemFaction(state.currentPlanet));
+  const sellRefusal = vendorRefusal(getCurrentServiceStation(), getCurrentServiceStation()?.faction || getSystemFaction(state.currentPlanet));
   if (sellRefusal) {
     setLog(sellRefusal);
     updateStats();
@@ -14660,6 +14764,10 @@ document.addEventListener('click', (e) => {
     else if (action === 'map') { if (state.mapOpen) closeMap(); else openMap(); }
     else if (action === 'inventory') openTopLeftTab('inventory');
     else if (action === 'power') openTopLeftTab('power');
+    // Fleet and electronic warfare are panels of their own. Fleet used to be a button at the bottom of
+    // a long Sensors panel and EW a collapsed section inside it, which is why neither could be found.
+    else if (action === 'fleet') renderFleetManager(true);
+    else if (action === 'ew') openTopLeftTab('ew');
     else if (action === 'contract') negotiateContract();
     else if (action === 'save') saveGame();
     return;
@@ -14667,8 +14775,10 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('click', (e) => {
   const powerBtn = e.target.closest?.('[data-power-dist]');
-  if (powerBtn && topLeftPanelEl?.contains(powerBtn)) {
+  // The panel and the top strip both carry these, and the strip is the one that works mid-fight.
+  if (powerBtn && (topLeftPanelEl?.contains(powerBtn) || statsEl?.contains(powerBtn))) {
     adjustPowerDist(powerBtn.dataset.powerDist, Number(powerBtn.dataset.powerDir || 1));
+    if (statsEl?.contains(powerBtn)) updateStats();
   }
 });
 topLeftMenuEl?.addEventListener('click', (e) => {
@@ -22841,7 +22951,7 @@ function applyCampaignEffects(effects, day = state.day) {
       case 'operationArrived': {
         // Contracts follow real events: a hostile force engaging a world you hold or a partner holds
         // opens escort and blockade work there.
-        if (getSystemControl(e.targetSystem).playerControlled || areFactionsAligned(getPlayerFlag(), campaignFactionKeyFor(getSystemControl(e.targetSystem).polityId))) { offerStationMission('escort', e.targetSystem); offerStationMission('blockade', e.targetSystem); }
+        if (getSystemControl(e.targetSystem).playerControlled || areFactionsAligned(getPlayerFlag(), campaignFactionKeyFor(getSystemControl(e.targetSystem).polityId))) offerStationMission('escort', e.targetSystem);
         const attacker = campaignFactionKeyFor(e.faction);
         const place = state.planets[e.targetSystem]?.name;
         const stake = campaignEventStake(e.targetSystem);
@@ -23468,7 +23578,7 @@ function triggerCampaignDebug(args) {
     case 'damage': { const st = debugStationTarget(a); applyCampaignEffects([{ type: 'stationDamaged', stationId: st.id, systemIndex: state.currentPlanet, fraction: 0.5, day: state.day }]); return `${st.name} damaged 50% through the normal campaign effect path.`; }
     case 'restore': { const st = debugStationTarget(a); delete book.stationDamage[st.id]; book.restoredStations[st.id] = true; state.systemStates = {}; applySystemState(state.currentPlanet); return `${st.name} restored and staffed.`; }
     case 'stock': { const shipId = a === 'current' ? resolveShipId(state.playership) : resolveShipId(Number(a)); if (!state.shipStatsById[shipId]) throw new Error('stock <ship id|current> deplete|replenish'); const item = fleetShipStock(shipId); if (!item) throw new Error(`${state.shipStatsById[shipId]?.name || 'That hull'} is not stocked in this system; use a hull offered here.`); item.quantity = b === 'deplete' ? 0 : item.capacity; return `Stock for ${state.shipStatsById[shipId]?.name} ${b === 'deplete' ? 'depleted' : 'replenished'} (normal ledger record).`; }
-    case 'mission': { const kinds = ['relief', 'escort', 'evacuation', 'repair', 'recon', 'blockade']; if (!kinds.includes(a)) throw new Error(`mission: ${kinds.join('|')}`); const m = offerStationMission(a, state.currentPlanet, true); return m ? `${a} contract offered at ${state.planets[state.currentPlanet]?.name}.` : 'That contract is already open here.'; }
+    case 'mission': { const kinds = ['relief', 'escort', 'repair', 'recon']; if (!kinds.includes(a)) throw new Error(WITHDRAWN_MISSION_KINDS.includes(a) ? `${a} contracts are withdrawn until they have a real objective` : `mission: ${kinds.join('|')}`); const m = offerStationMission(a, state.currentPlanet, true); return m ? `${a} contract offered at ${state.planets[state.currentPlanet]?.name}.` : 'That contract is already open here.'; }
     case 'discover': { if (a !== 'gorn') throw new Error('discover gorn'); getCampaignDiscoveries().gorn = true; state.systemStates = {}; if (!state.warp.active) applySystemState(state.currentPlanet); return 'Forced override: Gorn discovery event marked complete; dormant Gorn installations wake.'; }
     case 'advance': { const raw = Number(a); if (!Number.isFinite(raw) || raw < 1) throw new Error('advance <1..60>'); const n = clamp(Math.floor(raw), 1, 60); const id = Fleet.nextId(fleetBook(), 'journey'); advanceFleetCalendar(n, id); return `Advanced ${n} campaign day(s) through the normal calendar path.`; }
     default: throw new Error('campaign: phase|treasury|readiness|damage|restore|stock|mission|discover|advance');
@@ -23484,7 +23594,16 @@ function campaignEngineId(book, kind) {
   book.engineCounter = Math.max(0, Math.floor(finiteNumber(book.engineCounter, 0))) + 1;
   return `${book.seed}:engine-${kind}:${book.engineCounter}`;
 }
+// Contracts the game offers but cannot give the captain anything to do are worse than no contract at
+// all. Evacuation completed by holding position near a world for twenty seconds with nothing attacking,
+// and blockade only completed if a hostile operation happened to engage there while the captain stood
+// by — neither is an objective, and both were reported twice as work with nothing to pursue. They are
+// withdrawn rather than dressed up, and go back in when they have real objectives: evacuees carried to
+// a named refuge, contacts turned back and counted. The completion code below stays so an accepted
+// contract from an older save can still finish. [playtest]
+const WITHDRAWN_MISSION_KINDS = Object.freeze(['evacuation', 'blockade']);
 function offerStationMission(kind, systemIndex = state.currentPlanet, force = false) {
+  if (WITHDRAWN_MISSION_KINDS.includes(kind)) return null;
   const book = campaignBook();
   const sys = state.planets[systemIndex];
   const key = `${kind}:${systemIndex}`;
@@ -23724,7 +23843,7 @@ function fleetPlanStatus(shipId) {
           ? 'Not offered by this vendor'
           : /tactical cube/i.test(ship.name)
             ? 'Deferred content'
-            : getFactionStanding(faction) < required
+            : (!isOwnHoldingVendor(st) && getFactionStanding(faction) < required)
               ? `Requires ${required} ${faction} standing`
               : fleetBook().debt > 0
                 ? 'Settle arrears'

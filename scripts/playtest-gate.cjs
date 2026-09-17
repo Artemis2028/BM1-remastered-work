@@ -548,6 +548,226 @@ const { startProbe } = require('./probe-harness.cjs');
       `the planet card never says the government over them is not their own: ${r.card.slice(0, 160)}`);
   });
 
+  // HUD — the quick-action bar had eight buttons and neither Fleet nor EW among them: the fleet manager
+  // was a button at the bottom of a long Sensors panel and electronic warfare a collapsed section
+  // inside it, so neither could be found. The bar also showed both of each button's labels at once
+  // ("COMMS Stations", "TGT Target") because the wide label was an addition rather than a replacement.
+  await check('HUD the quick-action bar carries all ten actions, one label each', async () => {
+    await fresh('play-hud');
+    const read = async (width, height) => {
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(120);
+      return ev(() => {
+        const bar = document.getElementById('bottom-dock');
+        const buttons = [...(bar?.querySelectorAll('button') || [])];
+        const visible = (el) => { const st = el && getComputedStyle(el); return Boolean(st && st.display !== 'none' && st.visibility !== 'hidden'); };
+        const rows = new Set(buttons.map((b) => Math.round(b.getBoundingClientRect().top)));
+        return { hidden: bar?.classList.contains('hidden'),
+          actions: buttons.map((b) => b.dataset.dockAction || (b.dataset.comms ? 'comms' : '?')),
+          labels: buttons.map((b) => {
+            const short = b.querySelector('b'), long = b.querySelector('span');
+            return { short: visible(short) ? short.textContent.trim() : null, long: visible(long) ? long.textContent.trim() : null };
+          }),
+          rows: rows.size, minHeight: Math.min(...buttons.map((b) => Math.round(b.getBoundingClientRect().height))),
+          overflow: buttons.some((b) => b.getBoundingClientRect().right > window.innerWidth + 1 || b.getBoundingClientRect().left < -1) };
+      });
+    };
+    const wide = await read(1600, 900);
+    const compact = await read(1000, 800);
+    const small = await read(600, 800);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    assert.equal(wide.hidden, false, 'precondition: the bar is on screen');
+    assert.deepEqual(wide.actions, ['comms', 'target', 'hail', 'map', 'inventory', 'power', 'fleet', 'ew', 'contract', 'save'],
+      `the bar carries ${wide.actions.join(', ')}`);
+    for (const [name, r] of [['wide', wide], ['compact', compact], ['small', small]]) {
+      const both = r.labels.filter((l) => l.short && l.long);
+      assert.deepEqual(both, [], `at ${name} width ${both.length} button(s) showed both labels, e.g. "${both[0]?.short} ${both[0]?.long}"`);
+      const none = r.labels.filter((l) => !l.short && !l.long);
+      assert.deepEqual(none, [], `at ${name} width ${none.length} button(s) showed no label at all`);
+      assert.ok(r.minHeight >= 44, `at ${name} width the smallest button is ${r.minHeight}px tall`);
+      assert.equal(r.overflow, false, `at ${name} width the bar runs off screen`);
+    }
+    assert.equal(wide.labels[0].long, 'Stations', `the wide label is "${wide.labels[0].long}"`);
+    assert.equal(compact.labels[0].short, 'COM', `the compact label is "${compact.labels[0].short}"`);
+    assert.equal(small.rows, 2, `at small width the ten buttons sit in ${small.rows} row(s), not two rows of five`);
+  });
+
+  // HUD-2 — Fleet and EW have to be panels of their own, not a button hidden under Sensors.
+  await check('HUD Fleet and EW open their own panels from the bar', async () => {
+    await fresh('play-hud2');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      const click = (action) => document.querySelector(`[data-dock-action="${action}"]`)?.click();
+      click('fleet');
+      const fleetOpen = Boolean(document.querySelector('dialog.fleet-manager')?.open);
+      document.querySelector('dialog.fleet-manager')?.close();
+      click('ew');
+      const panel = document.getElementById('top-left-panel');
+      const ewText = panel?.textContent || '';
+      return { fleetOpen, ewTab: s.topLeftTab, ewOpen: s.topLeftPanelOpen,
+        ewNamesItself: /electronic warfare/i.test(ewText), ewHidden: panel?.classList.contains('hidden') };
+    });
+    assert.equal(r.fleetOpen, true, 'the FLEET button did not open the fleet manager');
+    assert.equal(r.ewTab, 'ew', `the EW button opened the "${r.ewTab}" panel`);
+    assert.equal(r.ewOpen, true, 'and left it closed');
+    assert.equal(r.ewHidden, false, 'and hidden');
+    assert.equal(r.ewNamesItself, true, 'the EW panel does not name itself');
+  });
+
+  // TOP — power and alert posture were both behind a modal: the alert readout opened the game menu and
+  // power lived in a panel that covers the view, so neither could be touched in a fight.
+  await check('TOP power and alert are set from the top strip without opening anything', async () => {
+    await fresh('play-top');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      const stats = document.getElementById('stats');
+      const dialogsOpen = () => [...document.querySelectorAll('dialog')].filter((d) => d.open).length;
+      // A fight is on: this is when both of these matter.
+      s.lastShieldHitAt = t.gameNow();
+      t.updateStats();
+      const before = { alert: t.ensurePlaytestState().alertLevel || 'green', power: t.state.power?.dist?.weapons ?? null, dialogs: dialogsOpen() };
+      const alertChips = [...stats.querySelectorAll('[data-alert-set]')].map((b) => b.dataset.alertSet);
+      const powerChips = [...stats.querySelectorAll('[data-power-dist]')].map((b) => `${b.dataset.powerDist}${b.dataset.powerDir}`);
+      stats.querySelector('[data-alert-set="red"]')?.click();
+      const afterAlert = { alert: t.ensurePlaytestState().alertLevel, dialogs: dialogsOpen() };
+      const up = stats.querySelector('[data-power-dist="weapons"][data-power-dir="1"]');
+      const start = t.state.power?.dist?.weapons ?? 0;
+      up?.click();
+      const afterPower = { weapons: t.state.power?.dist?.weapons ?? 0, dialogs: dialogsOpen() };
+      stats.querySelector('[data-alert-set="green"]')?.click();
+      return { before, alertChips, powerChips, afterAlert, afterPower, start, engaged: t.getAlertStatus() };
+    });
+    assert.deepEqual(r.alertChips, ['green', 'yellow', 'red'], `the strip offers ${r.alertChips.join(', ') || 'no'} alert settings`);
+    assert.ok(r.powerChips.length >= 8, `the strip offers ${r.powerChips.length} power controls`);
+    assert.equal(r.engaged, 'red', 'precondition: the ship is under fire, which is when this matters');
+    assert.equal(r.afterAlert.alert, 'red', `setting red alert from the strip left it at "${r.afterAlert.alert}"`);
+    assert.equal(r.afterAlert.dialogs, r.before.dialogs, 'changing alert posture opened a dialog');
+    assert.ok(r.afterPower.weapons > r.start, `raising weapon power from the strip left it at ${r.afterPower.weapons}`);
+    assert.equal(r.afterPower.dialogs, r.before.dialogs, 'changing power opened a dialog');
+  });
+
+  // OWN — a world the captain holds and a yard they built on it still asked what a foreign government
+  // thought of them before selling anything: at floor standing their own yard answered "Terran ports
+  // refuse you". Prestige is how strangers decide whether to deal with you; there are no strangers at
+  // your own dock.
+  await check('OWN your own world and yard sell to you without prestige', async () => {
+    await fresh('play-own');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.isOwnHoldingVendor !== 'function') return { fail: 'this tree has no notion of a vendor being the captain\'s own: every yard asks a foreign government what it thinks of them' };
+      // A real yard, wherever it is: a relay array sells nothing to anybody and would prove nothing.
+      let found = null;
+      for (let i = 0; i < s.planets.length && !found; i++) {
+        s.currentPlanet = i; s.myplanet = i + 1; s.warp.active = false;
+        s.systemStates = {}; t.applySystemState(i);
+        const yard = (s.stations || []).find((x) => !x.destroyed && !x.underConstruction && t.fleetStationServices(x).sell);
+        if (yard) found = { index: i, id: yard.id, name: s.planets[i]?.name };
+      }
+      if (!found) return { fail: 'no station in the galaxy sells ships' };
+      const dockAt = (id) => {
+        const st = (s.stations || []).find((x) => x.id === id);
+        s.docked = true; s.dockedStationId = id; s.dockedPlanetIndex = null; s.remoteStationId = null;
+        if (st) t.setCamera(st.x, st.y);
+      };
+      // Nobody who cares would deal with this captain.
+      for (const key of ['terran', 'vulcan', 'ferengi', 'neutral', 'klingon', 'andorian', 'cardassian', 'romulan', 'bajoran']) t.adjustFactionStanding(key, -999);
+      dockAt(found.id);
+      const snap = () => {
+        const st = t.getCurrentServiceStation();
+        const stock = t.getShipyardStock(st) || [];
+        const refusals = stock.map((sh) => { const bs = t.getShipPurchaseStatus(sh.id); return bs.ok ? null : String(bs.reason || ''); }).filter(Boolean);
+        const prestige = /refuse|standing|prestige/i;
+        return { station: st?.id || null, own: t.isOwnHoldingVendor(st), stock: stock.length,
+          refusedForPrestige: refusals.filter((x) => prestige.test(x)),
+          refusedForOther: refusals.filter((x) => !prestige.test(x)),
+          market: String(t.commodityTradeBlock() || '') };
+      };
+      const foreign = snap();
+      // The captain takes the world, and the yard on it is theirs.
+      t.transferSystemControlToPlayer(found.index);
+      const def = (s.stationDefinitions || []).find((d) => d.id === found.id);
+      if (def) def.owner = t.PLAYER_SIDE;
+      s.systemStates = {}; t.applySystemState(found.index);
+      dockAt(found.id);
+      const mine = snap();
+      return { fail: null, system: found.name, foreign, mine };
+    });
+    assert.ok(!r.fail, `the ownership reproduction could not be set up: ${r.fail}`);
+    assert.equal(r.foreign.own, false, 'precondition: the yard started as somebody else\'s');
+    assert.equal(r.mine.own, true, 'taking the world and the yard did not make the vendor the captain\'s own');
+    assert.equal(r.foreign.station, r.mine.station, 'precondition: the same yard is being asked twice');
+    assert.ok(r.foreign.stock > 0 && r.mine.stock >= r.foreign.stock,
+      `the yard stocked ${r.foreign.stock} designs for a stranger and ${r.mine.stock} for its owner`);
+    assert.ok(r.foreign.refusedForPrestige.length > 0,
+      `precondition: at floor standing a foreign yard refuses over prestige (it refused ${r.foreign.refusedForPrestige.length} of ${r.foreign.stock})`);
+    assert.deepEqual(r.mine.refusedForPrestige, [],
+      `the captain's own yard still refuses over prestige: ${r.mine.refusedForPrestige[0]}`);
+    assert.ok(!/refuse|standing/i.test(r.mine.market),
+      `the captain's own market answered: ${r.mine.market}`);
+  });
+
+  // MISSION — evacuation and blockade were offered but could not be pursued: evacuation completed by
+  // holding position for twenty seconds with nothing attacking, and blockade only if a hostile
+  // operation happened to engage there while the captain stood by.
+  await check('MISSION contracts with nothing to pursue are not offered', async () => {
+    await fresh('play-mission');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      const offered = {};
+      for (const kind of ['relief', 'escort', 'evacuation', 'repair', 'recon', 'blockade']) {
+        offered[kind] = Boolean(t.offerStationMission(kind, Number(s.currentPlanet), true));
+      }
+      const book = t.campaign();
+      return { offered, open: book.missions.filter((m) => ['offered', 'active'].includes(m.status)).map((m) => m.kind) };
+    });
+    assert.equal(r.offered.evacuation, false, 'an evacuation contract was offered');
+    assert.equal(r.offered.blockade, false, 'a blockade contract was offered');
+    assert.ok(!r.open.includes('evacuation') && !r.open.includes('blockade'),
+      `withdrawn contracts are open: ${r.open.join(', ')}`);
+    assert.ok(r.offered.relief && r.offered.repair && r.offered.recon,
+      `the contracts that do have objectives stopped being offered: ${JSON.stringify(r.offered)}`);
+  });
+
+  // CULT-2 — the government table maps four of its ids to 'neutral', and because that is a value rather
+  // than a gap it short-circuited the name lookup behind it: fifty-eight of a hundred and one worlds had
+  // no identity at all, Sonata among them, and the ones that did resolve were resolving off whatever
+  // power the description happened to mention.
+  await check('CULT every inhabited world has a people, and they are its own', async () => {
+    await fresh('play-cult2');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.getSystemSovereignty !== 'function') return { fail: 'this tree reports only a controller: no world has a people it can name' };
+      const rows = (s.planets || []).map((p, i) => ({ i, name: p.name, pop: Number(p.population) || 0, sov: t.getSystemSovereignty(i) }));
+      const byName = (n) => rows.find((x) => x.name === n);
+      return {
+        total: rows.length,
+        inhabitedWithoutPeople: rows.filter((x) => x.pop > 0 && !x.sov.culture).map((x) => x.name),
+        emptyWithPeople: rows.filter((x) => x.pop === 0 && x.sov.cultureSource === 'local').map((x) => x.name),
+        sonata: byName('Sonata')?.sov || null,
+        swiss: byName('New Switzerland')?.sov || null,
+        orilla: byName('Orilla')?.sov || null,
+        blender: byName('Blender')?.sov || null,
+        earth: byName('Earth')?.sov || null,
+        distinctLocal: new Set(rows.filter((x) => x.sov.cultureSource === 'local').map((x) => x.sov.culture)).size,
+        localCount: rows.filter((x) => x.sov.cultureSource === 'local').length,
+      };
+    });
+    assert.ok(!r.fail, `the culture reproduction could not be set up: ${r.fail}`);
+    assert.ok(r.total > 50, `precondition: the galaxy has ${r.total} systems`);
+    assert.deepEqual(r.inhabitedWithoutPeople, [],
+      `${r.inhabitedWithoutPeople.length} inhabited world(s) have no people: ${r.inhabitedWithoutPeople.slice(0, 6).join(', ')}`);
+    assert.deepEqual(r.emptyWithPeople, [], `an empty world was given a people: ${r.emptyWithPeople.join(', ')}`);
+    assert.equal(r.sonata.culture, 'sona', `Sonata's people are "${r.sonata.culture}" (${r.sonata.label})`);
+    assert.notEqual(r.swiss.culture, r.orilla.culture,
+      `New Switzerland and Orilla share one identity: ${r.swiss.culture}`);
+    assert.equal(r.swiss.cultureSource, 'local', `New Switzerland resolved as ${r.swiss.cultureSource}`);
+    assert.equal(r.blender.culture !== 'dominion', true,
+      'Blender reads as a Dominion world because its description mentions the Dominion');
+    assert.equal(r.earth.culture, 'terran', `Earth's people are "${r.earth.culture}"`);
+    assert.equal(r.distinctLocal, r.localCount,
+      `${r.localCount} self-governing worlds share ${r.distinctLocal} identities between them`);
+  });
+
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);
   if (failures.length) { console.log(`${failures.length} still reproduce:`); for (const f of failures) console.log(`  - ${f.name}: ${f.message.split('\n')[0]}`); process.exitCode = 1; }
   if (errors.length) { console.log(`page errors: ${errors.join(' | ')}`); process.exitCode = 1; }
