@@ -426,7 +426,11 @@ test('PARENT a real fa7de12 save gets the rules it predates, and they work', () 
 // R3 — the day loop ran against one immutable snapshot, so a capture on an internal day was invisible
 // to the days after it: the same world was taken again and again and the book diverged from stepping.
 test('GAP a jump across a capture produces the book that stepping produces', () => {
-  const mk = (seed) => { const { world } = makeWorld({ localSystem: null }); return { world, book: C.createCampaignBook(seed, 1) }; };
+  // This gate is about the bulk path agreeing with the stepped path, so it authors an early expedition
+  // rather than waiting for the shipped schedule: it needs captures inside its window, and the day the
+  // expedition sails is tuning that belongs to the campaign, not to this check.
+  const EARLY = { dominionReconDay: 25, dominionStagingDay: 45, dominionInvasionDay: 60 };
+  const mk = (seed) => { const { world } = makeWorld({ localSystem: null }); return { world, book: C.createCampaignBook(seed, 1, EARLY) }; };
   const seed = 'gapcap-0';
   const a = mk(seed); const stepped = [];
   for (let d = 2; d <= 180; d++) {
@@ -606,7 +610,9 @@ test('FOREIGNYARD a yard you do not own does not retool your captured world', ()
 test('DAYHOOK the engine settles once per internal day, stepped or jumped', () => {
   const build = () => {
     const fixture = makeWorld({ localSystem: null });
-    const book = C.createCampaignBook('dayhook', 1);
+    // Same reason as GAP: the hook needs days on which something happens inside a forty-day window, so
+    // the expedition is authored early here rather than left on the shipped schedule.
+    const book = C.createCampaignBook('dayhook', 1, { dominionReconDay: 25, dominionStagingDay: 45, dominionInvasionDay: 60 });
     C.initializeCampaign(book, fixture.world);
     // A ledger of the kind only an engine can keep: a wound that heals a little every day, and days on
     // which something happened that deepens it. A hook that runs once per call gets this wrong twice —

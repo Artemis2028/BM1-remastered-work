@@ -193,7 +193,9 @@ test('Dominion: dormant → reconnaissance → staging → invasion through the 
   // Prepared defence: rerun with an overwhelming Bajoran garrison → expedition destroyed or withdrawn, Bajora never Dominion
   const { world: w2 } = makeWorld(); const b2 = C.createCampaignBook('seed-H2', 1); C.initializeCampaign(b2, w2);
   const baj = C.getPolity(b2, 'bajoran'); for (let i = 0; i < 60; i++) baj.hulls.push({ id: `bd${i}`, shipId: 12, hull: 1400, maxHull: 1400, crew: 1, systemIndex: 6, status: 'ready', opId: null });
-  const e2 = run(b2, w2, 2, 200);
+  // The window follows the authored schedule rather than a fixed 200: this test is about how the
+  // expedition resolves, not about which day it sails.
+  const e2 = run(b2, w2, 2, b2.config.dominionInvasionDay + 140);
   assert.equal(w2.systems[6].controller, 'bajoran', 'a prepared defence held Bajora; no scripted reversal');
   const exp = b2.operations.find((o) => o.id === b2.dominion.expeditionOpId);
   assert.ok(exp && exp.status === 'resolved' && ['destroyed', 'withdrew'].includes(exp.outcome));
