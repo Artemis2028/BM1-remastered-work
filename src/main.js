@@ -23403,7 +23403,7 @@ function triggerCampaignDebug(args) {
         // instead left those hulls assigned to an operation that no longer existed.
         const recalled = Campaign.terminateOperations(book, world, 'dominion', state.day, [], 'The Dominion expedition was recalled.');
         Object.assign(d, { phase: 'dormant', phaseDay: null, warnings: [], expeditionOpId: null, reinforcementCut: false, convoys: 0, lastConvoyDay: null });
-        Object.assign(d, { openedDay: null, standDownDay: null, lastOpportunity: null });
+        Object.assign(d, { openedDay: null, standDownDay: null });
         // There is no timetable to push any more: what holds the expedition back is the opening, so the
         // override puts the floor out of reach and leaves the opening unsatisfiable.
         // Nothing here is a date any more, so "push it out of reach" means making the strategic case

@@ -1339,9 +1339,12 @@ function advanceDominion(book, world, day, effects) {
   const windowDays = Math.max(1, c.dominionOpeningWindowDays || 1);
   d.openWindow = `${d.openWindow || ''}${opportunity.open ? '1' : '0'}`.slice(-windowDays);
   const eligibleDays = (d.openWindow.match(/1/g) || []).length;
-  d.lastOpportunity = { day, open: opportunity.open, balance: opportunity.balance, engagements: opportunity.engagements,
-    corridorOpen: opportunity.corridorOpen, eligibleDays, windowDays,
-    reasons: opportunity.reasons.slice(0, 4) };
+  // Nothing about the decision is persisted beyond what the arc itself needs. An earlier version kept a
+  // `lastOpportunity` record here for diagnostics, including the maturity progress, and that made the
+  // book differ between forty one-day journeys and one forty-day journey — the counts are per journey,
+  // so they legitimately differ, and persisting them put a player-facing pacing detail inside a digest
+  // that is supposed to depend only on which days were settled. dominionOpportunity() is pure and cheap;
+  // anything that wants to show the current reasons calls it rather than reading a stored copy.
   // An opening has to hold. A war's numbers move every day and one of those days will always happen to
   // clear every line at once; that is a coincidence, not an opportunity, and the expedition does not
   // sail on it. Consecutive days would be the wrong test — one good day for one belligerent would reset
