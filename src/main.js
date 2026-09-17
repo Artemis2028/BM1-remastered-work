@@ -14396,12 +14396,32 @@ function layoutSecurityOrderPanel() {
   el.style.maxHeight = '';
   el.style.top = ''; el.style.bottom = '';
   const body = el.querySelector('.security-order-body');
-  let controls = el.querySelector('.security-order-head')?.getBoundingClientRect().height || 0;
+  const px = (value) => { const n = parseFloat(value); return Number.isFinite(n) ? n : 0; };
+  const ownStyle = getComputedStyle(el);
+  const oneLine = (node) => { const cs = getComputedStyle(node); return Math.ceil(px(cs.lineHeight) || px(cs.fontSize) * 1.4); };
+  const isProse = (node) => node.tagName === 'P' || node.classList.contains('security-order-text');
+  // The floor is the height at which the panel still shows every control it is offering, with its
+  // prose squeezed to a single line. It used to be arithmetic — a flat 7px between children, 18px of
+  // padding and 34px for everything else — which ignored the margins the prose carries and was three
+  // pixels short of the hail's own last button once the hail offered two. Measure it instead: clamp
+  // the prose, read where the last control actually lands, and put the prose back. [review]
+  let floor = Math.ceil((el.querySelector('.security-order-head')?.getBoundingClientRect().height || 0)
+    + px(ownStyle.borderTopWidth) + px(ownStyle.borderBottomWidth));
   if (body) {
-    controls += Math.max(0, body.children.length - 1) * 7 + 18;
-    for (const child of body.children) if (child.tagName !== 'P') controls += child.getBoundingClientRect().height;
+    const prose = [...body.children].filter(isProse);
+    const restore = prose.map((node) => node.style.maxHeight);
+    for (const node of prose) node.style.maxHeight = `${oneLine(node)}px`;
+    const top = el.getBoundingClientRect().top;
+    let lowest = 0;
+    for (const child of body.children) {
+      if (isProse(child)) continue;
+      lowest = Math.max(lowest, child.getBoundingClientRect().bottom - top);
+    }
+    // A hail with nothing but prose still shows the line that says who is calling.
+    if (!lowest && prose.length) lowest = prose[prose.length - 1].getBoundingClientRect().bottom - top;
+    prose.forEach((node, i) => { node.style.maxHeight = restore[i]; });
+    if (lowest > 0) floor = Math.ceil(lowest + px(getComputedStyle(body).paddingBottom) + px(ownStyle.borderBottomWidth));
   }
-  const floor = Math.ceil(controls + 34);
   const natural = Math.ceil(el.getBoundingClientRect().height);
 
   const own = el.getBoundingClientRect();

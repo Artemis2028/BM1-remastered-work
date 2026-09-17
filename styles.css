@@ -4329,6 +4329,9 @@ button:disabled {
 .security-order-text {
   flex: 0 1 auto;
   min-height: 0;
+  /* The body spaces its children with gap; a paragraph's default margins were spacing them a second
+     time, and they are what the panel's own height floor could not see. [playtest] */
+  margin: 0;
   overflow-y: auto;
   color: var(--lcars-cream);
   font-size: 11px;
@@ -4495,3 +4498,23 @@ button:disabled {
 
 /* The strip's own narrow-width rules live with the rest of the width cascade further up this file, in
    descending order, so that the 980px and 640px blocks still have the last word on it. */
+
+/* The right-hand column at phone widths carries the status strip, the incoming hail and the
+   disabled-ship panel at once, and stacking the hail's two actions one above the other asks for more
+   height than the column has: the second button ends up under the disabled-ship panel. Side by side
+   they fit. This sits at the end of the sheet because the hail panel's own base rules are written
+   below the width cascade, and a later rule of the same weight is the one that holds. [playtest] */
+@media (max-width: 640px) {
+  .security-order-body {
+    flex-flow: row wrap;
+    align-items: flex-start;
+  }
+  .security-order-body > p,
+  .security-order-body > .security-order-text {
+    flex: 1 1 100%;
+  }
+  .security-order-body > button {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+  }
+}
