@@ -7256,7 +7256,7 @@ function renderStartInstructionsView() {
       <p>Fly with WASD or arrow keys. Keep holding forward to build into in-system warp. Use M or the Interstellar Map button to open the galactic map.</p>
       <p>Click planets, stations, ships, asteroids, and wormholes to interact. Planet and station services open when you are close enough.</p>
       <p>Weapons fire from slots 1, 2, and 3. Tab cycles targets, and clicking away clears a target.</p>
-      <p>Press H to hail the selected ship. Open the Power tab to distribute energy between reserve, engines, weapons, and shields.</p>
+      <p>Press H to hail the selected ship or station; with nothing selected it opens the system’s station channels. Open the Power tab to distribute energy between reserve, engines, weapons, and shields.</p>
       <p>Shift+1..8 issue fleet orders (follow, attack, seek, planet, launch/recall aux, explore, trade). Q closes windows, C opens cargo, P toggles this panel, +/- selects or clears the closest contact, tilde toggles auto-target, Left Ctrl cycles every contact in the system.</p>
       <p>Antimatter controls warp range. Larger ships can plot longer routes, while fleets and stations determine who controls a system.</p>
     </div>
@@ -13373,11 +13373,34 @@ function rerenderTargetWindowNow() {
   targetWindowForceRender = false;
 }
 
+// A station is a thing you talk to. Selecting one and pressing hail used to answer "no ship selected",
+// which left a station's channel reachable only from the COMMS list or by docking — so what the captain
+// experienced was that stations cannot be hailed at all unless docked. Hail now means hail: a selected
+// station opens its channel, and with nothing selected the system's channel list opens instead of a
+// refusal. Docking remains what hull repairs need; that has not changed. [playtest]
+function getSelectedStationTarget() {
+  if (state.combatTargetType !== 'station' || !state.combatTargetId) return null;
+  return state.stations.find((s) => s.id === state.combatTargetId && !s.destroyed && !s.underConstruction) || null;
+}
+function hailSelectedStation(station) {
+  if (!station) return false;
+  const opened = openRemoteStationShop(station.id);
+  playGameSound(opened ? 'hail' : 'uiError', { cooldownKey: opened ? `hail:${station.id}` : 'hail:error' });
+  rerenderTargetWindowNow();
+  return opened;
+}
 function hailSelectedShip() {
   if (state.gameOver || !state.gameStarted || state.warp.active || isWormholeTransitActive()) return;
+  const selectedStation = getSelectedStationTarget();
+  if (selectedStation) { hailSelectedStation(selectedStation); return; }
   const npc = getSelectedNpcTarget();
   if (!npc) {
-    setLog('No ship selected to hail.');
+    const channels = state.stations.filter((s) => !s.destroyed && !s.underConstruction);
+    if (channels.length) {
+      openStationComms(channels.slice().sort((a, b) => distanceToPlayer(a) - distanceToPlayer(b))[0].id);
+      return;
+    }
+    setLog('Nothing selected to hail, and no station is answering in this system.');
     return;
   }
   const distance = distanceToPlayer(npc);

@@ -269,6 +269,49 @@ const { startProbe } = require('./probe-harness.cjs');
       `it kept drawing an income with no outpost left (${r.beforeSiege.treasury} to ${r.sieged.treasury})`);
   });
 
+  // HAIL — a station could be selected as a target but not hailed: the hail button and the H key both
+  // answered "No ship selected to hail", so the only ways into a station's channel were the COMMS list
+  // and docking. The captain's report was that stations cannot be hailed unless docked.
+  await check('HAIL a selected station can be hailed without docking', async () => {
+    await fresh('play-hail');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      const station = s.stations.find((x) => !x.destroyed && !x.underConstruction);
+      if (!station) return { fail: 'this system has no station to hail' };
+      t.setCamera(station.x - 300, station.y);
+      s.docked = false; s.dockedStationId = null; s.remoteStationId = null; s.planetMenuOpen = false;
+      // The captain selects the station the way Tab selects it, and presses the hail button.
+      s.combatTargetType = 'station'; s.combatTargetId = station.id; s.log = '';
+      document.querySelector('[data-dock-action="hail"]')?.click();
+      const hailed = { log: s.log, remote: s.remoteStationId, menu: s.planetMenuOpen, docked: s.docked };
+      // And with nothing selected at all, the hail key opens the system's channels rather than refusing.
+      document.getElementById('station-comms')?.close();
+      s.combatTargetId = null; s.combatTargetType = 'ship'; s.remoteStationId = null; s.planetMenuOpen = false; s.log = '';
+      document.querySelector('[data-dock-action="hail"]')?.click();
+      const listed = { log: s.log, commsOpen: document.getElementById('station-comms')?.open || false };
+      document.getElementById('station-comms')?.close();
+      // A ship hail still behaves exactly as it did.
+      const npc = (s.npcShips || []).find((n) => !n.destroyed);
+      let ship = { skipped: true };
+      if (npc) {
+        t.setCamera(npc.x - 100, npc.y);
+        s.combatTargetType = 'ship'; s.combatTargetId = npc.id; s.log = '';
+        document.querySelector('[data-dock-action="hail"]')?.click();
+        ship = { skipped: false, log: s.log, session: Boolean(npc.hailSession) };
+      }
+      return { fail: null, station: station.name, hailed, listed, ship };
+    });
+    assert.ok(!r.fail, `the hail reproduction could not be set up: ${r.fail}`);
+    assert.equal(r.hailed.docked, false, 'precondition: the captain is flying, not docked');
+    assert.ok(!/No ship selected/i.test(r.hailed.log),
+      `hailing a selected station answered: ${r.hailed.log}`);
+    assert.ok(r.hailed.remote, `hailing ${r.station} opened no channel to it (${r.hailed.log})`);
+    assert.equal(r.hailed.menu, true, 'the channel opened but its services were not shown');
+    assert.equal(r.listed.commsOpen, true,
+      `with nothing selected the hail control refused instead of opening the system's channels: ${r.listed.log}`);
+    if (!r.ship.skipped) assert.equal(r.ship.session, true, `hailing a ship stopped working: ${r.ship.log}`);
+  });
+
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);
   if (failures.length) { console.log(`${failures.length} still reproduce:`); for (const f of failures) console.log(`  - ${f.name}: ${f.message.split('\n')[0]}`); process.exitCode = 1; }
   if (errors.length) { console.log(`page errors: ${errors.join(' | ')}`); process.exitCode = 1; }
