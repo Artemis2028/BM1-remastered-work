@@ -1,6 +1,6 @@
 # BM1 playtest repairs on top of `ae4ae4d`
 
-DTG 171716ZSEP26
+DTG 171815ZSEP26
 
 Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Nothing pushed, merged or deployed.
 The commit count is in `CANDIDATE.json`, computed by the pack script rather than typed here: the two
