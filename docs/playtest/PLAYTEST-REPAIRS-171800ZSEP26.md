@@ -1,27 +1,25 @@
 # BM1 playtest repairs on top of `ae4ae4d`
 
-DTG 171540ZSEP26
+DTG 171800ZSEP26
 
-Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Six commits on top of it, first-parent chain
+Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Nine commits on top of it, first-parent chain
 through `ae4ae4d`. Nothing pushed, merged or deployed.
 
 ## Read this first: what this candidate is not
 
-The 17SEP specification ("BM1 playtest repairs and fleet-trade goals") arrived while this candidate was
-being packed. It is larger than what is here, and on one point it explicitly rejects what is here:
+The 17SEP specification ("BM1 playtest repairs and fleet-trade goals") is much larger than what is here.
+Its §3.1 was answered in full — the Dominion arc is now a strategic opening with no date anywhere in it
+— but §3.3 (faction-blind war goals and bilateral peace), §3.4 (cargo and contracts), §3.5 (uninhabited
+worlds), §3.6 (HUD and modals), §4 (fleet trading), §5 (recall), §6 (repair UX) and §7 (overlay) are
+**not implemented at all**. §3.2 is a first layer only. The list at the end of this document is item by
+item, and `CANDIDATE.json` carries the same list under `not_implemented` so it can be checked
+mechanically rather than read for.
 
-> Replacing the old day-25/day-45/day-60 arc with another fixed window — even day 180–300 — does not
-> solve this. Dominion entry must emerge from the Earth–Klingon war and the quadrant's actual strategic
-> condition, not campaign age.
+An earlier draft of this candidate moved the expedition to a fixed day 180/260/320 window. The
+specification rejects fixed windows, and that commit has been superseded: there is no invasion date in
+the rules any more.
 
-**Commit 4 of this candidate moves the arc to day 180 / 260 / 320.** That is a fixed window. It is a
-stopgap that stops the invasion landing in the captain's first hour; it is **not** the condition-driven
-opening the specification requires, and it must not be signed off as that. Section "Not in this
-candidate" below lists everything else the specification asks for that is not here.
-
-Everything else in this candidate stands on its own and was reported from the playtest directly.
-
-## The six changes
+## The changes
 
 ### 1. `df24878` — a power the captain has never met is not on their board
 
@@ -75,14 +73,42 @@ treasury, and a hull lost to a raid was gone for good. Its outpost now pays it.
 All four are tied to the outpost: destroy station `28-901` and the income, the supply and the
 replacements all stop. **These four numbers are for sign-off.**
 
-### 4. `218e836` — the expedition is moved out of the captain's first afternoon
+### 4. the Dominion entry is an opening, not a date
 
-Campaign days pass only when the captain warps, so the schedule is counted in jumps. At 25/45/60 the
-first warning arrived inside the opening hour and the invasion landed before a captain had a second
-ship. Now 180 / 260 / 320.
+Two commits. The first moved the arc to a fixed 180/260/320 window, which stopped the reported
+behaviour but is not what §3.1 asks for. The second removes the window: `dominionReconDay`,
+`dominionStagingDay` and `dominionInvasionDay` no longer exist.
 
-**See the warning at the top of this document.** This is a fixed window and the specification rejects
-fixed windows. It is here to stop the reported behaviour, not to satisfy §3.1.
+`dominionOpportunity(book, world, day)` decides whether there is an opening, and reports why not. All
+of the following must hold:
+
+| Condition | Read from | Threshold |
+| --- | --- | --- |
+| a central war that has cost its belligerents something | a new per-pair **war ledger** (`book.wars`) counting engagements that produced losses or a capture — kept because the operation list is trimmed | 20 engagements |
+| a near-side power materially below its own capacity | `readiness / max(readinessBaseline, readinessPeak)`; `readinessPeak` is recorded daily so a player empire that started with nothing still has a capacity | ≤ 0.65 |
+| a balance the expedition can exploit | either a costly stalemate — both belligerents worn down, bounded strength difference, and a front that has stopped moving — or a victor too weakened to hold the door | gap ≤ 0.5; victor ≤ 0.6 |
+| nobody on this side still standing tall enough to make the crossing pointless | the strongest near-side power against what the Dominion can bring | ≤ 1.5× its reach |
+| a corridor nobody has closed | defence at the entry against the Dominion's own reach, never against the defender's size, so a garrison cannot inflate the yardstick it is judged by | ≥ 1.2× closes it |
+| a floor, and only a floor | campaign day | 120 |
+
+The case has to **hold**, not merely occur: a war's numbers move every day and one of those days will
+clear every line at once. The opening accumulates a day's weight when the case holds and loses half a
+day's when it does not, and unlocks at 30. A war that is deepening gets there; a war that wobbles
+around the line never does.
+
+The stages are events. Reconnaissance dwells 40 days, staging 25, and at any point a near side that
+**recovers** — every near-side power back above the capacity line — or a corridor somebody closes
+stands the expedition down where it is. Nothing expires and nothing is forced through: there is no
+latest day.
+
+Measured on the shipped galaxy: dormant through roughly day 280 while the war builds its engagements,
+reconnaissance around 340, the crossing around 390 — and different for every galaxy and every player.
+
+The debug phase override forces the opening rather than a timetable, so a forced phase is still entered
+by the code that enters it in play.
+
+**Tuning for sign-off:** 20 engagements, 0.65 capacity, 0.5 strength gap, 1.5 challenge ratio, 1.2
+corridor ratio, 30 days of accumulated weight, a 120-day floor, and 40/25-day dwells.
 
 ### 5. `0033450` — a station can be hailed without docking
 
@@ -117,23 +143,27 @@ map readout both print people and government, and the map legend gives the line 
 `sovereignId`, an `administration` record, an integration percentage, per-installation `assetOwnerId` /
 `commandSideId`, the seven named control stages, or the multi-colour map symbology.
 
-### 7. `f8b02a5` — three model checks stop depending on when the expedition sails
+### 7. the model and in-game suites stop depending on when the expedition sails
 
-Moving the schedule broke three checks that had 25/45/60 baked into their windows. The arc test now
-takes its window from the book's own `dominionInvasionDay`; `GAP` and `DAYHOOK` author an early
-expedition in their own fixtures. None of the three is about the schedule.
+Two commits' worth. Checks that had a schedule baked into their windows now either take the window from
+the book's own rules or author the strategic state they need, so a tuning change moves the campaign
+without moving the checks. Where a gate needs an expedition to exist inside a short window and is not
+itself about the unlock, it says so in a comment and relaxes the opening deliberately.
 
 ## Gates
 
-34 of 34 green (the 33 Patch 1 gates plus `playtest-gate`). `playtest-gate` is 10 adversarial checks,
-**all ten reproducing on `ae4ae4d`** — see `validation/playtest-gate-baseline-ae4ae4d.log`.
+**35 of 35 green**: the 33 Patch 1 gates, unchanged and still green, plus `playtest-gate` and the new
+`dominion-matrix`.
+
+`playtest-gate` is 10 adversarial checks and **all ten reproduce on `ae4ae4d`** — see
+`validation/playtest-gate-baseline-ae4ae4d.log`.
 
 | Check | What it reproduces on `ae4ae4d` |
 | --- | --- |
 | DOM-1 | the Other Powers table listed the Dominion at a fresh start |
 | DOM-2 | charting one hidden world presented the whole region's true strength as a total |
 | DOM-3 | a near-side capture handed the expedition's war to the neighbour roll |
-| DOM-4 | sixty warp-days in, the expedition was already at "invasion" |
+| DOM-4 | the expedition ran on a date, and sixty warp-days in it had already invaded |
 | DOM-5 | 200 days of the roll settled the expedition's war with Earth |
 | REM-1 | there was no Blender remnant at all |
 | REM-2 | the remnant drew from the whole Dominion pool |
@@ -141,14 +171,27 @@ expedition in their own fixtures. None of the three is about the schedule.
 | HAIL | a selected station answered "No ship selected to hail" |
 | CULT | the planet card and map named only the controller |
 
-## Not in this candidate
+`dominion-matrix` is the §9 evidence for the entry decision: **72 rows** varying calendar age (200, 800,
+2,000 days) independently of war history, corridor state and player power, printing the decision and the
+reason for every row, with seven invariants checked — among them *the same history decides the same way
+at 200, 800 and 2,000 days*, *a quiet galaxy never opens however old it gets*, *fighting without cost is
+not an opening*, *a front that is still moving is not a stalemate*, *a fortified entry closes the
+corridor whatever the war did*, and *a player empire that has become the strongest power here delays the
+opening*. The whole table is in `validation/dominion-matrix.log`; it does not run at all on `ae4ae4d`
+(`validation/dominion-matrix-baseline-ae4ae4d.log`).
 
-From the 17SEP specification, none of the following is implemented. No stub, no scaffolding.
+`validation/gate-exit-codes.txt` records each gate's root honestly: `src` means it imports the source
+modules directly, `dist` means it loaded the built tree.
 
-**§3.1 Dominion opening** — the condition-driven opening: central-war engagement history, material
-weakening as a share of opening and recoverable capacity, exploitable balance, corridor viability,
-player-intervention effects, event-stage warnings instead of dates, and the removal of any fixed day.
-Commit 4 is a fixed window and is not this.
+## Against the 17SEP specification, section by section
+
+Where it says NOT DONE, nothing exists: no stub, no scaffolding.
+
+**§3.1 Dominion opening** — **done.** No date, no deadline; entry emerges from the central war's
+history, the balance it produced, the corridor and the player's own weight. What is *not* done from
+§3.1's list: player-intervention effects are only those that fall out of the general rule (protecting
+the near side's capacity, fortifying the corridor) rather than a modelled set; the warning texts still
+say what they said, though they no longer name Dominion Central as fact before contact.
 
 **§3.1 identity split** — `shipFaction` and `diplomacyId` are not separated; `dominion_remnant` and
 `dominion` are separate polities and separate diplomacy, but the split is not the general mechanism the
