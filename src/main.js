@@ -206,6 +206,7 @@ const FACTION_BORDER_POLICIES = Object.freeze({
   romulan: { warFlag: 'closed', independent: 'challenge', other: 'challenge', unknown: 'closed' },
   cardassian: { warFlag: 'closed', independent: 'challenge', other: 'challenge', unknown: 'challenge' },
   dominion: { warFlag: 'closed', independent: 'closed', other: 'challenge', unknown: 'closed' },
+  dominion_remnant: { warFlag: 'closed', independent: 'challenge', other: 'challenge', unknown: 'closed' },
   breen: { warFlag: 'closed', independent: 'challenge', other: 'challenge', unknown: 'closed' },
   terran: { warFlag: 'closed', independent: 'open', other: 'open', unknown: 'challenge' },
   andorian: { warFlag: 'closed', independent: 'open', other: 'open', unknown: 'challenge' },
@@ -490,6 +491,7 @@ const factionEmblemAssets = {
   cardassian: 'assets/game/factions/cardassian.png',
   klingon: 'assets/game/factions/klingon.png',
   dominion: 'assets/game/factions/dominion.png',
+  dominion_remnant: 'assets/game/factions/dominion.png',
   breen: 'assets/game/factions/breen.png',
   tholian: 'assets/game/factions/tholian.png',
   bajoran: 'assets/game/factions/bajoran.png',
@@ -1219,6 +1221,7 @@ const factionUiThemes = {
   ferengi: 'ferengi',
   cardassian: 'cardassian',
   dominion: 'dominion',
+  dominion_remnant: 'dominion',
   breen: 'breen',
   tholian: 'tholian',
   vulcan: 'vulcan',
@@ -1370,7 +1373,13 @@ function getNpcShipId(seedValue, role = 'traffic') {
   return pickSeededPoolItem(pool, seedValue, 'npc-any-ship') || pool[0];
 }
 
-function getNpcShipIdForFaction(faction = 'neutral', seedValue = 1, role = 'patrol') {
+// Which culture's hulls a power actually flies. The Blender remnant is Jem'Hadar: it has its own
+// diplomacy and its own name, and the ships are Dominion ships, so anything choosing a hull asks this
+// rather than the diplomatic identity. [playtest]
+const SHIP_POOL_FACTION = Object.freeze({ dominion_remnant: 'dominion' });
+function shipPoolFaction(faction) { return SHIP_POOL_FACTION[String(faction || '')] || faction; }
+function getNpcShipIdForFaction(rawFaction = 'neutral', seedValue = 1, role = 'patrol') {
+  const faction = shipPoolFaction(rawFaction);
   if (state.shipCatalog) return pickCatalogSpawnId(role, faction, seedValue);
   const pool = state.npcShipIds?.length ? state.npcShipIds : FALLBACK_NPC_SHIP_IDS;
   const exact = pool.filter((id) => getShipFaction(id) === faction);
@@ -1386,6 +1395,7 @@ const factionShipNamePrefixes = {
   cardassian: 'CDS',
   klingon: 'IKS',
   dominion: 'DVS',
+  dominion_remnant: 'DVS',
   breen: 'BWS',
   ferengi: 'FMS',
   tholian: 'TAS',
@@ -4153,6 +4163,11 @@ const factionNames = {
   cardassian: 'Cardassian',
   klingon: 'Klingon',
   dominion: 'Dominion',
+  // The isolated Jem'Hadar holding at Blender. It flies Dominion hulls and fights like them, and it is
+  // NOT the Dominion beyond the wormhole: it has its own diplomacy, its own quarrels, and a ceasefire
+  // with it settles nothing about the expedition. Named for the place so a captain reading a report
+  // cannot mistake one for the other. [playtest]
+  dominion_remnant: 'Blender Remnant',
   breen: 'Breen',
   tholian: 'Tholian',
   bajoran: 'Bajoran',
@@ -4170,12 +4185,15 @@ const factionNames = {
 };
 
 const factionRelations = {
-  terran: { friendly: ['vulcan', 'andorian', 'bajoran'], hostile: ['dominion', 'cardassian', 'klingon', 'romulan', 'gorn', 'hirogen', 'suliban', 'borg'] },
+  terran: { friendly: ['vulcan', 'andorian', 'bajoran'], hostile: ['dominion', 'dominion_remnant', 'cardassian', 'klingon', 'romulan', 'gorn', 'hirogen', 'suliban', 'borg'] },
   vulcan: { friendly: ['terran', 'andorian', 'bajoran'], hostile: ['dominion', 'cardassian', 'klingon', 'hirogen', 'borg'] },
-  romulan: { friendly: ['klingon'], hostile: ['dominion', 'cardassian', 'terran', 'vulcan', 'andorian', 'borg'] },
+  romulan: { friendly: ['klingon'], hostile: ['dominion', 'dominion_remnant', 'cardassian', 'terran', 'vulcan', 'andorian', 'borg'] },
   cardassian: { friendly: ['dominion'], hostile: ['terran', 'romulan', 'klingon', 'vulcan', 'andorian', 'bajoran', 'borg'] },
   klingon: { friendly: ['romulan'], hostile: ['dominion', 'cardassian', 'terran', 'vulcan', 'andorian', 'gorn', 'borg'] },
   dominion: { friendly: ['cardassian'], hostile: ['terran', 'romulan', 'klingon', 'vulcan', 'ferengi', 'andorian', 'bajoran', 'hirogen', 'borg'] },
+  // Cut off from the wormhole and surrounded: it raids Terran and Romulan shipping and is raided back,
+  // and it has no quarrel with anyone else worth spending Jem'Hadar on.
+  dominion_remnant: { friendly: ['dominion', 'cardassian'], hostile: ['terran', 'romulan'] },
   breen: { friendly: [], hostile: ['terran', 'romulan', 'klingon', 'vulcan', 'ferengi', 'andorian', 'borg'] },
   tholian: { friendly: [], hostile: ['dominion', 'cardassian', 'klingon', 'terran', 'pirate', 'gorn', 'suliban', 'borg'] },
   bajoran: { friendly: ['terran', 'vulcan', 'andorian'], hostile: ['dominion', 'cardassian', 'pirate', 'borg'] },
@@ -23057,6 +23075,10 @@ function campaignAssessment(id) {
 function campaignPowerContact(id) {
   const world = buildCampaignWorld();
   if (world.systems.some((sys) => sys.controller === id && isChartSystemVisible(sys.index))) return true;
+  // A power can exist without ruling anything. An installation of theirs standing in a system the
+  // captain has been to is contact just as much as a border is: they have seen the flag over it.
+  if ((state.stationDefinitions || []).some((def) => getStationOwner(def, def.systemIndex) === id
+    && isReportSystemKnown(Number(def.systemIndex)))) return true;
   if (Object.values(campaignBook().observations || {}).some((o) => o.controller === id)) return true;
   const key = campaignFactionKeyFor(id);
   return galaxyNewsBook().items.some((r) => (r.factions || []).includes(key));

@@ -91,6 +91,11 @@ export const CAMPAIGN_RULES = Object.freeze({
   maxLiveRecoveries: 40,           // open recovery contracts; the bound is enforced at creation, not by deleting offers
   maxLiveMissions: 60,             // open (offered or active) contracts; likewise enforced at creation
   maxOrders: 40,
+  // A power can exist without ruling anything: an isolated garrison holding an outpost in somebody
+  // else's sky. It has no worlds, so the opening pass that builds forces from controlled worlds gives
+  // it nothing; these are its authored hulls and where they stand. It has no economy either — no world
+  // means no revenue — so this is what it has, and losing it is permanent unless an ally rebuilds it.
+  openingGarrisons: { dominion_remnant: { systemIndex: 28, hulls: 4 } },
   maxCatchUpDays: 2000,            // days a single advancement call will step; beyond this the remainder is recorded as unobserved
   foreignDesignShare: 0.35,        // share of AI build orders drawn from licensed foreign designs when any are held
 });
@@ -246,6 +251,7 @@ export function initializeCampaign(book, world) {
   book.dominion.anchorDay ??= book.day;
   const c = book.config;
   const factions = new Set(world.systems.map((s) => s.controller).filter((id) => id && id !== 'player' && world.isFaction(id)));
+  for (const id of Object.keys(c.openingGarrisons || {})) if (world.isFaction(id)) factions.add(id);
   for (const id of factions) {
     const p = polity(book, id);
     const worlds = controlled(world, id);
@@ -269,6 +275,17 @@ export function initializeCampaign(book, world) {
         const h = addHull(book, world, id, sys.index, `opening:${id}:${sys.index}:${i}`, pick);
         if (!h) break;
         strength += hullStrength(book, world, h);
+      }
+    }
+    // A garrison is raised where it was authored to stand, whether or not its holder rules the ground
+    // under it. Same draw as an opening force, just not per world.
+    const garrison = c.openingGarrisons?.[id];
+    if (garrison && Number.isFinite(Number(garrison.systemIndex))) {
+      const at = Number(garrison.systemIndex);
+      for (let i = 0; i < Math.max(0, Math.floor(garrison.hulls) || 0); i++) {
+        const pick = world.pickHull(id, seededUnit(book.seed, `garrison:${id}:${at}:${i}`));
+        if (pick == null) break;
+        if (!addHull(book, world, id, at, `garrison:${id}:${at}:${i}`, pick)) break;
       }
     }
     const reserve = c.openingReserveHulls[id] || 0;

@@ -124,6 +124,55 @@ const { startProbe } = require('./probe-harness.cjs');
       `the campaign's war was handed to the neighbour roll as ${r.dominionPairs.join(', ')}`);
   });
 
+  // REM — the Blender remnant is a power in its own right: Jem'Hadar hulls and an outpost of its own,
+  // at war with Earth and Romulus and nobody else, and not the Dominion beyond the wormhole. Before
+  // this it did not exist at all; Blender was an empty neutral system and the only Dominion in the
+  // game was the one the captain must not be told about.
+  await check('REM the Blender remnant exists, flies Dominion hulls, and is not Dominion Central', async () => {
+    await fresh('play-rem');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state, book = t.campaign();
+      const blender = t.getSystemIndexByName('Blender');
+      if (blender < 0) return { fail: 'the galaxy has no Blender' };
+      const world = t.buildCampaignWorld(true);
+      const rem = book.polities.dominion_remnant || null;
+      const garrison = world.stationsBySystem(blender).filter((x) => x.owner === 'dominion_remnant');
+      const hulls = (rem?.hulls || []);
+      return { fail: null, blender,
+        name: t.formatFaction('dominion_remnant'),
+        controller: world.systems[blender].controller,
+        garrison: garrison.map((x) => ({ name: x.name, status: x.cap?.status })),
+        hulls: hulls.length,
+        atBlender: hulls.every((h) => Number(h.systemIndex) === blender),
+        dominionHulled: hulls.every((h) => t.getShipFaction(Number(h.shipId)) === 'dominion'),
+        vsTerran: t.worldRelation('terran', 'dominion_remnant').status,
+        vsRomulan: t.worldRelation('romulan', 'dominion_remnant').status,
+        vsKlingon: t.worldRelation('klingon', 'dominion_remnant').status,
+        vsCentral: t.worldRelation('dominion', 'dominion_remnant').status,
+        centralHulls: (book.polities.dominion?.hulls || []).length,
+        sharedHulls: (book.polities.dominion?.hulls || []).some((h) => hulls.some((x) => x.id === h.id)),
+        contactBefore: t.campaignPowerContact('dominion_remnant'),
+        contactAfter: (() => { t.markSystemVisited(blender); t.buildCampaignWorld(true); return t.campaignPowerContact('dominion_remnant'); })(),
+        centralContact: t.campaignPowerContact('dominion') };
+    });
+    assert.ok(!r.fail, `the remnant reproduction could not be set up: ${r.fail}`);
+    assert.equal(r.name, 'Blender Remnant', `it is named "${r.name}" rather than for the place it holds`);
+    assert.ok(r.garrison.length >= 1, 'the remnant holds no installation at Blender');
+    assert.equal(r.garrison[0].status, 'operational', `its outpost is ${r.garrison[0].status}`);
+    assert.ok(r.hulls >= 3, `the remnant has ${r.hulls} hulls; a garrison that cannot raid is not a presence`);
+    assert.equal(r.atBlender, true, 'its hulls are not all at Blender');
+    assert.equal(r.dominionHulled, true, 'its hulls are not Dominion ships');
+    assert.equal(r.controller, null, 'precondition: it holds an outpost in an independent system, it does not rule the world');
+    assert.equal(r.vsTerran, 'war', 'it is not at war with Earth');
+    assert.equal(r.vsRomulan, 'war', 'it is not at war with Romulus');
+    assert.equal(r.vsKlingon, 'peace', 'it is at war with somebody it has no quarrel with');
+    assert.equal(r.sharedHulls, false, 'the remnant and Dominion Central share hulls: they are one polity');
+    assert.ok(r.centralHulls > 0, 'precondition: Dominion Central still exists separately');
+    assert.equal(r.contactBefore, false, 'a garrison in a system the captain has never been to is already on their board');
+    assert.equal(r.contactAfter, true, 'and going there does not put it on their board');
+    assert.equal(r.centralContact, false, 'meeting the remnant revealed Dominion Central');
+  });
+
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);
   if (failures.length) { console.log(`${failures.length} still reproduce:`); for (const f of failures) console.log(`  - ${f.name}: ${f.message.split('\n')[0]}`); process.exitCode = 1; }
   if (errors.length) { console.log(`page errors: ${errors.join(' | ')}`); process.exitCode = 1; }
