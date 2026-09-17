@@ -5758,6 +5758,50 @@ function getSystemControl(index = state.currentPlanet) {
   return { index: i, origin: origin.faction, originSource: origin.source, controller, controlSource, polityId, allegiance, playerControlled };
 }
 
+// Who the people of a world are, and who governs them. These are two different facts and the HUD
+// showed only the second, so Bajor under a Dominion flag read as a Dominion world with nothing to say
+// the people are Bajoran or that the flag over them is an occupier's. The ladder below is not a new
+// mechanic: it names states the campaign already runs on — a fresh capture suppresses a world's output
+// and recovers it over `occupationIntegrationDays`, and a holder that finishes integrating its industry
+// gets its designs. So "occupation", "administration" and "annexed" are readable names for the three
+// things the model already does to a captured world. [playtest]
+const SYSTEM_SOVEREIGNTY_LEVELS = Object.freeze(['unclaimed', 'independent', 'colony', 'occupied', 'administered', 'annexed']);
+function getSystemSovereignty(index = state.currentPlanet) {
+  const i = Number(index);
+  const control = getSystemControl(i);
+  const book = campaignBook();
+  const culture = isRecognizedFactionKey(control.origin) ? control.origin : null;
+  const governor = control.playerControlled ? PLAYER_SIDE : (isRecognizedFactionKey(control.controller) ? control.controller : null);
+  const occupation = book.occupations?.[i] || null;
+  const contested = (book.operations || []).some((op) => Number(op.targetSystem) === i && op.status === 'engaged');
+  const integratedDay = governor && governor !== PLAYER_SIDE
+    ? book.polities?.[governor]?.integrations?.[i]?.completedDay || null
+    : null;
+  const settledAfter = Number(book.config?.occupationIntegrationDays) || 0;
+  const heldDays = occupation ? Math.max(0, book.day - occupation.capturedDay) : null;
+  const ownGovernment = !governor || (culture && governor === culture);
+  let level;
+  if (ownGovernment) level = culture ? 'independent' : 'unclaimed';
+  else if (!culture) level = 'colony';
+  else if (integratedDay) level = 'annexed';
+  else if (occupation && heldDays < settledAfter) level = 'occupied';
+  else level = 'administered';
+  const cultureLabel = culture ? formatFaction(culture) : null;
+  const governorLabel = governor === PLAYER_SIDE ? 'your flag' : (governor ? formatFaction(governor) : null);
+  const people = cultureLabel ? `${cultureLabel} world` : (level === 'unclaimed' ? 'Unclaimed world' : 'Unsettled world');
+  let rule;
+  if (level === 'independent') rule = 'self-governed';
+  else if (level === 'unclaimed') rule = 'no government';
+  else if (governor === PLAYER_SIDE) rule = 'under your flag';
+  else if (level === 'colony') rule = `${governorLabel} holding`;
+  else if (level === 'annexed') rule = `annexed by the ${governorLabel}`;
+  else if (level === 'occupied') rule = `${governorLabel} occupation${heldDays == null ? '' : ` (day ${heldDays})`}`;
+  else rule = `${governorLabel} administration`;
+  return { index: i, culture, governor, level, contested, heldDays,
+    cultureLabel, governorLabel, people, rule,
+    label: `${people} \u00b7 ${rule}${contested ? ' \u00b7 contested' : ''}` };
+}
+
 function isPlayerSideNpc(npc) {
   return Boolean(npc && !npc.destroyed && (isPlayerEscortNpc(npc) || npc.role === 'playerFleet'));
 }
@@ -11454,7 +11498,7 @@ function getClaimSystemStatus(systemIndex = state.currentPlanet) {
 
 function getMapSystemInfo(systemIndex = state.selectedPlanet) {
   const index = Math.max(0, Math.min(state.planets.length - 1, Number(systemIndex) || 0));
-  if(!state.visitedSystems.includes(index) && index!==state.currentPlanet)return {faction:'neutral',relation:'Unsurveyed',visited:false,power:'?',stations:'?',patrols:'?',fleet:'?'};
+  if(!state.visitedSystems.includes(index) && index!==state.currentPlanet)return {faction:'neutral',relation:'Unsurveyed',sovereignty:null,visited:false,power:'?',stations:'?',patrols:'?',fleet:'?'};
   const system = ensureSystemState(index);
   const faction = getSystemFaction(index);
   const controlledByPlayer = state.controlledSystems.includes(index);
@@ -11479,14 +11523,16 @@ function getMapSystemInfo(systemIndex = state.selectedPlanet) {
     return sum + durability.hull + durability.shields;
   }, 0);
   const power = Math.round(Math.max(0, (stationPower + patrolPower + fleetPower) / 100));
+  // Culture and government are reported separately: "Bajoran world / Dominion occupation", never a
+  // single flag that hides which of the two it is. [playtest]
+  const sovereignty = getSystemSovereignty(index);
   const relation = controlledByPlayer
-    ? 'Player controlled'
-    : faction === 'neutral'
-      ? 'Independent'
-      : `${formatFaction(faction)} controlled`;
+    ? `${sovereignty.people} | under your flag`
+    : `${sovereignty.people} | ${sovereignty.rule}`;
   return {
     faction,
     relation,
+    sovereignty,
     visited,
     power,
     stations: stations.length,
@@ -11870,8 +11916,8 @@ function renderPlanetMenu() {
   const stationStats = station ? getShipStats(station.stationTypeId) : null;
   const stationCap = station ? getStationCapabilities(station) : null;
   const stationMeta = (state.remoteStationId && !state.docked ? 'Transporter trade channel · ' : '') + (station
-    ? `${escapeHtml(stationStats.name || 'Station')} | ${escapeHtml(stationCap.role)} | Defense ${Math.round(station.defenseRange || 0)} | ${formatFaction(station.faction || state.systemFaction)} station`
-    : `${formatFaction(state.systemFaction)} space | ${state.systemAttitude}${state.systemHasNebula ? ' | Nebula' : ''}`);
+    ? `${escapeHtml(stationStats.name || 'Station')} | ${escapeHtml(stationCap.role)} | Defense ${Math.round(station.defenseRange || 0)} | ${formatFaction(station.faction || state.systemFaction)} station | ${getSystemSovereignty(state.currentPlanet).label}`
+    : `${getSystemSovereignty(state.currentPlanet).label} | ${state.systemAttitude}${state.systemHasNebula ? ' | Nebula' : ''}`);
   const stationRoleLine = station
     ? `<div class="service-description" data-station-role>${escapeHtml(stationCap.summary || '')} <b>Services:</b> ${escapeHtml(StationRoles.describeServices(stationCap))}.${stationCap.statusReason ? ` <b>Status:</b> ${escapeHtml(stationCap.statusReason)}` : ''}</div>`
     : '';
@@ -19360,7 +19406,7 @@ function drawMapLegend() {
   const boxX = 54;
   const boxY = 76;
   const boxW = Math.min(740, Math.max(320, canvas.width - 108));
-  const boxH = 88;
+  const boxH = 106;
   ctx.save();
   ctx.fillStyle = 'rgba(4, 10, 20, 0.82)';
   ctx.fillRect(boxX, boxY, boxW, boxH);
@@ -19369,20 +19415,29 @@ function drawMapLegend() {
   ctx.fillStyle = '#dfeaff';
   ctx.font = canvasUiFont(13);
   drawFittedMapText(`Current: ${p?.name || 'Unknown'}    Target: ${chartSystemLabel(state.selectedPlanet)}`, boxX + 14, boxY + 20, boxW - 28);
+  // Whose world it is, then who governs it, then what is standing in it. A single "Dominion controlled"
+  // line used to collapse the first two. [playtest]
   ctx.fillStyle = getMapFactionColor(systemInfo.faction);
   ctx.font = canvasUiFont(12, 'bold');
   drawFittedMapText(
-    `${systemInfo.relation} | Power ${systemInfo.power} | Stations ${systemInfo.stations} | Patrols ${systemInfo.patrols} | Fleet ${systemInfo.fleet} | ${systemInfo.visited ? 'Visited' : 'Unvisited'}`,
+    `${systemInfo.relation}${systemInfo.sovereignty?.contested ? ' | contested' : ''}`,
     boxX + 14,
     boxY + 39,
     boxW - 28,
   );
+  ctx.font = canvasUiFont(12);
+  drawFittedMapText(
+    `Power ${systemInfo.power} | Stations ${systemInfo.stations} | Patrols ${systemInfo.patrols} | Fleet ${systemInfo.fleet} | ${systemInfo.visited ? 'Visited' : 'Unvisited'}`,
+    boxX + 14,
+    boxY + 57,
+    boxW - 28,
+  );
   ctx.fillStyle = plan?.legs?.length ? (rangeStatus?.canTravel ? '#ffd66e' : '#ffb0b0') : '#9fb2d0';
   ctx.font = canvasUiFont(12);
-  drawFittedMapText(`${cost}    First click plots | Second click warps`, boxX + 14, boxY + 57, boxW - 28);
+  drawFittedMapText(`${cost}    First click plots | Second click warps`, boxX + 14, boxY + 75, boxW - 28);
   const days=plan?.legs?.length?Fleet.travelDays(plan.distance):0;
   const daily=state.playerFleet.filter(f=>!f.destroyed).reduce((sum,f)=>sum+upkeepPerDay(f.shipId),0);
-  drawFittedMapText(`${days} travel days | Current fleet upkeep ${daily*days} L (deliveries add upkeep on following days)`,boxX+14,boxY+77,boxW-28);
+  drawFittedMapText(`${days} travel days | Current fleet upkeep ${daily*days} L (deliveries add upkeep on following days)`,boxX+14,boxY+95,boxW-28);
   ctx.restore();
 }
 

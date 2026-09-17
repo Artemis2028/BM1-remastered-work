@@ -369,6 +369,52 @@ const { startProbe } = require('./probe-harness.cjs');
       `two hundred days of the ordinary roll settled the expedition's war: Earth and the Dominion are now at "${r.after}"`);
   });
 
+  // CULT — Astra's point, and the captain's: a world has a people and a government, and the HUD showed
+  // only the second. A Bajoran world under a Dominion flag read as "Dominion space" on the planet card
+  // and "Dominion controlled" on the map, with nothing to say whose world it actually is.
+  await check('CULT a world reports its people and its government separately', async () => {
+    await fresh('play-cult');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      const here = Number(s.currentPlanet);
+      const world = t.buildCampaignWorld(true);
+      // A world with a people of its own, governed by them.
+      const own = world.systems.findIndex((sys, i) => i !== here && sys.controller && sys.origin === sys.controller);
+      if (own < 0) return { fail: 'no self-governed world to read' };
+      t.markSystemVisited(own);
+      const before = t.getSystemSovereignty(own);
+      const mapBefore = t.getMapSystemInfo(own);
+      // Somebody else takes it.
+      t.transferSystemControlToFaction(own, 'dominion');
+      t.buildCampaignWorld(true);
+      const taken = t.getSystemSovereignty(own);
+      const mapAfter = t.getMapSystemInfo(own);
+      // And the card the captain reads in that system.
+      s.currentPlanet = own; s.myplanet = own + 1; s.warp.active = false;
+      t.applySystemState(own);
+      s.docked = true; s.dockedPlanetIndex = own; s.dockedStationId = null;
+      s.planetMenuOpen = true; s.dockMenuTab = 'services';
+      t.renderPlanetMenu();
+      const card = document.getElementById('planet-menu')?.textContent || '';
+      return { fail: null, own, before, taken, mapBefore: mapBefore.relation, mapAfter: mapAfter.relation,
+        card: card.slice(0, 400), levels: [before.level, taken.level] };
+    });
+    assert.ok(!r.fail, `the sovereignty reproduction could not be set up: ${r.fail}`);
+    assert.equal(r.before.level, 'independent', `a world governed by its own people reads as "${r.before.level}"`);
+    assert.ok(r.before.cultureLabel, 'the world has no people the captain can be told about');
+    assert.ok(['occupied', 'administered'].includes(r.taken.level),
+      `a world taken by somebody else reads as "${r.taken.level}"`);
+    assert.equal(r.taken.cultureLabel, r.before.cultureLabel,
+      `conquest changed whose world it is: ${r.before.cultureLabel} became ${r.taken.cultureLabel}`);
+    assert.equal(r.taken.governorLabel, 'Dominion', `it is governed by "${r.taken.governorLabel}"`);
+    assert.ok(/Dominion/.test(r.mapAfter) && new RegExp(r.before.cultureLabel).test(r.mapAfter),
+      `the map says "${r.mapAfter}" rather than naming both the people and the government`);
+    assert.ok(new RegExp(`${r.before.cultureLabel} world`).test(r.card),
+      `the planet card never names the people of the world: ${r.card.slice(0, 160)}`);
+    assert.ok(/occupation|administration|annexed/.test(r.card),
+      `the planet card never says the government over them is not their own: ${r.card.slice(0, 160)}`);
+  });
+
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);
   if (failures.length) { console.log(`${failures.length} still reproduce:`); for (const f of failures) console.log(`  - ${f.name}: ${f.message.split('\n')[0]}`); process.exitCode = 1; }
   if (errors.length) { console.log(`page errors: ${errors.join(' | ')}`); process.exitCode = 1; }
