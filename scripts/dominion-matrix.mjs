@@ -56,8 +56,11 @@ const POWERS = {
     p.readinessPeak = C.polityReadiness(book, world, 'player').strength;
   },
   'distant-romulan': (book, world) => {
-    // Eight jumps from the entry and never on anybody's hand-written near-side list, but a navy that
-    // size can answer a crossing, and a model that ignored it called the galaxy defenceless.
+    // Four route-hops from the entry in this fixture — Romulus, Vega, Border, Cardassia, Bajora — and
+    // never on anybody's hand-written near-side list, but a navy that size can answer a crossing, and a
+    // model that ignored it called the galaxy defenceless. (An earlier version of this file called it
+    // "eight jumps away", which was the configured limit rather than the measured distance. The exact
+    // boundary is tested below, at the hop count and one past it, rather than asserted in a label.)
     const p = C.getPolity(book, 'romulan');
     for (let i = 0; i < 100; i++) p.hulls.push(hull(`rom${i}`, 31, 4));
     p.readinessPeak = C.polityReadiness(book, world, 'romulan').strength;
@@ -77,7 +80,7 @@ function wreck(book, id, keep) {
 
 // Enough offered chances that the opportunity gate is satisfied; the gate itself is varied in its own
 // block below rather than across every row of this table.
-const PLAYED = { systemsVisited: 40, contractsOffered: 40 };
+const PLAYED = { systemsVisited: 40, journeys: 60, issuers: 12, contacts: 5 };
 
 function build(historyKey, corridorKey, powerKey, economyKey, opportunity = PLAYED) {
   const { world } = makeWorld({ ...CORRIDORS[corridorKey](), playerOpportunity: opportunity });
@@ -170,12 +173,12 @@ check('a solvent war economy closes the opening that a bankrupt one presents', (
   assert.match(rich.reason, /economically strained/);
 });
 
-check('a strong power eight jumps away is a contender, and closes the opening', () => {
+check('a strong power several jumps away is a contender, and closes the opening', () => {
   const alone = find(800, 'worn-stalemate', 'open', 'none');
   const withRomulans = find(800, 'worn-stalemate', 'open', 'distant-romulan');
   assert.equal(alone.open, true, 'precondition: the same galaxy without a distant navy is an opening');
   assert.ok(withRomulans.defenders.includes('romulan'), `the contender set was ${withRomulans.defenders}`);
-  assert.equal(withRomulans.open, false, `a navy of ${withRomulans.strongestNear} eight jumps away did not close it`);
+  assert.equal(withRomulans.open, false, `a navy of ${withRomulans.strongestNear} several jumps away did not close it`);
   assert.equal(withRomulans.challengeable, false);
 });
 
@@ -187,28 +190,76 @@ check('a player empire that has become the strongest power here delays the openi
   assert.equal(with_.challengeable, false);
 });
 
+// --- contender reach, at the exact boundary rather than at a comfortable distance ---
+check('contender membership is decided at the configured hop count, not near it', () => {
+  // Measured, not assumed: whatever the fixture's route graph actually is, this asks it.
+  const { world: probe } = makeWorld();
+  const hopsOf = (id) => Math.min(...probe.systems.filter((s) => s.controller === id)
+    .map((s) => probe.routeHops([s.index], 6, id)).filter((h) => h != null));
+  const romulanHops = hopsOf('romulan');
+  assert.ok(Number.isFinite(romulanHops) && romulanHops > 1,
+    `the fixture puts Romulus ${romulanHops} hops from the entry; this check needs it further than the entry's own neighbours`);
+  const at = (hops) => {
+    const { world } = makeWorld({ playerOpportunity: PLAYED });
+    const book = C.createCampaignBook(`hops:${hops}`, 1, { dominionContenderHops: hops });
+    C.initializeCampaign(book, world);
+    run(book, world, 2, 60);
+    HISTORIES['worn-stalemate'](book, world, 0);
+    ECONOMIES.bankrupt(book, world);
+    POWERS['distant-romulan'](book, world);
+    return C.dominionOpportunity(book, world, 800);
+  };
+  const inside = at(romulanHops);
+  const outside = at(romulanHops - 1);
+  console.log(`   Romulus is ${romulanHops} route-hops from the entry; contenders at ${romulanHops}: ${inside.defenders.map((d) => d.id).join('+')}; at ${romulanHops - 1}: ${outside.defenders.map((d) => d.id).join('+')}`);
+  assert.ok(inside.defenders.some((d) => d.id === 'romulan'),
+    `at exactly ${romulanHops} hops the navy was not a contender: ${inside.defenders.map((d) => d.id).join('+')}`);
+  assert.equal(inside.open, false, 'and it did not close the opening');
+  assert.ok(!outside.defenders.some((d) => d.id === 'romulan'),
+    `one hop short of it the navy was still counted: ${outside.defenders.map((d) => d.id).join('+')}`);
+  assert.equal(outside.open, true, `and the opening did not return: ${outside.reasons.join(' | ')}`);
+  // The shipped limit is further out than anything in this fixture, so it includes everybody here.
+  const shipped = at(C.CAMPAIGN_RULES.dominionContenderHops);
+  assert.ok(shipped.defenders.some((d) => d.id === 'romulan'),
+    `the shipped limit of ${C.CAMPAIGN_RULES.dominionContenderHops} hops excluded a navy ${romulanHops} hops away`);
+});
+
 // --- the opportunity gate, which is what replaced a calendar floor ---
-check('the opening waits on chances offered to the captain, not on the date', () => {
+check('the opening waits on chances offered to the captain, and no single action can supply them', () => {
   const at = (opportunity) => {
     const { book, world } = build('worn-stalemate', 'open', 'none', 'bankrupt', opportunity);
     return C.dominionOpportunity(book, world, 2000);
   };
-  const min = C.CAMPAIGN_RULES.dominionMinPlayerOpportunities;
-  const none = at({ systemsVisited: 1, contractsOffered: 0, missionsOffered: 0, warningsReceived: 0 });
-  const just = at({ systemsVisited: min - 1, contractsOffered: 0, missionsOffered: 0, warningsReceived: 0 });
-  const enough = at({ systemsVisited: min, contractsOffered: 0, missionsOffered: 0, warningsReceived: 0 });
-  assert.equal(none.open, false, 'a captain who has been shown nothing was pulled into the war at day 2,000');
-  assert.match(none.reasons.join(' | '), /chance\(s\), short of/);
-  assert.equal(just.open, false, `one chance short of ${min} opened it`);
-  assert.equal(enough.open, true, `${min} chances did not: ${enough.reasons.join(' | ')}`);
-  // And it is the offers that count, not what the captain made of them: the same total from a different
-  // mix decides the same way, because nothing here reads what they own or achieved. (Station missions
-  // are not in the total — see the comment in dominionOpportunity: counting them would make the same
-  // days decide differently stepped and jumped.)
-  const mixed = at({ systemsVisited: 20, contractsOffered: min - 20, missionsOffered: 99 });
-  assert.equal(mixed.open, true, 'the same number of chances from a different mix decided differently');
-  const missionsOnly = at({ systemsVisited: 0, contractsOffered: 0, missionsOffered: 999 });
-  assert.equal(missionsOnly.open, false, 'station missions were counted into the opportunity total');
+  const need = C.CAMPAIGN_RULES.dominionPlayerBeats;
+  const kinds = C.CAMPAIGN_RULES.dominionMinPlayerCategories;
+
+  const nothing = at({ systemsVisited: 1, journeys: 0, issuers: 0, contacts: 0 });
+  assert.equal(nothing.open, false, 'a captain who has been shown nothing was pulled into the war at day 2,000');
+  assert.match(nothing.reasons.join(' | '), /kinds of chance/);
+
+  // The defect this replaced: one cheap action, repeated, satisfying the whole gate. Each category is
+  // pushed far past its own threshold on its own, and on its own none of them is enough.
+  for (const k of Object.keys(need)) {
+    const only = { systemsVisited: 0, journeys: 0, issuers: 0, contacts: 0, [k]: need[k] * 100 };
+    const r = at(only);
+    assert.equal(r.open, false,
+      `${k} alone, at a hundred times its threshold, opened the door: ${r.beatsMet} of ${kinds} kinds`);
+    assert.equal(r.beatsMet, 1, `${k} alone counted as ${r.beatsMet} kinds of chance`);
+  }
+
+  // One short of the required number of kinds, and then exactly at it.
+  const keys = Object.keys(need);
+  const upTo = (n) => Object.fromEntries(keys.map((k, i) => [k, i < n ? need[k] : 0]));
+  const short = at(upTo(kinds - 1));
+  const enough = at(upTo(kinds));
+  assert.equal(short.open, false, `${kinds - 1} kinds of chance opened it`);
+  assert.equal(short.beatsMet, kinds - 1);
+  assert.equal(enough.open, true, `${kinds} kinds did not: ${enough.reasons.join(' | ')}`);
+  assert.equal(enough.beatsMet, kinds);
+
+  // And it is still chances offered, not achievements: nothing here reads holdings, treasury or fleet.
+  const other = at(Object.fromEntries(keys.map((k, i) => [k, i >= keys.length - kinds ? need[k] : 0])));
+  assert.equal(other.open, true, 'a different set of the same number of kinds decided differently');
 });
 
 // --- the rolling window, which is what rejects a case that merely wobbles ---

@@ -214,7 +214,7 @@ const EXPORTS = 'window.testBM1={state,startWithFaction,advanceFleetCalendar,fle
       // Now the strategic case exists. Nothing else changes: the arc is carried by the ordinary path.
       Object.assign(book.config, { dominionMinCentralEngagements: 0, dominionDefenderWeakness: 1.1,
         dominionEconomicStrain: 1.1, dominionStalemateBand: 1, dominionFrontStallRatio: 1e6, dominionChallengeRatio: 1e6,
-        dominionCorridorCloseRatio: 1e6, dominionMinPlayerOpportunities: 0,
+        dominionCorridorCloseRatio: 1e6, dominionMinPlayerCategories: 0,
         dominionOpeningWindowDays: 1, dominionOpeningSustainDays: 1 });
       step(1);
       const recon = { phase: book.dominion.phase, ops: book.operations.filter((o) => o.faction === 'dominion').length, warnings: book.dominion.warnings.length };

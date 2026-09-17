@@ -28,7 +28,7 @@ const nearSide = (world, entry) => {
 // it stays about the thing it indicts. Anything testing the unlock itself belongs in the model suite.
 const OPENS_AT_ONCE = Object.freeze({ dominionMinCentralEngagements: 0, dominionDefenderWeakness: 1.1,
   dominionStalemateBand: 1, dominionOpeningSustainDays: 0, dominionEconomicStrain: 1.1,
-  dominionChallengeRatio: 1e6, dominionCorridorCloseRatio: 1e6, dominionMinPlayerOpportunities: 0 });
+  dominionChallengeRatio: 1e6, dominionCorridorCloseRatio: 1e6, dominionMinPlayerCategories: 0 });
 
 const test = (name, fn) => {
   checks++;

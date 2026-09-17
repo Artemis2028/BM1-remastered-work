@@ -351,7 +351,7 @@ const { startProbe } = require('./probe-harness.cjs');
       // that a stage must reach the captain before the next one commits.
       Object.assign(book.config, { dominionMinCentralEngagements: 0, dominionDefenderWeakness: 1.1,
         dominionEconomicStrain: 1.1, dominionStalemateBand: 1, dominionFrontStallRatio: 1e6,
-        dominionChallengeRatio: 1e6, dominionCorridorCloseRatio: 1e6, dominionMinPlayerOpportunities: 0,
+        dominionChallengeRatio: 1e6, dominionCorridorCloseRatio: 1e6, dominionMinPlayerCategories: 0,
         dominionOpeningWindowDays: 1, dominionOpeningSustainDays: 1,
         dominionReconDwellDays: 0, dominionStagingDwellDays: 0 });
       const jump = (days) => {
@@ -372,6 +372,42 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.deepEqual(steps, ['dormant->reconnaissance', 'reconnaissance->staging', 'staging->invasion', 'invasion->invasion'],
       `the arc advanced ${steps.join(', ')} rather than one stage per journey`);
     assert.equal(r.beats, 3, 'the stages did not each commit on a beat of their own');
+  });
+
+  // DOM-7 — the pacing gate that replaced the calendar floor was a single additive counter, and every
+  // press of "request contract" incremented it. Fifty-nine presses at one station, with no travel and
+  // no time passing, satisfied the whole thing: the replacement for a calendar floor could be completed
+  // by cycling a menu in one sitting.
+  await check('DOM the maturity gate cannot be satisfied by cycling one menu', async () => {
+    await fresh('play-dom7');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state, book = t.campaign();
+      const world = () => t.buildCampaignWorld(true);
+      const read = () => {
+        const o = world().playerOpportunity || {};
+        return { ...o, sum: Object.values(o).reduce((n, v) => n + (Number(v) || 0), 0) };
+      };
+      const before = read();
+      // The captain stands at one station and asks for work, over and over. Nothing else happens: no
+      // warp, no docking anywhere else, no day passes.
+      const day = s.day;
+      let presses = 0;
+      for (let i = 0; i < 200; i++) { t.negotiateContract(); presses++; }
+      const after = read();
+      const beats = book.config.dominionPlayerBeats;
+      const kinds = Object.keys(beats).filter((k) => (Number(after[k]) || 0) >= beats[k]);
+      return { presses, before, after, dayMoved: s.day !== day,
+        beats, kindsMet: kinds, needKinds: book.config.dominionMinPlayerCategories,
+        systems: (s.visitedSystems || []).length };
+    });
+    assert.equal(r.dayMoved, false, 'precondition: no campaign day passed while the menu was cycled');
+    assert.ok(r.presses >= 100, `precondition: the menu was actually cycled (${r.presses} presses)`);
+    assert.ok(r.after.sum - r.before.sum <= 2,
+      `${r.presses} presses at one station moved the maturity counts by ${r.after.sum - r.before.sum}`);
+    assert.ok(r.kindsMet.length < r.needKinds,
+      `cycling one menu satisfied ${r.kindsMet.length} of ${r.needKinds} kinds of chance: ${r.kindsMet.join(', ')}`);
+    assert.ok(!r.kindsMet.includes('issuers'),
+      'repeated offers from the same station counted as distinct issuers');
   });
 
   // DOM-5 — the Dominion took Bajor and then signed a peace with Earth, because once it held ground on

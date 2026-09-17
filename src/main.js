@@ -9088,6 +9088,7 @@ function openRemoteStationShop(id) {
   if (block) { setLog(block); openStationComms(id); return false; }
   document.getElementById('station-comms').close();
   state.remoteStationId = id;
+  recordOpportunity('contacts', normalizeFactionKey(getStationOwner(station) || station.faction || 'neutral'));
   state.planetMenuOpen = true;
   state.dockMenuTab = 'services';
   renderPlanetMenu();
@@ -12184,6 +12185,7 @@ function openStationMenu(station) {
   state.docked = true;
   state.dockedPlanetIndex = null;
   state.dockedStationId = station.id;
+  recordOpportunity('contacts', normalizeFactionKey(getStationOwner(station) || station.faction || 'neutral'));
   state.planetMenuOpen = true;
   state.dockMenuTab = 'market';
   state.dockPanelScrollByTab = {};
@@ -12301,6 +12303,7 @@ function tryDockAtPlanetIndex(i, marker = state.planets[i]) {
   state.docked = true;
   state.dockedPlanetIndex = i;
   state.dockedStationId = null;
+  recordOpportunity('contacts', normalizeFactionKey(getSystemFaction(i) || 'neutral'));
   state.currentPlanet = i;
   state.myplanet = i + 1;
   setLog(`Docked at ${p.name}. Planet services open.`);
@@ -13884,18 +13887,35 @@ function tryTransportClickedAsteroid(asteroid) {
 // Dominion opening reads instead of a calendar floor: chances offered, never achievements, so a captain
 // who takes none of them is protected exactly as much as one who takes all of them, and four hundred
 // days spent crossing empty space accumulate almost nothing. [17SEP spec §3.1]
+// Distinct beats, each bounded, never a running total. An earlier version of this counted every press
+// of "request contract" and added that to the systems visited, which meant fifty-nine presses at one
+// station — no travel, no time, one menu — satisfied the whole pacing gate. Every count here is a set
+// or a capped tally of something that costs the captain a journey, a docking or a destination, so
+// cycling a menu in one place moves exactly one of them by exactly one, and never again. [review]
+const OPPORTUNITY_SET_CAP = 64;
 function playerOpportunityLedger() {
   const p = ensurePlaytestState();
-  p.opportunities ||= { contractsOffered: 0 };
-  p.opportunities.contractsOffered = Math.max(0, Number(p.opportunities.contractsOffered) || 0);
-  return p.opportunities;
+  const o = (p.opportunities ||= {});
+  o.journeys = Math.max(0, Math.floor(Number(o.journeys) || 0));
+  if (!Array.isArray(o.issuers)) o.issuers = [];
+  if (!Array.isArray(o.contacts)) o.contacts = [];
+  return o;
 }
-// Only what the player does. Offers and warnings the campaign itself generates are counted inside the
-// campaign, from the book it is mutating, so that a jump and the same days stepped read the same number.
+function recordOpportunity(kind, key) {
+  if (!key) return;
+  const o = playerOpportunityLedger();
+  const list = o[kind];
+  if (!Array.isArray(list) || list.includes(key) || list.length >= OPPORTUNITY_SET_CAP) return;
+  list.push(key);
+}
+// Only what the player does, and only things a jump cannot change while it is running.
 function campaignPlayerOpportunity() {
+  const o = playerOpportunityLedger();
   return {
     systemsVisited: (state.visitedSystems || []).length,
-    contractsOffered: playerOpportunityLedger().contractsOffered,
+    journeys: o.journeys,
+    issuers: o.issuers.length,
+    contacts: o.contacts.length,
   };
 }
 function negotiateContract() {
@@ -13903,7 +13923,10 @@ function negotiateContract() {
   if (!requireServiceConnection()) return;
   updateMenu(1, 3);
   state.pendingContractOffer = createCargoRunOffer();
-  if (state.pendingContractOffer) playerOpportunityLedger().contractsOffered += 1;
+  // The issuer, not the offer: rerolling a destination at the same station is the same issuer, and the
+  // captain has to go somewhere else to be offered work by somebody else.
+  if (state.pendingContractOffer) recordOpportunity('issuers',
+    `${state.currentPlanet}:${getCurrentServiceStation()?.id || 'planet'}`);
   if (!state.pendingContractOffer) { renderContractModal(); setLog(state.cargoCap - state.cargo < 1 ? 'Cargo hold full. Free space before requesting a contract.' : 'No reachable cargo destinations available.'); return; }
   renderContractModal();
   setLog(`Contract offer from ${state.pendingContractOffer.employerName}.`);
@@ -21928,6 +21951,9 @@ let campaignJourneyId = null;
 function advanceFleetCalendar(days, id) {
   captureShipPowerState();
   campaignJourneyId = id == null ? null : String(id);
+  // A completed journey is a beat the captain paid for in fuel and days. Capped, so journeys alone
+  // cannot carry the gate.
+  if (id != null) { const o = playerOpportunityLedger(); o.journeys = Math.min(400, o.journeys + 1); }
   try {
   return Fleet.advanceCalendar(fleetBook(), state, days, id, {
     settle(day) {
@@ -23395,7 +23421,7 @@ function triggerCampaignDebug(args) {
       const forced = { dominionMinCentralEngagements: 0, dominionDefenderWeakness: 1.1,
         dominionStalemateBand: 1, dominionFrontStallRatio: FAR, dominionChallengeRatio: FAR,
         dominionCorridorCloseRatio: FAR, dominionOpportunityRatio: 0,
-        dominionEconomicStrain: 1.1, dominionMinPlayerOpportunities: 0,
+        dominionEconomicStrain: 1.1, dominionMinPlayerCategories: 0,
         dominionOpeningWindowDays: 1, dominionOpeningSustainDays: 1,
         // A forced override is one command, not a voyage: the beat rule that keeps stages a journey
         // apart in play would otherwise stop this reaching the phase the operator asked for.

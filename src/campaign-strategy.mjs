@@ -85,10 +85,22 @@ export const CAMPAIGN_RULES = Object.freeze({
   dominionOpeningSustainDays: 60,        // ...of which this many must be eligible before the arc unlocks
   // What replaces a calendar floor. Campaign day is not an opportunity score, so the thing that has to
   // be true before the galaxy's war can pull the captain into it is that the captain has actually been
-  // offered a game: worlds to see, work to take, and word of what is happening. These count chances
-  // the game put in front of them, never things they achieved, so a captain who stays poor and small is
-  // protected exactly as much as one who does not.
-  dominionMinPlayerOpportunities: 60,    // offered contracts + offered missions + systems visited + warnings received
+  // offered a game: worlds to see, work to take, powers to deal with. These count chances the game put
+  // in front of them, never things they achieved, so a captain who stays poor and small is protected
+  // exactly as much as one who does not.
+  //
+  // Categories, not a total. A single additive counter is farmable by whichever of its inputs is
+  // cheapest: the first version of this added every press of "request contract" to the systems visited,
+  // and fifty-nine presses at one station — no travel, no time, one menu — satisfied the whole gate.
+  // Each category below is a set or a capped tally of something that costs a journey, a docking or a
+  // destination, and the gate needs several of them, so no single action can carry it. [review]
+  dominionPlayerBeats: Object.freeze({
+    systemsVisited: 10,                  // distinct worlds seen
+    journeys: 25,                        // completed journeys, capped at 400 by the engine
+    issuers: 6,                          // distinct stations or worlds that have offered the captain work
+    contacts: 3,                         // distinct powers whose service channel the captain has opened
+  }),
+  dominionMinPlayerCategories: 3,        // of the four above
   dominionPhaseBeatsApart: true,         // at most one phase transition per journey: never a whole arc inside one jump
   dominionStalemateBand: 0.5,            // |a-b| / max(a,b) at or under this is a bounded strength difference
   dominionFrontStallRatio: 2,            // ...and neither side's captures may exceed the other's by more than this
@@ -1272,24 +1284,27 @@ export function dominionOpportunity(book, world, day) {
   //    count of what they made of those chances. A captain who takes none of it is protected exactly as
   //    much as one who takes all of it, and a captain who spends four hundred days crossing empty space
   //    accumulates almost nothing, because travel is not an opportunity.
-    //  What may be counted here is bounded by equivalence, not by taste. The two counts from the view
-    //  are things only the player does, which cannot happen mid-jump, so a snapshot of them is right.
-    //  The warnings are the campaign's own and are read from the book being mutated, so they read the
-    //  same stepped or jumped. Station missions are deliberately NOT counted: the engine offers them in
-    //  reaction to a day's effects, which lands before the next day when stepping and after all of them
-    //  when jumping, so counting them would make the same sixteen days decide differently depending on
-    //  how they were advanced. The counter is kept for evidence; it is not an input.
+  //    Every count comes from the engine's view and is a thing only the player does, which cannot
+  //    happen mid-jump, so a snapshot of them is right and a jump decides as the same days stepped do.
+  //    Nothing the campaign itself increments is counted: station missions, for instance, are offered
+  //    by the engine in reaction to a day's effects, which lands before the next day when stepping and
+  //    after all of them when jumping, so counting them would make the same sixteen days decide
+  //    differently depending on how they were advanced. (The mission counter is kept as evidence.)
   const chances = world.playerOpportunity || null;
-  const offered = chances
-    ? (Number(chances.systemsVisited) || 0) + (Number(chances.contractsOffered) || 0)
-      + ((book.dominion?.warnings || []).length)
+  const beats = c.dominionPlayerBeats || {};
+  const progress = chances
+    ? Object.keys(beats).map((k) => ({ beat: k, has: Number(chances[k]) || 0, needs: beats[k] }))
     : null;
-  const played = offered == null || offered >= (c.dominionMinPlayerOpportunities || 0);
-  if (!played) reasons.push(`the captain has been offered ${offered} chance(s), short of ${c.dominionMinPlayerOpportunities}`);
+  const metBeats = progress ? progress.filter((x) => x.has >= x.needs) : null;
+  const played = progress == null || metBeats.length >= (c.dominionMinPlayerCategories || 0);
+  if (!played) {
+    reasons.push(`the captain has had ${metBeats.length} of ${c.dominionMinPlayerCategories} kinds of chance: `
+      + progress.map((x) => `${x.beat} ${x.has}/${x.needs}`).join(', '));
+  }
 
   return { open: Boolean(foughtEnough && weakened.length && strained.length && challengeable && balance && corridorOpen && played),
     day, engagements, balance, corridorOpen, recovered, challengeable, frontStalled,
-    played, offered, strained: strained.map((x) => ({ id: x.id, what: x.worst.what, share: Number(x.worst.share.toFixed(3)) })),
+    played, beats: progress, beatsMet: metBeats ? metBeats.length : null, strained: strained.map((x) => ({ id: x.id, what: x.worst.what, share: Number(x.worst.share.toFixed(3)) })),
     strongestNear: Math.round(strongestNear), strengthGap: Number(gap.toFixed(3)),
     entrySystem, entryDefence: entryDefence === Infinity ? null : Math.round(entryDefence),
     expeditionReach: Math.round(reach), expeditionTarget: Math.round(target),
