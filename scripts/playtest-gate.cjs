@@ -173,6 +173,102 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.equal(r.centralContact, false, 'meeting the remnant revealed Dominion Central');
   });
 
+  // REM-2 — the remnant is meant to be the player's first and only sight of the Dominion until they go
+  // through the wormhole, so the two Jem'Hadar designs are the whole of what it may put on the board.
+  // A garrison drawing from the parent culture's pool spoils the battleship, the cruiser, the scout and
+  // the freighter years early, and it did: the opening four included a Dominion Battleship and a Scout.
+  await check('REM the remnant flies two Jem\'Hadar designs and never the rest of the Dominion', async () => {
+    await fresh('play-rem-designs');
+    const r = await ev(() => {
+      const t = testBM1, book = t.campaign();
+      const rem = book.polities.dominion_remnant || null;
+      if (!rem) return { fail: 'there is no Blender remnant to draw hulls for' };
+      const world = t.buildCampaignWorld(true);
+      const nameOf = (id) => t.getShipStats(Number(id))?.name || `#${id}`;
+      const uniq = (a) => [...new Set(a.filter((x) => Number.isFinite(x)))];
+      // Every path by which a hull reaches the board under its flag: the campaign's own draw, and the
+      // spawner every patrol, escort and raid goes through.
+      const draws = [];
+      for (let i = 0; i < 200; i++) { const id = world.pickHull('dominion_remnant', i / 200); if (id != null) draws.push(Number(id)); }
+      const spawns = [];
+      for (let i = 1; i <= 100; i++) for (const role of ['patrol', 'fleetAttack', 'traffic', 'escort']) {
+        const id = t.getNpcShipIdForFaction ? t.getNpcShipIdForFaction('dominion_remnant', i, role) : null;
+        if (id != null) spawns.push(Number(id));
+      }
+      const central = [];
+      for (let i = 0; i < 200; i++) { const id = world.pickHull('dominion', i / 200); if (id != null) central.push(Number(id)); }
+      const garrison = rem.hulls.map((h) => Number(h.shipId));
+      return { fail: null, spawnPaths: spawns.length,
+        garrison: uniq(garrison).map(nameOf), draws: uniq(draws).map(nameOf),
+        spawns: uniq(spawns).map(nameOf), central: uniq(central).map(nameOf),
+        flown: uniq([...garrison, ...draws, ...spawns]).map(nameOf) };
+    });
+    assert.ok(!r.fail, `the design reproduction could not be set up: ${r.fail}`);
+    const allowed = ["Jem'Hadar Attack Ship", "Jem'Hadar Battlecruiser"];
+    const stray = (list) => list.filter((n) => !allowed.includes(n));
+    assert.ok(r.spawnPaths > 0, 'precondition: the spawner answers for this faction at all');
+    assert.deepEqual(stray(r.garrison), [], `the opening garrison fields ${stray(r.garrison).join(', ')}`);
+    assert.deepEqual(stray(r.draws), [], `a campaign hull draw for the remnant returned ${stray(r.draws).join(', ')}`);
+    assert.deepEqual(stray(r.spawns), [], `a patrol or raid spawn under the remnant flag returned ${stray(r.spawns).join(', ')}`);
+    assert.equal(r.flown.length, 2, `the remnant flies ${r.flown.length} designs: ${r.flown.join(', ')}`);
+    assert.ok(stray(r.central).length > 0,
+      'the Dominion beyond the wormhole now draws from the same two designs: the restriction belongs to the remnant, not to the catalogue');
+  });
+
+  // REM-3 — a power with no world earns nothing, and the opening pass gave this one hulls with an
+  // upkeep bill and no way to pay it: it ran its treasury down and a hull lost to a raid was gone for
+  // good. A garrison the player is meant to keep meeting has to be able to stand where it stands.
+  await check('REM the remnant pays for itself and makes good a loss while it holds its outpost', async () => {
+    await fresh('play-rem-economy');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state, book = t.campaign();
+      const rem = book.polities.dominion_remnant || null;
+      if (!rem) return { fail: 'there is no Blender remnant to keep standing' };
+      const blender = t.getSystemIndexByName('Blender');
+      const world = t.buildCampaignWorld(true);
+      const live = () => rem.hulls.filter((h) => h.status !== 'lost');
+      const snap = () => ({ treasury: Math.round(rem.treasury), hulls: live().length, supply: rem.supply, rebuilt: rem.garrisonRebuiltDay ?? null });
+      const day0 = s.day;
+      const worlds = world.systems.filter((sys) => sys.controller === 'dominion_remnant').length;
+      const start = snap();
+      // A quiet year on station: upkeep is paid every single day.
+      t.advanceCampaign(day0 + 200);
+      const sustained = snap();
+      // Two hulls are lost the way raiding loses them.
+      for (const h of live().slice(0, 2)) h.status = 'lost';
+      const afterLoss = snap();
+      t.advanceCampaign(day0 + 600);
+      const rebuilt = snap();
+      // Now the outpost itself is taken out from under it.
+      const def = (s.stationDefinitions || []).find((d) => Number(d.systemIndex) === blender && t.getStationOwner(d, blender) === 'dominion_remnant');
+      if (!def) return { fail: 'the remnant holds no station at Blender to lose' };
+      t.destroyStation(def);
+      t.buildCampaignWorld(true);
+      for (const h of live().slice(0, 1)) h.status = 'lost';
+      const beforeSiege = snap();
+      t.advanceCampaign(day0 + 1200);
+      const sieged = snap();
+      return { fail: null, worlds, want: book.config.openingGarrisons?.dominion_remnant?.hulls ?? 0,
+        start, sustained, afterLoss, rebuilt, beforeSiege, sieged };
+    });
+    assert.ok(!r.fail, `the economy reproduction could not be set up: ${r.fail}`);
+    assert.equal(r.worlds, 0, 'precondition: it rules no world, so nothing but its outpost can pay it');
+    assert.ok(r.sustained.treasury > r.start.treasury,
+      `200 days on station took its treasury from ${r.start.treasury} to ${r.sustained.treasury}: it cannot pay its own upkeep`);
+    assert.ok(r.sustained.supply > 0.35,
+      `a garrison holding a live outpost runs at the no-supply floor (${r.sustained.supply})`);
+    assert.ok(r.rebuilt.hulls > r.afterLoss.hulls,
+      `it lost two hulls and 400 days later still has ${r.rebuilt.hulls}: a loss is permanent`);
+    assert.ok(r.rebuilt.hulls <= r.want,
+      `it rebuilt past its authored strength: ${r.rebuilt.hulls} hulls against ${r.want}`);
+    assert.ok(r.rebuilt.rebuilt != null && r.rebuilt.rebuilt > r.afterLoss.rebuilt,
+      'no replacement was ever raised at the outpost');
+    assert.equal(r.sieged.rebuilt, r.beforeSiege.rebuilt,
+      'it made good a hull after its outpost was destroyed: the yard is not the outpost');
+    assert.ok(r.sieged.treasury < r.beforeSiege.treasury,
+      `it kept drawing an income with no outpost left (${r.beforeSiege.treasury} to ${r.sieged.treasury})`);
+  });
+
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);
   if (failures.length) { console.log(`${failures.length} still reproduce:`); for (const f of failures) console.log(`  - ${f.name}: ${f.message.split('\n')[0]}`); process.exitCode = 1; }
   if (errors.length) { console.log(`page errors: ${errors.join(' | ')}`); process.exitCode = 1; }

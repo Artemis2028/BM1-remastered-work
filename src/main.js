@@ -1377,8 +1377,17 @@ function getNpcShipId(seedValue, role = 'traffic') {
 // diplomacy and its own name, and the ships are Dominion ships, so anything choosing a hull asks this
 // rather than the diplomatic identity. [playtest]
 const SHIP_POOL_FACTION = Object.freeze({ dominion_remnant: 'dominion' });
+// ...and how much of that culture it flies. The remnant fields two designs, the Jem'Hadar attack ship
+// and the Jem'Hadar battlecruiser, and nothing else: the battleship, the cruiser, the scout and the
+// freighter are the Dominion the player has not met yet, and meeting a raiding garrison must not spoil
+// them. A faction listed here draws only from its list — campaign hulls, patrols, escorts, all of it —
+// so there is no path by which a larger Dominion hull reaches the board under a remnant flag. [playtest]
+const FACTION_DESIGN_POOL = Object.freeze({ dominion_remnant: Object.freeze([322, 48]) });
 function shipPoolFaction(faction) { return SHIP_POOL_FACTION[String(faction || '')] || faction; }
+function factionDesignPool(faction) { return FACTION_DESIGN_POOL[String(faction || '')] || null; }
 function getNpcShipIdForFaction(rawFaction = 'neutral', seedValue = 1, role = 'patrol') {
+  const restricted = factionDesignPool(rawFaction);
+  if (restricted) return pickSeededPoolItem(restricted, seedValue, `npc-faction-ship:${rawFaction}`) || restricted[0];
   const faction = shipPoolFaction(rawFaction);
   if (state.shipCatalog) return pickCatalogSpawnId(role, faction, seedValue);
   const pool = state.npcShipIds?.length ? state.npcShipIds : FALLBACK_NPC_SHIP_IDS;

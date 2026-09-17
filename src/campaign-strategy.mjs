@@ -93,9 +93,15 @@ export const CAMPAIGN_RULES = Object.freeze({
   maxOrders: 40,
   // A power can exist without ruling anything: an isolated garrison holding an outpost in somebody
   // else's sky. It has no worlds, so the opening pass that builds forces from controlled worlds gives
-  // it nothing; these are its authored hulls and where they stand. It has no economy either — no world
-  // means no revenue — so this is what it has, and losing it is permanent unless an ally rebuilds it.
-  openingGarrisons: { dominion_remnant: { systemIndex: 28, hulls: 4 } },
+  // it nothing; these are its authored hulls and where they stand. It rules no ground, so the world
+  // economy gives it nothing either: `revenuePerDay` and `materialsPerDay` are the authored raiding
+  // and salvage take that keeps it standing, paid only while it still holds a live station at
+  // `systemIndex` — take the outpost and the take stops. `supply` is what one outpost sustains, short
+  // of a supplied power's 1. `replaceDays` is the whole of its production: it owns no yard, so a lost
+  // hull comes back no faster than this, never past `hulls`, and only if it can pay for one.
+  openingGarrisons: {
+    dominion_remnant: { systemIndex: 28, hulls: 4, revenuePerDay: 120, materialsPerDay: 1, supply: 0.6, replaceDays: 60 },
+  },
   maxCatchUpDays: 2000,            // days a single advancement call will step; beyond this the remainder is recorded as unobserved
   foreignDesignShare: 0.35,        // share of AI build orders drawn from licensed foreign designs when any are held
 });
@@ -287,6 +293,8 @@ export function initializeCampaign(book, world) {
         if (pick == null) break;
         if (!addHull(book, world, id, at, `garrison:${id}:${at}:${i}`, pick)) break;
       }
+      // The clock on replacements starts at the opening, so the first loss is not made good overnight.
+      p.garrisonRebuiltDay = book.day;
     }
     const reserve = c.openingReserveHulls[id] || 0;
     const home = worlds[0];
@@ -414,6 +422,7 @@ function settleCampaignDay(book, world, day, effects) {
   book.day = day;
   settleEconomy(book, world, day, effects);
   advanceProduction(book, world, day, effects);
+  advanceGarrisons(book, world, day);
   advanceRepairs(book, world, day);
   advanceIntegrations(book, world, day, effects);
   enforceRelations(book, world, day, effects);
@@ -425,6 +434,42 @@ function settleCampaignDay(book, world, day, effects) {
   expireMissions(book, day, effects);
   pruneLostHulls(book);
   book.settled = day;
+}
+
+// A garrison that loses a hull is not finished. While it still holds its outpost it makes one loss good
+// at a time, paying the yard price out of its own treasury, no faster than `replaceDays` apart and never
+// past its authored strength. This is the whole of its production: owning no world, it can queue nothing
+// through `advanceProduction`, so without this a garrison only ever shrinks.
+function advanceGarrisons(book, world, day) {
+  const c = book.config;
+  for (const [id, garrison] of Object.entries(c.openingGarrisons || {})) {
+    if (!book.polities[id] || !world.isFaction(id)) continue;
+    if (controlled(world, id).length) continue;        // it rules ground now; ordinary production applies
+    if (!garrisonOutpostHeld(world, id, garrison)) continue;
+    const p = polity(book, id);
+    const want = Math.max(0, Math.floor(garrison.hulls) || 0);
+    if (livingHulls(p).length >= want) continue;
+    const wait = Math.max(0, Number(garrison.replaceDays) || 0);
+    if (day - (p.garrisonRebuiltDay ?? book.day) < wait) continue;
+    const at = Number(garrison.systemIndex);
+    const pick = world.pickHull(id, seededUnit(book.seed, `garrison-replace:${id}:${day}`));
+    if (pick == null) continue;
+    const price = Math.max(1000, Number((world.shipStats(pick) || {}).price) || 0);
+    if (p.treasury < price) continue;
+    const hull = addHull(book, world, id, at, `garrison-replace:${id}:${day}`, pick);
+    if (!hull) continue;
+    p.treasury = bounded(p.treasury - price, -c.treasuryCap, c.treasuryCap);
+    p.garrisonRebuiltDay = day;
+    addHistory(book, day, 'garrison', `${world.factionName(id)} makes good a hull at its outpost.`);
+  }
+}
+
+// A garrison holds its ground through a station, not a flag: the outpost is what pays it and what it
+// rebuilds from. Destroyed or taken from it, the garrison is on its own.
+function garrisonOutpostHeld(world, polityId, garrison) {
+  const at = Number(garrison?.systemIndex);
+  if (!Number.isFinite(at)) return false;
+  return world.stationsBySystem(at).some((st) => st && st.owner === polityId && !st.destroyed);
 }
 
 function settleEconomy(book, world, day, effects) {
@@ -440,9 +485,20 @@ function settleEconomy(book, world, day, effects) {
       materials += (c.materialsPerWorld + (fx.mining || 0)) * factor;
       food += fx.food || 0; housing += fx.housing || 0;
     }
-    // Supply: a polity with no controlled world has none; blockaded worlds (an enemy op holding) reduce it.
+    // A garrison polity rules no ground, so the world loop above gave it nothing. Its authored take is
+    // paid only while it still holds a live station where it stands: lose the outpost, lose the income.
+    const garrison = c.openingGarrisons?.[id];
+    const holdsOutpost = !worlds.length && garrison ? garrisonOutpostHeld(world, id, garrison) : false;
+    if (holdsOutpost) {
+      revenue += Math.max(0, Number(garrison.revenuePerDay) || 0);
+      materials += Math.max(0, Number(garrison.materialsPerDay) || 0);
+    }
+    // Supply: a polity with no controlled world has none, save a garrison still on its outpost, which
+    // runs on what that one station can sustain; blockaded worlds (an enemy op holding) reduce it.
     const blockaded = worlds.filter((s) => book.operations.some((o) => o.targetSystem === s.index && o.status === 'engaged' && o.faction !== id)).length;
-    p.supply = worlds.length ? bounded(1 - blockaded / worlds.length * 0.6, c.supplyFloor, 1) : c.supplyFloor;
+    p.supply = worlds.length
+      ? bounded(1 - blockaded / worlds.length * 0.6, c.supplyFloor, 1)
+      : (holdsOutpost ? bounded(Number(garrison.supply) || c.supplyFloor, c.supplyFloor, 1) : c.supplyFloor);
     const upkeep = p.hulls.filter((h) => h.status !== 'lost').reduce((n, h) => n + Math.max(0, Number((world.shipStats(h.shipId) || {}).mass) || 1) * c.hullUpkeepPerMass, 0);
     p.revenueLastDay = revenue; p.expenseLastDay = upkeep;
     if (id === 'player') {
