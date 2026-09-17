@@ -23345,19 +23345,25 @@ function triggerCampaignDebug(args) {
         // instead left those hulls assigned to an operation that no longer existed.
         const recalled = Campaign.terminateOperations(book, world, 'dominion', state.day, [], 'The Dominion expedition was recalled.');
         Object.assign(d, { phase: 'dormant', phaseDay: null, warnings: [], expeditionOpId: null, reinforcementCut: false, convoys: 0, lastConvoyDay: null });
-        const far = state.day + 100000;
-        book.config = { ...c, dominionReconDay: far, dominionStagingDay: far + 20, dominionInvasionDay: far + 35 };
+        Object.assign(d, { openedDay: null, standDownDay: null, lastOpportunity: null });
+        // There is no timetable to push any more: what holds the expedition back is the opening, so the
+        // override puts the floor out of reach and leaves the opening unsatisfiable.
+        book.config = { ...c, dominionEarliestDay: state.day + 100000 };
         campaignWorldCache = null;
-        return `Forced override: Dominion expedition reset to dormant; ${recalled.length} operation(s) recalled and their hulls released; the timetable is pushed beyond reach. Phase is now ${d.phase}.`;
+        return `Forced override: Dominion expedition reset to dormant; ${recalled.length} operation(s) recalled and their hulls released; the opening is pushed beyond reach. Phase is now ${d.phase}.`;
       }
-      // Re-anchor the timetable so every phase up to and including the requested one is already due,
-      // then advance one day through the ordinary calendar so the phase is entered by the same code
-      // that enters it in play. The invasion also needs its 30-day opportunity window to have lapsed.
-      const next = state.day + 1;
-      const plan = { reconnaissance: { recon: next, staging: next + 20, invasion: next + 35 },
-        staging: { recon: next - 1, staging: next, invasion: next + 15 },
-        invasion: { recon: next - 32, staging: next - 31, invasion: next - 30 } }[a];
-      book.config = { ...c, dominionReconDay: plan.recon, dominionStagingDay: plan.staging, dominionInvasionDay: plan.invasion };
+      // Force the opening rather than a date: relax every condition dominionOpportunity() reads so the
+      // strategic case is trivially satisfied, and set the dwell of the transition we want to stop at
+      // beyond reach. Then advance one day through the ordinary calendar, so the phase is entered by
+      // exactly the code that enters it in play rather than by assignment.
+      const FAR = 100000;
+      const forced = { dominionEarliestDay: 0, dominionMinCentralEngagements: 0, dominionDefenderWeakness: 1.1, dominionOpeningSustainDays: 0,
+        dominionStalemateBand: 1, dominionFrontStallRatio: FAR, dominionChallengeRatio: FAR,
+        dominionCorridorCloseRatio: FAR, dominionOpportunityRatio: 0 };
+      const dwell = { reconnaissance: { recon: FAR, staging: FAR },
+        staging: { recon: 0, staging: FAR },
+        invasion: { recon: 0, staging: 0 } }[a];
+      book.config = { ...c, ...forced, dominionReconDwellDays: dwell.recon, dominionStagingDwellDays: dwell.staging };
       const order = ['dormant', 'reconnaissance', 'staging', 'invasion'];
       let recalled = [];
       if (order.indexOf(d.phase) >= order.indexOf(a)) {
@@ -23369,7 +23375,7 @@ function triggerCampaignDebug(args) {
         campaignWorldCache = null;
       }
       advanceFleetCalendar(1, Fleet.nextId(fleetBook(), 'journey'));
-      return `Forced override: Dominion timetable re-anchored${recalled.length ? `, ${recalled.length} operation(s) recalled` : ''} and one day advanced through the normal calendar. Phase is now ${campaign().dominion.phase} (campaign day ${state.day}).`;
+      return `Forced override: the Dominion opening is forced${recalled.length ? `, ${recalled.length} operation(s) recalled` : ''} and one day advanced through the normal calendar. Phase is now ${campaign().dominion.phase} (campaign day ${state.day}).`;
     }
     case 'treasury': { const p = book.polities[a]; if (!p) throw new Error('unknown polity'); const v = Math.round(finiteNumber(b, NaN)); if (!Number.isFinite(v)) throw new Error('treasury <polity> <finite number>'); p.treasury = clamp(v, -book.config.treasuryCap, book.config.treasuryCap); return `${formatFaction(a)} treasury set to ${p.treasury} (forced override; clamped to the campaign treasury cap).`; }
     case 'readiness': {

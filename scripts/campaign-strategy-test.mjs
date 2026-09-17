@@ -176,32 +176,106 @@ test('the Earth–Klingon war resolves strategically, once: never by a roll, onl
   assert.equal(r2.length, 1); assert.equal(r2[0].loser, 'klingon'); assert.match(r2[0].reason, /holds no world/);
 });
 
-test('Dominion: dormant → reconnaissance → staging → invasion through the Bajoran link with two warnings first; a real blockade cuts reinforcements; a prepared defence defeats the expedition', () => {
+// An opening is a strategic condition, not a date. These fixtures author the condition rather than
+// waiting for a seed to produce it, so what is being tested is the rule and not the weather.
+function grindCentralWar(book, world, day, { engagements = 30, keep = 0.3 } = {}) {
+  const w = C.warRecord(book, 'terran', 'klingon');
+  w.engagements = engagements; w.firstDay = 2; w.lastDay = day;
+  w.losses.terran = 20; w.losses.klingon = 18;
+  for (const id of ['terran', 'klingon']) {
+    const p = C.getPolity(book, id);
+    const living = p.hulls.filter((h) => h.status !== 'lost');
+    for (const h of living.slice(Math.max(1, Math.round(living.length * keep)))) h.status = 'lost';
+  }
+}
+
+test('Dominion: the expedition is an opening, not a date — elapsed days alone never start it, a worn-down near side does, a strong victor closes it, and a held corridor stops the crossing', () => {
+  // 1. A galaxy whose central war never costs anybody anything. Twelve hundred days of calendar.
+  const quiet = makeWorld({ relations: { 'terran:klingon': 'peace', 'terran:cardassian': 'peace', 'klingon:cardassian': 'peace' } });
+  const qb = C.createCampaignBook('seed-H0', 1); C.initializeCampaign(qb, quiet.world);
+  run(qb, quiet.world, 2, 1200);
+  assert.equal(qb.dominion.phase, 'dormant', 'twelve hundred days of quiet started the expedition');
+  const quietWhy = C.dominionOpportunity(qb, quiet.world, 1200);
+  assert.equal(quietWhy.open, false);
+  assert.match(quietWhy.reasons.join(' | '), /consequential engagement/, 'and the reason given was not the absence of a war');
+
+  // 2. The same calendar age, a war that has actually ground its belligerents down.
   const { world } = makeWorld();
   const book = C.createCampaignBook('seed-H', 1); C.initializeCampaign(book, world);
-  const effects = run(book, world, 2, book.config.dominionInvasionDay + 2);
+  run(book, world, 2, 200);
+  assert.equal(book.dominion.phase, 'dormant', 'the arc opened before anything had happened');
+  grindCentralWar(book, world, 200);
+  const opened = C.dominionOpportunity(book, world, 201);
+  assert.equal(opened.open, true, `a worn-down near side did not read as an opening: ${opened.reasons.join(' | ')}`);
+  assert.equal(opened.balance, 'stalemate');
+  const effects = run(book, world, 201, 201 + book.config.dominionOpeningSustainDays + book.config.dominionReconDwellDays + book.config.dominionStagingDwellDays + 60);
   const warnings = effects.filter((e) => e.type === 'dominionWarning');
-  assert.ok(warnings.length >= 2, 'at least two warnings before the assault');
-  assert.equal(book.dominion.phase, 'invasion');
+  assert.ok(warnings.length >= 2, `at least two warnings before the assault, got ${warnings.length}`);
+  assert.equal(book.dominion.phase, 'invasion', `the opening did not carry through to a crossing (${book.dominion.phase})`);
   const op = book.operations.find((o) => o.id === book.dominion.expeditionOpId);
   assert.equal(op.targetSystem, 6, 'entry is Bajora (system 6), resolved by endpoint id');
   assert.ok(warnings.every((w) => w.day < op.createdDay + 1));
-  // Bajora has three platforms: blockade strength; reinforcement cut while Bajora holds
-  run(book, world, book.config.dominionInvasionDay + 3, book.config.dominionInvasionDay + 40);
-  const convoysWhileBlocked = effects.filter((e) => e.type === 'dominionConvoy').length;
-  assert.equal(typeof book.dominion.reinforcementCut, 'boolean');
-  // Prepared defence: rerun with an overwhelming Bajoran garrison → expedition destroyed or withdrawn, Bajora never Dominion
+  // The two galaxies are the same age and in different places: history decided it, not the calendar.
+  assert.notEqual(qb.dominion.phase, book.dominion.phase);
+
+  // 3. The stages dwell rather than tick: the crossing cannot precede the two dwells.
+  assert.ok(book.dominion.openedDay >= 201, 'the opening was dated before the condition existed');
+  assert.ok(op.createdDay - book.dominion.openedDay >= book.config.dominionReconDwellDays + book.config.dominionStagingDwellDays,
+    `the expedition crossed ${op.createdDay - book.dominion.openedDay} days after the opening, inside its own dwells`);
+
+  // 4. A won war: a victor that is still standing closes the opening, and the same victor worn down
+  //    later presents one. The difference is the victor's capacity, not the calendar.
+  // The victor is left in peace, so what is being tested is its capacity and not some other war.
+  const { world: w3 } = makeWorld({ relations: { 'terran:klingon': 'peace', 'terran:cardassian': 'peace', 'klingon:cardassian': 'peace' } });
+  const b3 = C.createCampaignBook('seed-H3', 1); C.initializeCampaign(b3, w3);
+  run(b3, w3, 2, 200);
+  const wl = C.warRecord(b3, 'terran', 'klingon'); wl.engagements = 30; wl.firstDay = 2; wl.lastDay = 200;
+  b3.resolutions = { 'terran:klingon': { day: 200, loser: 'klingon', winner: 'terran', reason: 'fixture' } };
+  const kl = C.getPolity(b3, 'klingon'); for (const h of kl.hulls) h.status = 'lost';   // the loser is wrecked
+  const strong = C.dominionOpportunity(b3, w3, 201);
+  assert.equal(strong.open, false, 'an intact victor still presented the Dominion with an opening');
+  assert.match(strong.reasons.join(' | '), /won the central war and still holds/);
+  run(b3, w3, 201, 900);
+  assert.equal(b3.dominion.phase, 'dormant', 'seven hundred more days manufactured an opening that was not there');
+  // The same victor, since worn down: now there is an opening, and the calendar did not change.
+  const tp = C.getPolity(b3, 'terran');
+  const alive = tp.hulls.filter((h) => h.status !== 'lost');
+  for (const h of alive.slice(Math.max(1, Math.round(alive.length * 0.3)))) h.status = 'lost';
+  const weak = C.dominionOpportunity(b3, w3, 901);
+  assert.equal(weak.open, true, `a wrecked victor did not present an opening: ${weak.reasons.join(' | ')}`);
+  assert.equal(weak.balance, 'weakened-victor');
+
+  // 5. A corridor somebody has fortified is a crossing that never happens — for as long as they hold
+  //    it. Fortification rather than a fleet, because a fleet sorties and a fortification does not.
+  const forts = []; for (let i = 0; i < 12; i++) forts.push(station(`baj-fort${i}`, 87, 'bajoran'));
+  const { world: w4 } = makeWorld({ stations: { 6: forts } });
+  const b4 = C.createCampaignBook('seed-H4', 1); C.initializeCampaign(b4, w4);
+  run(b4, w4, 2, 200);
+  grindCentralWar(b4, w4, 200);
+  const held = C.dominionOpportunity(b4, w4, 201);
+  assert.equal(held.balance, 'stalemate', 'precondition: the near side is worn down exactly as in case 2');
+  assert.equal(held.corridorOpen, false, `a fortified entry did not close the corridor (${held.entryDefence} against a reach of ${held.expeditionReach})`);
+  assert.equal(held.open, false, 'the opening survived a corridor nobody can force');
+  run(b4, w4, 201, 1000);
+  const stillHeld = C.dominionOpportunity(b4, w4, 1000);
+  assert.equal(stillHeld.corridorOpen, false, 'precondition: the fortifications are still standing at the end of the run');
+  assert.equal(w4.systems[6].controller, 'bajoran', 'a held corridor still lost Bajora');
+  assert.ok(!b4.dominion.expeditionOpId, 'the expedition crossed a corridor it could not force');
+  assert.equal(b4.dominion.phase, 'dormant', `eight hundred days against a held corridor reached "${b4.dominion.phase}"`);
+
+  // 6. A real but not prohibitive defence: the expedition crosses and is beaten on the far side.
   const { world: w2 } = makeWorld(); const b2 = C.createCampaignBook('seed-H2', 1); C.initializeCampaign(b2, w2);
-  const baj = C.getPolity(b2, 'bajoran'); for (let i = 0; i < 60; i++) baj.hulls.push({ id: `bd${i}`, shipId: 12, hull: 1400, maxHull: 1400, crew: 1, systemIndex: 6, status: 'ready', opId: null });
-  // The window follows the authored schedule rather than a fixed 200: this test is about how the
-  // expedition resolves, not about which day it sails.
-  const e2 = run(b2, w2, 2, b2.config.dominionInvasionDay + 140);
+  run(b2, w2, 2, 200);
+  grindCentralWar(b2, w2, 200);
+  const baj2 = C.getPolity(b2, 'bajoran');
+  for (let i = 0; i < 8; i++) baj2.hulls.push({ id: `bx${i}`, shipId: 12, hull: 1400, maxHull: 1400, crew: 1, systemIndex: 6, status: 'ready', opId: null });
+  const e2 = run(b2, w2, 201, 900);
   assert.equal(w2.systems[6].controller, 'bajoran', 'a prepared defence held Bajora; no scripted reversal');
   const exp = b2.operations.find((o) => o.id === b2.dominion.expeditionOpId);
-  assert.ok(exp && exp.status === 'resolved' && ['destroyed', 'withdrew'].includes(exp.outcome));
+  assert.ok(exp && exp.status === 'resolved' && ['destroyed', 'withdrew'].includes(exp.outcome),
+    `the expedition ${exp ? `ended ${exp.outcome}` : 'never crossed'}`);
   assert.ok(b2.dominion.reinforcementCut, 'a working blockade cut reinforcements');
   assert.equal(e2.filter((e) => e.type === 'dominionConvoy').length, 0, 'no convoy bypassed the blockade');
-  assert.ok(b2.polities.dominion.hulls.filter((h) => h.status !== 'lost').length > 0 || exp.outcome === 'destroyed', 'surviving bridgehead forces (if any) remain in play');
 });
 
 test('rise scenarios (seeded fixtures, not balance evidence): Romulus, Cardassia, a small power and the player empire can each become the leading contender', () => {

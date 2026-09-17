@@ -314,28 +314,30 @@ const { startProbe } = require('./probe-harness.cjs');
 
   // DOM-4 — days pass only when the captain warps, and the expedition arc ran on 25/45/60: the first
   // Dominion warning arrived inside the opening hour of play and the invasion landed before a captain
-  // had a second ship. The arc belongs in the campaign's back half.
-  await check('DOM the expedition does not arrive in the captain\'s first afternoon', async () => {
+  // had a second ship. The 17SEP specification goes further than "make the dates later": the entry has
+  // to emerge from the state of the near side, so there must be no invasion date at all.
+  await check('DOM the expedition has no date, and sixty warp-days of play does not start it', async () => {
     await fresh('play-dom4');
     const r = await ev(() => {
       const t = testBM1, s = t.state, book = t.campaign();
-      const c = book.config;
       const start = s.day;
-      // Sixty warp-days of play: a busy opening, several systems visited, some trading done.
-      t.advanceCampaign(start + 60);
-      const early = { phase: book.dominion.phase, warnings: book.dominion.warnings.length };
-      t.advanceCampaign(start + 140);
-      const later = { phase: book.dominion.phase, warnings: book.dominion.warnings.length };
-      return { recon: c.dominionReconDay, staging: c.dominionStagingDay, invasion: c.dominionInvasionDay, early, later };
+      const step = (days) => { let left = days; while (left > 0) { const n = Math.min(10, left); t.advanceFleetCalendar(n, t.Fleet.nextId(t.fleetBook(), 'journey')); left -= n; } };
+      step(60);
+      const o = t.Campaign.dominionOpportunity(book, t.buildCampaignWorld(true), s.day);
+      return { days: s.day - start, phase: book.dominion.phase, warnings: book.dominion.warnings.length,
+        dated: ['dominionReconDay', 'dominionStagingDay', 'dominionInvasionDay'].filter((k) => book.config[k] !== undefined),
+        open: o.open, reason: o.reasons[0] || '', engagements: o.engagements,
+        inputs: ['engagements', 'balance', 'corridorOpen', 'challengeable', 'defenders'].filter((k) => !(k in o)) };
     });
-    assert.equal(r.early.phase, 'dormant',
-      `sixty warp-days in, the expedition is already at "${r.early.phase}"`);
-    assert.equal(r.early.warnings, 0, 'and the captain has already been warned about it');
-    assert.equal(r.later.phase, 'dormant',
-      `a hundred and forty warp-days in, the expedition is already at "${r.later.phase}"`);
-    assert.ok(r.recon >= 150, `reconnaissance opens on day ${r.recon}`);
-    assert.ok(r.invasion >= 300, `the invasion lands on day ${r.invasion}`);
-    assert.ok(r.staging > r.recon && r.invasion > r.staging, 'the three phases are out of order');
+    assert.equal(r.days, 60, 'precondition: sixty campaign days actually passed');
+    assert.deepEqual(r.dated, [],
+      `the expedition still runs on a date: ${r.dated.join(', ')}`);
+    assert.equal(r.phase, 'dormant', `sixty warp-days in, the expedition is already at "${r.phase}"`);
+    assert.equal(r.warnings, 0, 'and the captain has already been warned about it');
+    assert.equal(r.open, false, 'sixty days of trading produced a strategic opening');
+    assert.match(r.reason, /engagement|capacity|balance|corridor|front/,
+      `the reason it gave was "${r.reason}" rather than anything about the near side`);
+    assert.deepEqual(r.inputs, [], `the entry decision does not report ${r.inputs.join(', ')}`);
   });
 
   // DOM-5 — the Dominion took Bajor and then signed a peace with Earth, because once it held ground on

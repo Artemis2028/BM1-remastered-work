@@ -198,21 +198,44 @@ const EXPORTS = 'window.testBM1={state,startWithFaction,advanceFleetCalendar,fle
     console.log('AMBIENT_RAID', JSON.stringify({ attacker: r.attacker, neighbour: r.neighbour, committed: r.committed }));
   });
 
-  await check('Dominion: dormant → reconnaissance → staging → invasion via the Bajoran wormhole with two warnings first; no Dominion operation before the invasion; convoys are finite', async () => {
+  await check('Dominion: a quiet galaxy never starts the expedition; an opening carries it through reconnaissance, staging and the crossing with two warnings first', async () => {
     await fresh('gate-G');
     const r = await ev(() => {
       const t = testBM1, s = t.state, book = t.campaign();
       const c = book.config; const phases = [];
-      const step = (to) => { while (s.day < to) { t.advanceFleetCalendar(Math.min(10, to - s.day), t.Fleet.nextId(t.fleetBook(), 'journey')); phases.push([s.day, book.dominion.phase, book.operations.filter((o) => o.faction === 'dominion').length]); } };
-      step(c.dominionReconDay - 1); const beforeRecon = { phase: book.dominion.phase, ops: book.operations.filter((o) => o.faction === 'dominion').length, warnings: book.dominion.warnings.length };
-      step(c.dominionStagingDay + 1); const staging = { phase: book.dominion.phase, ops: book.operations.filter((o) => o.faction === 'dominion').length, warnings: book.dominion.warnings.length, hullsAtStaging: book.polities.dominion.hulls.filter((h) => h.systemIndex === 58).length };
-      step(c.dominionInvasionDay + 31); const inv = book.dominion; const op = book.operations.find((o) => o.id === inv.expeditionOpId);
-      return { beforeRecon, staging, phase: inv.phase, warnings: inv.warnings.map((w) => [w.day, w.id]), entry: inv.entrySystem, stagingSystem: inv.stagingSystem, target: op?.targetSystem, kind: op?.kind, convoys: inv.convoys, maxConvoys: c.dominionMaxConvoys, dominionOpsBeforeInvasion: phases.filter((p) => p[1] !== 'invasion').every((p) => p[2] === 0) };
+      const step = (days) => { let left = days; while (left > 0) { const n = Math.min(10, left); t.advanceFleetCalendar(n, t.Fleet.nextId(t.fleetBook(), 'journey')); left -= n; phases.push([s.day, book.dominion.phase, book.operations.filter((o) => o.faction === 'dominion').length]); } };
+      // Three hundred warp-days of ordinary play with the strategic case out of reach. Days are the only
+      // thing changing, which is the point: the calendar is not an input, so nothing happens. (The
+      // matrix gate carries the same claim across a full grid of ages and histories.)
+      book.config.dominionMinCentralEngagements = 1e6;
+      step(300);
+      const quiet = { phase: book.dominion.phase, warnings: book.dominion.warnings.length,
+        why: t.Campaign.dominionOpportunity(book, t.buildCampaignWorld(true), s.day).reasons[0] || '' };
+      // Now the strategic case exists. Nothing else changes: the arc is carried by the ordinary path.
+      Object.assign(book.config, { dominionEarliestDay: 0, dominionMinCentralEngagements: 0, dominionOpeningSustainDays: 0,
+        dominionDefenderWeakness: 1.1, dominionStalemateBand: 1, dominionFrontStallRatio: 1e6, dominionChallengeRatio: 1e6 });
+      step(1);
+      const recon = { phase: book.dominion.phase, ops: book.operations.filter((o) => o.faction === 'dominion').length, warnings: book.dominion.warnings.length };
+      step(c.dominionReconDwellDays + 10);
+      const staging = { phase: book.dominion.phase, ops: book.operations.filter((o) => o.faction === 'dominion').length, warnings: book.dominion.warnings.length, hullsAtStaging: book.polities.dominion.hulls.filter((h) => h.systemIndex === 58).length };
+      step(c.dominionStagingDwellDays + 60);
+      const inv = book.dominion; const op = book.operations.find((o) => o.id === inv.expeditionOpId);
+      return { quiet, recon, staging, phase: inv.phase, warnings: inv.warnings.map((w) => [w.day, w.id]),
+        entry: inv.entrySystem, stagingSystem: inv.stagingSystem, target: op?.targetSystem, kind: op?.kind,
+        convoys: inv.convoys, maxConvoys: c.dominionMaxConvoys,
+        dominionOpsBeforeInvasion: phases.filter((p) => p[1] !== 'invasion').every((p) => p[2] === 0) };
     });
-    assert.equal(r.beforeRecon.phase, 'dormant'); assert.equal(r.beforeRecon.ops, 0); assert.equal(r.beforeRecon.warnings, 0);
-    assert.equal(r.staging.phase, 'staging'); assert.equal(r.staging.ops, 0); assert.ok(r.staging.warnings >= 2); assert.ok(r.staging.hullsAtStaging > 5);
+    assert.equal(r.quiet.phase, 'dormant', 'three hundred warp-days with no strategic case started the expedition');
+    assert.equal(r.quiet.warnings, 0, 'and warned the captain about it');
+    assert.match(r.quiet.why, /engagement|capacity|balance/, `and the reason it gave was "${r.quiet.why}"`);
+    assert.equal(r.recon.phase, 'reconnaissance', 'the opening did not start the arc');
+    assert.equal(r.recon.ops, 0, 'reconnaissance launched an operation');
+    assert.equal(r.staging.phase, 'staging'); assert.equal(r.staging.ops, 0);
+    assert.ok(r.staging.warnings >= 2, `${r.staging.warnings} warning(s) before the assault`);
+    assert.ok(r.staging.hullsAtStaging > 5, `${r.staging.hullsAtStaging} hulls staged`);
     assert.equal(r.phase, 'invasion'); assert.equal(r.entry, 46); assert.equal(r.stagingSystem, 58); assert.equal(r.target, 46); assert.equal(r.kind, 'invasion');
     assert.ok(r.warnings.filter((w) => w[1] !== 'invasion').length >= 2); assert.ok(r.dominionOpsBeforeInvasion); assert.ok(r.convoys <= r.maxConvoys);
+
     console.log('DOMINION_TIMELINE', JSON.stringify(r.warnings));
   });
 
