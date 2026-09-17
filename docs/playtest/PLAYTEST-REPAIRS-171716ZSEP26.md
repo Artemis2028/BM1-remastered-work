@@ -1,6 +1,6 @@
 # BM1 playtest repairs on top of `ae4ae4d`
 
-DTG 171644ZSEP26
+DTG 171716ZSEP26
 
 Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Nothing pushed, merged or deployed.
 The commit count is in `CANDIDATE.json`, computed by the pack script rather than typed here: the two
@@ -8,25 +8,79 @@ previous packs each stated a count that was wrong.
 
 ## Read this first
 
-This is the repair round on the independent review of `1fc0838`. That review's verdict was *hold*, with
-six material findings against the Dominion opening and a packaging complaint. All six are closed here,
-and the packaging is fixed by construction rather than by care.
+This is the second repair round. The review of `f27dd56` kept it as the base and confirmed the six
+earlier findings closed, with one material finding, one evidence failure and one test-label error
+outstanding. All three are closed here.
 
-Two of the review's conclusions are adopted outright, and both were right:
+**The maturity gate was farmable.** The review reproduced the boundary exactly: one visited system plus
+fifty-nine presses of "request contract" at the same station reached sixty opportunities and opened the
+door — no travel, no docking elsewhere, no day passing. That is a fair description of what a single
+additive counter is: farmable by whichever of its inputs is cheapest, and that one was free. It is now
+four bounded categories, three of which must be met, and the gate is in the next section.
 
-- **`1fc0838` claimed "no date anywhere" while `dominionEarliestDay` was still 120**, and the matrix
-  that printed the age-independence claim sampled only 200, 800 and 2,000 — every sample above the
-  boundary. The floor is gone now, replaced by something that is not a date at all, and the matrix
-  samples days 1, 119, 120, 121, 800 and 2,000.
-- **The `+1 / −0.5` opening weight was too permissive.** It grows on any condition true more than a
-  third of the time, so a case that merely wobbles around the line reached the threshold by waiting.
-  It is now a bounded rolling window.
+**The evidence was not identity-bound.** `RESULTS.json` named `1fc0838` and tree `6175c4e9` while the
+pack shipped `f27dd56` and `0cda17f1`. The gates had been run against an uncommitted working tree and
+the manifest asked git for HEAD afterwards. That is fixed by construction: the suite refuses to run
+against a dirty tree, records the commit and the hashes of every file it exercises *before* the first
+gate, and the pack script refuses to build a pack whose evidence names a different commit.
+
+**The matrix mislabelled its contender distance.** It said "eight jumps away" when the fixture puts
+Romulus four route-hops from Bajora; eight was the configured limit, not the measured distance. The
+distance is now measured by the check itself and the boundary tested at exactly the hop count and one
+short of it.
 
 Most of the 17SEP specification is still **not** here — §3.3 bilateral peace, §3.4 cargo and contracts,
 §3.5 uninhabited worlds, §3.6 HUD and modals, §4 fleet trading, §5 recall, §6 repair UX, §7 overlay.
 `CANDIDATE.json` lists every section under `spec_17sep` with DONE / PARTIAL / NOT DONE.
 
-## The six review findings
+## The second round's three findings
+
+### A. The maturity gate could be satisfied by cycling one menu
+
+Every successful press of "request contract" incremented `contractsOffered`, and that counter was
+simply added to the systems visited. Two hundred presses at one station cost nothing and carried the
+whole gate.
+
+It is now **categories, not a total**, and each one is a set or a capped tally of something that costs
+the captain a journey, a docking or a destination:
+
+| Category | What it counts | Needs |
+| --- | --- | --- |
+| `systemsVisited` | distinct worlds seen | 10 |
+| `journeys` | completed journeys, capped at 400 by the engine | 25 |
+| `issuers` | distinct stations or worlds that have offered the captain work | 6 |
+| `contacts` | distinct powers whose service channel they have opened, by docking or by hail | 3 |
+
+**Three of the four** must be met. Rerolling a destination at one station is the same issuer, so two
+hundred presses move exactly one count by exactly one and never again.
+
+The constraint on what may be counted here has not changed: only things the player does, and only
+things a jump cannot change while it is running. Nothing the campaign itself increments is eligible,
+which is why station missions stayed out.
+
+**Gate DOM-7:** two hundred presses at one station, with no day passing, move the maturity counts by at
+most two and satisfy fewer than the required number of kinds. **Matrix invariant:** each category is
+pushed to a hundred times its own threshold *on its own*, and none of them alone opens the door.
+
+### B. The evidence did not name the tree it came from
+
+`run-gates.sh` now refuses to run against a dirty working tree, and writes `validation/RUN.json` before
+the first gate: the candidate, the tree, the branch, and the sha256 of every source and built file the
+suite exercises. `RESULTS.json` takes its candidate from that file rather than asking git when the
+manifest happens to be generated. `make-pack.sh` refuses to build a pack whose `RUN.json` or
+`RESULTS.json` names a commit other than the one being shipped.
+
+`.commit-count` was a pack file sitting outside the checksum manifest. It is gone; the count is passed
+to the cover sheets directly.
+
+### C. The contender distance was a label, not a measurement
+
+The matrix check now asks the fixture's own route graph how far Romulus is from the entry, prints the
+answer, and asserts the navy is a contender at exactly that hop count and is not one at one hop less.
+It also asserts the shipped limit includes it. The name of the fixture no longer contains a distance.
+
+## The six findings from the first review round
+
 
 ### 1. A long jump could consume the whole arc
 
@@ -48,23 +102,14 @@ with at most one new Dominion warning per jump.
 
 ### 2. There was no player-opportunity gate
 
-There is now, and it is what replaced the calendar floor rather than sitting beside it.
-
-`dominionMinPlayerOpportunities` counts **chances the game put in front of the captain** — systems they
-have actually seen, contract offers they have been made, and Dominion warnings they have received —
-and never anything they achieved. A captain who takes none of it is protected exactly as much as one
-who takes all of it, which is the point: the review's "a new captain who remains weak receives no
-pacing protection" was correct about the old model, which only asked whether the player was already
-strong.
+There is now, and it is what replaced the calendar floor rather than sitting beside it. The first
+version of it was a single additive counter and the second review showed it was farmable; **see finding
+A above for what it is now.** The principle is unchanged and was right: count chances the game put in
+front of the captain, never anything they achieved, so a captain who takes none of it is protected
+exactly as much as one who takes all of it.
 
 Travel does not accumulate it. Visiting a **new** system counts once; flying back and forth between two
 systems for four hundred days counts nothing.
-
-What may be counted here is bounded by an invariant, not by taste. Station missions are deliberately
-**not** counted: the engine offers them in reaction to a day's effects, which lands before the next day
-when stepping and after all of them when jumping, so counting them would make the same sixteen days
-decide differently depending on how they were advanced. The counter is kept as evidence; it is not an
-input. This was caught by the EQUIV gate, not by inspection.
 
 ### 3. Economic and industrial condition was not considered
 
@@ -194,7 +239,7 @@ of the following must hold:
 | a balance the expedition can exploit | either a costly stalemate — both belligerents worn down, bounded strength difference, and a front that has stopped moving — or a victor too weakened to hold the door | gap ≤ 0.5; victor ≤ 0.6 |
 | nobody on this side still standing tall enough to make the crossing pointless | the strongest **contender** against what the Dominion can bring; contenders are every polity holding ground within 8 route-hops of the entry, the central belligerents, and the player | ≤ 1.5× its reach |
 | a corridor nobody has closed | defence at the entry against the Dominion's own reach, never against the defender's size, so a garrison cannot inflate the yardstick it is judged by | ≥ 1.2× closes it |
-| a captain who has been offered a game first | systems seen + contract offers made + warnings received — chances offered, never achievements | 60 |
+| a captain who has been offered a game first | four bounded categories of chance offered — distinct worlds seen, completed journeys, distinct issuers of work, distinct powers dealt with — never achievements | 3 of 4 |
 
 The case has to **hold**, not merely occur: a war's numbers move every day and one of those days will
 clear every line at once. Eligibility is judged over a **bounded rolling window** — 60 of the last 90
@@ -210,8 +255,8 @@ The debug phase override forces the opening rather than a timetable, so a forced
 by the code that enters it in play.
 
 **Tuning for sign-off:** 20 engagements, 0.65 capacity, 0.75 economic strain, 0.5 strength gap, 1.5
-challenge ratio, 1.2 corridor ratio, 8 contender hops, 60 offered chances, 60 eligible days of the last
-90, and 40/25-day dwells.
+challenge ratio, 1.2 corridor ratio, 8 contender hops, 3 of 4 maturity categories (10 worlds, 25
+journeys, 6 issuers, 3 contacts), 60 eligible days of the last 90, and 40/25-day dwells.
 
 ### 5. `0033450` — a station can be hailed without docking
 
@@ -255,10 +300,11 @@ itself about the unlock, it says so in a comment and relaxes the opening deliber
 
 ## Gates
 
-**35 of 35 green**: the 33 Patch 1 gates, unchanged and still green, plus `playtest-gate` and
-`dominion-matrix`.
+**35 of 35 green**, run from the committed tree this pack ships — `validation/RUN.json` records which
+commit, which tree and the sha256 of every source and built file the suite exercised, and it is written
+before the first gate rather than inferred afterwards.
 
-`playtest-gate` is 11 adversarial checks and **all eleven reproduce on `ae4ae4d`** — see
+`playtest-gate` is 12 adversarial checks and **all twelve reproduce on `ae4ae4d`** — see
 `validation/playtest-gate-baseline-ae4ae4d.log`.
 
 | Check | What it reproduces on `ae4ae4d` |
@@ -269,6 +315,7 @@ itself about the unlock, it says so in a comment and relaxes the opening deliber
 | DOM-4 | the expedition ran on a date, and sixty warp-days in it had already invaded |
 | DOM-5 | 200 days of the roll settled the expedition's war with Earth |
 | DOM-6 | one long jump carried the whole arc past the captain in a single briefing |
+| DOM-7 | the maturity gate could be satisfied by cycling one menu at one station |
 | REM-1 | there was no Blender remnant at all |
 | REM-2 | the remnant drew from the whole Dominion pool |
 | REM-3 | the remnant could not pay its upkeep and never replaced a loss |
@@ -277,7 +324,7 @@ itself about the unlock, it says so in a comment and relaxes the opening deliber
 
 `dominion-matrix` is the §9 evidence for the entry decision: **432 rows** varying calendar age (1, 119,
 120, 121, 800, 2,000) independently of war history, corridor state, third-party power and war economy,
-printing the decision and its reason for every row, with **11 invariants** checked. The whole table is
+printing the decision and its reason for every row, with **12 invariants** checked. The whole table is
 in `validation/dominion-matrix.log`; it does not run at all on `ae4ae4d`.
 
 The invariants, named:
@@ -289,15 +336,18 @@ The invariants, named:
 5. a victor that is still standing closes the opening; a wrecked one presents it
 6. a fortified entry closes the corridor whatever the war did
 7. a solvent war economy closes the opening that a bankrupt one presents
-8. a strong power eight jumps away is a contender, and closes the opening
+8. a strong power several jumps away is a contender, and closes the opening
 9. a player empire that has become the strongest power here delays the opening
-10. the opening waits on chances offered to the captain, not on the date
-11. a condition that alternates never unlocks the arc, however long it alternates
+10. contender membership is decided at the configured hop count, not near it
+11. the opening waits on chances offered to the captain, and no single action can supply them
+12. a condition that alternates never unlocks the arc, however long it alternates
 
-Two of the repairs above were caught by gates rather than by inspection, and both are worth knowing
-about: the beat check was captured once per day instead of re-read after each commit, so all three
-stages still cascaded (DOM-6 caught it); and counting station missions into the opportunity total made
-the same sixteen days decide differently stepped and jumped (EQUIV caught it).
+Three of the repairs in this candidate were caught by gates rather than by inspection, and all three
+are worth knowing about: the beat check was captured once per day instead of re-read after each commit,
+so all three stages still cascaded (DOM-6); counting station missions into the maturity total made the
+same sixteen days decide differently stepped and jumped (EQUIV); and the matrix's own `PLAYED` fixture
+stopped satisfying the new category gate the moment it changed, which is what a fixture that asserts
+something real does.
 
 `validation/gate-exit-codes.txt` records each gate's root honestly: `src` means it imports the source
 modules directly, `dist` means it loaded the built tree.
