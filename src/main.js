@@ -21951,11 +21951,8 @@ let campaignJourneyId = null;
 function advanceFleetCalendar(days, id) {
   captureShipPowerState();
   campaignJourneyId = id == null ? null : String(id);
-  // A completed journey is a beat the captain paid for in fuel and days. Capped, so journeys alone
-  // cannot carry the gate.
-  if (id != null) { const o = playerOpportunityLedger(); o.journeys = Math.min(400, o.journeys + 1); }
   try {
-  return Fleet.advanceCalendar(fleetBook(), state, days, id, {
+  const advanced = Fleet.advanceCalendar(fleetBook(), state, days, id, {
     settle(day) {
       for (const ship of state.playerFleet)
         if (!ship.destroyed)
@@ -21984,6 +21981,16 @@ function advanceFleetCalendar(days, id) {
       advanceCommissions(day);
     },
   });
+  // A completed journey is a beat the captain paid for in fuel and days, and it is counted once the
+  // ledger has accepted it — not before. One ordinary warp calls this twice with the same persisted
+  // id: once when the mid-jump briefing opens and once on arrival. The ledger refuses the second call
+  // and advances nothing, so counting before asking it made every warp worth two journeys and halved
+  // the travel the pacing gate was meant to require. A zero-day call is not a journey either. [review]
+  if (advanced && id != null && days > 0) {
+    const o = playerOpportunityLedger();
+    o.journeys = Math.min(400, o.journeys + 1);
+  }
+  return advanced;
   } finally { campaignJourneyId = null; }
 }
 function capturePolicy(shipId) {

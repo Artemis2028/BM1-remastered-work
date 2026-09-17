@@ -410,6 +410,56 @@ const { startProbe } = require('./probe-harness.cjs');
       'repeated offers from the same station counted as distinct issuers');
   });
 
+  // DOM-8 — the journeys category counted calls to the calendar wrapper rather than journeys the fleet
+  // ledger accepted. One ordinary warp calls it twice with the same persisted id — once when the
+  // mid-jump briefing opens, once on arrival — and the second call correctly advances nothing and
+  // charges nothing, but the counter had already moved. Thirteen warps recorded twenty-six journeys and
+  // passed a threshold of twenty-five, halving the travel the pacing gate was meant to require. A
+  // zero-day call counted as a journey too.
+  await check('DOM a journey is counted when the ledger accepts it, once, and never for a zero-day call', async () => {
+    await fresh('play-dom8');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      const count = () => Number((t.buildCampaignWorld(true).playerOpportunity || {}).journeys) || 0;
+      const start = count();
+
+      // One journey id, presented twice, exactly as a warp presents it.
+      const id = t.Fleet.nextId(t.fleetBook(), 'journey');
+      const firstOk = t.advanceFleetCalendar(3, id);
+      const afterFirst = count();
+      const secondOk = t.advanceFleetCalendar(3, id);
+      const afterSecond = count();
+
+      // A zero-day call with a fresh id: the reload path makes one of these.
+      const zeroOk = t.advanceFleetCalendar(0, t.Fleet.nextId(t.fleetBook(), 'journey'));
+      const afterZero = count();
+
+      // And thirteen ordinary warps, each presented the way the engine presents one.
+      const dayBefore = s.day;
+      for (let i = 0; i < 13; i++) {
+        const jid = t.Fleet.nextId(t.fleetBook(), 'journey');
+        t.advanceFleetCalendar(2, jid);   // the mid-jump briefing
+        t.advanceFleetCalendar(2, jid);   // arrival, same persisted id
+      }
+      const afterWarps = count();
+      return { start, firstOk, afterFirst, secondOk, afterSecond, zeroOk, afterZero,
+        afterWarps, warps: 13, daysElapsed: s.day - dayBefore,
+        needs: t.campaign().config.dominionPlayerBeats.journeys };
+    });
+    assert.equal(r.firstOk, true, 'precondition: the ledger accepted the first call');
+    assert.equal(r.afterFirst - r.start, 1, `one accepted journey counted ${r.afterFirst - r.start}`);
+    assert.equal(r.secondOk, false, 'precondition: the ledger refuses the same journey id twice');
+    assert.equal(r.afterSecond, r.afterFirst,
+      `the same journey presented twice counted ${r.afterSecond - r.afterFirst} extra journey(s)`);
+    assert.equal(r.afterZero, r.afterSecond,
+      'a zero-day calendar call counted as a journey');
+    assert.equal(r.afterWarps - r.afterSecond, r.warps,
+      `${r.warps} ordinary warps recorded ${r.afterWarps - r.afterSecond} journeys`);
+    assert.equal(r.daysElapsed, r.warps * 2, 'precondition: each warp advanced its own days exactly once');
+    assert.ok(r.afterWarps < r.needs,
+      `${r.warps} warps already reach the ${r.needs}-journey threshold (${r.afterWarps})`);
+  });
+
   // DOM-5 — the Dominion took Bajor and then signed a peace with Earth, because once it held ground on
   // this side of the wormhole the ordinary war-exhaustion roll treated it as an ordinary neighbour.
   // The expedition's war is authored: nothing but the campaign may end it.

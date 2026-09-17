@@ -194,9 +194,9 @@ check('a player empire that has become the strongest power here delays the openi
 check('contender membership is decided at the configured hop count, not near it', () => {
   // Measured, not assumed: whatever the fixture's route graph actually is, this asks it.
   const { world: probe } = makeWorld();
-  const hopsOf = (id) => Math.min(...probe.systems.filter((s) => s.controller === id)
-    .map((s) => probe.routeHops([s.index], 6, id)).filter((h) => h != null));
-  const romulanHops = hopsOf('romulan');
+  const hopsOf = (w, id) => Math.min(...w.systems.filter((s) => s.controller === id)
+    .map((s) => w.routeHops([s.index], 6, id)).filter((h) => h != null));
+  const romulanHops = hopsOf(probe, 'romulan');
   assert.ok(Number.isFinite(romulanHops) && romulanHops > 1,
     `the fixture puts Romulus ${romulanHops} hops from the entry; this check needs it further than the entry's own neighbours`);
   const at = (hops) => {
@@ -218,10 +218,54 @@ check('contender membership is decided at the configured hop count, not near it'
   assert.ok(!outside.defenders.some((d) => d.id === 'romulan'),
     `one hop short of it the navy was still counted: ${outside.defenders.map((d) => d.id).join('+')}`);
   assert.equal(outside.open, true, `and the opening did not return: ${outside.reasons.join(' | ')}`);
-  // The shipped limit is further out than anything in this fixture, so it includes everybody here.
-  const shipped = at(C.CAMPAIGN_RULES.dominionContenderHops);
-  assert.ok(shipped.defenders.some((d) => d.id === 'romulan'),
-    `the shipped limit of ${C.CAMPAIGN_RULES.dominionContenderHops} hops excluded a navy ${romulanHops} hops away`);
+});
+
+// The shipped limit is eight hops, and the authored galaxy is not eight hops wide, so the previous
+// round could only show the comparison working at four and three. This builds a corridor of empty
+// systems long enough to put a navy at exactly eight hops and at exactly nine, and tests the shipped
+// value where it actually decides. [review]
+check('at the shipped limit, a navy at eight hops is a contender and one at nine is not', () => {
+  const LIMIT = C.CAMPAIGN_RULES.dominionContenderHops;
+  const at = (hops) => {
+    const { world } = makeWorld({ playerOpportunity: PLAYED });
+    // Romulus is given up: the Romulan navy's only ground is one world at the far end of a corridor of
+    // empty systems hanging off Earth, so its distance from the entry is exactly what this builds.
+    const anchor = 0;
+    const anchorHops = world.routeHops([anchor], 6, 'terran');
+    assert.ok(Number.isFinite(anchorHops) && anchorHops < hops,
+      `the anchor is ${anchorHops} hops out; a corridor to ${hops} cannot be built from it`);
+    world.systems[4].controller = null;
+    let prev = anchor;
+    for (let h = anchorHops + 1; h <= hops; h++) {
+      const index = world.systems.length;
+      world.systems.push({ index, name: `Corridor${h}`, controller: h === hops ? 'romulan' : null, origin: null, population: 0 });
+      world.routes.push([prev, index]);
+      prev = index;
+    }
+    const book = C.createCampaignBook(`corridor:${hops}`, 1);
+    C.initializeCampaign(book, world);
+    run(book, world, 2, 60);
+    HISTORIES['worn-stalemate'](book, world, 0);
+    ECONOMIES.bankrupt(book, world);
+    const p = C.getPolity(book, 'romulan');
+    for (let i = 0; i < 100; i++) p.hulls.push(hull(`rom${i}`, 31, prev));
+    p.readinessPeak = C.polityReadiness(book, world, 'romulan').strength;
+    const measured = Math.min(...world.systems.filter((s) => s.controller === 'romulan')
+      .map((s) => world.routeHops([s.index], 6, 'romulan')).filter((h) => h != null));
+    return { o: C.dominionOpportunity(book, world, 800), measured };
+  };
+  const on = at(LIMIT);
+  const past = at(LIMIT + 1);
+  console.log(`   corridor built to ${on.measured} and ${past.measured} hops against a limit of ${LIMIT}; contenders: ${on.o.defenders.map((d) => d.id).join('+')} / ${past.o.defenders.map((d) => d.id).join('+')}`);
+  assert.equal(on.measured, LIMIT, `the corridor put the navy at ${on.measured} hops, not ${LIMIT}`);
+  assert.equal(past.measured, LIMIT + 1, `the longer corridor put it at ${past.measured} hops, not ${LIMIT + 1}`);
+  assert.ok(on.o.defenders.some((d) => d.id === 'romulan'),
+    `a navy at exactly ${LIMIT} hops was not a contender: ${on.o.defenders.map((d) => d.id).join('+')}`);
+  assert.equal(on.o.challengeable, false, `and ${on.o.strongestNear} at ${LIMIT} hops did not make the crossing unchallengeable`);
+  assert.equal(on.o.open, false, 'and the opening survived it');
+  assert.ok(!past.o.defenders.some((d) => d.id === 'romulan'),
+    `a navy at ${LIMIT + 1} hops was still counted: ${past.o.defenders.map((d) => d.id).join('+')}`);
+  assert.equal(past.o.open, true, `and one hop past the limit the opening did not return: ${past.o.reasons.join(' | ')}`);
 });
 
 // --- the opportunity gate, which is what replaced a calendar floor ---

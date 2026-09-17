@@ -8,34 +8,31 @@ previous packs each stated a count that was wrong.
 
 ## Read this first
 
-This is the second repair round. The review of `f27dd56` kept it as the base and confirmed the six
-earlier findings closed, with one material finding, one evidence failure and one test-label error
-outstanding. All three are closed here.
+This is the third repair round. The review of `c1c5843` kept it as the base, confirmed the farm, the
+stale evidence identity and the wrong hop label all closed, and raised one material finding and two
+validation gaps. All three are closed here.
 
-**The maturity gate was farmable.** The review reproduced the boundary exactly: one visited system plus
-fifty-nine presses of "request contract" at the same station reached sixty opportunities and opened the
-door — no travel, no docking elsewhere, no day passing. That is a fair description of what a single
-additive counter is: farmable by whichever of its inputs is cheapest, and that one was free. It is now
-four bounded categories, three of which must be met, and the gate is in the next section.
+**One warp counted as two journeys.** The journeys category counted calls to the calendar wrapper
+rather than journeys the fleet ledger accepted. An ordinary warp calls it twice with the same persisted
+id, and the counter moved before the ledger was asked, so thirteen warps recorded twenty-six and passed
+a threshold of twenty-five. The review's arithmetic was exact. The increment now happens after the
+ledger accepts, and only for a positive-day call.
 
-**The evidence was not identity-bound.** `RESULTS.json` named `1fc0838` and tree `6175c4e9` while the
-pack shipped `f27dd56` and `0cda17f1`. The gates had been run against an uncommitted working tree and
-the manifest asked git for HEAD afterwards. That is fixed by construction: the suite refuses to run
-against a dirty tree, records the commit and the hashes of every file it exercises *before* the first
-gate, and the pack script refuses to build a pack whose evidence names a different commit.
+**The shipped eight-hop boundary was untested.** The previous round proved the comparison at four and
+three because the authored galaxy is not eight hops wide. A corridor of empty systems is now built to
+put a navy at exactly eight hops and exactly nine, and the shipped value is tested where it decides.
 
-**The matrix mislabelled its contender distance.** It said "eight jumps away" when the fixture puts
-Romulus four route-hops from Bajora; eight was the configured limit, not the measured distance. The
-distance is now measured by the check itself and the boundary tested at exactly the hop count and one
-short of it.
+**The evidence claim was overstated.** `RUN.json` hashed seven paths while the handoff said it hashed
+every file the suite exercises. It now hashes every git-tracked file and every file under `dist/`, and
+the claim matches the mechanism.
 
 Most of the 17SEP specification is still **not** here — §3.3 bilateral peace, §3.4 cargo and contracts,
 §3.5 uninhabited worlds, §3.6 HUD and modals, §4 fleet trading, §5 recall, §6 repair UX, §7 overlay.
 `CANDIDATE.json` lists every section under `spec_17sep` with DONE / PARTIAL / NOT DONE.
 
-## The second round's three findings
+## The second and third rounds' findings
 
-### A. The maturity gate could be satisfied by cycling one menu
+### A. The maturity gate could be satisfied by cycling one menu *(round 2)*
 
 Every successful press of "request contract" incremented `contractsOffered`, and that counter was
 simply added to the systems visited. Two hundred presses at one station cost nothing and carried the
@@ -47,7 +44,7 @@ the captain a journey, a docking or a destination:
 | Category | What it counts | Needs |
 | --- | --- | --- |
 | `systemsVisited` | distinct worlds seen | 10 |
-| `journeys` | completed journeys, capped at 400 by the engine | 25 |
+| `journeys` | journeys the fleet ledger accepted, capped at 400 | 25 |
 | `issuers` | distinct stations or worlds that have offered the captain work | 6 |
 | `contacts` | distinct powers whose service channel they have opened, by docking or by hail | 3 |
 
@@ -62,22 +59,48 @@ which is why station missions stayed out.
 most two and satisfy fewer than the required number of kinds. **Matrix invariant:** each category is
 pushed to a hundred times its own threshold *on its own*, and none of them alone opens the door.
 
-### B. The evidence did not name the tree it came from
+### D. One warp counted as two journeys *(round 3)*
 
-`run-gates.sh` now refuses to run against a dirty working tree, and writes `validation/RUN.json` before
-the first gate: the candidate, the tree, the branch, and the sha256 of every source and built file the
-suite exercises. `RESULTS.json` takes its candidate from that file rather than asking git when the
-manifest happens to be generated. `make-pack.sh` refuses to build a pack whose `RUN.json` or
-`RESULTS.json` names a commit other than the one being shipped.
+The journeys category counted calls to the calendar wrapper rather than journeys the fleet ledger
+accepted. An ordinary warp calls it **twice with the same persisted id** — once when the mid-jump
+briefing opens, once on arrival — and the second call correctly advances no day and charges nothing,
+but the counter had already moved before asking. Thirteen warps recorded twenty-six journeys and passed
+a threshold of twenty-five, halving the travel the gate was meant to require. A zero-day call counted
+as a journey too, and the reload path makes one of those.
+
+The increment now happens **after** `Fleet.advanceCalendar` returns, only when it accepted the journey
+and only when days were actually requested. The category counts what the candidate said it counted.
+
+**Gate DOM-8:** one id presented twice counts once; a zero-day call counts nothing; thirteen ordinary
+warps — each presented the way the engine presents one, briefing then arrival — record thirteen
+journeys and do not reach the threshold, with the days elapsed proving each warp advanced its own days
+exactly once.
+
+### B. The evidence did not name the tree it came from *(round 2, widened in round 3)*
+
+`run-gates.sh` refuses to run against a dirty working tree, and writes `validation/RUN.json` and
+`validation/RUN-FILES.txt` before the first gate. `RESULTS.json` takes its candidate from that file
+rather than asking git when the manifest happens to be generated; `make-pack.sh` refuses to build a
+pack whose `RUN.json` or `RESULTS.json` names a commit other than the one being shipped.
+
+Round 2 hashed seven paths and the handoff described that as every file the suite exercises, which was
+not true: the gates import dozens of tracked modules and serve hundreds of built files.
+`RUN-FILES.txt` now hashes **every git-tracked file in the repository and every file under `dist/`**,
+and `RUN.json` carries the counts and a digest of it.
 
 `.commit-count` was a pack file sitting outside the checksum manifest. It is gone; the count is passed
 to the cover sheets directly.
 
-### C. The contender distance was a label, not a measurement
+### C. The contender distance was a label, not a measurement *(round 2, completed in round 3)*
 
-The matrix check now asks the fixture's own route graph how far Romulus is from the entry, prints the
+The matrix check asks the fixture's own route graph how far Romulus is from the entry, prints the
 answer, and asserts the navy is a contender at exactly that hop count and is not one at one hop less.
-It also asserts the shipped limit includes it. The name of the fixture no longer contains a distance.
+
+Round 2 could only show the comparison working at four and three, because the authored galaxy is not
+eight hops wide, and the shipped limit is eight. A second check now **builds a corridor of empty
+systems** long enough to put a navy at exactly eight hops and at exactly nine, measures the result
+rather than assuming it, and tests the shipped value where it actually decides: at eight the navy is a
+contender and the opening closes; at nine it is not and the opening returns.
 
 ## The six findings from the first review round
 
@@ -300,11 +323,11 @@ itself about the unlock, it says so in a comment and relaxes the opening deliber
 
 ## Gates
 
-**35 of 35 green**, run from the committed tree this pack ships — `validation/RUN.json` records which
-commit, which tree and the sha256 of every source and built file the suite exercised, and it is written
-before the first gate rather than inferred afterwards.
+**35 of 35 green**, run from the committed tree this pack ships. `validation/RUN.json` and
+`validation/RUN-FILES.txt` record which commit, which tree, and a hash of every git-tracked file and
+every file under `dist/`, written before the first gate rather than inferred afterwards.
 
-`playtest-gate` is 12 adversarial checks and **all twelve reproduce on `ae4ae4d`** — see
+`playtest-gate` is 13 adversarial checks and **all thirteen reproduce on `ae4ae4d`** — see
 `validation/playtest-gate-baseline-ae4ae4d.log`.
 
 | Check | What it reproduces on `ae4ae4d` |
@@ -316,15 +339,20 @@ before the first gate rather than inferred afterwards.
 | DOM-5 | 200 days of the roll settled the expedition's war with Earth |
 | DOM-6 | one long jump carried the whole arc past the captain in a single briefing |
 | DOM-7 | the maturity gate could be satisfied by cycling one menu at one station |
+| DOM-8 | one warp counted as two journeys, and a zero-day call counted as one |
 | REM-1 | there was no Blender remnant at all |
 | REM-2 | the remnant drew from the whole Dominion pool |
 | REM-3 | the remnant could not pay its upkeep and never replaced a loss |
 | HAIL | a selected station answered "No ship selected to hail" |
 | CULT | the planet card and map named only the controller |
 
+Two of the thirteen — CULT and DOM-7 — reproduce on `ae4ae4d` as *this does not exist on the parent
+tree* rather than as a wrong behaviour, because what they check is new there. The other eleven
+reproduce the behaviour itself.
+
 `dominion-matrix` is the §9 evidence for the entry decision: **432 rows** varying calendar age (1, 119,
 120, 121, 800, 2,000) independently of war history, corridor state, third-party power and war economy,
-printing the decision and its reason for every row, with **12 invariants** checked. The whole table is
+printing the decision and its reason for every row, with **13 invariants** checked. The whole table is
 in `validation/dominion-matrix.log`; it does not run at all on `ae4ae4d`.
 
 The invariants, named:
@@ -339,15 +367,17 @@ The invariants, named:
 8. a strong power several jumps away is a contender, and closes the opening
 9. a player empire that has become the strongest power here delays the opening
 10. contender membership is decided at the configured hop count, not near it
-11. the opening waits on chances offered to the captain, and no single action can supply them
-12. a condition that alternates never unlocks the arc, however long it alternates
+11. at the shipped limit, a navy at eight hops is a contender and one at nine is not
+12. the opening waits on chances offered to the captain, and no single action can supply them
+13. a condition that alternates never unlocks the arc, however long it alternates
 
-Three of the repairs in this candidate were caught by gates rather than by inspection, and all three
-are worth knowing about: the beat check was captured once per day instead of re-read after each commit,
-so all three stages still cascaded (DOM-6); counting station missions into the maturity total made the
-same sixteen days decide differently stepped and jumped (EQUIV); and the matrix's own `PLAYED` fixture
-stopped satisfying the new category gate the moment it changed, which is what a fixture that asserts
-something real does.
+Four of the repairs in this candidate were caught by gates rather than by inspection: the beat check
+was captured once per day instead of re-read after each commit, so all three stages still cascaded
+(DOM-6); counting station missions into the maturity total made the same sixteen days decide
+differently stepped and jumped (EQUIV); counting journeys put a per-journey number into the persisted
+campaign digest, so forty one-day journeys and one forty-day journey produced different books (the
+campaign probe's daily-versus-chunked check); and the matrix's own fixture stopped satisfying the new
+category gate the moment it changed.
 
 `validation/gate-exit-codes.txt` records each gate's root honestly: `src` means it imports the source
 modules directly, `dist` means it loaded the built tree.
