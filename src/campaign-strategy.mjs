@@ -65,10 +65,14 @@ export const CAMPAIGN_RULES = Object.freeze({
   majorWorldPopulation: 4000,      // OR
   majorWorldStations: 5,           // operational, non-abandoned, non-platform stations
   integrationDays: 30,             // retooling days before native designs become producible
-  // Dominion expedition (day offsets from campaign day 1; tunable data, not fixed gates)
-  dominionReconDay: 25,
-  dominionStagingDay: 45,
-  dominionInvasionDay: 60,
+  // Dominion expedition (day offsets from campaign day 1; tunable data, not fixed gates).
+  // Days pass only when the captain warps, so these are jumps, not minutes: at 25/45/60 the first
+  // warnings arrived inside the opening hour and the expedition was through the wormhole before a
+  // captain had a second ship. The arc is meant to be the campaign's back half, not its first
+  // afternoon. These three numbers are the whole of the schedule and are for sign-off. [playtest]
+  dominionReconDay: 180,
+  dominionStagingDay: 260,
+  dominionInvasionDay: 320,
   dominionExpeditionStrengthRatio: 0.8, // expedition staged to this share of the strongest power's ready strength at staging time
   dominionExpeditionMinStrength: 3000,
   dominionExpeditionMaxHulls: 40,

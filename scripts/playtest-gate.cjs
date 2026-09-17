@@ -312,6 +312,63 @@ const { startProbe } = require('./probe-harness.cjs');
     if (!r.ship.skipped) assert.equal(r.ship.session, true, `hailing a ship stopped working: ${r.ship.log}`);
   });
 
+  // DOM-4 — days pass only when the captain warps, and the expedition arc ran on 25/45/60: the first
+  // Dominion warning arrived inside the opening hour of play and the invasion landed before a captain
+  // had a second ship. The arc belongs in the campaign's back half.
+  await check('DOM the expedition does not arrive in the captain\'s first afternoon', async () => {
+    await fresh('play-dom4');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state, book = t.campaign();
+      const c = book.config;
+      const start = s.day;
+      // Sixty warp-days of play: a busy opening, several systems visited, some trading done.
+      t.advanceCampaign(start + 60);
+      const early = { phase: book.dominion.phase, warnings: book.dominion.warnings.length };
+      t.advanceCampaign(start + 140);
+      const later = { phase: book.dominion.phase, warnings: book.dominion.warnings.length };
+      return { recon: c.dominionReconDay, staging: c.dominionStagingDay, invasion: c.dominionInvasionDay, early, later };
+    });
+    assert.equal(r.early.phase, 'dormant',
+      `sixty warp-days in, the expedition is already at "${r.early.phase}"`);
+    assert.equal(r.early.warnings, 0, 'and the captain has already been warned about it');
+    assert.equal(r.later.phase, 'dormant',
+      `a hundred and forty warp-days in, the expedition is already at "${r.later.phase}"`);
+    assert.ok(r.recon >= 150, `reconnaissance opens on day ${r.recon}`);
+    assert.ok(r.invasion >= 300, `the invasion lands on day ${r.invasion}`);
+    assert.ok(r.staging > r.recon && r.invasion > r.staging, 'the three phases are out of order');
+  });
+
+  // DOM-5 — the Dominion took Bajor and then signed a peace with Earth, because once it held ground on
+  // this side of the wormhole the ordinary war-exhaustion roll treated it as an ordinary neighbour.
+  // The expedition's war is authored: nothing but the campaign may end it.
+  await check('DOM the expedition\'s war with Earth is never signed away', async () => {
+    await fresh('play-dom5');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      const world = t.buildCampaignWorld(true);
+      const here = Number(s.currentPlanet);
+      const target = world.systems.findIndex((sys, i) => i !== here && sys.controller && sys.controller !== 'player'
+        && !t.isDominionCoreSystem(s.planets[i]?.name));
+      if (target < 0) return { fail: 'no near-side world was available for the expedition to take' };
+      t.changeDiplomacy('terran', 'dominion', 'war');
+      t.transferSystemControlToFaction(target, 'dominion');
+      t.markSystemVisited(target);
+      t.buildCampaignWorld(true);
+      const before = t.worldRelation('terran', 'dominion').status;
+      const start = s.day;
+      // Two hundred warp-days of the ordinary roll running every single day.
+      for (let d = start + 1; d <= start + 200; d++) { s.day = d; t.advanceWorldDiplomacy(d); }
+      t.advanceCampaign(s.day);
+      return { fail: null, target, before, after: t.worldRelation('terran', 'dominion').status,
+        pairs: t.diplomaticPairs().map((p) => p.join(':')).filter((k) => k.includes('dominion')) };
+    });
+    assert.ok(!r.fail, `the settlement reproduction could not be set up: ${r.fail}`);
+    assert.equal(r.before, 'war', 'precondition: the expedition is at war with Earth');
+    assert.deepEqual(r.pairs, [], `the roll still holds the expedition's war as ${r.pairs.join(', ')}`);
+    assert.equal(r.after, 'war',
+      `two hundred days of the ordinary roll settled the expedition's war: Earth and the Dominion are now at "${r.after}"`);
+  });
+
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);
   if (failures.length) { console.log(`${failures.length} still reproduce:`); for (const f of failures) console.log(`  - ${f.name}: ${f.message.split('\n')[0]}`); process.exitCode = 1; }
   if (errors.length) { console.log(`page errors: ${errors.join(' | ')}`); process.exitCode = 1; }
