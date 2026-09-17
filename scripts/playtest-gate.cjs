@@ -105,6 +105,7 @@ const { startProbe } = require('./probe-harness.cjs');
     await fresh('play-dom3');
     const r = await ev(() => {
       const t = testBM1, s = t.state;
+      if (typeof t.isDominionCoreSystem !== 'function') return { fail: 'this tree draws no line between the far side of the wormhole and the rest of the galaxy, so there is no near side for the expedition to cross into' };
       const world = t.buildCampaignWorld(true);
       const here = Number(s.currentPlanet);
       // The expedition takes a world on this side of the wormhole.
@@ -477,6 +478,7 @@ const { startProbe } = require('./probe-harness.cjs');
     await fresh('play-dom5');
     const r = await ev(() => {
       const t = testBM1, s = t.state;
+      if (typeof t.isDominionCoreSystem !== 'function') return { fail: 'this tree draws no line between the far side of the wormhole and the rest of the galaxy, so there is no expedition whose war could be signed away' };
       const world = t.buildCampaignWorld(true);
       const here = Number(s.currentPlanet);
       const target = world.systems.findIndex((sys, i) => i !== here && sys.controller && sys.controller !== 'player'
@@ -618,9 +620,14 @@ const { startProbe } = require('./probe-harness.cjs');
   // power lived in a panel that covers the view, so neither could be touched in a fight.
   await check('TOP power and alert are set from the top strip without opening anything', async () => {
     await fresh('play-top');
+    // At the width the probe opens at, the strip carries power as a readout and the steppers live on
+    // the quick-action bar; this check is about the steppers, so it plays at a width that offers them.
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await page.waitForTimeout(180);
     const r = await ev(() => {
       const t = testBM1, s = t.state;
       const stats = document.getElementById('stats');
+      if (typeof t.getAlertStatus !== 'function') return { fail: 'this tree has no alert posture to set: the readout beside the ship opens the game menu' };
       const dialogsOpen = () => [...document.querySelectorAll('dialog')].filter((d) => d.open).length;
       // A fight is on: this is when both of these matter.
       s.lastShieldHitAt = t.gameNow();
@@ -631,14 +638,22 @@ const { startProbe } = require('./probe-harness.cjs');
       stats.querySelector('[data-alert-set="red"]')?.click();
       const afterAlert = { alert: t.ensurePlaytestState().alertLevel, dialogs: dialogsOpen() };
       const up = stats.querySelector('[data-power-dist="weapons"][data-power-dir="1"]');
+      // A control the captain cannot see is not a control they can use, whatever a query selector says.
+      const upReachable = Boolean(up && up.offsetParent !== null);
+      const alertReachable = [...stats.querySelectorAll('[data-alert-set]')].filter((b) => b.offsetParent !== null).length;
       const start = t.state.power?.dist?.weapons ?? 0;
       up?.click();
       const afterPower = { weapons: t.state.power?.dist?.weapons ?? 0, dialogs: dialogsOpen() };
       stats.querySelector('[data-alert-set="green"]')?.click();
-      return { before, alertChips, powerChips, afterAlert, afterPower, start, engaged: t.getAlertStatus() };
+      return { fail: null, before, alertChips, powerChips, afterAlert, afterPower, start, upReachable, alertReachable, engaged: t.getAlertStatus() };
     });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForTimeout(150);
+    assert.ok(!r.fail, String(r.fail));
     assert.deepEqual(r.alertChips, ['green', 'yellow', 'red'], `the strip offers ${r.alertChips.join(', ') || 'no'} alert settings`);
     assert.ok(r.powerChips.length >= 8, `the strip offers ${r.powerChips.length} power controls`);
+    assert.equal(r.alertReachable, 3, `${r.alertReachable} of 3 alert settings can actually be reached on screen`);
+    assert.equal(r.upReachable, true, 'the power control is in the markup but not on screen');
     assert.equal(r.engaged, 'red', 'precondition: the ship is under fire, which is when this matters');
     assert.equal(r.afterAlert.alert, 'red', `setting red alert from the strip left it at "${r.afterAlert.alert}"`);
     assert.equal(r.afterAlert.dialogs, r.before.dialogs, 'changing alert posture opened a dialog');
@@ -766,6 +781,73 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.equal(r.earth.culture, 'terran', `Earth's people are "${r.earth.culture}"`);
     assert.equal(r.distinctLocal, r.localCount,
       `${r.localCount} self-governing worlds share ${r.distinctLocal} identities between them`);
+  });
+
+  // LAYOUT — "the words still don't fit or we have issues with it overlapping". On ae4ae4d the top
+  // strip clips its own posture pill at every width, runs 250px past its right edge around 1000, and
+  // below 900 wraps onto a second row that sits across both the menu block and the minimap. This
+  // check plays the HUD at six widths and reads back what is actually on screen.
+  await check('LAYOUT the top strip fits its own readouts at every width and sits clear of the menu and the map', async () => {
+    await fresh('play-layout');
+    const widths = [1600, 1280, 1100, 1000, 860, 600];
+    const seen = [];
+    try {
+      for (const w of widths) {
+        await page.setViewportSize({ width: w, height: 850 });
+        await page.waitForTimeout(180);
+        await ev(() => { const t = testBM1; t.state.lastShieldHitAt = t.gameNow(); t.updateStats(); });
+        await page.waitForTimeout(120);
+        seen.push(await ev(() => {
+          const stats = document.getElementById('stats');
+          const strip = stats && stats.querySelector('.top-strip');
+          if (!strip) return { missing: true };
+          const box = stats.getBoundingClientRect();
+          const shown = [...strip.children].filter((el) => getComputedStyle(el).display !== 'none');
+          const hit = (a, b) => Boolean(a && b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom);
+          const other = (sel) => { const el = document.querySelector(sel); return el && getComputedStyle(el).display !== 'none' ? el.getBoundingClientRect() : null; };
+          const name = (el) => (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 24) || el.className;
+          return {
+            // The strip is one line: two means its contents did not fit the tracks it was given.
+            rows: Math.max(1, Math.round((box.bottom - box.top) / 42)),
+            // Nothing sticks out past the strip's own right edge.
+            spill: shown.filter((el) => el.getBoundingClientRect().right - box.right > 1)
+              .map((el) => `${name(el)} by ${Math.round(el.getBoundingClientRect().right - box.right)}px`),
+            // Every readout is legible. The message slot rolls prose and is allowed its ellipsis.
+            cut: shown.filter((el) => !el.classList.contains('top-message') && el.scrollWidth - el.clientWidth > 1)
+              .map((el) => `${name(el)} cut by ${el.scrollWidth - el.clientWidth}px`),
+            overMenu: hit(box, other('.top-left-menu')),
+            overMap: hit(box, other('.minimap-panel')),
+            // Whatever the strip still carries at this width has to be reachable, not merely present.
+            alertReachable: [...stats.querySelectorAll('[data-alert-set]')].filter((b) => b.offsetParent !== null).length,
+            powerShown: [...stats.querySelectorAll('.power-chip')].filter((b) => b.offsetParent !== null).length,
+          };
+        }));
+      }
+    } finally {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.waitForTimeout(150);
+    }
+    // Every width is judged before anything is asserted, so the verdict names what is actually wrong
+    // with the HUD rather than whichever width happened to be measured first.
+    const wrong = [];
+    seen.forEach((r, i) => {
+      const at = `${widths[i]}px`;
+      if (r.missing) { wrong.push(`at ${at} there is no top strip`); return; }
+      if (r.rows !== 1) wrong.push(`at ${at} the strip wraps onto ${r.rows} rows`);
+      if (r.spill.length) wrong.push(`at ${at} the strip runs past its own right edge: ${r.spill.join('; ')}`);
+      if (r.cut.length) wrong.push(`at ${at} a readout is cut off: ${r.cut.join('; ')}`);
+      if (r.overMenu) wrong.push(`at ${at} the strip sits across the menu block`);
+      if (r.overMap) wrong.push(`at ${at} the strip sits across the minimap`);
+      // Alert posture is the one control that has to survive to the narrowest width the game is played
+      // at: it is what a captain reaches for first, and there is no room for a dialog in a fight.
+      if (r.alertReachable !== 3) wrong.push(`at ${at} ${r.alertReachable} of 3 alert settings can be reached`);
+    });
+    // Power is shown in the strip at the widths that have room for it; below that it stays on the
+    // quick-action bar and in its own panel, which the HUD checks cover.
+    [0, 1].forEach((i) => {
+      if (seen[i] && seen[i].powerShown !== 4) wrong.push(`at ${widths[i]}px the strip shows ${seen[i].powerShown} of 4 power readouts`);
+    });
+    assert.deepEqual(wrong, [], wrong.join('; '));
   });
 
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);

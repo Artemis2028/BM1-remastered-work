@@ -12326,9 +12326,9 @@ function updateStats() {
   const alertButtons = ['green', 'yellow', 'red'].map((level) => `<button data-alert-set="${level}" class="alert-chip alert-${level}${alertChoice === level ? ' active' : ''}" title="Set ${level} alert"${alertChoice === level ? ' aria-pressed="true"' : ''}>${level[0].toUpperCase()}</button>`).join('');
   const powerChips = [['engines', 'ENG'], ['weapons', 'WPN'], ['shields', 'SHD'], ['sensors', 'SEN']].map(([key, label]) => {
     const value = getPowerDist(key);
-    return `<span class="power-chip" title="${label} power ${value}/10">`
+    return `<span class="power-chip" style="--p:${value * 10}%" title="${label} power ${value} of 10">`
       + `<button data-power-dist="${key}" data-power-dir="-1" aria-label="Less ${label} power">&minus;</button>`
-      + `<b>${label}</b><i style="--p:${value * 10}%"></i><u>${value}</u>`
+      + `<b>${label}</b><u>${value}</u>`
       + `<button data-power-dist="${key}" data-power-dir="1" aria-label="More ${label} power">+</button></span>`;
   }).join('');
   statsEl.innerHTML = `<div class="top-strip">
