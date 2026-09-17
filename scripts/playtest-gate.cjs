@@ -132,6 +132,7 @@ const { startProbe } = require('./probe-harness.cjs');
     await fresh('play-rem');
     const r = await ev(() => {
       const t = testBM1, s = t.state, book = t.campaign();
+      if (typeof t.campaignPowerContact !== 'function') return { fail: 'this tree has no notion of a power coming to the captain\'s attention, so there is nothing for a remnant to be' };
       const blender = t.getSystemIndexByName('Blender');
       if (blender < 0) return { fail: 'the galaxy has no Blender' };
       const world = t.buildCampaignWorld(true);
@@ -320,6 +321,10 @@ const { startProbe } = require('./probe-harness.cjs');
     await fresh('play-dom4');
     const r = await ev(() => {
       const t = testBM1, s = t.state, book = t.campaign();
+      if (typeof t.Campaign.dominionOpportunity !== 'function') {
+        const dated = ['dominionReconDay', 'dominionStagingDay', 'dominionInvasionDay'].filter((k) => book.config[k] !== undefined);
+        return { fail: `this tree has no entry decision to ask: the expedition runs on ${dated.join(', ') || 'a schedule'}` };
+      }
       const start = s.day;
       const step = (days) => { let left = days; while (left > 0) { const n = Math.min(10, left); t.advanceFleetCalendar(n, t.Fleet.nextId(t.fleetBook(), 'journey')); left -= n; } };
       step(60);
@@ -329,6 +334,7 @@ const { startProbe } = require('./probe-harness.cjs');
         open: o.open, reason: o.reasons[0] || '', engagements: o.engagements,
         inputs: ['engagements', 'balance', 'corridorOpen', 'challengeable', 'defenders'].filter((k) => !(k in o)) };
     });
+    assert.ok(!r.fail, `the entry-decision reproduction could not be set up: ${r.fail}`);
     assert.equal(r.days, 60, 'precondition: sixty campaign days actually passed');
     assert.deepEqual(r.dated, [],
       `the expedition still runs on a date: ${r.dated.join(', ')}`);
@@ -382,6 +388,7 @@ const { startProbe } = require('./probe-harness.cjs');
     await fresh('play-dom7');
     const r = await ev(() => {
       const t = testBM1, s = t.state, book = t.campaign();
+      if (!book.config.dominionPlayerBeats) return { fail: 'this tree has no maturity gate: nothing counts what the captain has been offered' };
       const world = () => t.buildCampaignWorld(true);
       const read = () => {
         const o = world().playerOpportunity || {};
@@ -400,6 +407,7 @@ const { startProbe } = require('./probe-harness.cjs');
         beats, kindsMet: kinds, needKinds: book.config.dominionMinPlayerCategories,
         systems: (s.visitedSystems || []).length };
     });
+    assert.ok(!r.fail, `the maturity reproduction could not be set up: ${r.fail}`);
     assert.equal(r.dayMoved, false, 'precondition: no campaign day passed while the menu was cycled');
     assert.ok(r.presses >= 100, `precondition: the menu was actually cycled (${r.presses} presses)`);
     assert.ok(r.after.sum - r.before.sum <= 2,
@@ -420,6 +428,7 @@ const { startProbe } = require('./probe-harness.cjs');
     await fresh('play-dom8');
     const r = await ev(() => {
       const t = testBM1, s = t.state;
+      if (!t.buildCampaignWorld(true).playerOpportunity) return { fail: 'this tree counts no journeys: the campaign is never told what the captain has done' };
       const count = () => Number((t.buildCampaignWorld(true).playerOpportunity || {}).journeys) || 0;
       const start = count();
 
@@ -446,6 +455,7 @@ const { startProbe } = require('./probe-harness.cjs');
         afterWarps, warps: 13, daysElapsed: s.day - dayBefore,
         needs: t.campaign().config.dominionPlayerBeats.journeys };
     });
+    assert.ok(!r.fail, `the journey-counting reproduction could not be set up: ${r.fail}`);
     assert.equal(r.firstOk, true, 'precondition: the ledger accepted the first call');
     assert.equal(r.afterFirst - r.start, 1, `one accepted journey counted ${r.afterFirst - r.start}`);
     assert.equal(r.secondOk, false, 'precondition: the ledger refuses the same journey id twice');
@@ -498,6 +508,7 @@ const { startProbe } = require('./probe-harness.cjs');
     await fresh('play-cult');
     const r = await ev(() => {
       const t = testBM1, s = t.state;
+      if (typeof t.getSystemSovereignty !== 'function') return { fail: 'this tree reports only a controller: a world has no people it can name separately' };
       const here = Number(s.currentPlanet);
       const world = t.buildCampaignWorld(true);
       // A world with a people of its own, governed by them.

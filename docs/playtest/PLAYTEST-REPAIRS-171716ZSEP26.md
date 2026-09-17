@@ -346,9 +346,13 @@ every file under `dist/`, written before the first gate rather than inferred aft
 | HAIL | a selected station answered "No ship selected to hail" |
 | CULT | the planet card and map named only the controller |
 
-Two of the thirteen — CULT and DOM-7 — reproduce on `ae4ae4d` as *this does not exist on the parent
-tree* rather than as a wrong behaviour, because what they check is new there. The other eleven
-reproduce the behaviour itself.
+Five of the thirteen check something the parent tree has no notion of at all — the remnant, the entry
+decision, the maturity gate, the journey count, a world's people — so on `ae4ae4d` they reproduce by
+reporting that absence rather than a wrong behaviour. Each of them says so in its own words ("this tree
+has no entry decision to ask: the expedition runs on dominionReconDay, dominionStagingDay,
+dominionInvasionDay"), not as a TypeError: an earlier version of this pack let three of them fail on
+`undefined is not a function`, which is a stack trace rather than evidence. The other eight reproduce
+the behaviour itself.
 
 `dominion-matrix` is the §9 evidence for the entry decision: **432 rows** varying calendar age (1, 119,
 120, 121, 800, 2,000) independently of war history, corridor state, third-party power and war economy,
