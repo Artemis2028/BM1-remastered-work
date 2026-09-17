@@ -1,6 +1,6 @@
 # BM1 playtest repairs on top of `ae4ae4d`
 
-DTG 171815ZSEP26
+DTG 172033ZSEP26
 
 Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Nothing pushed, merged or deployed.
 The commit count is in `CANDIDATE.json`, computed by the pack script rather than typed here: the two
@@ -8,27 +8,153 @@ previous packs each stated a count that was wrong.
 
 ## Read this first
 
-This is the third repair round. The review of `c1c5843` kept it as the base, confirmed the farm, the
-stale evidence identity and the wrong hop label all closed, and raised one material finding and two
-validation gaps. All three are closed here.
+This is the fourth round. Rounds one to three answered the independent reviews of `1fc0838`,
+`f27dd56` and `c1c5843`, and all of that still stands unchanged below. This round answers a playtest
+list of six items and the layout work that followed from it.
 
-**One warp counted as two journeys.** The journeys category counted calls to the calendar wrapper
-rather than journeys the fleet ledger accepted. An ordinary warp calls it twice with the same persisted
-id, and the counter moved before the ledger was asked, so thirteen warps recorded twenty-six and passed
-a threshold of twenty-five. The review's arithmetic was exact. The increment now happens after the
-ledger accepts, and only for a positive-day call.
+**The six items, as reported.** "The bottom menu still doesn't say fleet ew and the other stuff I
+wanted"; "power should be shown while engaging maybe in the top in between the debug buttons and fleet
+status also be able to change alert status from there"; "when you take an owned planet and you build a
+station there you should be able to buy whatever you want from the planet and the station they're
+yours you shouldn't need prestige for that"; "the evac missions and blockade still don't have anything
+to do in the game"; "don't think that the IDs are set sonata says Unclaimed world · no government |
+neutral | Nebula check the other worlds as well for that".
 
-**The shipped eight-hop boundary was untested.** The previous round proved the comparison at four and
-three because the authored galaxy is not eight hops wide. A corridor of empty systems is now built to
-put a navy at exactly eight hops and exactly nine, and the shipped value is tested where it decides.
+All six are done. Evacuation and blockade were **withdrawn rather than designed**, which is what was
+asked for when the choice was put: they are no longer offered anywhere, and the debug command no longer
+lists them. They remain NOT DONE as mechanics.
 
-**The evidence claim was overstated.** `RUN.json` hashed seven paths while the handoff said it hashed
-every file the suite exercises. It now hashes every git-tracked file and every file under `dist/`, and
-the claim matches the mechanism.
+**The HUD then had to be made to fit.** Putting power and alert posture in the top strip was the
+easy half; the strip had eight column tracks for ten slots, and it clipped its own posture pill and
+wrapped the stats onto a second row across the menu block and the minimap. That is the complaint from
+earlier in the playtest — "the words still don't fit or we have issues with it overlapping" — so it is
+now measured rather than eyeballed: `LAYOUT` plays the HUD at six widths and reads back what is on
+screen. On `ae4ae4d` it reports the posture pill cut at every width, a 250px overrun at 1000, and two
+rows lying across both panels below 900.
+
+Two things were found by gates while closing it, not by looking. The stylesheet's width blocks are
+written in descending order but several base rules are written *after* them, so a media rule and a base
+rule of equal weight resolve the wrong way round: the strip's new narrow-width rules had been appended
+at the end of the file, where they overrode every block they were meant to defer to. And the hail
+panel's height floor — the height at which it still shows every control it is offering — was
+arithmetic that did not count the margins its prose carries, so the second hail action added in round
+one settled three pixels below the panel's own bottom edge. The existing squeeze check caught it. The
+floor is now measured rather than computed.
 
 Most of the 17SEP specification is still **not** here — §3.3 bilateral peace, §3.4 cargo and contracts,
-§3.5 uninhabited worlds, §3.6 HUD and modals, §4 fleet trading, §5 recall, §6 repair UX, §7 overlay.
+§3.5 uninhabited worlds, the rest of §3.6, §4 fleet trading, §5 recall, §6 repair UX, §7 overlay.
 `CANDIDATE.json` lists every section under `spec_17sep` with DONE / PARTIAL / NOT DONE.
+
+## The playtest batch
+
+### P1. The quick-action bar carries what was asked for
+
+The bar was eight buttons and had neither FLEET nor EW. It is ten, in the order the specification
+gives: COMMS, TARGET, HAIL, MAP, CARGO, POWER, FLEET, EW, CONTRACT, SAVE. Each carries one label —
+the duplicated expanded label the specification complains about is gone — and the labels shorten to
+three letters below 1100px and fold onto two rows of five below 680px rather than overflowing.
+
+**Gates HUD and HUD-2:** the bar carries all ten actions with one label each, and FLEET and EW open the
+fleet manager and the EW panel respectively. On `ae4ae4d` the first reports the eight it has.
+
+### P2. Power and alert posture, reachable in a fight
+
+Both were behind a modal: the alert readout beside the ship opened the game menu, and power lived in a
+panel that covers the view. Neither could be touched while engaged, which is the only time either
+matters.
+
+The top strip now carries an alert group — three chips, the active one lit, one press each, no dialog —
+and a power group of four chips showing engines, weapons, shields and sensors with the level as the
+chip's own underline. The bottom bar keeps its POWER button and the panel is unchanged, so nothing was
+taken away.
+
+Room is given up in stages as the window narrows: the power steppers go at 1400 and the readout stays,
+the power group leaves the strip at 1200, three of the six stats go at 980, and **alert posture
+survives to the narrowest width**, because it is what a captain reaches for first.
+
+**Gate TOP:** with the ship under fire, red alert is set from the strip and weapon power is raised from
+the strip, and the dialog count does not change. It plays at a width that offers the steppers and asks
+whether the control it presses is on screen at all, rather than merely present in the markup.
+
+### P3. Your own world and your own yard sell to you
+
+A world the captain holds and a yard they built on it still asked what a foreign government thought of
+them before selling anything. At floor standing their own yard answered "Terran ports refuse you.
+Standing -100."
+
+`isOwnHoldingVendor` decides it from the station's owner, or the system's control when there is no
+station, and `purchaseStandings` presents full standing to a vendor that is the captain's own.
+Every refusal path in purchase, market, weapon and hail now runs through `vendorRefusal`. Prestige is
+how strangers decide whether to deal with you; there are no strangers at your own dock.
+
+**Gate OWN:** at a real yard (a relay array sells nothing to anybody and would prove nothing), the
+refusal reason changes from "Terran ports refuse you. Standing -100" to "Need N latinum". On `ae4ae4d`
+the tree has no notion of a vendor being the captain's own, and says so.
+
+### P4. Evacuation and blockade are withdrawn, not simulated
+
+Both were offered and neither had anything behind it. Asked whether to design them or pull them, the
+answer was to pull them until designed.
+
+`WITHDRAWN_MISSION_KINDS` is `['evacuation', 'blockade']`; `offerStationMission` returns null for both;
+the debug `mission` command lists only the four that work; and the escort-plus-blockade pairing is now
+escort alone. Relief, reconnaissance, repair and escort are unchanged.
+
+**They are NOT DONE as mechanics.** Withdrawing them is not implementing them.
+
+**Gate MISSION:** a contract with nothing to pursue is not offered. On `ae4ae4d` an evacuation contract
+is offered.
+
+### P5. Every inhabited world has a people
+
+Sonata read "Unclaimed world · no government | neutral | Nebula". Fifty-eight of the hundred and one
+worlds had no culture at all, and the ones that did got it from a chain of name and description
+heuristics that also read Blender as a Dominion world because its description mentions the Dominion,
+and collapsed New Switzerland and Orilla into one identity.
+
+`getSystemCulture(index)` resolves a world's people separately from its government: an authored origin
+faction first, then the name table, then — for a populated world that answers to neither — the world
+itself, as its own polity. `SYSTEM_NAME_RULES` replaces the heuristic chain with a data table of names,
+text and special cases, and `matchSystemFactionByName` can be asked for a name match alone, so a
+description can no longer assign a world to a power.
+
+Fifty-eight worlds without a people became ten, and all ten have a population of zero. Sonata resolves
+to the Son'a. New Switzerland and Orilla are distinct, each self-governing under its own name. Blender
+is Blender. Earth is Terran.
+
+**Gate CULT-2:** every inhabited world has a people, no empty world was given one, the named cases hold,
+and the self-governing worlds have as many identities between them as there are worlds. On `ae4ae4d` no
+world has a people it can name.
+
+### P6. The top strip fits at the widths the game is played at
+
+Covered under "Read this first". The strip's ten slots have ten tracks; the first three size to their
+contents because they hold short fixed strings and controls, and the message slot is the one that gives
+up room, because it is the one that can ellipsis. Below 640 the minimap moves to the corner above the
+dock and the strip takes the line under the menu.
+
+**Gate LAYOUT:** at 1600, 1280, 1100, 1000, 860 and 600 the strip is one row, nothing sticks out past
+its own right edge, no readout is cut off, it is clear of the menu block and the minimap, and all three
+alert settings are reachable on screen. Every width is judged before anything is asserted, so the
+verdict names what is wrong with the HUD rather than whichever width was measured first.
+
+### P7. The incoming hail has room for its second action
+
+Not on the list, but caused by it. Round one gave the hail panel a STATION CHANNELS button beside
+ACKNOWLEDGE HAIL. The panel sizes itself to a floor meant to be the height at which it still shows
+every control it offers, and that floor was arithmetic — a flat 7px between children, 18px of padding,
+34px for everything else — which did not count the default margins the prose carries. With two buttons
+the panel settled three pixels short of its own last control.
+
+The floor is now measured: clamp the prose to one line, read where the last control lands, put the
+prose back. Measuring it honestly made the panel taller than the phone column has room for, between
+the strip above and the disabled-ship panel below, so two things that were paying for that height were
+fixed — the body spaces its children with `gap` and the paragraphs were also carrying their default
+margins, spacing them a second time; and at phone widths the two actions now sit side by side. Both are
+inside the panel and clear of the disabled-ship panel at 390x844.
+
+**Gates HAIL (blocker suite) and the campaign probe's squeeze check** already existed and are what
+caught this.
 
 ## The second and third rounds' findings
 
@@ -327,8 +453,8 @@ itself about the unlock, it says so in a comment and relaxes the opening deliber
 `validation/RUN-FILES.txt` record which commit, which tree, and a hash of every git-tracked file and
 every file under `dist/`, written before the first gate rather than inferred afterwards.
 
-`playtest-gate` is 13 adversarial checks and **all thirteen reproduce on `ae4ae4d`** — see
-`validation/playtest-gate-baseline-ae4ae4d.log`.
+`playtest-gate` is 20 adversarial checks and **all twenty reproduce on `ae4ae4d`** — see
+`validation/playtest-baseline-ae4ae4d.log`.
 
 | Check | What it reproduces on `ae4ae4d` |
 | --- | --- |
@@ -345,14 +471,26 @@ every file under `dist/`, written before the first gate rather than inferred aft
 | REM-3 | the remnant could not pay its upkeep and never replaced a loss |
 | HAIL | a selected station answered "No ship selected to hail" |
 | CULT | the planet card and map named only the controller |
+| HUD | the quick-action bar carried eight actions and had neither FLEET nor EW |
+| HUD-2 | there was no FLEET button to open the fleet manager |
+| TOP | the alert readout opened the game menu and power was behind a panel that covers the view |
+| OWN | the captain's own yard answered "Terran ports refuse you. Standing -100" |
+| MISSION | an evacuation contract was offered with nothing behind it |
+| CULT-2 | no world had a people it could name; Sonata read "Unclaimed world · no government" |
+| LAYOUT | the posture pill cut at every width, 250px past the strip's edge at 1000, two rows across the menu and the minimap below 900 |
 
-Five of the thirteen check something the parent tree has no notion of at all — the remnant, the entry
-decision, the maturity gate, the journey count, a world's people — so on `ae4ae4d` they reproduce by
-reporting that absence rather than a wrong behaviour. Each of them says so in its own words ("this tree
-has no entry decision to ask: the expedition runs on dominionReconDay, dominionStagingDay,
-dominionInvasionDay"), not as a TypeError: an earlier version of this pack let three of them fail on
-`undefined is not a function`, which is a stack trace rather than evidence. The other eight reproduce
-the behaviour itself.
+Nine of the twenty check something the parent tree has no notion of at all — the remnant, the entry
+decision, the maturity gate, the journey count, a world's people, a vendor being the captain's own —
+so on `ae4ae4d` they reproduce by reporting that absence rather than a wrong behaviour. **Every one of
+the twenty says what is wrong in its own words**, and none of them fails as a TypeError: three still
+did in `b26f97b` (`t.isDominionCoreSystem is not a function`, `t.getAlertStatus is not a function`),
+which is a stack trace rather than evidence, and they now ask the tree whether it has the thing before
+reaching for it. The other eleven reproduce the behaviour itself.
+
+`LAYOUT`'s baseline is the whole complaint in measurements, which is why it is worth reading in full
+in the baseline log: *"at 1100px the strip runs past its own right edge: LAT900 by 70px; STD20 by
+150px; ... at 860px the strip wraps onto 2 rows; at 860px a readout is cut off: FLIGHT · RED cut by
+10px; at 860px the strip sits across the menu block; at 860px the strip sits across the minimap"*.
 
 `dominion-matrix` is the §9 evidence for the entry decision: **432 rows** varying calendar age (1, 119,
 120, 121, 800, 2,000) independently of war history, corridor state, third-party power and war economy,
@@ -425,15 +563,21 @@ still the single authored Earth–Klingon resolution it was.
 per-ton curve, no before/after table.
 
 **§3.5 uninhabited worlds** — zero-population planets still trade and still generate contracts. No
-UNINHABITED badge.
+UNINHABITED badge. What did change: the ten worlds that now have no people all have a population of
+zero, so the set this section will act on is at least identified.
 
-**§3.6 bottom HUD and modals** — the bar is still eight buttons without FLEET and EW; the duplicated
-expanded labels, sticky header, 44×44 close target, scroll reset and multi-press close are all
-untouched. No screenshots at three widths.
+**§3.6 bottom HUD and modals** — **partly done.** The bar is now ten buttons in the specified order
+with FLEET and EW, one label each, and the duplicated expanded label is gone; power and alert posture
+moved into the top strip where they can be reached in a fight; the strip is verified at six widths and
+screenshots are in `validation/screens/` at 1600, 1000 and 600. Still untouched: the modal sticky
+header, the 44×44 close target, scroll reset on open, and the multi-press close.
 
 **§4 fleet trading, §5 recall and rendezvous, §6 fleet repair UX, §7 living trade-route overlay** — none
 of it.
 
-**§9 validation** — no seeded campaign matrices varying calendar age against engagements, losses,
-economy and player power; no seeded economy table; no fleet-trade fixtures; no planet-card or map
-screenshots.
+**§9 validation** — the campaign matrix for the entry decision is done (432 rows, 13 invariants) and
+HUD screenshots at three widths and a planet card are in `validation/screens/`. Still missing: the
+seeded economy table and the fleet-trade fixtures.
+
+**Evacuation and blockade contracts** — NOT DONE as mechanics, and now withdrawn rather than offered
+with nothing behind them. Pulling a contract that does nothing is not implementing it.
