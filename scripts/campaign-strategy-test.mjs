@@ -178,7 +178,7 @@ test('the Earth–Klingon war resolves strategically, once: never by a roll, onl
 
 // An opening is a strategic condition, not a date. These fixtures author the condition rather than
 // waiting for a seed to produce it, so what is being tested is the rule and not the weather.
-function grindCentralWar(book, world, day, { engagements = 30, keep = 0.3 } = {}) {
+function grindCentralWar(book, world, day, { engagements = 30, keep = 0.3, broke = true } = {}) {
   const w = C.warRecord(book, 'terran', 'klingon');
   w.engagements = engagements; w.firstDay = 2; w.lastDay = day;
   w.losses.terran = 20; w.losses.klingon = 18;
@@ -186,6 +186,9 @@ function grindCentralWar(book, world, day, { engagements = 30, keep = 0.3 } = {}
     const p = C.getPolity(book, id);
     const living = p.hulls.filter((h) => h.status !== 'lost');
     for (const h of living.slice(Math.max(1, Math.round(living.length * keep)))) h.status = 'lost';
+    // A war that cost hulls and nothing else is one somebody can still fight: the fixture spends the
+    // treasury too, because the opening requires the economy to show the war as well as the fleet.
+    if (broke) p.treasury = Math.round((p.treasuryPeak || 0) * 0.1);
   }
 }
 
@@ -208,7 +211,7 @@ test('Dominion: the expedition is an opening, not a date — elapsed days alone 
   const opened = C.dominionOpportunity(book, world, 201);
   assert.equal(opened.open, true, `a worn-down near side did not read as an opening: ${opened.reasons.join(' | ')}`);
   assert.equal(opened.balance, 'stalemate');
-  const effects = run(book, world, 201, 201 + book.config.dominionOpeningSustainDays + book.config.dominionReconDwellDays + book.config.dominionStagingDwellDays + 60);
+  const effects = run(book, world, 201, 201 + book.config.dominionOpeningSustainDays + book.config.dominionReconDwellDays + book.config.dominionStagingDwellDays + 90);
   const warnings = effects.filter((e) => e.type === 'dominionWarning');
   assert.ok(warnings.length >= 2, `at least two warnings before the assault, got ${warnings.length}`);
   assert.equal(book.dominion.phase, 'invasion', `the opening did not carry through to a crossing (${book.dominion.phase})`);
@@ -220,6 +223,8 @@ test('Dominion: the expedition is an opening, not a date — elapsed days alone 
 
   // 3. The stages dwell rather than tick: the crossing cannot precede the two dwells.
   assert.ok(book.dominion.openedDay >= 201, 'the opening was dated before the condition existed');
+  assert.ok(book.dominion.openedDay - 201 >= book.config.dominionOpeningSustainDays,
+    `the arc unlocked after ${book.dominion.openedDay - 201} eligible day(s), inside its own window`);
   assert.ok(op.createdDay - book.dominion.openedDay >= book.config.dominionReconDwellDays + book.config.dominionStagingDwellDays,
     `the expedition crossed ${op.createdDay - book.dominion.openedDay} days after the opening, inside its own dwells`);
 
@@ -241,6 +246,7 @@ test('Dominion: the expedition is an opening, not a date — elapsed days alone 
   const tp = C.getPolity(b3, 'terran');
   const alive = tp.hulls.filter((h) => h.status !== 'lost');
   for (const h of alive.slice(Math.max(1, Math.round(alive.length * 0.3)))) h.status = 'lost';
+  tp.treasury = Math.round((tp.treasuryPeak || 0) * 0.1);
   const weak = C.dominionOpportunity(b3, w3, 901);
   assert.equal(weak.open, true, `a wrecked victor did not present an opening: ${weak.reasons.join(' | ')}`);
   assert.equal(weak.balance, 'weakened-victor');

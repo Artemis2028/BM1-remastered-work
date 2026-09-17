@@ -68,21 +68,34 @@ export const CAMPAIGN_RULES = Object.freeze({
   // Dominion expedition: an opportunity, never a date. Campaign days pass only when the captain warps,
   // so a calendar trigger fires on travel rather than on anything that happened — four hundred days of
   // peaceful trading weakened nobody, and the Dominion does not cross a wormhole because a number
-  // rolled over. `dominionEarliestDay` is a floor and nothing else: on its own it opens nothing, and
-  // there is no latest day. What opens the door is dominionOpportunity(): a central war that has
-  // actually cost its belligerents something, a balance the expedition can exploit, and a corridor
-  // nobody has closed. Every threshold below is a share of a polity's own opening or recovered
-  // capacity, so it reads the same for a small power as for a large one. [17SEP spec §3.1]
-  dominionEarliestDay: 120,              // nothing before this; reaching it is not a reason for anything
+  // rolled over. There is no earliest day and no latest day; no threshold below is a campaign day.
+  // What opens the door is dominionOpportunity(): a central war that has actually cost its belligerents
+  // something, an economy that shows it, a balance the expedition can exploit, a corridor nobody has
+  // closed, and a captain who has been offered a game to play first. Every threshold is a share of a
+  // polity's own opening or recovered capacity, so it reads the same for a small power as for a large
+  // one. [17SEP spec §3.1]
   dominionMinCentralEngagements: 20,     // consequential engagements (losses or a capture) in the central war
   dominionDefenderWeakness: 0.65,        // a near-side power is weakened below this share of its own capacity
-  dominionOpeningSustainDays: 30,        // ...and the case must accumulate this much weight before it unlocks
-  dominionOpeningDecay: 0.5,             // weight lost per day the case does not hold, so a flicker never accumulates
+  dominionEconomicStrain: 0.75,          // ...and its revenue, yards or treasury are below this share of their own best
+  // The opening is judged over a bounded rolling window, not accumulated for ever. A lifetime counter
+  // that gains on eligible days and loses less on the others grows whenever the case holds more than a
+  // third of the time, so a condition that merely alternates around the line reaches any threshold
+  // eventually. A window cannot: alternating gives half the window, and half is not enough.
+  dominionOpeningWindowDays: 90,         // days of eligibility history kept
+  dominionOpeningSustainDays: 60,        // ...of which this many must be eligible before the arc unlocks
+  // What replaces a calendar floor. Campaign day is not an opportunity score, so the thing that has to
+  // be true before the galaxy's war can pull the captain into it is that the captain has actually been
+  // offered a game: worlds to see, work to take, and word of what is happening. These count chances
+  // the game put in front of them, never things they achieved, so a captain who stays poor and small is
+  // protected exactly as much as one who does not.
+  dominionMinPlayerOpportunities: 60,    // offered contracts + offered missions + systems visited + warnings received
+  dominionPhaseBeatsApart: true,         // at most one phase transition per journey: never a whole arc inside one jump
   dominionStalemateBand: 0.5,            // |a-b| / max(a,b) at or under this is a bounded strength difference
   dominionFrontStallRatio: 2,            // ...and neither side's captures may exceed the other's by more than this
   dominionFrontStallFloor: 2,            // ...below which a lead is noise rather than a front that is moving
   dominionVictorWeakness: 0.6,           // a victor still above this share of its own capacity closes the opening
   dominionPlayerPowerShare: 0.5,         // the player counts as a near-side power at this share of the strongest AI
+  dominionContenderHops: 8,              // a polity holding ground this close to the entry can answer the crossing
   dominionCorridorCloseRatio: 1.2,       // entry defence at or above this multiple of the expedition's reach closes the corridor
   dominionChallengeRatio: 1.5,           // the strongest near-side power may be at most this multiple of that reach
   dominionReconDwellDays: 40,            // days in reconnaissance before staging may begin, while the opening holds
@@ -155,7 +168,7 @@ export function createCampaignBook(seed, day = 1, config = {}) {
     activatedStations: {},
     unstaffedStations: {},
     occupations: {},     // systemIndex → { capturedDay, by }
-    stats: { battlesResolved: 0, captures: 0, hullsBuilt: 0, hullsLost: 0 },
+    stats: { battlesResolved: 0, captures: 0, hullsBuilt: 0, hullsLost: 0, missionsOffered: 0 },
   };
 }
 export function nextCampaignId(book, type) { return `${book.seed}:${type}:${++book.counter}`; }
@@ -172,7 +185,8 @@ export function upgradeCampaignBook(book) {
   for (const key of ['polities', 'designs', 'incomeLedger', 'restoredStations', 'activatedStations', 'unstaffedStations', 'occupations', 'wars']) book[key] ||= {};
   for (const key of ['operations', 'recoveries', 'missions', 'orders', 'history']) if (!Array.isArray(book[key])) book[key] = [];
   book.dominion ||= { phase: 'dormant', phaseDay: null, warnings: [], entrySystem: null, stagingSystem: null, expeditionOpId: null, reinforcementCut: false, convoys: 0, lastConvoyDay: null };
-  book.stats ||= { battlesResolved: 0, captures: 0, hullsBuilt: 0, hullsLost: 0 };
+  book.stats ||= { battlesResolved: 0, captures: 0, hullsBuilt: 0, hullsLost: 0, missionsOffered: 0 };
+  book.stats.missionsOffered ??= 0;
   return book;
 }
 
@@ -180,7 +194,8 @@ function polity(book, id) {
   return (book.polities[id] ||= {
     id, kind: id === 'player' ? 'player' : 'faction', active: true,
     treasury: 0, materials: 0, revenueLastDay: 0, expenseLastDay: 0, supply: 1,
-    hulls: [], queue: [], integrations: {}, licenses: {}, readinessBaseline: null, readinessPeak: 0,
+    hulls: [], queue: [], integrations: {}, licenses: {}, readinessBaseline: null,
+    readinessPeak: 0, revenuePeak: 0, treasuryPeak: 0, berthsPeak: 0,
     lastPlanDay: 0, lostHulls: 0, builtHulls: 0,
   });
 }
@@ -267,9 +282,10 @@ export function initializeCampaign(book, world) {
   // so a migrated save cannot emit the warnings and the invasion in the same week.
   if (book.day > 1 && book.dominion.anchorDay == null) {
     const shift = book.day - 1;
-    // The floor is an offset from the first campaign day, not from day 1 of a fresh game, so a save that
-    // first runs the campaign on day 400 does not arrive with the floor already behind it.
-    book.config = { ...book.config, dominionEarliestDay: (book.config.dominionEarliestDay || 0) + shift };
+    // Nothing in the expedition's rules is a campaign day any more, so a save that first runs the
+    // campaign on day 400 has nothing to re-anchor: the opening is judged from the war, the economy,
+    // the corridor and what the captain has been offered, none of which is dated.
+    book.dominion.lateStartShift = shift;
   }
   book.dominion.anchorDay ??= book.day;
   const c = book.config;
@@ -526,10 +542,16 @@ function settleEconomy(book, world, day, effects) {
       p.treasury = bounded(p.treasury + revenue - upkeep, -c.treasuryCap, c.treasuryCap);
       p.materials = bounded(p.materials + materials, 0, c.materialsCap);
     }
-    // The high-water mark of what this polity could field. Opening capacity is the baseline for a power
-    // that starts with a fleet; a player empire starts with nothing, so its capacity is what it has
-    // built. Both are needed to say "down to a third of what it could field" without a faction name.
+    // High-water marks: what this polity could field, earn, bank and build at its best. Opening capacity
+    // is the baseline for a power that starts with a fleet; a player empire starts with nothing, so its
+    // capacity is what it has built. Both are needed to say "down to a third of what it could field"
+    // without naming a faction. Revenue, treasury and berths are the same idea for the war economy: a
+    // power whose worlds and yards are gone earns and builds a fraction of what it once did, and that
+    // is the difference between a war that has cost something and a war that has merely been long.
     p.readinessPeak = Math.max(p.readinessPeak || 0, polityReadiness(book, world, id).strength);
+    p.revenuePeak = Math.max(p.revenuePeak || 0, revenue);
+    p.treasuryPeak = Math.max(p.treasuryPeak || 0, p.treasury);
+    p.berthsPeak = Math.max(p.berthsPeak || 0, polityProduction(book, world, id).berths);
     // crew recovery at worlds with morale
     // Morale is a place, not an asset: shore leave at any operational station in the system counts.
     for (const h of p.hulls) if (h.status === 'ready' && (stationEffects(world, h.systemIndex, null).morale || 0) > 0) h.crew = bounded((h.crew ?? 1) + c.crewRecoveryPerDay, 0, 1);
@@ -1133,17 +1155,25 @@ export function dominionOpportunity(book, world, day) {
   const strongestAi = Math.max(...Object.keys(book.polities)
     .filter((id) => id !== 'dominion' && id !== 'player')
     .map((id) => polityReadiness(book, world, id).strength), 0);
-  // Who would actually have to meet the expedition: the central belligerents, whoever holds the entry
-  // system and its neighbours, and the player once they are materially a power on this side.
+  // Who would actually have to meet the expedition. Not a hand-picked list of the powers the author
+  // happened to think of — a great power eight jumps from the entry can send a fleet to Bajora, and a
+  // model that ignored it because its name was not on the list would call a galaxy defenceless while a
+  // strong Romulan navy sat one region away. Membership is reach: any polity holding ground within
+  // `dominionContenderHops` route-hops of the entry system can respond, and the central belligerents
+  // are in regardless because the war that made the opening is theirs. The player joins on the same
+  // terms as anybody else, plus the weight test below.
   const nearSide = new Set([wa, wb].filter(Boolean));
+  const reachable = new Set();
   if (entrySystem != null) {
-    const here = world.systems[entrySystem]?.controller;
-    if (here && here !== 'dominion') nearSide.add(here);
-    for (const n of world.neighbours(entrySystem)) {
-      const holder = world.systems[n]?.controller;
-      if (holder && holder !== 'dominion') nearSide.add(holder);
+    for (const sys of world.systems) {
+      const holder = sys.controller;
+      if (!holder || holder === 'dominion') continue;
+      if (reachable.has(holder)) continue;
+      const hops = world.routeHops([sys.index], entrySystem, holder);
+      if (hops != null && hops <= (c.dominionContenderHops || 0)) reachable.add(holder);
     }
   }
+  for (const id of reachable) nearSide.add(id);
   const playerShare = strongestAi > 0 ? polityReadiness(book, world, 'player').strength / strongestAi : 0;
   const playerCounts = playerShare >= c.dominionPlayerPowerShare;
   if (playerCounts) nearSide.add('player');
@@ -1158,6 +1188,28 @@ export function dominionOpportunity(book, world, day) {
   // 2. Somebody who would have to meet the expedition is materially down on their own capacity.
   const weakened = defenders.filter((x) => x.share != null && x.share <= c.dominionDefenderWeakness);
   if (!weakened.length) reasons.push('no near-side power is materially below its own capacity');
+  // 2a. A war that cost hulls but nothing else is a war somebody can still fight. The near side has to
+  //     be strained where wars are actually won: what it earns, what it has banked, and what it can
+  //     build. Any one of the three being materially below that polity's own best counts, because a
+  //     power can be broke, or blockaded out of its revenue, or have lost its yards, and each of those
+  //     is a different way of being unable to replace what the expedition will take off it.
+  const economyOf = (id) => {
+    const p = book.polities[id];
+    if (!p) return null;
+    const bits = [];
+    if ((p.revenuePeak || 0) > 0) bits.push({ what: 'revenue', share: (p.revenueLastDay || 0) / p.revenuePeak });
+    if ((p.treasuryPeak || 0) > 0) bits.push({ what: 'treasury', share: Math.max(0, p.treasury) / p.treasuryPeak });
+    if ((p.berthsPeak || 0) > 0) bits.push({ what: 'yards', share: polityProduction(book, world, id).berths / p.berthsPeak });
+    if (!bits.length) return null;
+    return bits.reduce((lo, x) => (x.share < lo.share ? x : lo));
+  };
+  const strainOf = (id) => economyOf(id);
+  const strained = weakened.map((x) => ({ id: x.id, worst: strainOf(x.id) }))
+    .filter((x) => x.worst && x.worst.share <= c.dominionEconomicStrain);
+  if (weakened.length && !strained.length) {
+    reasons.push(`no worn-down power is economically strained: ${weakened.map((x) => { const e = strainOf(x.id); return `${x.id} ${e ? `${e.what} ${Math.round(e.share * 100)}%` : 'unmeasured'}`; }).join(', ')}`);
+  }
+
   // 2b. And nobody on this side may still be standing tall enough to make the crossing pointless. A tired
   //     pair of belligerents is no opportunity if a third power — an untouched neighbour, or a player
   //     empire that has become the strongest thing here — can meet the expedition on its own. This is
@@ -1214,12 +1266,30 @@ export function dominionOpportunity(book, world, day) {
     ? 'there is no wormhole corridor'
     : `the corridor at ${world.systems[entrySystem]?.name} is held at ${Math.round(entryDefence)} against a reach of ${Math.round(reach)}`);
 
-  // 5. A floor, and only a floor. Reaching it is never itself a reason.
-  const floorMet = day >= (c.dominionEarliestDay || 0);
-  if (!floorMet) reasons.push(`before the earliest day (${c.dominionEarliestDay})`);
+  // 5. And the captain has to have been offered a game before the galaxy's war comes to collect them.
+  //    This is what a calendar floor was standing in for, done honestly: a count of chances the game
+  //    put in front of the player — systems it showed them, work it offered, word it sent — never a
+  //    count of what they made of those chances. A captain who takes none of it is protected exactly as
+  //    much as one who takes all of it, and a captain who spends four hundred days crossing empty space
+  //    accumulates almost nothing, because travel is not an opportunity.
+    //  What may be counted here is bounded by equivalence, not by taste. The two counts from the view
+    //  are things only the player does, which cannot happen mid-jump, so a snapshot of them is right.
+    //  The warnings are the campaign's own and are read from the book being mutated, so they read the
+    //  same stepped or jumped. Station missions are deliberately NOT counted: the engine offers them in
+    //  reaction to a day's effects, which lands before the next day when stepping and after all of them
+    //  when jumping, so counting them would make the same sixteen days decide differently depending on
+    //  how they were advanced. The counter is kept for evidence; it is not an input.
+  const chances = world.playerOpportunity || null;
+  const offered = chances
+    ? (Number(chances.systemsVisited) || 0) + (Number(chances.contractsOffered) || 0)
+      + ((book.dominion?.warnings || []).length)
+    : null;
+  const played = offered == null || offered >= (c.dominionMinPlayerOpportunities || 0);
+  if (!played) reasons.push(`the captain has been offered ${offered} chance(s), short of ${c.dominionMinPlayerOpportunities}`);
 
-  return { open: Boolean(foughtEnough && weakened.length && challengeable && balance && corridorOpen && floorMet),
-    day, engagements, floorMet, balance, corridorOpen, recovered, challengeable, frontStalled,
+  return { open: Boolean(foughtEnough && weakened.length && strained.length && challengeable && balance && corridorOpen && played),
+    day, engagements, balance, corridorOpen, recovered, challengeable, frontStalled,
+    played, offered, strained: strained.map((x) => ({ id: x.id, what: x.worst.what, share: Number(x.worst.share.toFixed(3)) })),
     strongestNear: Math.round(strongestNear), strengthGap: Number(gap.toFixed(3)),
     entrySystem, entryDefence: entryDefence === Infinity ? null : Math.round(entryDefence),
     expeditionReach: Math.round(reach), expeditionTarget: Math.round(target),
@@ -1237,19 +1307,38 @@ function advanceDominion(book, world, day, effects) {
   const warn = (id, text, systemIndex) => { if (d.warnings.some((w) => w.id === id)) return; d.warnings.push({ id, day, text, systemIndex }); effects.push({ type: 'dominionWarning', id, text, systemIndex, day }); };
   // The stages are events, not dates. Each one opens when the strategic condition behind it holds, and
   // stalls — it does not expire, and it is not forced through — while it does not. [17SEP spec §3.1]
+  //
+  // And each one has to reach the captain separately. A single long warp settles sixty campaign days in
+  // one call, which is how missing patrols, staging signatures and the crossing itself all arrived in
+  // the same mid-jump briefing with nothing the player could do between them. A phase may become
+  // eligible at any point during that jump, but only one may commit per beat — a journey when the
+  // engine is running one, otherwise the day itself, which keeps stepped and bulk advancement
+  // identical. The rest wait for the next beat, so every stage costs the captain a journey and can be
+  // answered before the next arrives.
+  const beat = world.journeyId != null ? `journey:${world.journeyId}` : `day:${day}`;
+  // Re-read after every commit, not once for the day: a constant captured before the first transition
+  // would let all three cascade inside the same call, which is the whole defect this exists to close.
+  const beatFree = () => !c.dominionPhaseBeatsApart || d.lastPhaseBeat !== beat;
+  const commitPhase = (to) => { d.phase = to; d.phaseDay = day; d.lastPhaseBeat = beat; };
   const opportunity = dominionOpportunity(book, world, day);
+  const windowDays = Math.max(1, c.dominionOpeningWindowDays || 1);
+  d.openWindow = `${d.openWindow || ''}${opportunity.open ? '1' : '0'}`.slice(-windowDays);
+  const eligibleDays = (d.openWindow.match(/1/g) || []).length;
   d.lastOpportunity = { day, open: opportunity.open, balance: opportunity.balance, engagements: opportunity.engagements,
-    corridorOpen: opportunity.corridorOpen, weight: Number((d.openWeight || 0).toFixed(1)),
+    corridorOpen: opportunity.corridorOpen, eligibleDays, windowDays,
     reasons: opportunity.reasons.slice(0, 4) };
   // An opening has to hold. A war's numbers move every day and one of those days will always happen to
   // clear every line at once; that is a coincidence, not an opportunity, and the expedition does not
-  // sail on it. So the case accumulates weight on the days it holds and loses it on the days it does
-  // not: a war that is genuinely deepening reaches the threshold, a war that merely wobbles around it
-  // never does, and a near side that starts recovering pushes the weight back down again. Consecutive
-  // days would have been the wrong test — a single good day for one belligerent would reset it.
-  d.openWeight = Math.max(0, (d.openWeight || 0) + (opportunity.open ? 1 : -(c.dominionOpeningDecay || 0)));
-  if (d.phase === 'dormant' && opportunity.open && d.openWeight >= (c.dominionOpeningSustainDays || 0)) {
-    d.phase = 'reconnaissance'; d.phaseDay = day; d.openedDay = day;
+  // sail on it. Consecutive days would be the wrong test — one good day for one belligerent would reset
+  // it — but so is a lifetime counter that gains more than it loses, because that grows on any
+  // condition true more than a third of the time and so a case that merely wobbles around the line
+  // reaches any threshold if you wait. This is a bounded rolling window of the last
+  // `dominionOpeningWindowDays` days, of which `dominionOpeningSustainDays` must have been eligible.
+  // Alternating gives exactly half the window and half is not enough; only a case that holds most days
+  // of a season unlocks the arc, and a near side that recovers walks the count back down as the good
+  // days age out.
+  if (d.phase === 'dormant' && beatFree() && opportunity.open && eligibleDays >= (c.dominionOpeningSustainDays || 0)) {
+    commitPhase('reconnaissance'); d.openedDay = day;
     addHistory(book, day, 'dominion', `An opening on the near side: ${opportunity.balance === 'stalemate' ? 'a costly stalemate' : 'a weakened victor'} after ${opportunity.engagements} engagements.`);
     warn('missing-patrols', `Patrols near ${world.systems[d.entrySystem]?.name} have stopped reporting on schedule.`, d.entrySystem);
     // real reconnaissance: two hulls staged at the far terminus
@@ -1261,14 +1350,17 @@ function advanceDominion(book, world, day, effects) {
   // Once the arc has opened it continues on its own dwells. What stops it is not the opening flickering
   // — a war's numbers move every day — but one of the two things a defender can actually do: hold the
   // corridor, or put the near side back on its feet. Either stands the expedition down where it is.
-  if ((d.phase === 'reconnaissance' || d.phase === 'staging') && (opportunity.recovered || !opportunity.corridorOpen)) {
-    const why = opportunity.recovered ? 'the near side has recovered' : 'the corridor is held against it';
+  if ((d.phase === 'reconnaissance' || d.phase === 'staging')
+    && (opportunity.recovered || !opportunity.corridorOpen || !opportunity.challengeable)) {
+    const why = opportunity.recovered ? 'the near side has recovered'
+      : !opportunity.corridorOpen ? 'the corridor is held against it'
+      : `the near side now fields ${opportunity.strongestNear} against it`;
     addHistory(book, day, 'dominion', `The Dominion expedition stands down: ${why}.`);
     effects.push({ type: 'dominionStandDown', day, from: d.phase, reason: why });
     d.phase = 'dormant'; d.phaseDay = day; d.standDownDay = day;
   }
-  if (d.phase === 'reconnaissance' && day - (d.phaseDay ?? day) >= c.dominionReconDwellDays) {
-    d.phase = 'staging'; d.phaseDay = day;
+  if (d.phase === 'reconnaissance' && beatFree() && day - (d.phaseDay ?? day) >= c.dominionReconDwellDays) {
+    commitPhase('staging');
     // The expedition is sized against the galaxy as it stands when staging begins; powers that keep
     // building afterwards can outmatch it, and nothing later rescales it.
     const strongest = Math.max(...Object.keys(book.polities).filter((id) => id !== 'dominion').map((id) => polityReadiness(book, world, id).strength), 1);
@@ -1282,7 +1374,7 @@ function advanceDominion(book, world, day, effects) {
     warn('unfamiliar-signatures', `Unfamiliar warship signatures and unexplained supply purchases reported beyond the ${world.systems[d.entrySystem]?.name} wormhole.`, d.entrySystem);
     addHistory(book, day, 'dominion', `Dominion expedition staged at ${world.systems[d.stagingSystem]?.name}: ${dominion.hulls.length} hulls.`);
   }
-  if (d.phase === 'staging' && day - (d.phaseDay ?? day) >= c.dominionStagingDwellDays) {
+  if (d.phase === 'staging' && beatFree() && day - (d.phaseDay ?? day) >= c.dominionStagingDwellDays) {
     // There has to be an expedition to send and a door to send it through. Whether the near side can be
     // challenged at all was settled when the opening was taken, and it is re-tested every day since
     // through the stand-down above, so re-testing it here as well could only deadlock a staged force
@@ -1290,7 +1382,7 @@ function advanceDominion(book, world, day, effects) {
     // corridor closed while it staged is a crossing that never happens.
     const staged = dominion.hulls.filter((h) => h.status === 'ready' && h.systemIndex === d.stagingSystem);
     if (staged.length > 0 && opportunity.corridorOpen) {
-      d.phase = 'invasion'; d.phaseDay = day;
+      commitPhase('invasion');
       const op = launchOperation(book, world, 'dominion', staged, d.entrySystem, day, 1, 'invasion', effects);
       d.expeditionOpId = op.id;
       warn('invasion', `A Dominion expedition is transiting the ${entry.name || 'Bajoran Wormhole'} toward ${world.systems[d.entrySystem]?.name}.`, d.entrySystem);
@@ -1404,6 +1496,9 @@ export function offerMission(book, mission, day) {
   if (liveMissions(book).length >= book.config.maxLiveMissions) return null;
   const m = { id: mission.id || nextCampaignId(book, 'mission'), status: 'offered', offeredDay: day, acceptedDay: null, completedDay: null, reason: null, ...mission };
   book.missions.push(m);
+  // The mission list is trimmed, so the count of chances offered is kept separately: it is evidence
+  // that the captain was given a game to play, and trimming must not quietly erase that.
+  book.stats.missionsOffered = (book.stats.missionsOffered || 0) + 1;
   const live = liveMissions(book);
   const done = book.missions.filter((x) => !live.includes(x));
   const keep = Math.max(0, book.config.maxLiveMissions - live.length);

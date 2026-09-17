@@ -50,6 +50,10 @@ export function makeWorld(opts = {}) {
   const relations = { ...relationsBase, ...(opts.relations || {}) };
   const world = {
     day: 1, playerFaction: opts.playerFaction || 'neutral', localSystem: opts.localSystem ?? null,
+    // Absent by default: a fixture that says nothing about what the captain has been offered must not
+    // be read as saying they have been offered nothing. Suites that test the opportunity gate pass it.
+    ...(opts.playerOpportunity ? { playerOpportunity: opts.playerOpportunity } : {}),
+    ...(opts.journeyId ? { journeyId: opts.journeyId } : {}),
     systems, routes, wormholes: [{ id: 'bajora-dominica-wormhole', from: 6, to: 7, name: 'Bajoran Wormhole' }],
     isFaction: (id) => id in POOLS && id !== 'player' && id !== 'neutral',
     factionName: (id) => id,

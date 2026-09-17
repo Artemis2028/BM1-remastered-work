@@ -340,6 +340,40 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.deepEqual(r.inputs, [], `the entry decision does not report ${r.inputs.join(', ')}`);
   });
 
+  // DOM-6 — one qualifying warp carried missing patrols, staging signatures and the crossing itself into
+  // the same mid-jump briefing. The captain had no opportunity between the stages to investigate, warn
+  // anybody, fortify the entry or change sides: the whole arc happened while they were asleep at warp.
+  await check('DOM a single long jump cannot carry the whole expedition arc past the captain', async () => {
+    await fresh('play-dom6');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state, book = t.campaign();
+      // Every stage eligible, no dwell between them: the only thing left to separate them is the rule
+      // that a stage must reach the captain before the next one commits.
+      Object.assign(book.config, { dominionMinCentralEngagements: 0, dominionDefenderWeakness: 1.1,
+        dominionEconomicStrain: 1.1, dominionStalemateBand: 1, dominionFrontStallRatio: 1e6,
+        dominionChallengeRatio: 1e6, dominionCorridorCloseRatio: 1e6, dominionMinPlayerOpportunities: 0,
+        dominionOpeningWindowDays: 1, dominionOpeningSustainDays: 1,
+        dominionReconDwellDays: 0, dominionStagingDwellDays: 0 });
+      const jump = (days) => {
+        const before = { phase: book.dominion.phase, warnings: book.dominion.warnings.length };
+        t.advanceFleetCalendar(days, t.Fleet.nextId(t.fleetBook(), 'journey'));
+        return { from: before.phase, to: book.dominion.phase, newWarnings: book.dominion.warnings.length - before.warnings,
+          beat: book.dominion.lastPhaseBeat || null };
+      };
+      const jumps = [jump(200), jump(200), jump(200), jump(200)];
+      return { jumps, phase: book.dominion.phase, day: s.day,
+        beats: new Set(jumps.map((j) => j.beat).filter(Boolean)).size };
+    });
+    const steps = r.jumps.map((j) => `${j.from}->${j.to}`);
+    assert.equal(r.jumps[0].to, 'reconnaissance',
+      `one two-hundred-day jump took the expedition ${steps[0]}`);
+    for (const j of r.jumps) assert.ok(j.newWarnings <= 1,
+      `one jump delivered ${j.newWarnings} Dominion warnings into the same briefing`);
+    assert.deepEqual(steps, ['dormant->reconnaissance', 'reconnaissance->staging', 'staging->invasion', 'invasion->invasion'],
+      `the arc advanced ${steps.join(', ')} rather than one stage per journey`);
+    assert.equal(r.beats, 3, 'the stages did not each commit on a beat of their own');
+  });
+
   // DOM-5 — the Dominion took Bajor and then signed a peace with Earth, because once it held ground on
   // this side of the wormhole the ordinary war-exhaustion roll treated it as an ordinary neighbour.
   // The expedition's war is authored: nothing but the campaign may end it.

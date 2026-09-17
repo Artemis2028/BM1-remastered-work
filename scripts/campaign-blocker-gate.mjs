@@ -26,7 +26,9 @@ const nearSide = (world, entry) => {
 // need an expedition to exist inside a short window, and waiting for a war to grind the near side down
 // is not what they are checking. This override opens the arc on its own terms so the check underneath
 // it stays about the thing it indicts. Anything testing the unlock itself belongs in the model suite.
-const OPENS_AT_ONCE = Object.freeze({ dominionMinCentralEngagements: 0, dominionDefenderWeakness: 1.1, dominionStalemateBand: 1, dominionOpeningSustainDays: 0 });
+const OPENS_AT_ONCE = Object.freeze({ dominionMinCentralEngagements: 0, dominionDefenderWeakness: 1.1,
+  dominionStalemateBand: 1, dominionOpeningSustainDays: 0, dominionEconomicStrain: 1.1,
+  dominionChallengeRatio: 1e6, dominionCorridorCloseRatio: 1e6, dominionMinPlayerOpportunities: 0 });
 
 const test = (name, fn) => {
   checks++;
@@ -91,8 +93,7 @@ test('B1 the Dominion takes nothing on this side of the wormhole until it holds 
   // The corridor rule would stop this expedition sailing at all — that is case 5 of the model suite's
   // arc test, and it is not what B1 is about. Here the expedition must sail and fail, so the corridor
   // check is lifted and the opening is authored.
-  const book = C.createCampaignBook('b1', 1, { ...OPENS_AT_ONCE, dominionEarliestDay: 5, dominionCorridorCloseRatio: 99,
-    dominionReconDwellDays: 10, dominionStagingDwellDays: 10 });
+  const book = C.createCampaignBook('b1', 1, { ...OPENS_AT_ONCE, dominionReconDwellDays: 10, dominionStagingDwellDays: 10 });
   C.initializeCampaign(book, world);
   const near = nearSide(world, 6);
   assert.ok(near.has(5) && near.has(0) && !near.has(7), 'precondition: the near side excludes the Dominion region');
@@ -442,7 +443,7 @@ test('GAP a jump across a capture produces the book that stepping produces', () 
   // This gate is about the bulk path agreeing with the stepped path, so it authors an expedition that
   // opens at once rather than waiting for a war to grind the near side down: it needs captures inside
   // its window, and what unlocks the expedition is the campaign's business, not this check's.
-  const EARLY = { ...OPENS_AT_ONCE, dominionEarliestDay: 5, dominionReconDwellDays: 5, dominionStagingDwellDays: 5 };
+  const EARLY = { ...OPENS_AT_ONCE, dominionReconDwellDays: 5, dominionStagingDwellDays: 5 };
   const mk = (seed) => { const { world } = makeWorld({ localSystem: null }); return { world, book: C.createCampaignBook(seed, 1, EARLY) }; };
   const seed = 'gapcap-0';
   const a = mk(seed); const stepped = [];
@@ -627,7 +628,8 @@ test('DAYHOOK the engine settles once per internal day, stepped or jumped', () =
     // the expedition is authored to open at once rather than left to a war it has no time to fight.
     // Reconnaissance opens on day 20 and nothing follows inside the window: the hook needs a couple of
     // eventful days among quiet ones, not an event every day.
-    const book = C.createCampaignBook('dayhook', 1, { ...OPENS_AT_ONCE, dominionEarliestDay: 20,
+    const book = C.createCampaignBook('dayhook', 1, { ...OPENS_AT_ONCE,
+      dominionOpeningWindowDays: 20, dominionOpeningSustainDays: 20,
       dominionReconDwellDays: 60, dominionStagingDwellDays: 60 });
     C.initializeCampaign(book, fixture.world);
     // A ledger of the kind only an engine can keep: a wound that heals a little every day, and days on

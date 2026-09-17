@@ -13880,11 +13880,30 @@ function tryTransportClickedAsteroid(asteroid) {
   return true;
 }
 
+// What the game has put in front of the captain, as opposed to what they made of it. This is what the
+// Dominion opening reads instead of a calendar floor: chances offered, never achievements, so a captain
+// who takes none of them is protected exactly as much as one who takes all of them, and four hundred
+// days spent crossing empty space accumulate almost nothing. [17SEP spec §3.1]
+function playerOpportunityLedger() {
+  const p = ensurePlaytestState();
+  p.opportunities ||= { contractsOffered: 0 };
+  p.opportunities.contractsOffered = Math.max(0, Number(p.opportunities.contractsOffered) || 0);
+  return p.opportunities;
+}
+// Only what the player does. Offers and warnings the campaign itself generates are counted inside the
+// campaign, from the book it is mutating, so that a jump and the same days stepped read the same number.
+function campaignPlayerOpportunity() {
+  return {
+    systemsVisited: (state.visitedSystems || []).length,
+    contractsOffered: playerOpportunityLedger().contractsOffered,
+  };
+}
 function negotiateContract() {
   if (state.gameOver || !state.gameStarted) return;
   if (!requireServiceConnection()) return;
   updateMenu(1, 3);
   state.pendingContractOffer = createCargoRunOffer();
+  if (state.pendingContractOffer) playerOpportunityLedger().contractsOffered += 1;
   if (!state.pendingContractOffer) { renderContractModal(); setLog(state.cargoCap - state.cargo < 1 ? 'Cargo hold full. Free space before requesting a contract.' : 'No reachable cargo destinations available.'); return; }
   renderContractModal();
   setLog(`Contract offer from ${state.pendingContractOffer.employerName}.`);
@@ -21903,8 +21922,13 @@ function canFleetDepart() {
 function upkeepPerDay(shipId) {
   return Math.max(0, finiteNumber(getShipStats(shipId).mass, 1));
 }
+// Set for the duration of one journey so every campaign day settled inside it knows they share a
+// briefing. Null whenever the campaign is advanced outside a journey (a debug step, a single tick).
+let campaignJourneyId = null;
 function advanceFleetCalendar(days, id) {
   captureShipPowerState();
+  campaignJourneyId = id == null ? null : String(id);
+  try {
   return Fleet.advanceCalendar(fleetBook(), state, days, id, {
     settle(day) {
       for (const ship of state.playerFleet)
@@ -21934,6 +21958,7 @@ function advanceFleetCalendar(days, id) {
       advanceCommissions(day);
     },
   });
+  } finally { campaignJourneyId = null; }
 }
 function capturePolicy(shipId) {
   const ship = getShipStats(shipId),
@@ -22311,6 +22336,13 @@ function buildCampaignWorld(force = false) {
   const world = {
     day: state.day, playerFaction: getPlayerFlag(), localSystem: state.warp.active || isWormholeTransitActive() ? null : Number(state.currentPlanet),
     systems, wormholes,
+    // The player-facing beat this settlement belongs to. One journey can settle sixty campaign days, so
+    // the campaign needs to know which of those days share a briefing: strategic stages that must reach
+    // the captain one at a time commit once per beat, not once per day. Null outside a journey.
+    journeyId: campaignJourneyId,
+    // Chances the game has put in front of the captain, which is what the Dominion opening reads in
+    // place of a calendar floor. Offers and sights, never achievements.
+    playerOpportunity: campaignPlayerOpportunity(),
     isFaction: (id) => isRecognizedFactionKey(id) && id !== 'pirate' && (id !== 'gorn' || getCampaignDiscoveries().gorn),
     factionName: (id) => (id === 'player' ? `${state.captainName || 'Captain'}'s empire` : formatFaction(id)),
     shipStats: (id) => { const s = state.shipStatsById[Number(id)]; if (!s) return null; return { price: getShipPrice(s), mass: finiteNumber(s.mass, 1), combatHull: getNpcCombatDurability(Number(id)).hull, faction: getShipFaction(Number(id)) }; },
@@ -23348,7 +23380,10 @@ function triggerCampaignDebug(args) {
         Object.assign(d, { openedDay: null, standDownDay: null, lastOpportunity: null });
         // There is no timetable to push any more: what holds the expedition back is the opening, so the
         // override puts the floor out of reach and leaves the opening unsatisfiable.
-        book.config = { ...c, dominionEarliestDay: state.day + 100000 };
+        // Nothing here is a date any more, so "push it out of reach" means making the strategic case
+        // unsatisfiable rather than moving a day.
+        book.config = { ...c, dominionMinCentralEngagements: Number.MAX_SAFE_INTEGER };
+        Object.assign(d, { openWindow: '', lastPhaseBeat: null });
         campaignWorldCache = null;
         return `Forced override: Dominion expedition reset to dormant; ${recalled.length} operation(s) recalled and their hulls released; the opening is pushed beyond reach. Phase is now ${d.phase}.`;
       }
@@ -23357,9 +23392,14 @@ function triggerCampaignDebug(args) {
       // beyond reach. Then advance one day through the ordinary calendar, so the phase is entered by
       // exactly the code that enters it in play rather than by assignment.
       const FAR = 100000;
-      const forced = { dominionEarliestDay: 0, dominionMinCentralEngagements: 0, dominionDefenderWeakness: 1.1, dominionOpeningSustainDays: 0,
+      const forced = { dominionMinCentralEngagements: 0, dominionDefenderWeakness: 1.1,
         dominionStalemateBand: 1, dominionFrontStallRatio: FAR, dominionChallengeRatio: FAR,
-        dominionCorridorCloseRatio: FAR, dominionOpportunityRatio: 0 };
+        dominionCorridorCloseRatio: FAR, dominionOpportunityRatio: 0,
+        dominionEconomicStrain: 1.1, dominionMinPlayerOpportunities: 0,
+        dominionOpeningWindowDays: 1, dominionOpeningSustainDays: 1,
+        // A forced override is one command, not a voyage: the beat rule that keeps stages a journey
+        // apart in play would otherwise stop this reaching the phase the operator asked for.
+        dominionPhaseBeatsApart: false };
       const dwell = { reconnaissance: { recon: FAR, staging: FAR },
         staging: { recon: 0, staging: FAR },
         invasion: { recon: 0, staging: 0 } }[a];
