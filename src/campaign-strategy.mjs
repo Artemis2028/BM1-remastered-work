@@ -194,6 +194,18 @@ export function polityReadiness(book, world, id) {
   return { hulls: p.hulls.filter((h) => h.status !== 'lost').length, ready: ready.length, repairing: p.hulls.filter((h) => h.status === 'repairing').length,
     strength: Math.round(strength * 10) / 10, supply, baseline: p.readinessBaseline };
 }
+// Readiness the way an observer adds it up: only hulls standing at systems the caller says have been
+// seen, and no supply factor, because a captain counting warships through a telescope does not know
+// how well fed they are. The per-hull formula is polityReadiness's own, so an estimate built from
+// observations and the truth behind it differ only in what was observed. [playtest candidate]
+export function observedReadiness(book, world, id, seen) {
+  const p = polity(book, id);
+  const within = (h) => seen.has(Number(h.systemIndex));
+  const ready = p.hulls.filter((h) => (h.status === 'ready' || h.status === 'assigned') && within(h));
+  const strength = ready.reduce((n, h) => n + hullStrength(book, world, h), 0);
+  return { hulls: p.hulls.filter((h) => h.status !== 'lost' && within(h)).length, ready: ready.length,
+    strength: Math.round(strength * 10) / 10 };
+}
 export function polityProduction(book, world, id) {
   let berths = 0, heavyBerths = 0, workforce = 0, energy = 0, repair = 0, yards = 0;
   for (const sys of controlled(world, id)) {

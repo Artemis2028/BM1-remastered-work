@@ -9133,6 +9133,9 @@ function collectGalaxyReports(day = state.day) {
     priorStates.set(pair,e.status);
     if (index < overlap) continue;
     const kind = e.status === 'war' && before && before !== 'war' ? 'War declared' : e.status === 'peace' && before === 'war' ? 'Peace agreement' : e.status === 'crisis' && before && before !== 'crisis' ? 'Border crisis' : 'Diplomatic update';
+    // "Public" means public to powers the captain knows exist. A settlement between two powers, one of
+    // which they have never met and cannot name, is not news they could have read. [playtest]
+    if (![e.a, e.b].every((f) => campaignPowerContact(f))) continue;
     news.nextDiplomacyId = (news.nextDiplomacyId || 0) + 1;
     addGalaxyReport({id:`diplomacy:${news.nextDiplomacyId}`,day:e.day,kind,category:'diplomacy',factions:[e.a,e.b],confidence:'Public diplomatic report',text:`${formatFaction(e.a)} / ${formatFaction(e.b)}: ${e.reason}. Current relations: ${e.status}.`});
   }
@@ -9384,6 +9387,14 @@ function baseFactionWar(a, b) {
 function worldRelation(a, b) {
   return World.relation(ensurePlaytestState().diplomacy, a, b, baseFactionWar(a, b));
 }
+// A war the campaign arc owns is not a neighbour dispute, and the ordinary roll must not settle it.
+// The Dominion's is the case: its expedition ends by being destroyed or expelled, by its route being
+// cut, by the campaign reaching its own conclusion, or by an authored settlement — never by war
+// exhaustion between two systems that happen to share a travel route. Before this, an expedition that
+// took a near-side world made the Dominion an ordinary neighbour of whoever it bordered, and the roll
+// signed a public peace with a power the captain had never met. [playtest]
+const CAMPAIGN_LOCKED_DIPLOMACY = Object.freeze(['dominion']);
+function campaignOwnsDiplomacy(a, b) { return CAMPAIGN_LOCKED_DIPLOMACY.includes(a) || CAMPAIGN_LOCKED_DIPLOMACY.includes(b); }
 function diplomaticPairs() {
   if (!state.travelRoutes.length) rebuildTravelRoutes();
   const pairs = new Map();
@@ -9392,12 +9403,13 @@ function diplomaticPairs() {
       b = getSystemControl(route.to).controller;
     if (
       a !== b &&
+      !campaignOwnsDiplomacy(a, b) &&
       [a, b].every((f) => isRecognizedFactionKey(f) && !['borg', 'pirate', 'neutral'].includes(f))
     )
       pairs.set(World.pairKey(a, b), [a, b]);
   }
   for (const pair of Object.values(diplomacyBook().pairs))
-    if (pair.a && pair.b) pairs.set(World.pairKey(pair.a, pair.b), [pair.a, pair.b]);
+    if (pair.a && pair.b && !campaignOwnsDiplomacy(pair.a, pair.b)) pairs.set(World.pairKey(pair.a, pair.b), [pair.a, pair.b]);
   return [...pairs.values()].sort((a, b) => World.pairKey(...a).localeCompare(World.pairKey(...b)));
 }
 function reconcileDiplomacy() {
@@ -23011,16 +23023,48 @@ function campaignAssessment(id) {
   // Estimates are dated and uncertain: ±25% band for strangers, ±10% for partners, refreshed at most weekly.
   if (!prior || state.day - prior.day >= (partner ? 1 : 7)) {
     const u = Campaign.seededUnit(book.seed, 'assess', id, Math.floor(state.day / 7));
-    const band = partner ? 0.1 : 0.25;
+    // A power the captain has only met by looking at it — everything it holds is off the chart — is
+    // estimated from the forces actually seen at the worlds they have seen it hold, with a wide band
+    // and a floor rather than a total. Reading its true readiness told the captain, on day one, how
+    // strong a power was whose name they had no way of knowing. [playtest]
+    const seen = campaignObservedWorlds(id);
+    // A power that holds nothing but hidden ground is estimated from what has been seen of it, and it
+    // stays that way once the region is charted: visiting one world of it puts the region on the map,
+    // which is not the same as counting what is in it. Every other power keeps the dated band model,
+    // which is a named follow-up rather than something this candidate redesigns. [playtest]
+    const held = world.systems.filter((sys) => sys.controller === id);
+    const bySightOnly = held.length > 0 && held.every((sys) => isDominionCoreSystem(state.planets[sys.index]?.name));
+    const charted = !bySightOnly;
+    const band = charted ? (partner ? 0.1 : 0.25) : 0.4;
     const bias = (u - 0.5) * 2 * band;
     // Holdings are counted from what the captain has actually observed, and the count is dated. Copying
     // the live total meant an unobserved conquest on the far side of the galaxy silently corrected the
     // captain's books on the next refresh; reading today's controller for every system they had ever
     // visited did the same thing for a world they flew through once. [fourth review]
-    const known = Object.values(book.observations || {}).filter((o) => o.controller === id).length;
-    book.assessments[key] = { day: state.day, strength: Math.round(summary.readiness.strength * (1 + bias)), band, worlds: known, charted: true, source: partner ? 'shared partner data' : 'civilian and fleet estimates' };
+    const known = seen.size;
+    const readiness = charted ? summary.readiness.strength : Campaign.observedReadiness(book, world, id, seen).strength;
+    book.assessments[key] = { day: state.day, strength: Math.round(readiness * (1 + bias)), band, worlds: known,
+      charted: true, atLeast: !charted, confidence: charted ? 'normal' : 'low',
+      source: charted ? (partner ? 'shared partner data' : 'civilian and fleet estimates') : 'forces seen at the worlds you have charted' };
   }
   return { ...summary, exact: false, estimate: book.assessments[key] };
+}
+// Has the captain met this power at all? Charted ground of theirs, a world seen in their hands, or an
+// account that names them. A power whose whole territory is off the chart and which nothing has
+// reported is not on the captain's board: not its name, not its holdings, not its strength, not its
+// wars. The Dominion beyond the wormhole is that power at a fresh start, and the Empire panel was
+// listing it, with a strength band read straight off its true readiness, on day one. [playtest]
+function campaignPowerContact(id) {
+  const world = buildCampaignWorld();
+  if (world.systems.some((sys) => sys.controller === id && isChartSystemVisible(sys.index))) return true;
+  if (Object.values(campaignBook().observations || {}).some((o) => o.controller === id)) return true;
+  const key = campaignFactionKeyFor(id);
+  return galaxyNewsBook().items.some((r) => (r.factions || []).includes(key));
+}
+// Which of a power's worlds the captain has actually seen in its hands.
+function campaignObservedWorlds(id) {
+  return new Set(Object.entries(campaignBook().observations || {})
+    .filter(([, o]) => o.controller === id).map(([index]) => Number(index)));
 }
 // The hidden Dominion region stays hidden in the panel: uncharted systems are named as such and any
 // campaign text mentioning one is masked until the region has been visited.
@@ -23104,7 +23148,7 @@ function renderCampaignPanel() {
   } else if (campaignPanelTab === 'powers') {
     // Read once, not once per power: the knowledge record is the only thing this table may count.
     const afoot = campaignKnownOperations((k) => k.phase !== 'resolved');
-    const rows = Object.keys(book.polities).filter((id) => id !== 'player' && world.isFaction(id)).map((id) => { const a = campaignAssessment(id); const est = a.estimate; const seen = afoot.filter((x) => x.known.claimant === campaignFactionKeyFor(id)).length; return `<tr><td>${escapeHtml(formatFaction(id))}</td><td>${est.worlds}${est.charted ? '+' : ''}</td><td>${Math.round(est.strength * (1 - est.band)).toLocaleString()}–${Math.round(est.strength * (1 + est.band)).toLocaleString()}</td><td>${seen}</td><td>day ${est.day} · ${escapeHtml(est.source)}</td></tr>`; }).join('');
+    const rows = Object.keys(book.polities).filter((id) => id !== 'player' && world.isFaction(id) && campaignPowerContact(id)).map((id) => { const a = campaignAssessment(id); const est = a.estimate; const seen = afoot.filter((x) => x.known.claimant === campaignFactionKeyFor(id)).length; const worlds = est.atLeast ? `at least ${est.worlds}` : `${est.worlds}${est.charted ? '+' : ''}`; const strength = est.strength > 0 ? `${Math.round(est.strength * (1 - est.band)).toLocaleString()}–${Math.round(est.strength * (1 + est.band)).toLocaleString()}${est.confidence === 'low' ? ' (low confidence)' : ''}` : 'none seen'; return `<tr><td>${escapeHtml(formatFaction(id))}</td><td>${worlds}</td><td>${strength}</td><td>${seen}</td><td>day ${est.day} · ${escapeHtml(est.source)}</td></tr>`; }).join('') || '<tr><td colspan="5">No other power has come to your attention yet.</td></tr>';
     const d = book.dominion;
     // The phase is read from the warnings that reached the captain, not from the expedition's own
     // state; the interdiction line needs someone at the entry to see it.
@@ -23114,8 +23158,12 @@ function renderCampaignPanel() {
       : heard.has('missing-patrols') ? 'patrols near the wormhole have stopped reporting'
       : 'no indications';
     const atEntry = d.entrySystem != null && (watchesReportLocation(d.entrySystem) || hasIntelShips(Number(d.entrySystem)));
+    // The section is headed with the power's name only once the captain has met it. Before that the
+    // warnings are what they are — unfamiliar signatures, patrols that stopped reporting — and there is
+    // no section at all until one of them arrives. [playtest]
+    const dominionKnown = campaignPowerContact('dominion');
     body = `<section><h3>Known and estimated strength</h3><table class="campaign-table"><thead><tr><th>Power</th><th>Worlds</th><th>Ready strength (estimate)</th><th>Active operations</th><th>Source / date</th></tr></thead><tbody>${rows}</tbody></table><p class="meta">Estimates carry an error band and a date; partner data is tighter. Holdings are the worlds you have seen in that power's hands, each as of the day something of yours last watched it — a power may hold more than you have seen, which is what the <b>+</b> means. A world you passed through once is not a listening post; until you look again, it reads as you left it. Any active power can rise.</p></section>
-      <section><h3>Dominion</h3><p>What you have heard: <b>${escapeHtml(posture)}</b>.${atEntry ? ` ${d.reinforcementCut ? 'Your forces at the entry are interdicting the reinforcement convoys.' : d.phase === 'invasion' ? 'Reinforcement convoys are getting through.' : ''}` : ''}</p><ul>${d.warnings.map((w) => `<li>Day ${w.day}: ${escapeHtml(campaignMaskText(w.text))}</li>`).join('') || '<li>No warnings received.</li>'}</ul><p class="meta">This section reports what reached you. The expedition's own timetable is not visible from here.</p></section>`;
+      ${dominionKnown ? `<section><h3>Dominion</h3>` : d.warnings.length ? `<section><h3>Unexplained reports</h3>` : '<section class="hidden">'}<p>What you have heard: <b>${escapeHtml(posture)}</b>.${atEntry ? ` ${d.reinforcementCut ? 'Your forces at the entry are interdicting the reinforcement convoys.' : d.phase === 'invasion' ? 'Reinforcement convoys are getting through.' : ''}` : ''}</p><ul>${d.warnings.map((w) => `<li>Day ${w.day}: ${escapeHtml(campaignMaskText(w.text))}</li>`).join('') || '<li>No warnings received.</li>'}</ul><p class="meta">This section reports what reached you. The expedition's own timetable is not visible from here.</p></section>`;
   } else if (campaignPanelTab === 'operations') {
     const line = ({ op, known }) => {
       if (known.level === 'direct') {
