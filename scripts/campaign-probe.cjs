@@ -535,12 +535,16 @@ const EXPORTS = 'window.testBM1={state,startWithFaction,advanceFleetCalendar,fle
   });
 
 
-  await check('station contracts complete against real state and pay once: relief takes cargo, evacuation and reconnaissance need presence, repair needs duranium at the installation', async () => {
+  // Evacuation is withdrawn: it completed by holding position near a world for twenty seconds with
+  // nothing attacking, which is not an objective. The contracts left here are the ones with something
+  // to pursue. [playtest]
+  await check('station contracts complete against real state and pay once: relief takes cargo, reconnaissance needs presence, repair needs duranium at the installation', async () => {
     await fresh('gate-P');
     const r = await ev(() => {
       const t = testBM1, s = t.state, book = t.campaign();
       const here = s.currentPlanet; const out = {};
-      for (const kind of ['relief', 'evacuation', 'recon', 'repair']) { const m = t.offerStationMission(kind, here, true); t.Campaign.acceptMission(book, m.id, s.day); }
+      out.withdrawn = ['evacuation', 'blockade'].map((kind) => t.offerStationMission(kind, here, true));
+      for (const kind of ['relief', 'recon', 'repair']) { const m = t.offerStationMission(kind, here, true); t.Campaign.acceptMission(book, m.id, s.day); }
       const active = () => book.missions.filter((m) => m.status === 'active').map((m) => m.kind);
       out.active0 = active();
       // far from the world: nothing completes
@@ -549,8 +553,6 @@ const EXPORTS = 'window.testBM1={state,startWithFaction,advanceFleetCalendar,fle
       s.cargoArray[0] = { tons: 6, item: 'Grain', destination: undefined }; t.recalcCargoFromPods();
       t.setCamera(s.systemPlanet.x + 100, s.systemPlanet.y); const cash = s.latinum;
       t.advanceStationMissions(); out.reliefDone = !active().includes('relief'); out.reliefTons = s.cargoArray[0].tons; out.reliefPaid = s.latinum - cash;
-      // evacuation: hold near the world for a transporter cycle (20 s of frames)
-      const evac = book.missions.find((m) => m.kind === 'evacuation'); evac.progressMs = 19990; t.advanceStationMissions(); out.evacDone = evac.status;
       // recon: uncloaked within 2,400 of an installation for 30 s
       const recon = book.missions.find((m) => m.kind === 'recon'); const st = s.stations.find((x) => !x.destroyed); t.setCamera(st.x + 100, st.y); recon.progressMs = 29990; t.advanceStationMissions(); out.reconDone = recon.status;
       // repair: dock at a damaged installation with 40 duranium
@@ -563,9 +565,10 @@ const EXPORTS = 'window.testBM1={state,startWithFaction,advanceFleetCalendar,fle
       const m2 = t.offerStationMission('recon', here, true); t.Campaign.acceptMission(book, m2.id, s.day); t.advanceFleetCalendar(45, t.Fleet.nextId(t.fleetBook(), 'journey')); out.expired = book.missions.find((m) => m.id === m2.id).status;
       return out;
     });
-    assert.deepEqual(r.active0, ['relief', 'evacuation', 'recon', 'repair']); assert.equal(r.farStill, 4);
+    assert.deepEqual(r.withdrawn, [null, null], 'a contract with nothing to pursue was still offered');
+    assert.deepEqual(r.active0, ['relief', 'recon', 'repair']); assert.equal(r.farStill, 3);
     assert.ok(r.reliefDone); assert.equal(r.reliefTons, 1); assert.equal(r.reliefPaid, 4000);
-    assert.equal(r.evacDone, 'completed'); assert.equal(r.reconDone, 'completed'); assert.equal(r.repairShort, 'active'); assert.equal(r.repairDone, 'completed'); assert.equal(r.duraniumLeft, 5); assert.ok(r.damageCleared);
+    assert.equal(r.reconDone, 'completed'); assert.equal(r.repairShort, 'active'); assert.equal(r.repairDone, 'completed'); assert.equal(r.duraniumLeft, 5); assert.ok(r.damageCleared);
     assert.equal(r.paidTwice, r.rewards); assert.equal(r.expired, 'expired');
   });
 
