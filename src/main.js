@@ -10676,13 +10676,21 @@ function getUnfilteredShipyardStock(station = getCurrentServiceStation()) {
   const effectiveOffers = station ? getStationEffectiveOffers(station) : null;
   const stationServices = station ? fleetStationServices(station) : null;
   if (effectiveOffers?.shipIds?.length || (!station && state.planets[state.currentPlanet]?.shipStockIds?.length)) {
-    const localStock = (station ? effectiveOffers.shipIds : state.planets[state.currentPlanet].shipStockIds)
+    const sellable = (station ? effectiveOffers.shipIds : state.planets[state.currentPlanet].shipStockIds)
       .map((id) => state.shipStatsById[resolveShipId(id)])
       .filter((ship) => ship && ship.assetType === 'ship' && getShipPrice(ship) > 0)
       .filter((ship) => ship.rosterState !== 'retired' && ship.rosterState !== 'prototype' && !isUnbalancedPrototype(ship))
-      .filter(stockEligible)
+      .filter(stockEligible);
+    const localStock = sellable
       .filter(ship => purchaseContext.vendor || getTradeStandingFaction(state.currentPlanet,station)==='neutral' || isFactionShipStockEligible(ship.faction,getTradeStandingFaction(state.currentPlanet,station)) || (!station && getCurrentSystemName().toLowerCase()==='blender' && ship.faction==='dominion'));
-    const authored = [...new Map(localStock.map(ship => [ship.id, ship])).values()].filter(ship => !station || stationCanSellHull(station, ship));
+    // The faction rule shapes a world's shelf; it was never meant to close the shop. A hand-written
+    // planet lot that is entirely foreign hulls — a Son'a refinery retailing a Neg'Var, a Breen
+    // anchorage retailing a Cardassian Behemoth — is the author saying this is a grey market, and
+    // filtering it to nothing leaves a world with an authored shipyard selling nothing at all. Giving
+    // 31 worlds a government this round turned that from one world into nine. Where the rule would
+    // empty an authored lot, the lot stands as written. [playtest]
+    const kept = (!station && !localStock.length && sellable.length) ? sellable : localStock;
+    const authored = [...new Map(kept.map(ship => [ship.id, ship])).values()].filter(ship => !station || stationCanSellHull(station, ship));
     if (!station) return authored;
     // The eight-entry station display limit never hides a design recovered to this yard.
     const recovered = new Set((effectiveOffers.shipIds || []).filter((id) => effectiveOffers.provenance?.[`ship:${id}`] === 'recovered-archive').map(Number));
