@@ -1,12 +1,191 @@
 # BM1 playtest repairs on top of `ae4ae4d`
 
-DTG 181656ZSEP26
+DTG 181904ZSEP26
 
 Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Nothing pushed, merged or deployed.
-The commit count is in `CANDIDATE.json`, computed by the pack script rather than typed here: the two
-previous packs each stated a count that was wrong.
+The commit count is in `CANDIDATE.json`, computed by the pack script rather than typed here.
 
 ## Read this first
+
+Sixth round, on top of `7767631`, from nine items raised off laptop playtest screenshots. All nine are
+addressed. Three things in here were not asked for and need saying out loud before the list:
+
+**Two of this round's own fixes were wrong on first writing, and the screenshots caught them.** The
+chart's objective route was drawn in the same blue the chart already uses for travel routes, so it was
+invisible exactly where it mattered; and the marker labels were written beside the node, where the
+chart already writes the system's own name, so they collided. Both were found by diffing a
+layer-on/layer-off screenshot pair rather than by the gate, which had been counting the chart's own
+dashed lines and crediting them to the overlay. The gate now counts only strokes in the overlay's own
+colour, and carries a negative control that turns the layer off and requires the count to fall to zero.
+
+**Giving 31 worlds a government closed nine shipyards, and one of them had been closed before this
+round.** The engine already trims a world's hand-written hull lot to that government's own designs
+plus neutral ones — Earth sells 2 of its 6, Andoria 1 of its 7 — which is fine as a shaping rule and
+was never a closing one while these worlds had no government. It is now. Where the rule would empty an
+authored lot the lot stands as written. What the captain can actually buy, measured against `7767631`:
+**29 hull offers lost, 21 gained; 8 weapon offers lost, 13 gained**; the losses are foreign hulls at
+worlds that now have a flag and the gains are those worlds' own designs. No system sells nothing.
+
+**Two worlds the allegiance table got wrong, reverted.** Pirates Haven was recorded as independent on
+the phrase "we pirates" — its text warns of "the rotting corpses of the poor traders caught in our
+little haven" — which made it neutral and stopped it being hostile. Rigel's text says both "Rigel is an
+independent planet" and "The Andorians however lay claim to this world and are quite willing to protect
+it", and the engine has no protectorate level to express that, so nothing was authored and the shipped
+table's `andorian` stands. That second one is **a gap, not a decision**.
+
+## This round's nine items
+
+### 1. One alert control
+
+The three G/Y/R chips are gone. The posture pill in the strip — `FLIGHT · GREEN` — is now the control:
+clicking it cycles green → yellow → red, and its tooltip says so. The combat restrictions are
+unchanged and now *explain themselves*: setting an alert the ship cannot hold prints what is holding it
+("Alert set to green, but the ship is at yellow because the fleet is engaging"), rather than silently
+snapping back. `alertOverrideReason` is the single place that answers why.
+
+### 2. EW once, and open
+
+`renderEWPanel` returns a plain panel rather than a collapsed `<details>`, and the copy that was
+printed a second time inside Power/Sensors is gone. The EW button opens the EW panel with its orders
+already reachable. The panel's own redundant heading went with it — the panel's title row supplies it.
+
+**Gate ew** holds all three: that OPS carries no second copy of the controls, that the panel's orders
+are reachable without opening a disclosure, and that they still work. The first two fail on `7767631`.
+
+### 3. Fleet and shipyard in the game's theme
+
+`.fleet-manager` is re-themed onto the LCARS variables — background, borders, headings, buttons, close
+control — and added to the `body[class*="ui-theme-"]` selector list so it follows the active theme
+rather than sitting outside it. Its `display: flex` is scoped to `[open]`; without that it overrode the
+user-agent rule that hides a closed `<dialog>` and the manager sat on screen over the HUD.
+
+### 4. Contact reports, expanded and labelled
+
+A labelled, always-open, scrollable list under Sensors & Communications, with "No contacts detected."
+when there are none, in place of a collapsed `<details>` the captain reported never seeing. Fleet and
+refit open by default for the same reason.
+
+**Gate sensors** asks what was actually wanted: that after a live re-render the list is on screen, is
+not inside a closed disclosure, carries its heading, and scrolls. Fails on `7767631`.
+
+### 5. The Power panel's header
+
+The top-left panel now has a real header row carrying the title and the close control, instead of a
+decorative `::after` bar with the content scrolling underneath it. The panel remembers its scroll
+position per tab, so it used to *reopen* already overlapping. Checked through open, scroll, close and
+reopen.
+
+### 6. Top-left shortcuts
+
+Inventory and Power are gone from the top-left menu: both are reachable from the dock. Cheats & Debug
+stays, having nowhere else to be. The grid dropped from ten slots to nine.
+
+### 7. Contracts, and objectives on the map
+
+CONTRACT used to open a negotiation. What the captain had already accepted lived inside the Empire
+panel under "escort", and nothing on the chart said where any of it was.
+
+CONTRACT now opens a contracts list carrying every live station contract and every delivery aboard,
+each with its **name, destination and deadline**, a per-row **"Show on map"**, and the marker toggle
+that used to be buried in the cargo card. Accepting goes through one helper whichever screen offered
+it, so acceptance says which world was just marked and a list that is already open stops reading
+"offered". Markers are derived live, so a contract marks its world the moment it is accepted and stops
+marking it the moment it completes or expires.
+
+*Found while writing it:* "Show on map" opened the chart on the wrong world, because `openMap()`
+selects the system the captain is standing in. The selection is made after the chart opens.
+
+**Gate MARK** accepts a contract by clicking the button in the panel, reads the marker back, clicks
+"Show on map" and checks where the chart went, then completes one contract and lets another expire and
+requires both markers gone.
+
+### 8. Actual world allegiance
+
+31 worlds are placed inside a power by their own description and 8 are recorded independent by a
+sentence in their text that says who governs them — the answer being nobody. `getBaseSystemOrigin`
+consults both before the shipped government table; player captures and `factionSystemOverrides` still
+win over everything.
+
+The five Tholian worlds are controlled by, fly the flag of, and are hostile on the same terms as Tholia
+itself, and their stations are owned by `tholian` rather than an anonymous `polity:NN`.
+
+| Measured against `7767631` | |
+| --- | --- |
+| Governments changed | **31** |
+| Worlds that changed hostility to a Terran captain | **19** |
+| Worlds that changed station ownership | **11** |
+| Cultures changed | **0** — last round's work untouched |
+| Planet-card readouts changed | **0** |
+
+That last row is the point read backwards. The map's relation line reads "Tholian world ·
+self-governed" **both** for a world the Assembly governs and for a world nobody governs, so it was
+never evidence; what changed is underneath it. The gate therefore asks the map *who governs* the world,
+which is the field that was empty, and surveys the worlds under test first because the map answers
+"Unsurveyed" for everywhere else.
+
+**Blender and Gorn were deliberately given nothing.** Handing Blender a world makes it a territorial
+polity and the war ledger then holds `dominion_remnant:ferengi`, a war nobody wrote. The Gorn are
+described as extinct; giving them worlds contradicts the worlds' own text. Gorn services and recovery
+stay behind the existing authored discovery requirement.
+
+Four worlds were dropped from the independent table — New Switzerland, Trill, Tepos, Flash. Their
+descriptions say who lives there and what they sell and nothing at all about who governs them.
+Independence recorded on the phrase "Trills" is not a fact about the world. The gate now requires every
+entry to be a governance statement.
+
+`validation/world-identity-report.md` prints all 101 worlds with controller, allegiance, governor,
+origin source, hostility, station owners and map relation, before and after, generated from both trees
+by one script.
+
+### 9. Cargo and trade overlay on the chart
+
+Three selectable layers — contract objectives, cargo destinations, routes to them — with a legend at
+the foot of the chart that counts each layer and doubles as the picker. A world that is both an
+objective and a delivery gets a ring for each. Nothing is drawn for a system the captain has not
+charted, so a delivery into the hidden region reveals nothing. The old hardcoded cargo ring is gone, so
+nothing is drawn twice.
+
+**Gate OVERLAY** paints the chart for real and reads back what was drawn — the cargo marker, the legend
+with its counts, a dashed stroke in the overlay's own colour — then clicks the legend row with a real
+pointer and requires the markers to go with the layer.
+
+### Also fixed, unasked
+
+The message readout in the status strip clipped mid-word with nothing to show it had been cut; at 1440
+the captain read "Captain aboa". It ellipses now.
+
+## Still NOT DONE, and named
+
+- **Evacuation and blockade** remain unfinished mechanics. The design is
+  `EVACUATION-BLOCKADE-DESIGN-180230ZSEP26.md`, unchanged and still unimplemented.
+- **Rigel's protectorate.** The engine has no level between "independent" and "governed by", so a world
+  whose text names a protector is indistinguishable from one the protector governs outright.
+- **§3.3 bilateral peace, §3.4 cargo capacity and contract economy, §3.5 uninhabited worlds,** the rest
+  of **§3.6** (modal sticky header, 44×44 close, scroll reset, multi-press close), **§4** fleet
+  trading, **§5** recall and rendezvous, **§6** fleet repair UX, **§9** seeded economy table and
+  fleet-trade fixtures — all still open.
+- **The 1400px power-wrap breakpoint** is still parked pending a real `window.innerWidth` from the
+  laptop.
+- **The EW panel lies over the strip at ≤600px.** Named last round, still unfixed; laptop play is the
+  target and this is a phone width.
+
+## Evidence
+
+- 35 of 35 gates pass from a clean tree bound to this commit; `validation/RUN.json` records the tree
+  before the first gate ran.
+- The playtest gate is 26 checks. All 26 reproduce on `ae4ae4d`; 9 on `7232dc6`; 6 on `7767631` — the
+  six that cover this round's nine items. Every failure message describes a wrong behaviour, and no
+  check fails with a TypeError.
+- `validation/screens/` — the HUD at 1920, 1536, 1440 and 1280; the Power, EW, Fleet and Contracts
+  panels; the chart with the overlay on, with cargo off, and with routes off.
+
+## The fifth round and earlier, unchanged
+
+Everything from here down is the previous five rounds and still stands. This round is above it. The
+fifth round was DTG 181656ZSEP26, on `7767631`; its headings are one level lower here than they were in
+its own document, and nothing in them has been edited.
+
+### Read this first
 
 This is the fifth round, on top of `7232dc6`. The evidence identity concern is closed and that base is
 taken as given. Four gaps were named; all four are addressed, and the two that were asked for as
@@ -47,7 +226,7 @@ deadline and fails the captain for the game's omission. On load an offered one i
 and an accepted one is released without penalty. Both remain NOT DONE as mechanics; the design is in
 `EVACUATION-BLOCKADE-DESIGN-180230ZSEP26.md` for review before either is built.
 
-## This round's four items
+### This round's four items
 
 ### 1. Power and alert, operable rather than merely present
 
@@ -154,7 +333,7 @@ At 600px and below the EW panel lies over the top strip, so a captain who opens 
 power controls underneath it. That is a question about that panel rather than about whether the strip
 fits, and it is not in this round's scope. Named here rather than left for the next playtest.
 
-## The two corrections to the fifth round
+### The two corrections to the fifth round
 
 Raised against `98ac2a2` and closed here. Laptop play is the target from this round on; the iPad is an
 occasional convenience, so nothing further was spent on phone or tablet layouts — what was already
@@ -194,11 +373,11 @@ stepper lowers as well as raises.
 **The power breakpoint at 1400 is untouched and still open**, pending a real `window.innerWidth` from
 the laptop.
 
-## The earlier rounds, unchanged
+### The earlier rounds, unchanged
 
 Everything from here down is the previous four rounds and still stands. This round is above it.
 
-## Read this first
+### Read this first
 
 This is the fourth round. Rounds one to three answered the independent reviews of `1fc0838`,
 `f27dd56` and `c1c5843`, and all of that still stands unchanged below. This round answers a playtest
@@ -237,7 +416,7 @@ Most of the 17SEP specification is still **not** here — §3.3 bilateral peace,
 §3.5 uninhabited worlds, the rest of §3.6, §4 fleet trading, §5 recall, §6 repair UX, §7 overlay.
 `CANDIDATE.json` lists every section under `spec_17sep` with DONE / PARTIAL / NOT DONE.
 
-## The playtest batch
+### The playtest batch
 
 ### P1. The quick-action bar carries what was asked for
 
@@ -348,7 +527,7 @@ inside the panel and clear of the disabled-ship panel at 390x844.
 **Gates HAIL (blocker suite) and the campaign probe's squeeze check** already existed and are what
 caught this.
 
-## The second and third rounds' findings
+### The second and third rounds' findings
 
 ### A. The maturity gate could be satisfied by cycling one menu *(round 2)*
 
@@ -420,7 +599,7 @@ systems** long enough to put a navy at exactly eight hops and at exactly nine, m
 rather than assuming it, and tests the shipped value where it actually decides: at eight the navy is a
 contender and the opening closes; at nine it is not and the opening returns.
 
-## The six findings from the first review round
+### The six findings from the first review round
 
 
 ### 1. A long jump could consume the whole arc
@@ -508,7 +687,7 @@ that a galaxy already in the opening state on **day 1** is not refused for being
 The late-save migration no longer re-anchors anything, because there is nothing dated to re-anchor; it
 records the shift for reference only.
 
-## The changes
+### The changes
 
 ### 1. `df24878` — a power the captain has never met is not on their board
 
@@ -639,7 +818,7 @@ the book's own rules or author the strategic state they need, so a tuning change
 without moving the checks. Where a gate needs an expedition to exist inside a short window and is not
 itself about the unlock, it says so in a comment and relaxes the opening deliberately.
 
-## Gates
+### Gates
 
 **35 of 35 green**, run from the committed tree this pack ships. `validation/RUN.json` and
 `validation/RUN-FILES.txt` record which commit, which tree, and a hash of every git-tracked file and
@@ -716,7 +895,7 @@ category gate the moment it changed.
 `validation/gate-exit-codes.txt` records each gate's root honestly: `src` means it imports the source
 modules directly, `dist` means it loaded the built tree.
 
-## Against the 17SEP specification, section by section
+### Against the 17SEP specification, section by section
 
 Where it says NOT DONE, nothing exists: no stub, no scaffolding.
 
