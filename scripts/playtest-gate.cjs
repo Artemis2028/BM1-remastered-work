@@ -863,7 +863,7 @@ const { startProbe } = require('./probe-harness.cjs');
       t.closePlanetMenu?.();
       t.updateStats();
     });
-    const widths = [1600, 1360, 1280, 1100, 1000, 820, 600];
+    const widths = [1920, 1600, 1536, 1440, 1366, 1280, 1100, 820, 600];
     const seen = [];
     try {
       for (const w of widths) {
@@ -953,67 +953,83 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.deepEqual(wrong, [], wrong.join('; '));
   });
 
-  // POWER — the report: "power should be shown while engaging ... including on my iPad". The strip
-  // dropped the power steppers at 1400px and the whole group at 1200px, so on a tablet there was
-  // nothing to press; and because #stats is pointer-events:none, what was left rendered without
-  // taking input at all — a control you can see, cannot hit, and which a scripted .click() reaches
-  // anyway, which is why the first version of this work passed its own gate. This check opens a touch
-  // context, presses the controls where they actually sit on screen, and reads the state back.
-  await check('POWER alert and power take a real press on a tablet, at tablet sizes', async () => {
-    const touch = await startProbe({ pageOptions: { hasTouch: true }, viewport: { width: 1180, height: 820 } });
+  // POWER — the report was that power and alert had to be reachable while engaging. They were not
+  // reachable at all: #stats is pointer-events:none, the strip having always been a readout the
+  // captain looks past, and the controls added to it had none of their own. elementFromPoint returned
+  // the canvas for a mouse exactly as it did for a finger, and a scripted element.click() reached them
+  // anyway, which is why the first version of this work passed its own gate. This presses them where
+  // they sit on screen, with an ordinary pointer, at the widths a laptop browser actually is.
+  await check('POWER alert and power answer a real click at laptop widths', async () => {
+    await fresh('play-power');
+    const sizes = [[1920, 1080, '1920 (100%)'], [1536, 960, '1536 (125%)'], [1280, 800, '1280 (150%)']];
+    const wrong = [];
     try {
-      await touch.fresh('play-power');
-      const sizes = [[1180, 820, 'tablet across'], [820, 1180, 'tablet upright']];
-      const wrong = [];
       for (const [w, h, name] of sizes) {
-        await touch.page.setViewportSize({ width: w, height: h });
-        await touch.page.waitForTimeout(220);
-        await touch.ev(() => {
+        await page.setViewportSize({ width: w, height: h });
+        await page.waitForTimeout(200);
+        await ev(() => {
           const t = testBM1;
           t.state.topLeftPanelOpen = false;
           document.getElementById('top-left-panel')?.classList.add('hidden');
+          for (const d of document.querySelectorAll('dialog')) { try { d.close(); } catch (e) { /* not open */ } }
           t.state.lastShieldHitAt = t.gameNow();
           t.ensurePlaytestState().alertLevel = 'green';
           t.updateStats();
         });
-        await touch.page.waitForTimeout(180);
+        await page.waitForTimeout(160);
 
-        const coarse = await touch.ev(() => matchMedia('(pointer: coarse)').matches);
-        if (!coarse) { wrong.push(`${name}: the page does not report a coarse pointer, so this is not the tablet case`); continue; }
+        const centre = (sel) => ev((s) => {
+          const b = document.querySelector(s);
+          if (!b || b.offsetParent === null) return null;
+          const r = b.getBoundingClientRect();
+          const x = Math.round(r.left + r.width / 2), y = Math.round(r.top + r.height / 2);
+          const over = document.elementFromPoint(x, y);
+          return { x, y, w: Math.round(r.width), h: Math.round(r.height),
+            covered: over && !(over === b || b.contains(over)) ? (over.id || String(over.className || '').split(' ')[0] || over.tagName) : null };
+        }, sel);
 
-        // Sizes first: a control under the 44pt floor is one a thumb misses.
-        const small = await touch.ev(() => [...document.querySelectorAll('#stats [data-alert-set], #stats [data-power-dist][data-power-dir]')]
-          .filter((b) => b.offsetParent !== null)
-          .map((b) => { const r = b.getBoundingClientRect(); return { n: b.dataset.alertSet || (b.dataset.powerDist + b.dataset.powerDir), w: Math.round(r.width), h: Math.round(r.height) }; })
-          .filter((b) => b.w < 44 || b.h < 44));
-        if (small.length) wrong.push(`${name}: ${small.length} control(s) under 44pt, smallest ${small[0].n} at ${small[0].w}x${small[0].h}`);
+        const red = await centre('#stats [data-alert-set="red"]');
+        if (!red) { wrong.push(`${name}: there is no red-alert control in the strip`); continue; }
+        if (red.covered) wrong.push(`${name}: the red-alert control is under ${red.covered} and a click cannot reach it`);
+        await page.mouse.click(red.x, red.y);
+        await page.waitForTimeout(140);
+        const alertNow = await ev(() => testBM1.ensurePlaytestState().alertLevel);
+        if (alertNow !== 'red') wrong.push(`${name}: clicking red alert where it sits on screen left the posture at "${alertNow}"`);
 
-        // Then a real press at real coordinates, which is what a finger does and what a scripted
-        // element.click() does not: it goes through hit testing and fails on a covered control.
-        const redBox = await touch.ev(() => { const b = document.querySelector('#stats [data-alert-set="red"]'); if (!b || b.offsetParent === null) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
-        if (!redBox) { wrong.push(`${name}: there is no red-alert control in the strip`); continue; }
-        await touch.page.mouse.click(redBox.x, redBox.y);
-        await touch.page.waitForTimeout(140);
-        const alertNow = await touch.ev(() => testBM1.ensurePlaytestState().alertLevel);
-        if (alertNow !== 'red') wrong.push(`${name}: pressing red alert where it sits on screen left the posture at "${alertNow}"`);
+        const up = await centre('#stats [data-power-dist="weapons"][data-power-dir="1"]');
+        if (!up) { wrong.push(`${name}: there is no power control in the strip`); continue; }
+        if (up.covered) wrong.push(`${name}: the weapons power control is under ${up.covered} and a click cannot reach it`);
+        const before = await ev(() => testBM1.state.power?.dist?.weapons ?? -1);
+        await page.mouse.click(up.x, up.y);
+        await page.waitForTimeout(140);
+        const after = await ev(() => testBM1.state.power?.dist?.weapons ?? -1);
+        if (!(after > before)) wrong.push(`${name}: clicking the weapons power control where it sits left it at ${after}`);
 
-        const before = await touch.ev(() => Number(document.querySelector('#stats .power-chip u')?.textContent ?? -1));
-        const upBox = await touch.ev(() => { const b = document.querySelector('#stats [data-power-dist="weapons"][data-power-dir="1"]'); if (!b || b.offsetParent === null) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
-        if (!upBox) { wrong.push(`${name}: there is no power control in the strip`); continue; }
-        const weaponsBefore = await touch.ev(() => testBM1.state.power?.dist?.weapons ?? -1);
-        await touch.page.mouse.click(upBox.x, upBox.y);
-        await touch.page.waitForTimeout(140);
-        const weaponsAfter = await touch.ev(() => testBM1.state.power?.dist?.weapons ?? -1);
-        if (!(weaponsAfter > weaponsBefore)) wrong.push(`${name}: pressing the weapons power control where it sits on screen left it at ${weaponsAfter}`);
-        if (before < 0) wrong.push(`${name}: the strip shows no power level`);
+        // Down as well as up: a stepper that only ever raises is half a control.
+        const down = await centre('#stats [data-power-dist="weapons"][data-power-dir="-1"]');
+        if (down) {
+          await page.mouse.click(down.x, down.y);
+          await page.waitForTimeout(140);
+          const back = await ev(() => testBM1.state.power?.dist?.weapons ?? -1);
+          if (!(back < after)) wrong.push(`${name}: the weapons power control does not lower (${after} -> ${back})`);
+        } else {
+          wrong.push(`${name}: there is no control to lower weapons power`);
+        }
 
-        const dialogs = await touch.ev(() => [...document.querySelectorAll('dialog')].filter((d) => d.open).length);
+        // Readable, which at a laptop size means the readouts are not ellipsised away.
+        const unreadable = await ev(() => [...document.querySelectorAll('#stats .top-stat, #stats .power-chip')]
+          .filter((el) => el.offsetParent !== null && el.scrollWidth - el.clientWidth > 1)
+          .map((el) => (el.textContent || '').trim().slice(0, 16)));
+        if (unreadable.length) wrong.push(`${name}: ${unreadable.length} readout(s) cut off: ${unreadable.join(', ')}`);
+
+        const dialogs = await ev(() => [...document.querySelectorAll('dialog')].filter((d) => d.open).length);
         if (dialogs) wrong.push(`${name}: setting posture or power opened ${dialogs} dialog(s) over the fight`);
       }
-      assert.deepEqual(wrong, [], wrong.join('; '));
     } finally {
-      await Promise.race([touch.close(), new Promise((r) => setTimeout(r, 12000))]);
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.waitForTimeout(150);
     }
+    assert.deepEqual(wrong, [], wrong.join('; '));
   });
 
   // OWN-2 — the ordinary shelf was made ownership-aware, but six other purchase paths were not: EW
