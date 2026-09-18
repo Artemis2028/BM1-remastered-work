@@ -669,6 +669,14 @@ body.ui-theme-cardassian .planet-menu::before {
 .top-message {
   justify-content: flex-start;
   padding-inline: 14px;
+  /* The message slot is deliberately allowed to run out of room — it carries a whole sentence next to
+     six fixed readouts — but it was clipping mid-word with no sign that anything had been cut. */
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  display: block;
+  line-height: 44px;
 }
 .top-stat:nth-child(3) {
   background: var(--lcars-cream);
