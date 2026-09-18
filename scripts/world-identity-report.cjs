@@ -17,7 +17,15 @@ const fs = require('node:fs');
           culture: cul.id ?? null, cultureLabel: cul.label ?? null, cultureSource: cul.source ?? null,
           why: sov.cultureWhy ?? null,
           controller: ctl.controller ?? null, allegiance: ctl.allegiance ?? null, origin: ctl.origin ?? null,
-          governor: sov.governor ?? null, level: sov.level ?? null, readout: sov.label ?? null };
+          governor: sov.governor ?? null, level: sov.level ?? null, readout: sov.label ?? null,
+          originSource: ctl.originSource ?? null, polityId: ctl.polityId ?? null,
+          playerControlled: Boolean(ctl.playerControlled),
+          // What the allegiance actually does: who owns the stations here, and whether a Terran
+          // captain is welcome. Labels were never the point.
+          attitudeToTerran: (() => { try { return t.getFactionAttitude ? t.getFactionAttitude(ctl.allegiance) : null; } catch (e) { return null; } })(),
+          hostileToPlayer: (() => { try { return t.getEffectiveAttitude ? t.getEffectiveAttitude(ctl.allegiance) === 'hostile' : null; } catch (e) { return null; } })(),
+          stationOwners: (() => { try { return [...new Set((t.state.stationDefinitions || []).filter((d) => Number(d.systemIndex) === i).map((d) => t.getStationOwner({ id: d.id, systemIndex: i }, i)))].sort(); } catch (e) { return []; } })(),
+          mapRelation: (() => { try { return t.getMapSystemInfo ? t.getMapSystemInfo(i).relation : null; } catch (e) { return null; } })() };
       }),
     };
   });

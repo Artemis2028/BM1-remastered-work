@@ -811,12 +811,21 @@ const { startProbe } = require('./probe-harness.cjs');
       const peopleTreatedAsFaction = peopleIds.filter((id) => t.isRecognizedFactionKey(id));
       const peopleGoverning = (s.planets || []).map((p, i) => t.getSystemControl(i))
         .filter((c) => peopleIds.includes(c.controller) || peopleIds.includes(c.allegiance) || peopleIds.includes(c.origin)).length;
-      // And no world's government may be its culture merely because the table says who lives there:
-      // the government is the authored governmentId, and this compares every world against it.
+      // No world's government may be its culture. Government now comes from two authored places — the
+      // allegiance table and the shipped governmentId — and from nowhere else; in particular it may
+      // never be taken from WORLD_CULTURES. Anything that does not match one of those two is the
+      // conflation this check exists to catch.
       const govTable = t.BM1_GOVERNMENT_FACTIONS || {};
-      const governmentMoved = (s.planets || []).map((p, i) => ({ i, name: p.name, origin: t.getSystemControl(i).origin, expected: govTable[govOf(i)] ?? 'neutral' }))
-        .filter((x) => String(x.origin || 'neutral') !== String(x.expected || 'neutral'))
-        .map((x) => `${x.name}: origin ${x.origin}, governmentId says ${x.expected}`);
+      const allegiance = t.WORLD_ALLEGIANCE || {};
+      const independent = t.WORLD_INDEPENDENT || {};
+      const governmentMoved = (s.planets || []).map((p, i) => {
+        const origin = String(t.getSystemControl(i).origin || 'neutral');
+        const authored = allegiance[p.name] ? String(allegiance[p.name].faction)
+          : independent[p.name] ? 'neutral'
+          : String(govTable[govOf(i)] ?? 'neutral');
+        return { name: p.name, origin, authored, culture: String(t.getSystemCulture(i).id || '') };
+      }).filter((x) => x.origin !== x.authored)
+        .map((x) => `${x.name}: holder ${x.origin}, authored says ${x.authored}${x.origin === x.culture ? ' (taken from its culture)' : ''}`);
       const bySource = {};
       (s.planets || []).forEach((p, i) => { const k = t.getSystemCulture(i).source; bySource[k] = (bySource[k] || 0) + 1; });
       return { fail: null, noTable, unjustified, got, peopleTreatedAsFaction, peopleGoverning, governmentMoved, bySource };
@@ -849,7 +858,7 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.deepEqual(r.peopleTreatedAsFaction, [], `a people is being treated as a polity: ${r.peopleTreatedAsFaction.join(', ')}`);
     assert.equal(r.peopleGoverning, 0, `${r.peopleGoverning} world(s) are governed by something that is only a people`);
     assert.deepEqual(r.governmentMoved, [],
-      `naming a world's people moved its government: ${r.governmentMoved.slice(0, 3).join('; ')}`);
+      `a world is held by something neither authored table says: ${r.governmentMoved.slice(0, 3).join('; ')}`);
     // And the guesswork is gone: no world should still be resolved by matching its name.
     assert.equal(r.bySource.name || 0, 0, `${r.bySource.name} world(s) still have their people guessed from the world's name`);
     assert.ok((r.bySource.authored || 0) >= 80, `only ${r.bySource.authored || 0} worlds have an authored identity`);
@@ -1251,6 +1260,88 @@ const { startProbe } = require('./probe-harness.cjs');
     // And the release is recorded as a release rather than a failure.
     assert.ok(r.afterLoad.statuses.every((x) => /:(withdrawn|released|complete)$/.test(x)),
       `after loading, the withdrawn contracts read: ${r.afterLoad.statuses.join(', ')}`);
+  });
+
+  // HOLD — the previous round named each world's people and deliberately left the political map alone.
+  // The result was that the Tholians held exactly one world while five more introduced themselves in
+  // their own first sentence as Tholian space, and a Terran captain could fly into all five unopposed.
+  // This checks what the allegiance does, not what it is labelled: who controls the system, who owns
+  // the stations in it, what the map says the relation is, and whether the captain is unwelcome.
+  await check('HOLD a world its own text places inside an empire behaves as that empire\'s', async () => {
+    await fresh('play-hold');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (!t.WORLD_ALLEGIANCE) return { fail: 'this tree has no authored allegiance: a world the government table has no answer for is nobody\'s, so five worlds of Tholian space are unheld and unopposed' };
+      const idx = (name) => (s.planets || []).findIndex((p) => p.name === name);
+      const look = (name) => {
+        const i = idx(name);
+        if (i < 0) return null;
+        const ctl = t.getSystemControl(i);
+        const stations = [...new Set((s.stationDefinitions || [])
+          .filter((d) => Number(d.systemIndex) === i)
+          .map((d) => t.getStationOwner({ id: d.id, systemIndex: i }, i)))];
+        return { i, controller: ctl.controller, allegiance: ctl.allegiance, polityId: ctl.polityId,
+          source: ctl.originSource, playerControlled: ctl.playerControlled,
+          hostile: t.getEffectiveAttitude(ctl.allegiance) === 'hostile',
+          relation: t.getMapSystemInfo(i).relation,
+          stationOwners: stations.filter((o) => !String(o || '').startsWith('private:')).sort() };
+      };
+      const tholian = ['Crystal Loom', 'Webheart', 'Lattice Hold', 'Spindle Reach', 'Facet Gate'].map((n) => [n, look(n)]);
+      const capital = look('Tholia');
+      const independents = Object.keys(t.WORLD_INDEPENDENT || {}).map((n) => [n, look(n)]).filter(([, v]) => v);
+      // Every authored claim must be justified by that world's own description.
+      const unjustified = [];
+      for (const [name, entry] of Object.entries(t.WORLD_ALLEGIANCE)) {
+        const planet = (s.planets || []).find((p) => p.name === name);
+        if (!planet) { unjustified.push(`${name}: no such world`); continue; }
+        if (!String(planet.description || '').toLowerCase().includes(String(entry.why).toLowerCase())) {
+          unjustified.push(`${name}: description does not say "${entry.why}"`);
+        }
+      }
+      for (const [name, why] of Object.entries(t.WORLD_INDEPENDENT || {})) {
+        const planet = (s.planets || []).find((p) => p.name === name);
+        if (planet && !String(planet.description || '').toLowerCase().includes(String(why).toLowerCase())) {
+          unjustified.push(`${name}: description does not say "${why}"`);
+        }
+      }
+      // A capture still takes the world, and survives a save and a reload.
+      const target = idx('Crystal Loom');
+      t.transferSystemControlToPlayer(target);
+      const captured = look('Crystal Loom');
+      t.saveGame(2);
+      t.loadGame(2);
+      const afterReload = look('Crystal Loom');
+      // And an explicit override still wins over the authored allegiance.
+      s.factionSystemOverrides = { ...(s.factionSystemOverrides || {}), [idx('Webheart')]: 'klingon' };
+      const overridden = look('Webheart');
+      return { fail: null, unjustified, tholian, capital, independents, captured, afterReload, overridden,
+        allegianceCount: Object.keys(t.WORLD_ALLEGIANCE).length };
+    });
+    assert.ok(!r.fail, `the allegiance reproduction could not be set up: ${r.fail}`);
+    assert.deepEqual(r.unjustified, [],
+      `${r.unjustified.length} allegiance claim(s) are not in the world's own text: ${r.unjustified.slice(0, 3).join('; ')}`);
+    assert.ok(r.capital && r.capital.controller === 'tholian', `Tholia itself is held by "${r.capital?.controller}"`);
+    for (const [name, w] of r.tholian) {
+      assert.ok(w, `${name} is not in the galaxy`);
+      assert.equal(w.controller, 'tholian', `${name} is controlled by "${w.controller}" though its own text places it in Tholian space`);
+      assert.equal(w.allegiance, 'tholian', `${name} flies "${w.allegiance}"`);
+      assert.equal(w.hostile, r.capital.hostile,
+        `${name} is ${w.hostile ? 'hostile' : 'not hostile'} to this captain while Tholia itself is ${r.capital.hostile ? 'hostile' : 'not'}`);
+      assert.equal(w.relation, r.capital.relation,
+        `the map calls ${name} "${w.relation}" and Tholia "${r.capital.relation}"`);
+      assert.deepEqual(w.stationOwners, ['tholian'],
+        `the stations at ${name} are owned by ${w.stationOwners.join(', ') || 'nobody'}`);
+    }
+    // Genuine independents are not swept up.
+    for (const [name, w] of r.independents) {
+      assert.equal(w.allegiance, 'neutral', `${name}, whose text says nobody claims it, now flies "${w.allegiance}"`);
+      assert.equal(w.source, 'independent', `${name} resolved by ${w.source} rather than as an authored independent`);
+    }
+    // Captures and overrides still win.
+    assert.equal(r.captured.playerControlled, true, 'capturing an authored Tholian world did not transfer it');
+    assert.equal(r.afterReload.playerControlled, true, 'the capture was lost when the save was reloaded');
+    assert.equal(r.overridden.controller, 'klingon', `an explicit override was ignored: the world is held by "${r.overridden.controller}"`);
+    assert.ok(r.allegianceCount >= 30, `only ${r.allegianceCount} worlds have an authored allegiance`);
   });
 
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);

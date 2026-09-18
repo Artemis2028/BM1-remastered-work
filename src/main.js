@@ -5749,9 +5749,80 @@ function getPlayerFlag() { return normalizeFactionKey(state.playerFaction || 'ne
 // Original political identity of a system: a mapped government ID (an explicit 'neutral' there is
 // independence recorded in the data), else a name match, else unknown (null). Nothing here
 // invents ownership; gameplay fallbacks to 'neutral' happen only in getSystemFaction.
+// Who holds each world, read from that world's own description. Separate from WORLD_CULTURES: a world
+// can be Reman and Romulan-held, or Bajoran and Dominion-held. The shipped government table only
+// answers for 43 of the 101 worlds and maps the rest to neutral, which is why the Tholians held
+// exactly one world while five more introduced themselves in their own first sentence as Tholian
+// space — and why none of those five was hostile to a Terran captain. Each entry carries the phrase
+// that places it inside that power's territory, and a gate holds every one against the shipped
+// descriptions. [playtest]
+//
+// This sits UNDER a player capture and under an explicit override, so taking a world still takes it
+// and an existing save's captures survive untouched.
+// Two worlds are deliberately NOT here. Blender's text says its survivors "went unnoticed" and are
+// rebuilding — that is hiding, not holding, and giving the remnant a world would make it a territorial
+// polity in the campaign's war ledger. Gorn's race is stated wiped out and its world unpopulated; a
+// dead race holds nothing. Both keep their people; neither gets territory. [review]
+const WORLD_ALLEGIANCE = Object.freeze({
+  'Crystal Loom': { faction: 'tholian', why: 'Tholian forge-world' },
+  'Webheart': { faction: 'tholian', why: 'political knot of the growing Tholian empire' },
+  'Lattice Hold': { faction: 'tholian', why: 'Tholian escort flotillas' },
+  'Spindle Reach': { faction: 'tholian', why: 'guards the outer filaments of Tholian space' },
+  'Facet Gate': { faction: 'tholian', why: 'Tholian merchants bargain under the protection of web cannons' },
+  'New Romulus': { faction: 'romulan', why: 'A young Romulan colony' },
+  'Rator': { faction: 'romulan', why: 'Romulan military colony' },
+  'Virinat': { faction: 'romulan', why: 'Romulan agricultural colony' },
+  'Chaltok': { faction: 'romulan', why: 'Romulan border world' },
+  'Ty\'Gokor': { faction: 'klingon', why: 'hidden Klingon command world' },
+  'Boreth': { faction: 'klingon', why: 'Klingon monastery world' },
+  'Narendra': { faction: 'klingon', why: 'Klingon border colony' },
+  'Lakarian': { faction: 'cardassian', why: 'Cardassian cultural world' },
+  'Arawath': { faction: 'cardassian', why: 'Cardassian supply system' },
+  'Monac': { faction: 'cardassian', why: 'Cardassian industrial' },
+  'Terra Nova': { faction: 'terran', why: 'frontier colony of the Earth Empire' },
+  'Proxima Yard': { faction: 'terran', why: 'Earth shipyard colony' },
+  'P\'Jem': { faction: 'vulcan', why: 'Vulcan monastery' },
+  'T\'Khut': { faction: 'vulcan', why: 'Vulcan frontier settlement' },
+  'Lappa': { faction: 'ferengi', why: 'Ferengi finance moon' },
+  'Breen Anchorage': { faction: 'breen', why: 'Breen fleet anchorage' },
+  'Iritum': { faction: 'sona', why: 'mining planet for the Son\'a' },
+  'Goralis': { faction: 'sona', why: 'Son\'a refinery' },
+  'Sonata': { faction: 'sona', why: 'homeworld to the Son\'a' },
+  'Tarellia': { faction: 'tarellian', why: 'homeworld to the Tarellian race' },
+  'Tarellian Reach': { faction: 'tarellian', why: 'Tarellian exploration colony' },
+  'Promelus': { faction: 'promelli', why: 'The homeworld of the Promelli' },
+  'Promelli Drift': { faction: 'promelli', why: 'Promelli bio-technology' },
+  'Hirogen Range': { faction: 'hirogen', why: 'hunting beacons' },
+  'Suliban Helix': { faction: 'suliban', why: 'cell docks' },
+  'Brea': { faction: 'breen', why: 'The homeworld of the Breen' },
+});
+// Worlds whose own text says nobody claims them. Listed so a later pass cannot quietly hand them to a
+// neighbour: independence here is a fact about the world, not an absence of data.
+const WORLD_INDEPENDENT = Object.freeze({
+  'New Switzerland': 'a safe-haven',
+  'Andreas': 'No government claims Andreas',
+  'Lameu': 'now it has its own government',
+  'Orilla': 'small group of refugees',
+  'Opusab': 'A peaceful settlement',
+  'Biakisch': 'pre-industrial',
+  'Dyson': 'The original inhabitants of Dyson',
+  'Trill': 'Trills',
+  'Tepos': 'Teposians',
+  'Flash': 'Flashians',
+  'Nausica': 'are now free',
+  'Lysia': 'finally found themselves free',
+  'Rigel': 'Rigel is an independent planet',
+  'Pirates Haven': 'we pirates',
+});
 function getBaseSystemOrigin(index = state.currentPlanet) {
   const planet = state.planets[index] || {};
   const row = state.systemData[index] || [];
+  const name = String(planet.name || '');
+  // Authored first: the shipped government table cannot express most of these, and where it has no
+  // answer it says neutral, which reads as "nobody holds this" rather than "we did not record it".
+  const held = WORLD_ALLEGIANCE[name];
+  if (held) return { faction: held.faction, source: 'allegiance', why: held.why };
+  if (WORLD_INDEPENDENT[name]) return { faction: 'neutral', source: 'independent', why: WORLD_INDEPENDENT[name] };
   const gov = Number(planet.governmentId ?? row[1]);
   if (Number.isFinite(gov) && BM1_GOVERNMENT_FACTIONS[gov] !== undefined) {
     return { faction: BM1_GOVERNMENT_FACTIONS[gov], source: 'government' };
