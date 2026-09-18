@@ -1,6 +1,6 @@
 # BM1 playtest repairs on top of `ae4ae4d`
 
-DTG 181955ZSEP26
+DTG 182129ZSEP26
 
 Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Nothing pushed, merged or deployed.
 The commit count is in `CANDIDATE.json`, computed by the pack script rather than typed here.
@@ -8,9 +8,8 @@ The commit count is in `CANDIDATE.json`, computed by the pack script rather than
 ## Read this first
 
 Sixth round, on top of `7767631`, from nine items raised off laptop playtest screenshots, plus the
-three findings raised against `43938a7` and closed here. **Eight of the nine items are done; the ninth,
-the trade overlay, is half of what was asked** — destinations and routes to objectives exist, the
-broader trade-activity overlay does not. Three things in here were not asked for and need saying out
+three findings raised against `43938a7` and the four goals raised against `2316331`, all closed here. **All nine items are done**: the trade overlay, which was
+half of what was asked in the sixth round, is completed by the seventh round's first goal. Three things in here were not asked for and need saying out
 loud before the list:
 
 **Two of this round's own fixes were wrong on first writing, and the screenshots caught them.** The
@@ -35,6 +34,96 @@ little haven" — which made it neutral and stopped it being hostile. Rigel's te
 independent planet" and "The Andorians however lay claim to this world and are quite willing to protect
 it", and the engine has no protectorate level to express that, so nothing was authored and the shipped
 table's `andorian` stands. That second one is **a gap, not a decision**.
+
+## The seventh round — the four goals from `2316331`
+
+### 1. The trade and security overlay, built
+
+What was asked for was trade conditions — known traffic, route activity, patrol and protection cover,
+piracy, hostile activity, disruptions. What existed was navigation lines to the captain's own cargo,
+which is a different thing wearing the same word. **The objective overlay is unchanged**; this sits
+beside it as two layers of its own, `Trade lanes` and `Patrols & threats`, each selectable from the
+legend.
+
+**What is true** is assembled from what the engine already simulates and never showed: the traffic
+model's own civilian weights against a world's market and berths; the campaign's garrison hulls and
+armed installations; the authored checkpoints and border policies; the week's activity roll;
+operations moving on a system or engaged there; installations destroyed or damaged; occupations.
+Piracy is not a new roll — it is a lane worth robbing with nobody watching it, or a world a pirate
+governs.
+
+**What the captain knows** is a separate question, and it is the whole point:
+
+| Source | What it can say | What it cannot |
+| --- | --- | --- |
+| Standing there | everything, now | — |
+| A ship on station | everything, now, with "crews can be wrong" | — |
+| Relay coverage | what is present, what has stopped answering | how hard a garrison would fight; the week's own activity |
+| Having been there | the berths, the market, the flag, dated to the day they saw it | anything about now; a garrison over a fortnight old is capped to "light" |
+| Nothing | **nothing** | — |
+
+And a system nothing has reported on reads as **unknown, never as quiet**: its indicators are null
+rather than zero, it is drawn as a dashed ring with a query, its lanes are drawn in their own colour
+rather than not at all, the legend counts how many charted systems are in that state, and the readout
+says in a sentence that unknown is not the same as safe. A lane is only as known as its worse end, so
+one end reporting quiet contributes nothing to a lane whose other end nobody has looked at.
+
+The chart's bottom-right carries the readout for the selected system: the four indicators, the source
+and its caveat, the day the claim is from, its age, and what the readings are made of — with `*` for a
+transponder reading whose strength is not readable and `†` for a dated claim rather than a current one.
+
+**Underlying data implemented:** `markSystemVisited` now records *when*, not just whether, and that is
+saved and loaded. A save written before this loads with no dates, which reads as "date unknown".
+
+**Found doing it:** `drawMapLegend` — the pre-panel chart legend — has been dead code for some time.
+The readout went in there first and appeared nowhere; it has its own panel now.
+
+### 2. The map and hail overlap, fixed
+
+The chart is a canvas at z-index 74 clipped to its own panel rect; the hail panel sat at 28. At every
+width this game is played at the chart was painted across the left of that panel — **164px of it at
+1920** — and neither of the hail's buttons answered a click at its own coordinates. Acknowledging the
+hail first was not a fix.
+
+The hail carries the controls that answer it and a clock; the chart is a map that can be smaller. So
+the chart gives way: its rect pulls clear of the hail and slides left to keep its width, down to a
+floor below which the window is simply too narrow for both. Its close control is positioned from that
+rect and moves with it, and the viewport, the clip and the node positions follow because they read the
+same rect. The panel's stacking order at 78 is the second line, so on a window too narrow to give way
+the hail stays readable and the chart is the thing partly covered.
+
+**Gate HAIL** puts the captain in a foreign checkpoint's approach with the arrival hail unanswered,
+opens the chart on top of it, and at 1920, 1536, 1440 and 1280 requires that the chart's rect does not
+reach the panel, that the close control does not sit on it, and that both of the hail's buttons and the
+chart's own control answer a click at their own coordinates. `map-with-pending-hail.png` is that state.
+
+### 3. The foreign-stock exceptions, withdrawn and proposed instead
+
+"Trophy vaults" describes what the Hirogen keep. "Trading quietly" describes how the Suliban trade.
+Neither says a shipyard sells a Romulan scout to a passing Terran captain, and authoring two worlds on
+those phrases was the same mistake as reading a grey market out of an emptied shelf, one step further
+back. The table is empty and **the gate holds it empty**: every world sells its own government's
+designs and neutral ones, and no world anywhere sells a hull its government would not carry.
+
+`FOREIGN-STOCK-PROPOSAL-182129ZSEP26.md` proposes three worlds chosen for what they are in the campaign
+rather than for their prose — the Suliban Helix as a fence limited to small hulls at a premium and a
+standing cost, Hirogen Range selling only designs the Hirogen have actually destroyed a hull of in this
+campaign, Pirates Haven selling stolen hulls at a discount in poor condition and visibly — with the
+seven worlds I would not do it to and why, and an open question about discovery. **Nothing in it is
+implemented.**
+
+### 4. Recovery, flown rather than assigned
+
+The check set `m.step = 'deliver'` and asserted about the setting. It now flies the contract: out to the
+wreck's system and nine thousand units short of it, requiring that arriving is not arriving; in to
+transporter range, requiring the **engine** to notice and put the engineers aboard; a save and a reload,
+requiring the step, the markers and the list to come back; then travel to a candidate yard and dock,
+requiring the delivery to complete there. Then the design must be relocated to that yard, the yard must
+actually offer it, the offer must carry the `recovered-archive` provenance, the chart must stop marking
+it and the list must stop carrying it — and standing at the same dock twice more must pay nothing more.
+
+**Found doing it:** the captain's position is the camera, not `state.ship`, so the obvious shape of that
+test would have flown nowhere and passed anyway.
 
 ## The corrections to this round
 
@@ -244,11 +333,11 @@ entry to be a governance statement.
 origin source, hostility, station owners and map relation, before and after, generated from both trees
 by one script.
 
-### 9. Cargo and trade overlay on the chart — **PARTIAL**
+### 9. Cargo and trade overlay on the chart — **now complete, in two parts**
 
-What the chart carries is contract and cargo *destinations* and routes to them. The broader
-trade-activity overlay — wider trade the captain has not contracted for, read through discovery and
-intelligence limits — is **not built**. What follows is what exists.
+The objective half of this (contract and cargo destinations, routes to them) is below and unchanged.
+The trade-conditions half — which is what item 9 actually asked for — is the seventh round's first
+goal, above.
 
 Three selectable layers — contract objectives, cargo destinations, routes to them — with a legend at
 the foot of the chart that counts each layer and doubles as the picker. A world that is both an
@@ -278,8 +367,11 @@ Measured and named rather than left for the next playtest.
 
 ## Still NOT DONE, and named
 
-- **The broader trade-activity overlay (§7).** Destinations and routes to objectives exist; wider trade
-  the captain has not contracted for does not. Item 9 is half done.
+- **Foreign hull stock** is withdrawn, not designed. The proposal is
+  `FOREIGN-STOCK-PROPOSAL-182129ZSEP26.md`; until it is decided, every world sells its own
+  government's designs.
+- **The lead step of a recovery contract has nothing to mark**, because "any bar or trade station" is
+  not a place. The row says so; a set of *candidate* stations is not built.
 - **Evacuation and blockade** remain unfinished mechanics. The design is
   `EVACUATION-BLOCKADE-DESIGN-180230ZSEP26.md`, unchanged and still unimplemented.
 - **Rigel's protectorate.** The engine has no level between "independent" and "governed by", so a world

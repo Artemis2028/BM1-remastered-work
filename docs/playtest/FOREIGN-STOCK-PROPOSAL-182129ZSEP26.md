@@ -1,6 +1,6 @@
 # Foreign hull stock — proposal for review
 
-DTG 182112ZSEP26 · against the candidate on top of `7767631` · **nothing here is implemented**
+DTG 182129ZSEP26 · against the candidate on top of `7767631` · **nothing here is implemented**
 
 Every world's shipyard now sells its own government's designs and neutral ones, and nothing else. This
 document proposes where that should stop being true, and asks for a decision rather than making one.
