@@ -909,6 +909,7 @@ const { startProbe } = require('./probe-harness.cjs');
             stepsShown: onScreen('[data-power-dist][data-power-dir]').length,
             stepsReachable: onScreen('[data-power-dist][data-power-dir]').filter(reachable).length,
             coveredBy: [...new Set(coveredBy)].slice(0, 3).join(', '),
+            dockPower: (() => { const b = document.querySelector('[data-dock-action="power"]'); return Boolean(b && b.offsetParent !== null && reachable(b)); })(),
           };
         }));
       }
@@ -931,10 +932,18 @@ const { startProbe } = require('./probe-harness.cjs');
       // at: it is what a captain reaches for first, and there is no room for a dialog in a fight.
       if (r.alertShown !== 3) wrong.push(`at ${at} the strip shows ${r.alertShown} of 3 alert settings`);
       if (r.alertReachable !== r.alertShown) wrong.push(`at ${at} ${r.alertShown - r.alertReachable} of ${r.alertShown} alert settings are covered by ${r.coveredBy} and cannot be hit`);
-      if (r.powerShown !== 4) wrong.push(`at ${at} the strip shows ${r.powerShown} of 4 power readouts`);
-      if (r.powerReachable !== r.powerShown) wrong.push(`at ${at} ${r.powerShown - r.powerReachable} of ${r.powerShown} power readouts are covered by ${r.coveredBy}`);
-      if (r.stepsShown !== 8) wrong.push(`at ${at} the strip offers ${r.stepsShown} of 8 power controls`);
-      if (r.stepsReachable !== r.stepsShown) wrong.push(`at ${at} ${r.stepsShown - r.stepsReachable} of ${r.stepsShown} power controls are covered by ${r.coveredBy} and cannot be hit`);
+      // Power stays in the strip at every width the game is played at. Below 641px it does not: that
+      // column has to hold the menu, the strip, an incoming hail and the disabled-ship panel, and the
+      // hail's own controls win. There it must still be one press away on the bar, which is checked.
+      const phone = widths[i] <= 640;
+      if (!phone) {
+        if (r.powerShown !== 4) wrong.push(`at ${at} the strip shows ${r.powerShown} of 4 power readouts`);
+        if (r.powerReachable !== r.powerShown) wrong.push(`at ${at} ${r.powerShown - r.powerReachable} of ${r.powerShown} power readouts are covered by ${r.coveredBy}`);
+        if (r.stepsShown !== 8) wrong.push(`at ${at} the strip offers ${r.stepsShown} of 8 power controls`);
+        if (r.stepsReachable !== r.stepsShown) wrong.push(`at ${at} ${r.stepsShown - r.stepsReachable} of ${r.stepsShown} power controls are covered by ${r.coveredBy} and cannot be hit`);
+      } else if (!r.dockPower) {
+        wrong.push(`at ${at} power has left the strip and there is no POWER button on the bar either`);
+      }
     });
     assert.deepEqual(wrong, [], wrong.join('; '));
   });

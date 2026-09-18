@@ -3895,20 +3895,21 @@ button:disabled {
   .market {
     grid-template-columns: minmax(0, 1fr);
   }
+  /* A phone's right-hand column has to hold the menu, the strip, an incoming hail and the
+     disabled-ship panel at once, and it cannot. Measured at 390x844 with all four up: the menu ends at
+     136 and the disabled-ship panel begins at 372, which leaves 162px, and the hail needs 150 of it
+     for its own two actions. So at this width the strip is one row and gives up the power group and
+     the rolling message: alert posture stays, and power stays on the PWR button and in its own panel.
+     A phone is not a size this game is played at; the tablet, which is, keeps both. Putting the power
+     row here instead would push the hail's buttons underneath the disabled-ship panel, and those
+     buttons are how a captain answers the thing threatening them. [playtest] */
   .top-strip {
-    /* A phone cannot hold the posture pill, the alert chips, a message and three readouts on one
-       line without squeezing every one of them, so at this width the strip is explicitly stacked:
-       posture and alert, then the message, then the readouts, then power. Taller, and all of it
-       legible and hittable, which is the trade a phone asks for. [playtest] */
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: max-content max-content repeat(3, minmax(46px, 1fr));
     font-size: 10px;
     gap: 4px;
   }
-  .top-ship,
-  .top-alert { grid-column: span 3; }
-  .top-alert { width: auto; justify-content: center; }
-  .top-message { grid-column: 1 / -1; }
-  .top-stat { grid-column: span 1; }
+  .top-power,
+  .top-message { display: none; }
   .top-stat {
     padding: 0 6px;
     gap: 3px;
@@ -3965,11 +3966,11 @@ button:disabled {
     max-height: none;
   }
   #stats {
-    /* Its own line under the menu block, full width. Top 52 assumed a menu collapsed to one row;
-       it is three rows at this width and the strip was underneath it. [playtest] */
+    /* Its own line under the menu block, full width, and no lower than it has to be: every pixel here
+       comes out of the incoming hail's slot. [playtest] */
     left: 12px;
     right: 12px;
-    top: 168px;
+    top: 144px;
   }
   .target-window {
     left: 12px;
@@ -4576,7 +4577,7 @@ button:disabled {
    HUD offers meets the 44pt floor at any width — the alert chips were 26x26 and the bar's buttons 33pt
    wide on a tablet, which is a control you can see and cannot reliably hit. This block is last in the
    sheet on purpose: it has to win over every width block above it. [playtest] */
-@media (pointer: coarse) {
+@media (pointer: coarse) and (min-width: 641px) {
   .alert-chip { min-width: 44px; min-height: 44px; padding: 0 8px; font-size: 14px; }
   .top-alert { gap: 6px; padding: 0 6px; }
   .power-chip { min-height: 48px; gap: 6px; }
@@ -4587,4 +4588,11 @@ button:disabled {
   .top-left-tabs button { min-height: 44px; }
   .security-order-body > button { min-height: 44px; }
   .minimap-panel > button { min-height: 44px; }
+}
+
+/* The bar and the menu are reachable on a phone even where the strip's own controls cannot all be. */
+@media (pointer: coarse) and (max-width: 640px) {
+  .bottom-dock button { min-height: 44px; }
+  .top-left-tabs button { min-height: 40px; }
+  .security-order-body > button { min-height: 44px; }
 }
