@@ -1565,9 +1565,10 @@ const { startProbe } = require('./probe-harness.cjs');
 
   // RECOVER — a recovery contract is the one kind whose destination moves: a lead to pay for anywhere,
   // then a wreck, then a yard that can build the design. It was excluded from the contracts list
-  // outright, and its marker was pinned to the wreck at every step, so at the moment the captain had
-  // the engineers aboard the chart still pointed at where they had picked them up.
-  await check('RECOVER a recovery contract is listed, and its objective moves from the wreck to a yard', async () => {
+  // outright, and its marker was pinned to the wreck at every step. This drives the contract the way a
+  // captain does — fly to the wreck and let the engine notice, then carry it to a yard and dock —
+  // rather than writing the step field and asserting about the writing.
+  await check('RECOVER a recovery contract is flown, not set: the wreck, then a yard, then paid once', async () => {
     await fresh('play-recover');
     const set = await ev(() => {
       const t = testBM1, s = t.state;
@@ -1575,12 +1576,17 @@ const { startProbe } = require('./probe-harness.cjs');
         return { fail: 'this tree resolves a mission to its systemIndex and nothing else: a recovery contract points at the wreck after the engineers are already aboard, and the contracts list excludes it entirely' };
       }
       const book = t.campaignBook();
+      // A captain in good standing with their own government, which is what delivering an archive to
+      // one of its yards assumes. Nothing else is raised.
+      s.factionStanding.terran = 40;
       const wreck = (s.planets || []).findIndex((p, i) => i !== Number(s.currentPlanet) && t.isChartSystemVisible(i));
       if (wreck < 0) return { fail: 'no charted world to lose a design at' };
-      if (!s.visitedSystems.includes(wreck)) s.visitedSystems.push(wreck);
+      t.markSystemVisited(wreck);
       const ship = Object.values(s.shipStatsById)
         .find((x) => x && x.assetType === 'ship' && x.rosterState === 'active' && x.mass <= 3 && x.faction === 'terran');
       if (!ship) return { fail: 'no light active hull to lose' };
+      // The design has to have been somebody's before it can be recovered to somebody else's.
+      book.designs[ship.id] = { sources: ['gate-lost'], lost: ['gate-lost'], relocatedTo: null };
       book.recoveries.push({ id: 'gate-recovery', shipId: Number(ship.id), lostStationId: 'gate-lost',
         systemIndex: wreck, kind: 'engineers', status: 'available', createdDay: s.day,
         completedDay: null, relocatedTo: null, attempts: 0 });
@@ -1593,49 +1599,118 @@ const { startProbe } = require('./probe-harness.cjs');
         marks: t.mapObjectives().filter((o) => o.kind === 'contracts').map((o) => o.index).sort((a, b) => a - b),
         panel: t.renderContractsPanel(),
       });
-      const recover = read();
-      // The step the engine flips when the captain reaches the wreck.
-      m.step = 'deliver';
-      m.carrying = true;
-      const deliver = read();
-      // And it has to survive being put down and picked up again.
+      const offered = read();
+
+      // --- the pickup, flown ---------------------------------------------------------------------
+      // Arrive at the wreck and close to within transporter reach of the world. Nothing writes the
+      // step; advanceRecoveryMissions notices where the ship is.
+      s.currentPlanet = wreck;
+      t.applySystemState(wreck);
+      t.markSystemVisited(wreck);
+      // The captain's position is the camera; flying is moving it.
+      t.setCamera(s.systemPlanet.x + 9000, s.systemPlanet.y);
+      t.advanceRecoveryMissions();
+      const atRange = read();
+      t.setCamera(s.systemPlanet.x + 300, s.systemPlanet.y);
+      t.advanceRecoveryMissions();
+      const aboard = read();
+
+      // --- put it down and pick it up again -------------------------------------------------------
       t.saveGame(6);
       t.loadGame(6);
-      const reloaded = (t.campaignBook().missions || []).find((x) => x.kind === 'archive' && x.status === 'active');
-      const afterLoad = reloaded
-        ? { step: reloaded.step, objective: t.missionObjective(reloaded),
-            marks: t.mapObjectives().filter((o) => o.kind === 'contracts').map((o) => o.index).sort((a, b) => a - b),
-            panel: t.renderContractsPanel() }
-        : null;
-      return { fail: null, wreck, shipName: ship.name, recover, deliver, afterLoad };
+      const reloaded = (t.campaignBook().missions || []).find((x) => x.id === m.id);
+      const afterLoad = reloaded ? { step: reloaded.step, objective: t.missionObjective(reloaded),
+        marks: t.mapObjectives().filter((o) => o.kind === 'contracts').map((o) => o.index).sort((a, b) => a - b),
+        panel: t.renderContractsPanel() } : null;
+
+      // --- the delivery, docked -------------------------------------------------------------------
+      const live = (t.campaignBook().missions || []).find((x) => x.id === m.id);
+      if (!live) return { fail: 'the recovery contract did not survive the reload at all' };
+      const yards = t.recoveryYardSystems(live.shipId);
+      let delivered = null, yardSystem = null, yardStation = null;
+      for (const i of yards) {
+        s.currentPlanet = i;
+        t.applySystemState(i);
+        t.markSystemVisited(i);
+        const st = (s.stations || []).find((x) => !x.destroyed && !x.underConstruction && t.compatibleRecoveryYard(x, live.shipId));
+        if (!st) continue;
+        s.docked = true;
+        s.dockedStationId = st.id;
+        t.setCamera(st.x, st.y);
+        t.advanceRecoveryMissions();
+        const record = (t.campaignBook().missions || []).find((x) => x.id === live.id);
+        if (record?.status === 'completed') { yardSystem = i; yardStation = st.id; delivered = record; break; }
+      }
+      if (!delivered) {
+        const probe = yards.slice(0, 3).map((i) => {
+          s.currentPlanet = i; t.applySystemState(i);
+          return { i, stations: (s.stations || []).filter((x) => !x.destroyed && !x.underConstruction)
+            .map((st) => ({ id: st.id, ok: t.compatibleRecoveryYard(st, live.shipId) })).filter((x) => x.ok).length };
+        });
+        return { fail: `none of the ${yards.length} candidate yards would take the delivery (standing ${s.factionStanding.terran}, step ${live.step}, probe ${JSON.stringify(probe)})`, offered, aboard };
+      }
+
+      const bookAfter = t.campaignBook();
+      const offersAt = t.getStationEffectiveOffers((s.stations || []).find((x) => x.id === yardStation));
+      const after = {
+        marks: t.mapObjectives().filter((o) => o.kind === 'contracts').map((o) => o.index),
+        panel: t.renderContractsPanel(),
+        relocated: bookAfter.designs[live.shipId]?.relocatedTo || null,
+        relocatedOffers: (bookAfter.relocatedOffers?.[yardStation] || []).slice(),
+        recoveryStatus: bookAfter.recoveries.find((x) => x.id === 'gate-recovery')?.status || null,
+        offered: (offersAt.shipIds || []).map(Number).includes(Number(live.shipId)),
+        provenance: offersAt.provenance?.[`ship:${live.shipId}`] || null,
+      };
+      // Standing at the same dock must not pay it a second time.
+      t.advanceRecoveryMissions();
+      t.advanceRecoveryMissions();
+      const again = {
+        relocatedOffers: (t.campaignBook().relocatedOffers?.[yardStation] || []).slice(),
+        status: (t.campaignBook().missions || []).find((x) => x.id === live.id)?.status || null,
+      };
+      return { fail: null, wreck, shipName: ship.name, shipId: Number(ship.id), yardSystem, yardStation,
+        offered, atRange, aboard, afterLoad, after, again, yards: yards.length };
     });
     assert.ok(!set.fail, `the recovery reproduction could not be set up: ${set.fail}`);
 
-    assert.ok(set.recover.panel.includes(set.shipName),
+    assert.ok(set.offered.panel.includes(set.shipName),
       'the contracts list does not mention the recovery contract at all; it is marked on the chart and listed nowhere');
-    assert.deepEqual(set.recover.marks, [set.wreck],
-      `while the engineers are still on the ground the chart marks ${JSON.stringify(set.recover.marks)} rather than the wreck at ${set.wreck}`);
-    assert.ok(/recover/i.test(set.recover.objective.objective),
-      `the row does not say what to do: "${set.recover.objective.objective}"`);
+    assert.deepEqual(set.offered.marks, [set.wreck],
+      `before the pickup the chart marks ${JSON.stringify(set.offered.marks)} rather than the wreck at ${set.wreck}`);
 
-    assert.ok(set.deliver.objective.candidates > 0,
+    // Flying to the system is not the same as reaching the wreck.
+    assert.equal(set.atRange.step, 'recover',
+      `arriving in the system 9,000 units out already counted as the pickup (step "${set.atRange.step}")`);
+    assert.equal(set.aboard.step, 'deliver',
+      `closing to transporter range did not pick the engineers up (step "${set.aboard.step}")`);
+    assert.ok(set.aboard.objective.candidates > 0,
       'with the engineers aboard, no compatible yard is offered to deliver them to');
-    assert.equal(set.deliver.marks.includes(set.wreck), false,
+    assert.equal(set.aboard.marks.includes(set.wreck), false,
       'the engineers are aboard and the chart still marks the wreck they came from');
-    assert.ok(set.deliver.marks.length > 0 && set.deliver.marks.every((i) => set.deliver.objective.targets.includes(i)),
-      `the chart marks ${JSON.stringify(set.deliver.marks)}, which is not the yard list ${JSON.stringify(set.deliver.objective.targets)}`);
-    assert.ok(/yard/i.test(set.deliver.objective.objective) && /\d/.test(set.deliver.objective.objective),
-      `the row does not say where to take them or how many yards will take them: "${set.deliver.objective.objective}"`);
-    assert.ok(set.deliver.panel.includes('data-contract-show'),
-      'the recovery row offers no "Show on map"');
+    assert.ok(set.aboard.panel.includes('data-contract-show'), 'the recovery row offers no "Show on map"');
 
     assert.ok(set.afterLoad, 'the recovery contract did not survive a save and a reload');
-    assert.equal(set.afterLoad.step, 'deliver',
-      `after reloading, the contract is back on step "${set.afterLoad.step}"`);
-    assert.deepEqual(set.afterLoad.marks, set.deliver.marks,
-      `after reloading, the chart marks ${JSON.stringify(set.afterLoad.marks)} rather than ${JSON.stringify(set.deliver.marks)}`);
-    assert.ok(set.afterLoad.panel.includes(set.shipName),
-      'after reloading, the recovery contract is missing from the contracts list');
+    assert.equal(set.afterLoad.step, 'deliver', `after reloading, the contract is back on step "${set.afterLoad.step}"`);
+    assert.deepEqual(set.afterLoad.marks, set.aboard.marks,
+      `after reloading, the chart marks ${JSON.stringify(set.afterLoad.marks)} rather than ${JSON.stringify(set.aboard.marks)}`);
+
+    // Delivery pays, once, in the thing the contract was for.
+    assert.equal(set.after.recoveryStatus, 'completed',
+      `docking at a compatible yard left the recovery "${set.after.recoveryStatus}"`);
+    assert.equal(set.after.relocated, set.yardStation,
+      `the design was not relocated to the yard it was delivered to (${set.after.relocated})`);
+    assert.equal(set.after.offered, true,
+      'the design was delivered and the yard still does not offer it');
+    assert.equal(set.after.provenance, 'recovered-archive',
+      `the yard offers the design but not as a recovered archive ("${set.after.provenance}")`);
+    assert.deepEqual(set.after.marks, [],
+      `a completed recovery is still marked on the chart at ${JSON.stringify(set.after.marks)}`);
+    assert.equal(/archive/i.test(set.after.panel), false,
+      'a completed recovery is still listed among the open contracts');
+
+    assert.deepEqual(set.again.relocatedOffers, set.after.relocatedOffers,
+      `standing at the same dock paid the recovery again: ${JSON.stringify(set.after.relocatedOffers)} became ${JSON.stringify(set.again.relocatedOffers)}`);
+    assert.equal(set.again.status, 'completed', `the completed contract went back to "${set.again.status}"`);
   });
 
   // MODAL — every dialog in this game is modal, and a modal swallows the pointer but not the keyboard.
@@ -1675,7 +1750,7 @@ const { startProbe } = require('./probe-harness.cjs');
   // them, and the first repair treated an emptied lot as proof the world was a grey market — so a lot
   // with one eligible hull sold one hull, and the same lot with none sold every foreign hull in it.
   // Foreign availability cannot turn on whether one compatible hull happened to survive a filter.
-  await check('STOCK a world sells what its own government would, and foreign hulls only where its text says so', async () => {
+  await check('STOCK a world sells what its own government would, and no world is authored to sell otherwise', async () => {
     await fresh('play-stock');
     const r = await ev(() => {
       const t = testBM1, s = t.state;
@@ -1698,6 +1773,15 @@ const { startProbe } = require('./probe-harness.cjs');
         if (foreignTable[s.planets[i].name]) continue;
         for (const ship of shelf(i)) {
           if (!eligible(ship, i)) leaks.push(`${s.planets[i].name}: ${ship.name} (${ship.faction})`);
+        }
+      }
+      // The same question asked of the whole galaxy rather than only the worlds with an authored lot:
+      // a world with no lot at all takes the price-ranked shelf, and that must not carry foreign hulls
+      // either.
+      for (let i = 0; i < (s.planets || []).length; i++) {
+        if ((s.planets[i].shipStockIds || []).length || foreignTable[s.planets[i].name]) continue;
+        for (const ship of shelf(i)) {
+          if (!eligible(ship, i)) leaks.push(`${s.planets[i].name} (no authored lot): ${ship.name} (${ship.faction})`);
         }
       }
       // The authored exceptions have to be justified by the world's own description, and have to work.
