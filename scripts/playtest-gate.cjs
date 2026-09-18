@@ -1136,58 +1136,111 @@ const { startProbe } = require('./probe-harness.cjs');
       'with no latinum the captain\'s own yard raised no price objection either, so ownership is waiving more than prestige');
   });
 
-  // SAVE — withdrawing the two contracts stops them being issued, but a save made before that is
-  // still carrying one, and a blockade contract can never complete: its own completion test is written
-  // `() => false`. Left alone it runs to its deadline and fails the captain for the game's omission.
-  await check('SAVE a save carrying a withdrawn contract is not left holding it', async () => {
+  // SAVE — the previous version of this check called the migration helper directly, which proves the
+  // helper works and nothing about what a player experiences. This writes a real save, strips the
+  // migration flag from the stored JSON so it is genuinely a save from before the withdrawal, loads it
+  // through loadGame, runs the game, saves and loads a second time, and then runs past the old
+  // deadlines — which is where an unmigrated contract would have expired and taken standing with it.
+  await check('SAVE a legacy save carrying withdrawn contracts survives loading, reloading and its own deadlines', async () => {
     await fresh('play-save');
     const r = await ev(() => {
-      const t = testBM1;
+      const t = testBM1, s = t.state;
       const kinds = t.WITHDRAWN_MISSION_KINDS || ['evacuation', 'blockade'];
+      const SLOT = 3;
       const book = t.campaignBook();
-      if (typeof t.migrateWithdrawnMissions !== 'function') return { fail: 'this tree has no migration for a save carrying a contract it no longer issues' };
-      // A save from before the withdrawal: one of each kind offered, one of each accepted, and one
-      // already completed, which must be left exactly as it is.
+      if (typeof t.saveGame !== 'function' || typeof t.loadGame !== 'function') return { fail: 'this tree cannot save or load, so a legacy save cannot be tested' };
+
+      // The captain's position before any of this, so a penalty or a payout is visible.
+      s.latinum = 50000; s.mylatinum = s.latinum;
+      const standingKeys = ['terran', 'klingon', 'ferengi', 'romulan', 'cardassian', 'bajoran'];
+      const standingBefore = Object.fromEntries(standingKeys.map((k) => [k, t.getFactionStanding(k)]));
+      const latinumBefore = s.latinum;
+      const deadline = s.day + 5;
+
       book.missions = (book.missions || []).filter((m) => !kinds.includes(m.kind));
-      const made = [];
       for (const kind of kinds) {
         for (const status of ['offered', 'active', 'complete']) {
-          const id = `legacy-${kind}-${status}`;
-          book.missions.push({ id, key: `${kind}:1`, kind, status, systemIndex: 1, reward: 5000,
-            text: `legacy ${kind}`, deadlineDay: t.state.day + 10 });
-          made.push({ id, kind, status });
+          book.missions.push({ id: `legacy-${kind}-${status}`, key: `${kind}:1`, kind, status,
+            systemIndex: 1, reward: 5000, text: `legacy ${kind}`, deadlineDay: deadline,
+            ...(status === 'complete' ? { completedDay: s.day - 3, reason: 'completed before the withdrawal' } : {}) });
         }
       }
-      const before = book.missions.filter((m) => kinds.includes(m.kind)).map((m) => `${m.kind}:${m.status}`);
-      delete book.migratedWithdrawnMissions;
-      const latinumBefore = t.state.latinum;
-      const standingBefore = t.getFactionStanding('terran');
-      const result = t.migrateWithdrawnMissions(book);
-      const after = book.missions.filter((m) => kinds.includes(m.kind)).map((m) => `${m.kind}:${m.status}`);
-      // Running again must do nothing: a migration that fires twice is a migration that can undo a
-      // player's later progress.
-      const second = t.migrateWithdrawnMissions(book);
-      const afterTwice = book.missions.filter((m) => kinds.includes(m.kind)).map((m) => `${m.kind}:${m.status}`);
-      const open = book.missions.filter((m) => kinds.includes(m.kind) && ['offered', 'active'].includes(m.status));
-      // And none is issued fresh.
-      const offeredNow = kinds.map((k) => t.offerStationMission(k, 1, true));
-      return { fail: null, before, after, afterTwice, result, second, openAfter: open.length,
-        completeKept: book.missions.filter((m) => kinds.includes(m.kind) && m.status === 'complete').length,
-        offeredNow: offeredNow.map((m) => (m ? m.kind : null)),
-        latinumDelta: t.state.latinum - latinumBefore,
-        standingDelta: t.getFactionStanding('terran') - standingBefore };
+      // A contract of a kind that still works, to show the migration is not simply clearing the board.
+      book.missions.push({ id: 'legacy-relief-active', key: 'relief:1', kind: 'relief', status: 'active',
+        systemIndex: 1, reward: 4000, text: 'legacy relief', deadlineDay: deadline });
+
+      t.saveGame(SLOT);
+      // Make it a save from before the withdrawal: the flag the migration writes must not be in it.
+      const key = typeof t.getSaveSlotKey === 'function' ? t.getSaveSlotKey(SLOT) : `${t.SAVE_SLOT_PREFIX}${SLOT}`;
+      const raw = JSON.parse(localStorage.getItem(key) || 'null');
+      if (!raw) return { fail: 'the save did not reach storage, so there is nothing to load' };
+      const stored = raw?.playtest?.campaign;
+      if (!stored) return { fail: 'the save carries no campaign book' };
+      delete stored.migratedWithdrawnMissions;
+      const savedWithdrawn = (stored.missions || []).filter((m) => kinds.includes(m.kind)).map((m) => `${m.kind}:${m.status}`);
+      localStorage.setItem(key, JSON.stringify(raw));
+
+      const snapshot = (label) => {
+        const b = t.campaignBook();
+        const mine = (b.missions || []).filter((m) => kinds.includes(m.kind));
+        return { label,
+          open: mine.filter((m) => ['offered', 'active'].includes(m.status)).map((m) => `${m.kind}:${m.status}`),
+          statuses: mine.map((m) => `${m.kind}:${m.status}`).sort(),
+          complete: mine.filter((m) => m.status === 'complete').map((m) => `${m.id}@${m.completedDay}:${m.reason}`).sort(),
+          expired: mine.filter((m) => m.status === 'expired').map((m) => `${m.kind}`),
+          relief: (b.missions || []).filter((m) => m.kind === 'relief').map((m) => m.status),
+          latinum: s.latinum,
+          standing: Object.fromEntries(standingKeys.map((k) => [k, t.getFactionStanding(k)])) };
+      };
+
+      // Load it the way a player would, then let the game run rather than calling the migration.
+      t.loadGame(SLOT);
+      for (let i = 0; i < 4; i++) { t.tick(); t.advanceStationMissions(t.gameNow()); }
+      const afterLoad = snapshot('after first load');
+
+      // Save and load a second time: a migration that only holds until the next save is not a fix.
+      t.saveGame(SLOT);
+      t.loadGame(SLOT);
+      for (let i = 0; i < 4; i++) { t.tick(); t.advanceStationMissions(t.gameNow()); }
+      const afterReload = snapshot('after save and reload');
+
+      // Past the old deadlines, which is where an unmigrated contract expires.
+      s.day = deadline + 20;
+      t.campaign();
+      t.advanceCampaign ? t.advanceCampaign() : null;
+      for (let i = 0; i < 4; i++) { t.tick(); t.advanceStationMissions(t.gameNow()); }
+      const afterDeadline = snapshot('past the deadline');
+
+      return { fail: null, savedWithdrawn, deadline, latinumBefore, standingBefore,
+        afterLoad, afterReload, afterDeadline, standingKeys };
     });
     assert.ok(!r.fail, `the save reproduction could not be set up: ${r.fail}`);
-    assert.equal(r.before.length, 6, `precondition: the save carries six withdrawn-kind contracts (${r.before.join(', ')})`);
-    assert.equal(r.openAfter, 0, `${r.openAfter} withdrawn contract(s) are still open after loading: ${r.after.join(', ')}`);
-    assert.equal(r.result.released, 2, `${r.result.released} accepted contracts were released, expected 2`);
-    assert.equal(r.result.removed, 2, `${r.result.removed} offered contracts were taken off the board, expected 2`);
-    assert.equal(r.completeKept, 2, 'a contract the captain had already completed was altered');
-    assert.equal(r.standingDelta, 0, `releasing an unfinishable contract cost the captain ${r.standingDelta} standing`);
-    assert.ok(r.latinumDelta <= 0, `releasing an unfinishable contract paid out ${r.latinumDelta} latinum`);
-    assert.deepEqual(r.second, { removed: 0, released: 0 }, 'the migration runs again on a save it has already handled');
-    assert.deepEqual(r.afterTwice, r.after, 'running the migration twice changed the save again');
-    assert.deepEqual(r.offeredNow, [null, null], `a withdrawn contract is still being issued: ${r.offeredNow.filter(Boolean).join(', ')}`);
+    assert.equal(r.savedWithdrawn.length, 6,
+      `precondition: the stored save carries six withdrawn-kind contracts (${r.savedWithdrawn.join(', ')})`);
+
+    for (const stage of [r.afterLoad, r.afterReload, r.afterDeadline]) {
+      assert.deepEqual(stage.open, [],
+        `${stage.label}: ${stage.open.length} withdrawn contract(s) are open — ${stage.open.join(', ')}`);
+      assert.deepEqual(stage.expired, [],
+        `${stage.label}: a withdrawn contract expired rather than being released — ${stage.expired.join(', ')}`);
+      assert.equal(stage.complete.length, 2,
+        `${stage.label}: the two already-completed contracts number ${stage.complete.length}`);
+      assert.deepEqual(stage.complete, r.afterLoad.complete,
+        `${stage.label}: an already-completed contract was altered`);
+      assert.equal(stage.latinum, r.latinumBefore,
+        `${stage.label}: the captain's latinum moved by ${stage.latinum - r.latinumBefore}`);
+      for (const k of r.standingKeys) {
+        assert.equal(stage.standing[k], r.standingBefore[k],
+          `${stage.label}: ${k} standing moved by ${stage.standing[k] - r.standingBefore[k]}`);
+      }
+    }
+    // The board is not simply being cleared: a contract of a kind that still works is still there.
+    assert.ok(r.afterLoad.relief.length > 0, 'the relief contract vanished along with the withdrawn ones');
+    assert.ok(!r.afterReload.relief.includes('withdrawn') && !r.afterReload.relief.includes('released'),
+      `a working contract was released as though it were withdrawn: ${r.afterReload.relief.join(', ')}`);
+    // And the release is recorded as a release rather than a failure.
+    assert.ok(r.afterLoad.statuses.every((x) => /:(withdrawn|released|complete)$/.test(x)),
+      `after loading, the withdrawn contracts read: ${r.afterLoad.statuses.join(', ')}`);
   });
 
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);

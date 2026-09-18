@@ -13340,6 +13340,12 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   if (startMenuEl) startMenuEl.style.display = 'none';
   stopAllGameAudioLoops();
   playGameSound('shipLaunch', { cooldownKey: 'ship:load' });
+  // A save from before the two contracts were withdrawn is handled here, at the moment it is loaded.
+  // Putting it only behind campaign() was not enough: that runs on a fresh start, while the play path
+  // after a load goes through campaignBook(), which does not migrate — so the contracts stayed open,
+  // and an evacuation could even be progressed by advanceStationMissions before anything noticed.
+  // Found by loading a real save rather than calling the migration helper. [review]
+  migrateWithdrawnMissions(campaignBook());
   setLog(`${state.captainName} aboard ${state.shipName}. Game loaded from slot ${saveSlot}.`);
   updateStats();
 }
