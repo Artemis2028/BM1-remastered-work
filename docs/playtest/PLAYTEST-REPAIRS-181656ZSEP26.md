@@ -1,6 +1,6 @@
 # BM1 playtest repairs on top of `ae4ae4d`
 
-DTG 180854ZSEP26
+DTG 181656ZSEP26
 
 Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Nothing pushed, merged or deployed.
 The commit count is in `CANDIDATE.json`, computed by the pack script rather than typed here: the two
@@ -153,6 +153,46 @@ would not build first.
 At 600px and below the EW panel lies over the top strip, so a captain who opens EW in a fight loses the
 power controls underneath it. That is a question about that panel rather than about whether the strip
 fits, and it is not in this round's scope. Named here rather than left for the next playtest.
+
+## The two corrections to the fifth round
+
+Raised against `98ac2a2` and closed here. Laptop play is the target from this round on; the iPad is an
+occasional convenience, so nothing further was spent on phone or tablet layouts — what was already
+done for them stays.
+
+**The world-identity report was generated from an intermediate tree.** It claimed Orilla became
+"Orilla refugees", which the code and the gate do not do — Orilla stays the local fallback, because its
+own text describes a refugee mixture with no people to name, and that entry had been dropped before the
+candidate was committed. The count of 33 included it. The report is now generated from the shipped
+tree, covers **all 101 worlds** with before and after culture, controller, allegiance, origin and
+governor, and is stamped with both commits. Corrected counts: **32 cultures changed, 41 planet-card
+readouts changed, 0 governments**. The generating scripts are committed so it can be rebuilt rather
+than being a hand-made artefact.
+
+**The SAVE check tested the helper, not the behaviour — and the behaviour was broken.** It called
+`migrateWithdrawnMissions` directly. Rewritten to write a real save, strip the migration flag from the
+stored JSON so it is genuinely from before the withdrawal, load it through `loadGame`, run the game,
+save and load a second time, then run twenty days past the old deadlines. It failed at once: the
+migration hung off `campaign()`, which runs on a fresh start, while the play path after a load goes
+through `campaignBook()`, which does not migrate. **A loaded legacy save kept all four open contracts**,
+and `advanceStationMissions` could have progressed an evacuation before anything noticed. It now runs
+in `loadGame`, at the moment the save arrives. The check holds the captain's latinum and six faction
+standings across all three stages, requires the two completed records untouched, requires nothing to
+expire rather than release, and requires a relief contract in the same save to survive — so it cannot
+pass by clearing the board.
+
+**The HUD checks moved to laptop widths.** The sweep is now 1920, 1600, 1536, 1440, 1366 and 1280 — a
+1920×1200 panel at 100, 125 and 150 percent scaling plus the two other common panels — with 820 and 600
+kept only so the narrow work cannot silently regress. Adding those widths found real clipping: between
+1400 and 1600 the base grid's minimums exceeded the strip, so at **1440 the standing readout ran 70px
+past the right edge**, three others were cut and "CONTRACT" did not fit its button. That band has its
+own tracks now. The operability check dropped the touch context and kept what it was for — the fault it
+caught was never about touch, since `elementFromPoint` returned the canvas for a mouse exactly as it
+did for a finger — so it presses with an ordinary pointer at three laptop widths, and now also checks a
+stepper lowers as well as raises.
+
+**The power breakpoint at 1400 is untouched and still open**, pending a real `window.innerWidth` from
+the laptop.
 
 ## The earlier rounds, unchanged
 
