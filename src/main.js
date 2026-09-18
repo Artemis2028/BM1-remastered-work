@@ -21569,11 +21569,11 @@ function recoveryYardSystems(shipId) {
 function missionObjective(m) {
   const shipName = state.shipStatsById[m.shipId]?.name;
   if (m.kind !== 'archive') {
-    return { title: `${m.kind} contract`, targets: [Number(m.systemIndex)],
+    return { title: `${m.kind} contract`, mapLabel: `${m.kind} contract`, targets: [Number(m.systemIndex)],
       objective: `reach ${contractDestinationLabel(m.systemIndex)}` };
   }
   if (m.step === 'lead') {
-    return { title: `${shipName || 'design'} archive — lead`, targets: [],
+    return { title: `${shipName || 'design'} archive — lead`, mapLabel: `${shipName || 'design'} lead`, targets: [],
       objective: `pay the ${m.fee || 0}L finder's fee at any bar or trade station`,
       note: `the archive is at ${contractDestinationLabel(m.systemIndex)}` };
   }
@@ -21582,7 +21582,7 @@ function missionObjective(m) {
     // Eleven rings for one contract is not a map, it is a rash. The three nearest are marked and the
     // row says how many there are.
     const targets = all.slice(0, 3);
-    return { title: `${shipName || 'design'} archive — aboard`, targets, candidates: all.length,
+    return { title: `${shipName || 'design'} archive — aboard`, mapLabel: 'deliver archive', targets, candidates: all.length,
       objective: all.length
         ? `deliver to a compatible yard — ${all.length} charted, nearest ${contractDestinationLabel(all[0])}`
         : 'deliver to a compatible yard — none charted yet',
@@ -21590,8 +21590,8 @@ function missionObjective(m) {
         ? `the ${targets.length} nearest are marked; standing and clearance are decided on arrival`
         : 'candidates by yard record; standing and clearance are decided on arrival' };
   }
-  return { title: `${shipName || 'design'} archive — recover`, targets: [Number(m.systemIndex)],
-    objective: `recover it at ${contractDestinationLabel(m.systemIndex)}` };
+  return { title: `${shipName || 'design'} archive — recover`, mapLabel: `recover ${shipName || 'archive'}`,
+    targets: [Number(m.systemIndex)], objective: `recover it at ${contractDestinationLabel(m.systemIndex)}` };
 }
 // Every objective the captain is carrying, as {index, label, detail, kind}. Campaign contracts and
 // trade contracts and loose destination cargo all answer the same question — where am I meant to be —
@@ -21612,7 +21612,7 @@ function mapObjectives() {
     if (m.status !== 'active') continue; // only what the captain has taken on
     const o = missionObjective(m);
     for (const t of o.targets) {
-      push(t, 'contracts', o.title,
+      push(t, 'contracts', o.mapLabel || o.title,
         `${chartSystemLabel(t)}${m.deadlineDay ? ` · day ${m.deadlineDay}` : ''}`);
     }
   }
