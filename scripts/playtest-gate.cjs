@@ -1563,6 +1563,113 @@ const { startProbe } = require('./probe-harness.cjs');
       `the route layer was turned off and ${afterToggle.dashedWithRoutesOff} route line(s) were still drawn`);
   });
 
+  // RECOVER — a recovery contract is the one kind whose destination moves: a lead to pay for anywhere,
+  // then a wreck, then a yard that can build the design. It was excluded from the contracts list
+  // outright, and its marker was pinned to the wreck at every step, so at the moment the captain had
+  // the engineers aboard the chart still pointed at where they had picked them up.
+  await check('RECOVER a recovery contract is listed, and its objective moves from the wreck to a yard', async () => {
+    await fresh('play-recover');
+    const set = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (!t.missionObjective || !t.recoveryYardSystems) {
+        return { fail: 'this tree resolves a mission to its systemIndex and nothing else: a recovery contract points at the wreck after the engineers are already aboard, and the contracts list excludes it entirely' };
+      }
+      const book = t.campaignBook();
+      const wreck = (s.planets || []).findIndex((p, i) => i !== Number(s.currentPlanet) && t.isChartSystemVisible(i));
+      if (wreck < 0) return { fail: 'no charted world to lose a design at' };
+      if (!s.visitedSystems.includes(wreck)) s.visitedSystems.push(wreck);
+      const ship = Object.values(s.shipStatsById)
+        .find((x) => x && x.assetType === 'ship' && x.rosterState === 'active' && x.mass <= 3 && x.faction === 'terran');
+      if (!ship) return { fail: 'no light active hull to lose' };
+      book.recoveries.push({ id: 'gate-recovery', shipId: Number(ship.id), lostStationId: 'gate-lost',
+        systemIndex: wreck, kind: 'engineers', status: 'available', createdDay: s.day,
+        completedDay: null, relocatedTo: null, attempts: 0 });
+      if (!t.startDesignRecovery('gate-recovery')) return { fail: 'the recovery contract could not be started' };
+      const m = (book.missions || []).find((x) => x.kind === 'archive' && x.status === 'active');
+      if (!m) return { fail: 'starting the recovery made no live contract' };
+      const read = () => ({
+        step: m.step,
+        objective: t.missionObjective(m),
+        marks: t.mapObjectives().filter((o) => o.kind === 'contracts').map((o) => o.index).sort((a, b) => a - b),
+        panel: t.renderContractsPanel(),
+      });
+      const recover = read();
+      // The step the engine flips when the captain reaches the wreck.
+      m.step = 'deliver';
+      m.carrying = true;
+      const deliver = read();
+      // And it has to survive being put down and picked up again.
+      t.saveGame(6);
+      t.loadGame(6);
+      const reloaded = (t.campaignBook().missions || []).find((x) => x.kind === 'archive' && x.status === 'active');
+      const afterLoad = reloaded
+        ? { step: reloaded.step, objective: t.missionObjective(reloaded),
+            marks: t.mapObjectives().filter((o) => o.kind === 'contracts').map((o) => o.index).sort((a, b) => a - b),
+            panel: t.renderContractsPanel() }
+        : null;
+      return { fail: null, wreck, shipName: ship.name, recover, deliver, afterLoad };
+    });
+    assert.ok(!set.fail, `the recovery reproduction could not be set up: ${set.fail}`);
+
+    assert.ok(set.recover.panel.includes(set.shipName),
+      'the contracts list does not mention the recovery contract at all; it is marked on the chart and listed nowhere');
+    assert.deepEqual(set.recover.marks, [set.wreck],
+      `while the engineers are still on the ground the chart marks ${JSON.stringify(set.recover.marks)} rather than the wreck at ${set.wreck}`);
+    assert.ok(/recover/i.test(set.recover.objective.objective),
+      `the row does not say what to do: "${set.recover.objective.objective}"`);
+
+    assert.ok(set.deliver.objective.candidates > 0,
+      'with the engineers aboard, no compatible yard is offered to deliver them to');
+    assert.equal(set.deliver.marks.includes(set.wreck), false,
+      'the engineers are aboard and the chart still marks the wreck they came from');
+    assert.ok(set.deliver.marks.length > 0 && set.deliver.marks.every((i) => set.deliver.objective.targets.includes(i)),
+      `the chart marks ${JSON.stringify(set.deliver.marks)}, which is not the yard list ${JSON.stringify(set.deliver.objective.targets)}`);
+    assert.ok(/yard/i.test(set.deliver.objective.objective) && /\d/.test(set.deliver.objective.objective),
+      `the row does not say where to take them or how many yards will take them: "${set.deliver.objective.objective}"`);
+    assert.ok(set.deliver.panel.includes('data-contract-show'),
+      'the recovery row offers no "Show on map"');
+
+    assert.ok(set.afterLoad, 'the recovery contract did not survive a save and a reload');
+    assert.equal(set.afterLoad.step, 'deliver',
+      `after reloading, the contract is back on step "${set.afterLoad.step}"`);
+    assert.deepEqual(set.afterLoad.marks, set.deliver.marks,
+      `after reloading, the chart marks ${JSON.stringify(set.afterLoad.marks)} rather than ${JSON.stringify(set.deliver.marks)}`);
+    assert.ok(set.afterLoad.panel.includes(set.shipName),
+      'after reloading, the recovery contract is missing from the contracts list');
+  });
+
+  // MODAL — every dialog in this game is modal, and a modal swallows the pointer but not the keyboard.
+  // With Fleet & Shipyard open, M opened the star chart underneath it: a chart whose systems could not
+  // be clicked, behind a dialog the captain had to find and close first.
+  await check('MODAL a gameplay key does not open a window behind an open dialog', async () => {
+    await fresh('play-modal');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      const press = (key) => window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      s.topLeftPanelOpen = false;
+      s.topLeftTab = 'power';
+      t.renderFleetManager(true);
+      const dlg = document.querySelector('dialog.fleet-manager');
+      const openedModal = Boolean(dlg?.open);
+      press('m');
+      const mapBehind = Boolean(s.mapOpen);
+      press('c');
+      const panelBehind = Boolean(s.topLeftPanelOpen) || s.topLeftTab === 'inventory';
+      dlg?.close();
+      press('m');
+      const mapAfter = Boolean(s.mapOpen);
+      return { openedModal, mapBehind, panelBehind, mapAfter, tab: s.topLeftTab,
+        hasGuard: typeof t.isModalDialogOpen === 'function' };
+    });
+    assert.equal(r.openedModal, true, 'the fleet manager did not open as a modal dialog');
+    assert.equal(r.mapBehind, false,
+      'pressing M with Fleet & Shipyard open opened the star chart behind it, where no system can be clicked');
+    assert.equal(r.panelBehind, false,
+      'pressing C with Fleet & Shipyard open opened the top-left panel behind it');
+    assert.equal(r.mapAfter, true,
+      'closing the dialog did not give the keyboard back: M no longer opens the chart');
+  });
+
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);
   if (failures.length) { console.log(`${failures.length} still reproduce:`); for (const f of failures) console.log(`  - ${f.name}: ${f.message.split('\n')[0]}`); process.exitCode = 1; }
   if (errors.length) { console.log(`page errors: ${errors.join(' | ')}`); process.exitCode = 1; }

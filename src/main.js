@@ -8684,7 +8684,7 @@ function openDebugMenu() {
 }
 
 document.getElementById('btn-cheats-debug')?.addEventListener('click', openDebugMenu);
-debugMenuEl?.addEventListener('close', () => { if (!gameMenuEl?.open && !debugMenuEl?.open) resumeGameClock(); });
+debugMenuEl?.addEventListener('close', () => { resumeGameClockIfNothingModalIsOpen(); });
 debugMenuEl?.addEventListener('change', (event) => {
   if (event.target.name === 'faction') {
     debugMenuEl.querySelector('[name="standing"]').value = getFactionStanding(event.target.value);
@@ -8880,7 +8880,7 @@ document.addEventListener('change', (e) => {
 });
 document.getElementById('btn-game-menu')?.addEventListener('click', openGameMenu);
 gameMenuEl?.addEventListener('close', () => {
-  if (!debugMenuEl?.open && !gameMenuEl?.open) resumeGameClock();
+  resumeGameClockIfNothingModalIsOpen();
 });
 gameMenuEl?.addEventListener('click', (e) => {
   const action = e.target.closest('[data-game-menu]')?.dataset.gameMenu;
@@ -9621,7 +9621,7 @@ function closeGalaxyReports() {
   }
   galaxyNewsBook().lastReadDay = state.day;
   document.getElementById('galaxy-reports')?.close();
-  if (!gameMenuEl?.open && !debugMenuEl?.open) resumeGameClock();
+  resumeGameClockIfNothingModalIsOpen();
 }
 // Forced override used only by the debug event controls: relocate a real squadron of a power that is
 // actually at war with the local governor to an adjacent system, so the ordinary ambient-raid path has
@@ -15458,6 +15458,24 @@ planetMenuEl?.addEventListener('wheel', (e) => {
   if (panel.dataset?.dockTab) state.dockPanelScrollByTab[panel.dataset.dockTab] = panel.scrollTop;
 }, { passive: false });
 
+// Every dialog in this game is opened with showModal(), and a modal dialog swallows the pointer for
+// everything behind it — but not the keyboard.
+// Each close path used to name the dialogs it happened to know about — the reports folder did not know
+// about the Empire panel, and none of them knew about the fleet manager — so closing one resumed the
+// clock while another was still up. There is one answer now. [playtest]
+function resumeGameClockIfNothingModalIsOpen() {
+  if (gameMenuEl?.open || debugMenuEl?.open || isModalDialogOpen()) return false;
+  resumeGameClock();
+  return true;
+}
+function isModalDialogOpen() {
+  for (const d of document.querySelectorAll('dialog[open]')) {
+    // :modal is what tells showModal() from show(); a browser that cannot answer is treated as modal,
+    // because guessing "not modal" is what opens a window behind one.
+    try { if (d.matches(':modal')) return true; } catch (err) { return true; }
+  }
+  return false;
+}
 window.addEventListener('keydown', (e) => {
   if (debugMenuEl?.open || gameMenuEl?.open) return;
   if (!state.gameStarted || state.warp.active || isWormholeTransitActive()) return;
@@ -15490,6 +15508,12 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
+  // With Fleet & Shipyard open, M opened the star chart underneath it and C and P opened the top-left
+  // panel underneath it, leaving the captain looking at a chart whose systems they could not click.
+  // Only the debug and game menus were guarded; the fleet manager, the Empire panel, the reports
+  // folder and station comms were not. This sits below the branches above so Escape still closes a
+  // purchase or contract overlay opened from inside a dialog. [playtest]
+  if (isModalDialogOpen()) return;
   if (key === 'm') {
     if (state.mapOpen) closeMap();
     else openMap();
@@ -21486,6 +21510,72 @@ function toggleMapOverlay(key) {
   o[key] = !o[key];
   setLog(`${MAP_OVERLAY_LAYERS.find((l) => l.key === key).label}: ${o[key] ? 'shown' : 'hidden'}.`);
 }
+// A yard that could take a recovered design, judged from the yard's own record rather than from
+// standing at its front door: status, construction class, the hull's mass, and whether that yard's
+// trade culture may carry the design at all. Standing, clearance and docking are decided when the
+// captain arrives, so these are candidates, and the contracts list says so rather than promising one.
+let recoveryYardMemo = { key: '', value: [] };
+function recoveryYardSystems(shipId) {
+  const ship = state.shipStatsById[shipId];
+  if (!ship) return [];
+  const key = [shipId, state.day, state.currentPlanet, (state.controlledSystems || []).length,
+    (state.visitedSystems || []).length, Object.keys(state.destroyedStations || {}).length].join(':');
+  if (recoveryYardMemo.key === key) return recoveryYardMemo.value;
+  const heavy = finiteNumber(ship.mass, 1) >= campaignBook().config.heavyMass;
+  const out = [];
+  const seen = new Set();
+  for (const d of (state.stationDefinitions || [])) {
+    const i = Number(d.systemIndex);
+    if (!Number.isInteger(i) || !state.planets[i] || seen.has(i)) continue;
+    if (!isChartSystemVisible(i) || state.destroyedStations?.[d.id]) continue;
+    const cap = getStationCapabilities(d, i);
+    if (!cap || !['operational', 'damaged', 'unstaffed'].includes(cap.status)) continue;
+    if (cap.services.construction === 'none') continue;
+    if (heavy && cap.services.construction !== 'heavy') continue;
+    const trade = getTradeStandingFaction(i, d);
+    if (!(trade === 'neutral' || isFactionShipStockEligible(ship.faction, trade))) continue;
+    seen.add(i);
+    out.push(i);
+  }
+  // Nearest first, worked out once here rather than per frame: the chart marks the closest few and the
+  // contracts row says how many there are altogether.
+  const here = Number(state.currentPlanet);
+  const hops = new Map(out.map((i) => [i, i === here ? 0 : (getPlottedRoute(here, i)?.systems?.length ?? Infinity)]));
+  out.sort((a, b) => hops.get(a) - hops.get(b));
+  recoveryYardMemo = { key, value: out };
+  return out;
+}
+// What a mission is asking of the captain right now, and where. A recovery contract moves through
+// three different places — a lead to pay for at any station that deals in rumours or goods, a wreck to
+// reach, then a yard that can build the design — so a marker pinned to its systemIndex was right for
+// one step of three and wrong for the others. [playtest]
+function missionObjective(m) {
+  const shipName = state.shipStatsById[m.shipId]?.name;
+  if (m.kind !== 'archive') {
+    return { title: `${m.kind} contract`, targets: [Number(m.systemIndex)],
+      objective: `reach ${contractDestinationLabel(m.systemIndex)}` };
+  }
+  if (m.step === 'lead') {
+    return { title: `${shipName || 'design'} archive — lead`, targets: [],
+      objective: `pay the ${m.fee || 0}L finder's fee at any bar or trade station`,
+      note: `the archive is at ${contractDestinationLabel(m.systemIndex)}` };
+  }
+  if (m.step === 'deliver') {
+    const all = recoveryYardSystems(m.shipId);
+    // Eleven rings for one contract is not a map, it is a rash. The three nearest are marked and the
+    // row says how many there are.
+    const targets = all.slice(0, 3);
+    return { title: `${shipName || 'design'} archive — aboard`, targets, candidates: all.length,
+      objective: all.length
+        ? `deliver to a compatible yard — ${all.length} charted, nearest ${contractDestinationLabel(all[0])}`
+        : 'deliver to a compatible yard — none charted yet',
+      note: all.length > targets.length
+        ? `the ${targets.length} nearest are marked; standing and clearance are decided on arrival`
+        : 'candidates by yard record; standing and clearance are decided on arrival' };
+  }
+  return { title: `${shipName || 'design'} archive — recover`, targets: [Number(m.systemIndex)],
+    objective: `recover it at ${contractDestinationLabel(m.systemIndex)}` };
+}
 // Every objective the captain is carrying, as {index, label, detail, kind}. Campaign contracts and
 // trade contracts and loose destination cargo all answer the same question — where am I meant to be —
 // so they are one list.
@@ -21503,8 +21593,11 @@ function mapObjectives() {
   };
   for (const m of (campaignBook().missions || [])) {
     if (m.status !== 'active') continue; // only what the captain has taken on
-    push(m.systemIndex, 'contracts', `${m.kind} contract`,
-      `${chartSystemLabel(m.systemIndex)}${m.deadlineDay ? ` · day ${m.deadlineDay}` : ''}`);
+    const o = missionObjective(m);
+    for (const t of o.targets) {
+      push(t, 'contracts', o.title,
+        `${chartSystemLabel(t)}${m.deadlineDay ? ` · day ${m.deadlineDay}` : ''}`);
+    }
   }
   for (const c of getOpenContracts()) {
     if (c.showMarker === false) continue;
@@ -21666,16 +21759,22 @@ function openContractsPanel() {
 }
 function renderContractsPanel() {
   const book = campaignBook();
-  const live = (book.missions || []).filter((m) => ['offered', 'active'].includes(m.status) && m.kind !== 'archive');
+  // Recovery contracts belong here as much as any other: they were excluded, so the engineer-rescue job
+  // was marked on the chart and listed nowhere. They are the one kind whose destination moves, so each
+  // row prints the step it is on rather than a fixed system. [playtest]
+  const live = (book.missions || []).filter((m) => ['offered', 'active'].includes(m.status));
   const cargo = getOpenContracts();
   const row = (title, where, when, actions, note) =>
     `<div class="contract-row"><div><b>${escapeHtml(title)}</b><div class="meta">${escapeHtml(where)}${when ? ` · ${escapeHtml(when)}` : ''}${note ? ` · ${escapeHtml(note)}` : ''}</div></div><div class="contract-row-actions">${actions}</div></div>`;
   const missionRows = live.map((m) => {
-    const where = contractDestinationLabel(m.systemIndex);
+    const o = missionObjective(m);
     const when = m.deadlineDay ? `due day ${m.deadlineDay}` : '';
-    const show = `<button data-contract-show="${escapeHtml(String(m.systemIndex))}">Show on map</button>`;
+    const show = o.targets.length
+      ? `<button data-contract-show="${escapeHtml(String(o.targets[0]))}">Show on map</button>`
+      : '';
     const accept = m.status === 'offered' ? `<button data-campaign-accept="${escapeHtml(m.id)}">Accept</button>` : '';
-    return row(`${m.kind} contract`, where, when, accept + show, m.status === 'offered' ? 'offered' : 'accepted');
+    return row(o.title, o.objective, when, accept + show,
+      m.status === 'offered' ? 'offered' : (o.note || 'accepted'));
   }).join('');
   const cargoRows = cargo.map((c) => {
     const i = getContractTargetIndex(c);
@@ -24034,7 +24133,7 @@ function openCampaignPanel(tab = campaignPanelTab) {
 }
 function closeCampaignPanel() {
   document.getElementById('campaign-panel')?.close();
-  if (!gameMenuEl?.open && !debugMenuEl?.open && !document.getElementById('galaxy-reports')?.open) resumeGameClock();
+  resumeGameClockIfNothingModalIsOpen();
 }
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-campaign-open]')) { openCampaignPanel(); return; }
@@ -24600,9 +24699,18 @@ function renderFleetManager(open = false) {
   if (!fleetManagerEl) {
     fleetManagerEl = document.createElement('dialog');
     fleetManagerEl.className = 'fleet-manager';
+    fleetManagerEl.addEventListener('close', () => { resumeGameClockIfNothingModalIsOpen(); });
     document.body.appendChild(fleetManagerEl);
   }
-  if (open && !fleetManagerEl.open) fleetManagerEl.showModal();
+  if (open && !fleetManagerEl.open) {
+    // What the Empire panel and the reports folder already do on open, and this did not: stop the
+    // clock and drop whatever was being held down, so the ship is not flying and firing behind a
+    // dialog the captain cannot see past, and no key is left stuck when it closes. [playtest]
+    pauseGameClock();
+    keys.clear();
+    heldWeaponInputs.clear();
+    fleetManagerEl.showModal();
+  }
   if (!fleetManagerEl.open) return;
   captureShipPowerState();
   const b = fleetBook();
