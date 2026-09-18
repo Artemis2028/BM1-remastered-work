@@ -7,6 +7,9 @@ const fs = require('node:fs');
   await fresh('identity-report');
   const out = await ev(() => {
     const t = testBM1, s = t.state;
+    // The map reports "Unsurveyed" for anything the captain has not been to, so the relation column
+    // would be a column of blanks. Survey everything first: nothing else in this report depends on it.
+    for (let i = 0; i < (s.planets || []).length; i++) if (!s.visitedSystems.includes(i)) s.visitedSystems.push(i);
     return {
       commit: null,
       worlds: (s.planets || []).map((p, i) => {
@@ -18,7 +21,7 @@ const fs = require('node:fs');
           why: sov.cultureWhy ?? null,
           controller: ctl.controller ?? null, allegiance: ctl.allegiance ?? null, origin: ctl.origin ?? null,
           governor: sov.governor ?? null, level: sov.level ?? null, readout: sov.label ?? null,
-          originSource: ctl.originSource ?? null, polityId: ctl.polityId ?? null,
+          originSource: ctl.originSource ?? null, originWhy: ctl.originWhy ?? null, polityId: ctl.polityId ?? null,
           playerControlled: Boolean(ctl.playerControlled),
           // What the allegiance actually does: who owns the stations here, and whether a Terran
           // captain is welcome. Labels were never the point.

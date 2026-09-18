@@ -1273,6 +1273,13 @@ const { startProbe } = require('./probe-harness.cjs');
       const t = testBM1, s = t.state;
       if (!t.WORLD_ALLEGIANCE) return { fail: 'this tree has no authored allegiance: a world the government table has no answer for is nobody\'s, so five worlds of Tholian space are unheld and unopposed' };
       const idx = (name) => (s.planets || []).findIndex((p) => p.name === name);
+      // The map's relation line reads "Unsurveyed" for anything the captain has not been to, so
+      // comparing relations at a fresh start compares two blanks. Survey the worlds under test first.
+      for (const n of ['Tholia', 'Crystal Loom', 'Webheart', 'Lattice Hold', 'Spindle Reach', 'Facet Gate',
+        ...Object.keys(t.WORLD_INDEPENDENT || {})]) {
+        const i = idx(n);
+        if (i >= 0 && !s.visitedSystems.includes(i)) s.visitedSystems.push(i);
+      }
       const look = (name) => {
         const i = idx(name);
         if (i < 0) return null;
@@ -1284,6 +1291,7 @@ const { startProbe } = require('./probe-harness.cjs');
           source: ctl.originSource, playerControlled: ctl.playerControlled,
           hostile: t.getEffectiveAttitude(ctl.allegiance) === 'hostile',
           relation: t.getMapSystemInfo(i).relation,
+          mapGovernor: t.getMapSystemInfo(i).sovereignty?.governor ?? null,
           stationOwners: stations.filter((o) => !String(o || '').startsWith('private:')).sort() };
       };
       const tholian = ['Crystal Loom', 'Webheart', 'Lattice Hold', 'Spindle Reach', 'Facet Gate'].map((n) => [n, look(n)]);
@@ -1314,7 +1322,18 @@ const { startProbe } = require('./probe-harness.cjs');
       // And an explicit override still wins over the authored allegiance.
       s.factionSystemOverrides = { ...(s.factionSystemOverrides || {}), [idx('Webheart')]: 'klingon' };
       const overridden = look('Webheart');
+      // Two worlds the first cut of the independent table got wrong, both caught by reading what the
+      // descriptions actually say rather than which words they contain.
+      const pirates = look('Pirates Haven');
+      const rigel = look('Rigel');
+      // An entry here has to be a sentence about who governs the world, not a word about who lives
+      // there: "Trills" is in Trill's description and says nothing about its government.
+      const GOVERNANCE = /govern|claim|free|unnoticed|died out|its own/i;
+      const weak = Object.entries(t.WORLD_INDEPENDENT || {})
+        .filter(([, why]) => !GOVERNANCE.test(String(why)))
+        .map(([name, why]) => `${name}: "${why}"`);
       return { fail: null, unjustified, tholian, capital, independents, captured, afterReload, overridden,
+        pirates, rigel, weak,
         allegianceCount: Object.keys(t.WORLD_ALLEGIANCE).length };
     });
     assert.ok(!r.fail, `the allegiance reproduction could not be set up: ${r.fail}`);
@@ -1329,6 +1348,13 @@ const { startProbe } = require('./probe-harness.cjs');
         `${name} is ${w.hostile ? 'hostile' : 'not hostile'} to this captain while Tholia itself is ${r.capital.hostile ? 'hostile' : 'not'}`);
       assert.equal(w.relation, r.capital.relation,
         `the map calls ${name} "${w.relation}" and Tholia "${r.capital.relation}"`);
+      assert.equal(/unsurveyed/i.test(String(w.relation)), false,
+        `the map has no relation to report for ${name}: "${w.relation}"`);
+      // The relation *line* reads the same either way — a Tholian world governed by Tholians and one
+      // governed by nobody are both "self-governed" — so the map is questioned about who governs it,
+      // which is the field that was empty before.
+      assert.equal(w.mapGovernor, 'tholian',
+        `the map gives ${name} no government of its own (governor "${w.mapGovernor}") while printing "${w.relation}"`);
       assert.deepEqual(w.stationOwners, ['tholian'],
         `the stations at ${name} are owned by ${w.stationOwners.join(', ') || 'nobody'}`);
     }
@@ -1342,6 +1368,15 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.equal(r.afterReload.playerControlled, true, 'the capture was lost when the save was reloaded');
     assert.equal(r.overridden.controller, 'klingon', `an explicit override was ignored: the world is held by "${r.overridden.controller}"`);
     assert.ok(r.allegianceCount >= 30, `only ${r.allegianceCount} worlds have an authored allegiance`);
+    // Authoring independence must not quietly disarm a world whose text says it is dangerous, or
+    // strip a protector the text names.
+    assert.equal(r.pirates.controller, 'pirate',
+      `Pirates Haven, whose text warns of "the rotting corpses of the poor traders caught in our little haven", is held by "${r.pirates.controller}"`);
+    assert.equal(r.pirates.hostile, true, 'Pirates Haven is no longer hostile to this captain');
+    assert.equal(r.rigel.controller, 'andorian',
+      `Rigel, whose text says "The Andorians however lay claim to this world and are quite willing to protect it", is held by "${r.rigel.controller}"`);
+    assert.deepEqual(r.weak, [],
+      `${r.weak.length} world(s) are recorded as independent on a phrase that says nothing about who governs them: ${r.weak.join('; ')}`);
   });
 
   // MARK — item 7. Accepting a contract left nothing on the chart: the captain was told to fly to a

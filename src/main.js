@@ -5796,23 +5796,19 @@ const WORLD_ALLEGIANCE = Object.freeze({
   'Suliban Helix': { faction: 'suliban', why: 'cell docks' },
   'Brea': { faction: 'breen', why: 'The homeworld of the Breen' },
 });
-// Worlds whose own text says nobody claims them. Listed so a later pass cannot quietly hand them to a
-// neighbour: independence here is a fact about the world, not an absence of data.
+// Worlds whose own text states who governs them, and the answer is nobody. Listed so a later pass
+// cannot quietly hand them to a neighbour: independence here is a fact about the world, not an absence
+// of data — so the value is the sentence that says it, and a world whose description says nothing
+// about government is NOT listed here. It stays on the shipped table, which is a gap, not a claim.
 const WORLD_INDEPENDENT = Object.freeze({
-  'New Switzerland': 'a safe-haven',
-  'Andreas': 'No government claims Andreas',
-  'Lameu': 'now it has its own government',
-  'Orilla': 'small group of refugees',
-  'Opusab': 'A peaceful settlement',
-  'Biakisch': 'pre-industrial',
-  'Dyson': 'The original inhabitants of Dyson',
-  'Trill': 'Trills',
-  'Tepos': 'Teposians',
-  'Flash': 'Flashians',
-  'Nausica': 'are now free',
-  'Lysia': 'finally found themselves free',
-  'Rigel': 'Rigel is an independent planet',
-  'Pirates Haven': 'we pirates',
+  'Andreas': 'No government claims Andreas, and none patrol it',
+  'Lameu': 'Now it has its own government',
+  'Orilla': 'who died out many years ago',
+  'Opusab': 'Many people from different governments get along here',
+  'Biakisch': 'they have managed to go unnoticed by any advanced species',
+  'Dyson': 'Their government, rich and advanced beyond all others',
+  'Nausica': 'the Nausicans are now free',
+  'Lysia': 'the Lysians finally found themselves free',
 });
 function getBaseSystemOrigin(index = state.currentPlanet) {
   const planet = state.planets[index] || {};
@@ -5884,7 +5880,7 @@ function getSystemControl(index = state.currentPlanet) {
   if (controller === PLAYER_SIDE) allegiance = getPlayerFlag();
   else if (isRecognizedFactionKey(controller)) allegiance = controller;
   else allegiance = 'neutral';
-  return { index: i, origin: origin.faction, originSource: origin.source, controller, controlSource, polityId, allegiance, playerControlled };
+  return { index: i, origin: origin.faction, originSource: origin.source, originWhy: origin.why || null, controller, controlSource, polityId, allegiance, playerControlled };
 }
 
 // Who the people of a world are, and who governs them. These are two different facts and the HUD
