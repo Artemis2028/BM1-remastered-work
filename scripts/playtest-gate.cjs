@@ -1735,11 +1735,13 @@ const { startProbe } = require('./probe-harness.cjs');
       `${r.empty.length} world(s) have an authored shipyard that sells nothing: ${r.empty.slice(0, 5).join(', ')}`);
     assert.deepEqual(r.leaks, [],
       `${r.leaks.length} foreign hull(s) are on sale at a world whose text does not say it deals in them: ${r.leaks.slice(0, 4).join('; ')}`);
-    for (const e of r.exceptions) {
-      assert.ok(e.found, `${e.name} is authored as dealing in foreign hulls but is not a world`);
-      assert.ok(e.justified, `${e.name} is authored as dealing in foreign hulls on "${e.why}", which is not in its own description`);
-      assert.ok(e.foreignSold > 0, `${e.name} is authored as dealing in foreign hulls and sells none`);
-    }
+    // The exception table is empty and held empty. Selling another power's hulls is a decision about
+    // where a captain may buy what, with a standing cost attached; it is not a thing a world's prose
+    // proves, and two worlds were authored here on phrases that describe what the Hirogen keep and how
+    // the Suliban trade. The specific worlds and hulls are proposed for review in
+    // docs/playtest/FOREIGN-STOCK-PROPOSAL; an entry appearing here without that decision trips this.
+    assert.deepEqual(r.exceptions.map((e) => e.name), [],
+      `${r.exceptions.length} world(s) are authored as selling foreign hulls: ${r.exceptions.map((e) => `${e.name} on "${e.why}"`).join('; ')} — that is a gameplay decision, and it belongs in the proposal until it is taken`);
     assert.ok(r.pivot, 'precondition: a world with both an eligible and an ineligible hull in its authored lot');
     assert.deepEqual(r.pivot.afterForeign, [],
       `stripping the last eligible hull out of ${r.pivot.name}'s lot put ${r.pivot.afterForeign.join(', ')} on sale: foreign availability is turning on whether one compatible hull survived the filter`);

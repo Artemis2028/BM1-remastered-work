@@ -5811,13 +5811,14 @@ const WORLD_INDEPENDENT = Object.freeze({
   'Nausica': 'the Nausicans are now free',
   'Lysia': 'the Lysians finally found themselves free',
 });
-// Worlds whose own text says they deal in other powers' hulls. This is an authored claim with the
-// sentence that makes it, exactly like an allegiance: a world is not a grey market because a filter
-// emptied its shelf, and every other world's lot is shaped by its government's rule as it always was.
-const WORLD_FOREIGN_STOCK = Object.freeze({
-  'Hirogen Range': 'trophy vaults',
-  'Suliban Helix': 'trading quietly',
-});
+// Empty on purpose. Two worlds were authored here on "trophy vaults" and "trading quietly", and
+// neither phrase says a world sells other powers' hulls — one describes what the Hirogen keep and the
+// other how the Suliban trade, and reading a shipyard's inventory out of either was the same mistake
+// as reading a grey market out of an emptied shelf, one step further back. Selling foreign hulls is a
+// gameplay decision about where a captain may buy what, not a thing a description proves; the specific
+// worlds and hulls are proposed in docs/playtest/FOREIGN-STOCK-PROPOSAL, for review before any of it
+// is authored. Until then every world's shelf is its own government's. [playtest]
+const WORLD_FOREIGN_STOCK = Object.freeze({});
 function getBaseSystemOrigin(index = state.currentPlanet) {
   const planet = state.planets[index] || {};
   const row = state.systemData[index] || [];
