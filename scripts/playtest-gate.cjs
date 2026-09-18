@@ -910,6 +910,10 @@ const { startProbe } = require('./probe-harness.cjs');
             stepsReachable: onScreen('[data-power-dist][data-power-dir]').filter(reachable).length,
             coveredBy: [...new Set(coveredBy)].slice(0, 3).join(', '),
             dockPower: (() => { const b = document.querySelector('[data-dock-action="power"]'); return Boolean(b && b.offsetParent !== null && reachable(b)); })(),
+            // The bar counts its labels elsewhere; this asks whether they fit the buttons they are on.
+            dockCut: [...document.querySelectorAll('.bottom-dock button')].filter((b) => b.offsetParent !== null)
+              .filter((b) => [...b.children].some((part) => getComputedStyle(part).display !== 'none' && part.scrollWidth - part.clientWidth > 1))
+              .map((b) => (b.textContent || '').trim().slice(0, 12)),
           };
         }));
       }
@@ -924,6 +928,7 @@ const { startProbe } = require('./probe-harness.cjs');
       const at = `${widths[i]}px`;
       if (r.missing) { wrong.push(`at ${at} there is no top strip`); return; }
       if (r.overDock) wrong.push(`at ${at} the strip sits across the quick-action bar`);
+      if (r.dockCut.length) wrong.push(`at ${at} the bar's labels are cut off: ${r.dockCut.join(', ')}`);
       if (r.spill.length) wrong.push(`at ${at} the strip runs past its own right edge: ${r.spill.join('; ')}`);
       if (r.cut.length) wrong.push(`at ${at} a readout is cut off: ${r.cut.join('; ')}`);
       if (r.overMenu) wrong.push(`at ${at} the strip sits across the menu block`);

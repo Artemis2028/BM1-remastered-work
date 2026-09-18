@@ -4235,7 +4235,11 @@ button:disabled {
 .bottom-dock button b { display: none; }
 .bottom-dock button span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Compact: the code, and only the code. */
-@media (max-width: 1100px) {
+/* The long labels go at 1420, not 1100: between those widths a ten-button bar gives each button about
+   80px, and "STATIONS" and "CONTRACT" do not fit in it — a tablet held across read "STATI...",
+   "TARG..." and "CONT...". Found by measuring the bar on a real tablet viewport, and the threshold is
+   where the measurement says it stops fitting rather than where it looked about right. [playtest] */
+@media (max-width: 1420px) {
   .bottom-dock button b { display: block; }
   .bottom-dock button span { display: none; }
 }
