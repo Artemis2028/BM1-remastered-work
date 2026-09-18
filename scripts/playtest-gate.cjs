@@ -1897,6 +1897,67 @@ const { startProbe } = require('./probe-harness.cjs');
       'the trade-lane layer reports itself off and is still drawing lanes');
   });
 
+  // HAIL — the star chart is drawn on a canvas at z 74, clipped to its own panel rect, and an
+  // unanswered hail's panel sat under it: at 1440 the chart covered the left 200px of that panel,
+  // taking part of its prose and the left end of both its buttons with it, and the chart's own close
+  // control landed on what was left. Acknowledging the hail first is not a fix, it is looking away.
+  await check('HAIL an unanswered hail and the open chart are both readable and clickable', async () => {
+    const widths = [[1920, 1080], [1536, 864], [1440, 900], [1280, 800]];
+    const trouble = [];
+    for (const [width, height] of widths) {
+      await fresh(`play-hail-${width}`);
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(220);
+      const r = await ev(() => {
+        const t = testBM1, s = t.state;
+        // Stand in a foreign checkpoint's approach with the arrival hail unanswered, then open the
+        // chart on top of it — the state the captain is actually in when they check the map.
+        const target = t.getSystemIndexByName('Qonos');
+        s.currentPlanet = target;
+        t.applySystemState(target);
+        t.placePlayerAtSecurityApproach();
+        t.updateSecurityOrderPanel();
+        const hailEl = document.getElementById('security-order-panel');
+        if (!hailEl || hailEl.classList.contains('hidden')) return { fail: 'no hail is up to test against' };
+        t.openMap();
+        t.updateSecurityOrderPanel();
+        t.drawInterstellarMapOverlay();
+        const view = document.getElementById('game').getBoundingClientRect();
+        const toScreen = (v) => view.left + v * (view.width / document.getElementById('game').width);
+        const panel = t.getStarChartPanelRect();
+        const chart = { left: toScreen(panel.left), right: toScreen(panel.right) };
+        const hail = hailEl.getBoundingClientRect();
+        const closeEl = document.getElementById('btn-close-map');
+        const close = closeEl ? closeEl.getBoundingClientRect() : null;
+        const hits = (el, box) => {
+          if (!box || box.width <= 0) return false;
+          const at = document.elementFromPoint(Math.round(box.left + box.width / 2), Math.round(box.top + box.height / 2));
+          return Boolean(at && (at === el || el.contains(at) || at.contains(el)));
+        };
+        const ack = hailEl.querySelector('[data-arrival-ack]');
+        const channels = hailEl.querySelector('[data-comms="open"]');
+        const overlaps = (a, b) => a && b && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+        return { fail: null,
+          chartOverHail: chart.right > hail.left,
+          closeOverHail: overlaps(close, hail),
+          ackHit: hits(ack, ack?.getBoundingClientRect()),
+          channelsHit: hits(channels, channels?.getBoundingClientRect()),
+          closeHit: close ? hits(closeEl, close) : false,
+          chartWidth: Math.round(chart.right - chart.left),
+          hailLeft: Math.round(hail.left), chartRight: Math.round(chart.right) };
+      });
+      if (r.fail) { trouble.push(`${width}px: ${r.fail}`); continue; }
+      if (r.chartOverHail) trouble.push(`${width}px: the chart runs to ${r.chartRight} and the hail begins at ${r.hailLeft}, so ${r.chartRight - r.hailLeft}px of that panel is painted over`);
+      if (r.closeOverHail) trouble.push(`${width}px: the chart's close control sits on the hail panel`);
+      if (!r.ackHit) trouble.push(`${width}px: "Acknowledge hail" does not answer a click at its own coordinates`);
+      if (!r.channelsHit) trouble.push(`${width}px: "Station channels" does not answer a click at its own coordinates`);
+      if (!r.closeHit) trouble.push(`${width}px: the chart's own close control does not answer a click at its own coordinates`);
+      if (r.chartWidth < 300) trouble.push(`${width}px: the chart gave way down to ${r.chartWidth}px, which is not a map`);
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
+    assert.deepEqual(trouble, [], trouble.join('; '));
+  });
+
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);
   if (failures.length) { console.log(`${failures.length} still reproduce:`); for (const f of failures) console.log(`  - ${f.name}: ${f.message.split('\n')[0]}`); process.exitCode = 1; }
   if (errors.length) { console.log(`page errors: ${errors.join(' | ')}`); process.exitCode = 1; }

@@ -4413,7 +4413,10 @@ button:disabled {
   position: fixed;
   right: 18px;
   bottom: 274px;
-  z-index: 28;
+  /* Above the star chart (74), its frame (75) and its close control (76). The chart yields horizontally
+     so the two do not overlap at the widths this is played at; this is what keeps an unanswered hail's
+     prose and its two buttons readable and clickable on a window too narrow for the chart to give way. */
+  z-index: 78;
   display: flex;
   flex-direction: column;
   width: 300px;

@@ -19101,15 +19101,40 @@ function drawSpinningPlanetSprite(img, p, x, y, size, now = gameNow()) {
   return true;
 }
 
+// Where an unanswered hail's panel begins, in canvas units, or null when none is up. The chart canvas
+// sits at z 74 and is clipped to the chart's own rect, so every pixel of that panel inside the rect is
+// painted over — prose, buttons and all. [playtest]
+function starChartHailEdge() {
+  const el = securityOrderPanelEl;
+  if (!el || el.classList.contains('hidden')) return null;
+  const rect = el.getBoundingClientRect();
+  const view = canvas.getBoundingClientRect();
+  if (!(rect.width > 0 && rect.height > 0 && view.width > 0)) return null;
+  return (rect.left - view.left) * (canvas.width / view.width);
+}
+const STAR_CHART_MIN_PANEL_WIDTH = 380;
 function getStarChartPanelRect() {
   const width = clamp(canvas.width * 0.84, 660, canvas.width - 88);
   const height = clamp(canvas.height * 0.79, 380, canvas.height - 88);
-  const left = (canvas.width - width) / 2;
+  let left = (canvas.width - width) / 2;
+  let right = left + width;
+  // The hail carries the controls that answer it and a clock; the chart is a map that can be smaller.
+  // So the chart gives way rather than being drawn across it, and its close control — positioned from
+  // this rect — moves with it. Below the floor the window is too narrow for both, and the panel's own
+  // stacking order keeps the hail readable instead.
+  const hailEdge = starChartHailEdge();
+  if (hailEdge != null && right > hailEdge - 10) {
+    const wanted = Math.max(STAR_CHART_MIN_PANEL_WIDTH, Math.min(width, hailEdge - 10 - 8));
+    if (hailEdge - 10 - 8 >= STAR_CHART_MIN_PANEL_WIDTH) {
+      right = hailEdge - 10;
+      left = Math.max(8, right - wanted);
+    }
+  }
   const top = Math.max(28, (canvas.height - height) / 2 - canvas.height * 0.02);
   return {
     left,
     top,
-    right: left + width,
+    right,
     bottom: top + height,
     headerH: Math.max(58, Math.min(82, canvas.height * 0.105)),
     railW: Math.max(54, Math.min(74, canvas.width * 0.058)),
