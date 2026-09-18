@@ -1,10 +1,154 @@
 # BM1 playtest repairs on top of `ae4ae4d`
 
-DTG 172033ZSEP26
+DTG 180854ZSEP26
 
 Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Nothing pushed, merged or deployed.
 The commit count is in `CANDIDATE.json`, computed by the pack script rather than typed here: the two
 previous packs each stated a count that was wrong.
+
+## Read this first
+
+This is the fifth round, on top of `7232dc6`. The evidence identity concern is closed and that base is
+taken as given. Four gaps were named; all four are addressed, and the two that were asked for as
+proposals rather than code are delivered as proposals.
+
+**1. Power stays usable at every width the game is played at.** Three separate faults, one report. The
+strip is `pointer-events: none` — it has always been a readout the captain looks past — and the alert
+chips and power steppers added last round were put in it without pointer-events of their own. They
+rendered, they reported as visible, and **they took no input at all**. The TOP gate passed them because
+a scripted `element.click()` dispatches straight at a node and never asks what is on top of it. Nothing
+in this HUD had needed hit testing before, so nothing tested it. Separately, power left the strip as
+the window narrowed — the steppers at 1400px and the whole group at 1200px — so on a tablet held
+upright there was nothing to press. What gives way now is the row, not the controls: below 1400 power
+takes a line of its own inside the strip, four across or two and two, with full-size steppers. And
+where the browser reports a coarse pointer, every control meets the 44pt floor; the alert chips were
+26×26.
+
+**2. Ownership removes the foreign gate everywhere, not just on the shelf.** Six purchase paths were
+still ownership-blind: EW modules, sensor suites, seeker weapons, fleet refit and repair, fleet weapon
+refit, and commissioning. The first three did not even waive the test at an owned holding — they
+re-aimed it at the captain's own flag, so a captain whose flag faction disliked them was refused by the
+yard they built. Price, stock, compatibility, mass, facility, arrears, clearance and the authored
+discovery requirements are untouched, and the check proves it by emptying the purse at the captain's
+own yard and watching it still say no.
+
+**3. Identities are authored against the descriptions, and no government moved.** The old chain
+guessed from the world's name and, when that failed, invented a people named after the planet. Eighty-
+five worlds now carry an authored identity with the phrase from their own description that justifies
+it; twelve are recorded uninhabited because their text says so; three are left to the local fallback
+deliberately. **Thirty-three worlds changed their people and none changed its government** — the diff
+across all 101 worlds is in `validation/world-identity-diff.txt`.
+
+**4. Evacuation and blockade stay unfinished, and a save carrying one is not left holding it.**
+Withdrawing them stopped them being issued; it did nothing for an existing save. A blockade contract
+can never complete — its own completion test is written `() => false` — so left alone it runs to its
+deadline and fails the captain for the game's omission. On load an offered one is taken off the board
+and an accepted one is released without penalty. Both remain NOT DONE as mechanics; the design is in
+`EVACUATION-BLOCKADE-DESIGN-180230ZSEP26.md` for review before either is built.
+
+## This round's four items
+
+### 1. Power and alert, operable rather than merely present
+
+| Width | Before (`7232dc6`) | Now |
+| --- | --- | --- |
+| 1600 | chips present, **no control takes input** | one row, steppers, all reachable |
+| 1360 | steppers gone | power on its own row, full-size steppers |
+| 1200 and below | whole group gone | power on its own row, four across or two and two |
+| 820 (tablet upright) | nothing to press | 2×2 power grid, 44pt steppers, 44pt alert chips |
+| 640 and below | nothing to press | alert in the strip; power on the PWR button — see the limitation below |
+
+The menu block's box was also capped at 52px while its six buttons overflowed it down to 152px, so
+anything positioned "below the menu" was positioned below a box that was not where the menu ended.
+
+**Gate LAYOUT** no longer asserts one row, which was only ever a proxy for "nothing collides and
+nothing is clipped"; it asserts those directly at seven widths, and asserts that every alert and power
+control is both on screen and hit-testable, naming whatever covers one when it is not. **Gate POWER**
+opens a touch context, presses the controls at the coordinates they occupy, and reads the state back.
+On `7232dc6` they report three of three alert settings covered by the canvas at every width, zero of
+eight power controls from 1360 down, and red alert leaving the posture at green when pressed.
+
+**Named limitation, below 641px.** Measured at 390×844 with the menu, the strip, an incoming hail and
+the disabled-ship panel all up: the menu ends at 136, the disabled-ship panel begins at 372, and the
+hail needs 150 of the 162px between them for its own two actions. A power row does not fit. Alert stays
+in the strip; power stays one press away on the PWR button, which the gate requires at those widths.
+Putting the power row there instead pushed the hail's buttons underneath the disabled-ship panel, and
+those buttons are how a captain answers the thing threatening them. A phone is not a size this game is
+played at; the tablet is, and it keeps both.
+
+### 2. Every purchase and service at an owned holding
+
+`vendorStanding` is now the single place that answers what a vendor thinks of the captain, and returns
+full standing at a holding they own. Converted: EW modules, sensor suites, seeker weapons,
+`fleetServiceAllowed` (which is what fleet repair, refit, sale and equipment transfer all hang off),
+the second silent gate inside fleet weapon refit, and commissioning. The recovery yard's hand-rolled
+`owner === PLAYER_SIDE ||` short-circuit becomes the same call, so there is one pattern rather than
+three.
+
+**Left deliberately blind: the flag market.** It asks whether a government will issue you its colours,
+which is its decision and not the local vendor's. Owning Qonos does not make Starfleet hand you a
+Terran flag. Said so at the call site rather than leaving it to look like an oversight.
+
+**Gate OWN** stands at a yard that both refits and sells weapons, with twelve governments at floor
+standing, and asks each path in turn — then empties the purse and requires the same yard to refuse on
+price. On `7232dc6` it reports the EW shelf answering "Requires 15 Terran standing; yours -100" at the
+captain's own dock.
+
+### 3. World identities
+
+| # | World | Was | Now | Government | Justified by its own text |
+| --- | --- | --- | --- | --- | --- |
+| 69 | New Bajor | Dominion | **Bajoran** | dominion (unchanged) | "bajorans are slaves to the dominion" |
+| 28 | Blender | Blender | **Blender Remnant** | none (unchanged) | "conquering race called the Dominion" |
+| 94–98 | Crystal Loom, Webheart, Lattice Hold, Spindle Reach, Facet Gate | each named after itself | **Tholian** ×5 | none (unchanged) | "Tholian" in each first sentence |
+| 29 | Remus | Romulan | **Reman** | romulan (unchanged) | "home to the Remans" |
+| 63 | Aldnas | *(none)* | **Romulan** | none (unchanged) | "Romulan colony" |
+| 5 | New Switzerland | New Switzerland | **Terran** | none (unchanged) | "passivist humans" |
+| 61 | Astron | Astron | **uninhabited** | none (unchanged) | "home to no one" |
+
+Sonata was already resolving to Son'a by a name match; it is now authored, so it no longer depends on
+a rule that the full-text matcher would have answered "Klingon" because its description mentions the
+Klingons.
+
+Peoples with no polity of their own get a `people:` id rather than a faction key — Remans, Karemma,
+Dosi, T-Rogorans, Tellarites, Hupyrians, Orions, Rigelians, Lik, Lysians, Nausicaans, Flashians,
+Trill, Teposians, Vexxians. A `people:` id is not a faction key and can never become one; the gate
+asserts none of them is recognised as a polity and none governs anything.
+
+**No world's government moved.** `validation/world-identity-diff.txt` prints the controller, allegiance,
+origin and governor of all 101 worlds before and after: the government diff is empty, and the gate
+proves it independently by comparing every world's origin against its own authored `governmentId`.
+
+New Bajor reads "Bajoran world · Dominion administration" and Remus "Reman world · Romulan
+administration". New Switzerland's people are Terran and its government is still nobody's.
+
+### 4. Evacuation and blockade
+
+Still **NOT DONE as mechanics**. `migrateWithdrawnMissions` releases what a save is carrying: an
+offered contract off the board, an accepted one released with no standing penalty and the reason said
+out loud, an already-completed one untouched. It is self-guarded and idempotent, and runs outside the
+initialise branch because a loaded save arrives with its book already initialised.
+
+**Gate SAVE** builds a save carrying six of them — one of each kind offered, accepted and complete —
+loads it, and requires none open, no standing lost, nothing paid out, the completed pair untouched, and
+the migration to do nothing on a second run.
+
+The design proposal is `EVACUATION-BLOCKADE-DESIGN-180230ZSEP26.md`: evacuation as evacuees carried as
+cargo from a threatened world to a named refuge, paid per delivery, failing differently when the
+captain is negligent than when the campaign outruns them; blockade as contacts turned back and counted,
+costing standing with the party blockaded. It also names the piece that does not exist — nothing in the
+traffic model can currently record that a departure was *caused* — which is why blockade is the one I
+would not build first.
+
+### Found while doing this, not fixed
+
+At 600px and below the EW panel lies over the top strip, so a captain who opens EW in a fight loses the
+power controls underneath it. That is a question about that panel rather than about whether the strip
+fits, and it is not in this round's scope. Named here rather than left for the next playtest.
+
+## The earlier rounds, unchanged
+
+Everything from here down is the previous four rounds and still stands. This round is above it.
 
 ## Read this first
 
