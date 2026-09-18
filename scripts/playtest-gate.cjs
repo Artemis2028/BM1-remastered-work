@@ -1925,7 +1925,8 @@ const { startProbe } = require('./probe-harness.cjs');
     await fresh('play-lanes');
     const r = await ev(() => {
       const t = testBM1, s = t.state;
-      if (!t.MAP_OVERLAY_LAYERS.some((l) => l.key === 'lanes') || !t.MAP_OVERLAY_LAYERS.some((l) => l.key === 'security')) {
+      const known = t.MAP_OVERLAY_LAYERS || [];
+      if (!known.some((l) => l.key === 'lanes') || !known.some((l) => l.key === 'security')) {
         return { fail: 'this tree has one route layer and it draws navigation lines to the captain\'s own cargo; there is no trade-conditions layer to select' };
       }
       for (const i of (s.planets || []).map((p, n) => n).filter((i) => t.isChartSystemVisible(i)).slice(0, 6)) t.markSystemVisited(i);
