@@ -1747,6 +1747,156 @@ const { startProbe } = require('./probe-harness.cjs');
       `${r.pivot.name} sells nothing once its lot holds no hull its government would carry`);
   });
 
+  // CONDITIONS — what the chart was asked for was trade and safety: who flies a lane, who patrols it,
+  // who preys on it, and what has stopped working. What it had was navigation lines to the captain's
+  // own cargo. The hard part is not the drawing but the knowing: a system nobody has looked at must
+  // read as unknown and never as quiet, and a memory of a place must not be dressed as a reading of it.
+  await check('CONDITIONS trade and security are reported with a source and an age, and silence is not safety', async () => {
+    await fresh('play-conditions');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (!t.systemConditions || !t.conditionsReadout) {
+        return { fail: 'this tree has no notion of trade or security conditions: the chart draws routes to the captain\'s own cargo and nothing about who flies a lane, who patrols it or who preys on it' };
+      }
+      const charted = (s.planets || []).map((p, i) => i).filter((i) => t.isChartSystemVisible(i));
+      const fresh0 = charted.map((i) => t.conditionsFor(i));
+      const unreported = fresh0.filter((c) => c.source === 'none');
+      // Nothing anyone has looked at yet may claim a threat reading of any kind.
+      const falseCalm = unreported.filter((c) => c.threat || c.traffic || c.protection || c.disruption)
+        .map((c) => `${s.planets[c.index].name}`);
+
+      // A system the captain flew through, long ago.
+      const seen = charted.find((i) => i !== Number(s.currentPlanet));
+      t.markSystemVisited(seen);
+      s.day = 80;
+      const stale = t.conditionsFor(seen);
+      const staleRead = t.conditionsReadout(seen);
+
+      // The same system with one of their own ships standing in it.
+      s.playerFleet.push({ id: 'gate-eyes', shipId: 1, faction: 'terran', assignment: 'patrol',
+        systemIndex: seen, vessel: { hull: 100, condition: 'ready' } });
+      const live = t.conditionsFor(seen);
+      const liveRead = t.conditionsReadout(seen);
+
+      // A lane with one end nobody has looked at.
+      const stranger = charted.find((i) => t.conditionsFor(i).source === 'none');
+      const lane = stranger == null ? null : t.laneConditions(seen, stranger);
+
+      // And a region that is not on the chart at all.
+      const hidden = (s.planets || []).map((p, i) => i).find((i) => t.isDominionCoreSystem(s.planets[i].name));
+      const hiddenCond = hidden == null ? null : t.conditionsFor(hidden);
+
+      return { fail: null, charted: charted.length, unreported: unreported.length, falseCalm,
+        stale: { source: stale.source, age: stale.ageDays, traffic: Boolean(stale.traffic),
+          trafficDated: Boolean(stale.traffic?.dated), threat: stale.threat, protectionCapped: Boolean(stale.protection?.capped) },
+        staleRead,
+        live: { source: live.source, age: live.ageDays, threat: Boolean(live.threat), threatWhy: live.threat?.why },
+        liveRead,
+        lane: lane ? { traffic: lane.traffic, threat: lane.threat, source: lane.source } : null,
+        hidden: hiddenCond ? hiddenCond.source : null };
+    });
+    assert.ok(!r.fail, `the conditions reproduction could not be set up: ${r.fail}`);
+
+    assert.ok(r.unreported > r.charted * 0.5,
+      `at a fresh start ${r.unreported} of ${r.charted} charted systems are unreported; a captain who has been nowhere should know almost nothing`);
+    assert.deepEqual(r.falseCalm, [],
+      `${r.falseCalm.length} system(s) nobody has looked at carry a reading anyway: ${r.falseCalm.slice(0, 4).join(', ')}`);
+
+    // A memory is not a reading.
+    assert.equal(r.stale.source, 'rumour', `a system flown through long ago reports as "${r.stale.source}"`);
+    assert.ok(r.stale.age >= 70, `the stale reading is ${r.stale.age} days old; it should carry the age of the visit`);
+    assert.ok(r.stale.traffic && r.stale.trafficDated,
+      'what the captain saw of a world\'s trade is not carried forward, or is not marked as dated');
+    assert.equal(r.stale.threat, null,
+      `a system last seen 79 days ago reports a threat level anyway: ${JSON.stringify(r.stale.threat)}`);
+    assert.equal(r.stale.protectionCapped, true,
+      'a garrison seen 79 days ago is reported at full confidence');
+    assert.ok(r.staleRead.some((l) => /traffic gossip/.test(l) && /day 1/.test(l) && /days old/.test(l)),
+      `the readout does not give the source, the day and the age: ${JSON.stringify(r.staleRead)}`);
+    assert.ok(r.staleRead.some((l) => /threat no report/.test(l)),
+      `the readout does not say the threat is unreported: ${JSON.stringify(r.staleRead)}`);
+
+    // A ship on station is a reading.
+    assert.equal(r.live.source, 'fleet', `a system with the captain's own ship in it reports as "${r.live.source}"`);
+    assert.equal(r.live.age, 0, `a ship standing in the system reports a ${r.live.age}-day-old picture`);
+    assert.equal(r.live.threat, true, 'a ship standing in the system still cannot say what is happening there');
+    assert.ok(r.liveRead.some((l) => /fleet on station/.test(l) && /crews can be wrong/.test(l)),
+      `the readout does not name the source or its caveat: ${JSON.stringify(r.liveRead)}`);
+
+    // A lane is only as known as its worse end.
+    assert.ok(r.lane, 'precondition: a lane with one unlooked-at end');
+    assert.equal(r.lane.traffic, null, 'a lane with an unreported end still claims to know its traffic');
+    assert.equal(r.lane.threat, null,
+      `a lane with an unreported end reports threat ${JSON.stringify(r.lane.threat)} — an unwatched lane is not a safe one`);
+
+    assert.equal(r.hidden, 'none',
+      `a system in a region the captain has never charted reports as "${r.hidden}"`);
+  });
+
+  // LANES — the layers have to be separate from the objective overlay, selectable, and drawn: an arc
+  // that nothing explains is decoration, and a layer that cannot be turned off is not a layer.
+  await check('LANES trade and security draw as their own selectable layers, and the unknown is counted', async () => {
+    await fresh('play-lanes');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (!t.MAP_OVERLAY_LAYERS.some((l) => l.key === 'lanes') || !t.MAP_OVERLAY_LAYERS.some((l) => l.key === 'security')) {
+        return { fail: 'this tree has one route layer and it draws navigation lines to the captain\'s own cargo; there is no trade-conditions layer to select' };
+      }
+      for (const i of (s.planets || []).map((p, n) => n).filter((i) => t.isChartSystemVisible(i)).slice(0, 6)) t.markSystemVisited(i);
+      s.day = 20;
+      t.openMap();
+      const paint = () => {
+        window.__painted = [];
+        window.__strokes = [];
+        const C = CanvasRenderingContext2D.prototype;
+        if (!window.__condSpy) {
+          window.__condSpy = true;
+          const ft = C.fillText;
+          C.fillText = function (txt, ...rest) { window.__painted.push(String(txt)); return ft.call(this, txt, ...rest); };
+          const st = C.stroke;
+          C.stroke = function (...a) { window.__strokes.push(String(this.strokeStyle).toLowerCase()); return st.apply(this, a); };
+        }
+        t.drawInterstellarMapOverlay();
+        return { painted: window.__painted.slice(), strokes: window.__strokes.slice() };
+      };
+      const on = paint();
+      // The lane is stroked through colorToRgba, so the spy matches the colour's own rgb triple
+      // rather than the hex it was written as.
+      const hex = '#8a7fa8';
+      const rgb = `${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)}`;
+      const isUnknown = (c) => c === hex || c.includes(rgb);
+      const unknownColor = hex;
+      const withBoth = {
+        painted: on.painted,
+        unknownStrokes: on.strokes.filter(isUnknown).length,
+        queries: on.painted.filter((x) => x === '?').length,
+      };
+      t.toggleMapOverlay('security');
+      const noSecurity = paint();
+      t.toggleMapOverlay('lanes');
+      const neither = paint();
+      t.toggleMapOverlay('security');
+      t.toggleMapOverlay('lanes');
+      return { fail: null, withBoth,
+        securityOff: { queries: noSecurity.painted.filter((x) => x === '?').length },
+        neither: { unknownStrokes: neither.strokes.filter(isUnknown).length },
+        layers: t.MAP_OVERLAY_LAYERS.map((l) => l.key) };
+    });
+    assert.ok(!r.fail, `the layer reproduction could not be set up: ${r.fail}`);
+    assert.ok(r.layers.includes('contracts') && r.layers.includes('lanes') && r.layers.includes('security'),
+      `the objective layer and the conditions layers are not separate: ${r.layers.join(', ')}`);
+    assert.ok(r.withBoth.queries > 0,
+      'no system was marked as unreported on the chart; every charted system is being drawn as though something is known about it');
+    assert.ok(r.withBoth.unknownStrokes > 0,
+      'no lane was drawn in the unknown colour; a lane nobody has looked at is being drawn as an ordinary one');
+    assert.ok(r.withBoth.painted.some((x) => /unreported/.test(x) && /not safe/.test(x)),
+      `the legend does not say how many charted systems are unreported, or that unreported is not safe: ${r.withBoth.painted.filter((x) => /unreported|unknown/i.test(x)).join(' | ') || 'no such row'}`);
+    assert.equal(r.securityOff.queries, 0,
+      'the security layer reports itself off and is still marking systems on the chart');
+    assert.equal(r.neither.unknownStrokes, 0,
+      'the trade-lane layer reports itself off and is still drawing lanes');
+  });
+
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);
   if (failures.length) { console.log(`${failures.length} still reproduce:`); for (const f of failures) console.log(`  - ${f.name}: ${f.message.split('\n')[0]}`); process.exitCode = 1; }
   if (errors.length) { console.log(`page errors: ${errors.join(' | ')}`); process.exitCode = 1; }

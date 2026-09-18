@@ -601,6 +601,7 @@ const state = {
   securityLiveSystemIndex: null, // which system's NPCs are live in state.npcShips (for participant capture)
   securityOutcomeNotice: null, // last player-visitor outcome, shown briefly in the order panel
   visitedSystems: [],
+  visitedDays: {}, // systemIndex -> the day the captain was last there; absent means date unknown
   factionSystemOverrides: {},
   factionStanding: {},
   feats: {},
@@ -10757,6 +10758,16 @@ function markSystemVisited(systemIndex = state.currentPlanet) {
   const index = Number(systemIndex);
   if (!Number.isFinite(index)) return;
   if (!state.visitedSystems.includes(index)) state.visitedSystems.push(index);
+  // When, not just whether. A captain who flew through a system a hundred days ago knows what its
+  // berths and its flag were then and nothing about what is there now, and the conditions readout
+  // cannot say so without a date. A save written before this arrives without one; that reads as "date
+  // unknown" rather than as today. [playtest]
+  if (!state.visitedDays || typeof state.visitedDays !== 'object') state.visitedDays = {};
+  state.visitedDays[index] = Number(state.day) || 1;
+}
+function lastSeenDay(index) {
+  const d = Number(state.visitedDays?.[Number(index)]);
+  return Number.isFinite(d) && d > 0 ? d : null;
 }
 
 function countPlayerBuiltStations(systemIndex = state.currentPlanet) {
@@ -13266,6 +13277,7 @@ function saveGame(slot = state.currentSaveSlot || 1) {
     securityZones: ensureSecurityZones(),
     securityEncounters: (captureSecurityParticipants(state.securityLiveSystemIndex), ensureSecurityEncounters()),
     visitedSystems: state.visitedSystems,
+    visitedDays: state.visitedDays || {},
     factionSystemOverrides: state.factionSystemOverrides,
     destroyedStations: state.destroyedStations,
     depletedAsteroids: state.depletedAsteroids,
@@ -13405,6 +13417,13 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   state.controlledSystems = Array.isArray(s.controlledSystems)
     ? s.controlledSystems.map((index) => Number(index)).filter(Number.isFinite)
     : [];
+  // A save written before visit dates were recorded loads with none. That is "date unknown", not
+  // "seen today": the conditions readout says so rather than dressing an old memory as a reading.
+  state.visitedDays = {};
+  for (const [k, v] of Object.entries(s.visitedDays || {})) {
+    const i = Number(k), d = Number(v);
+    if (Number.isFinite(i) && Number.isFinite(d) && d > 0) state.visitedDays[i] = d;
+  }
   state.visitedSystems = Array.isArray(s.visitedSystems)
     ? s.visitedSystems.map((index) => Number(index)).filter(Number.isFinite)
     : [state.currentPlanet];
@@ -19892,10 +19911,15 @@ function drawMapLegend() {
         ? `Out of ship range: ${rangeStatus.distance}/${rangeStatus.shipRange}`
         : `Need ${plan.antimatter} antimatter | Current covers ${rangeStatus.fuelRange}`
     : 'No plotted route';
+  // With a conditions layer up, the box also has to say what the indicators on the chart mean for the
+  // system the captain has selected, where the claim came from and how old it is — a coloured arc that
+  // explains itself nowhere is decoration. [playtest]
+  const conditionLines = (mapOverlayState().lanes || mapOverlayState().security)
+    ? conditionsReadout(state.selectedPlanet) : [];
   const boxX = 54;
   const boxY = 76;
   const boxW = Math.min(740, Math.max(320, canvas.width - 108));
-  const boxH = 106;
+  const boxH = 106 + (conditionLines.length ? conditionLines.length * 16 + 14 : 0);
   ctx.save();
   ctx.fillStyle = 'rgba(4, 10, 20, 0.82)';
   ctx.fillRect(boxX, boxY, boxW, boxH);
@@ -19927,6 +19951,17 @@ function drawMapLegend() {
   const days=plan?.legs?.length?Fleet.travelDays(plan.distance):0;
   const daily=state.playerFleet.filter(f=>!f.destroyed).reduce((sum,f)=>sum+upkeepPerDay(f.shipId),0);
   drawFittedMapText(`${days} travel days | Current fleet upkeep ${daily*days} L (deliveries add upkeep on following days)`,boxX+14,boxY+95,boxW-28);
+  conditionLines.forEach((line, n) => {
+    ctx.fillStyle = n === 0 ? '#dfeaff' : n === 1 ? '#9fb2d0' : '#c9d6ea';
+    ctx.font = canvasUiFont(n === 0 ? 12 : 11);
+    drawFittedMapText(line, boxX + 14, boxY + 113 + n * 16, boxW - 28);
+  });
+  if (conditionLines.length) {
+    ctx.fillStyle = '#7f8ea6';
+    ctx.font = canvasUiFont(10);
+    drawFittedMapText('* read from transponders, strength not readable   † dated claim, not a current reading',
+      boxX + 14, boxY + 113 + conditionLines.length * 16, boxW - 28);
+  }
   ctx.restore();
 }
 
@@ -21504,6 +21539,309 @@ function clearInterstellarMapOverlay() {
   interstellarMapCtx.clearRect(0, 0, interstellarMapCanvas.width, interstellarMapCanvas.height);
 }
 
+// ---- trade and security conditions ---------------------------------------------------------------
+// Truth about a system is cheap to compute: the weekly activity roll, the campaign's hulls and
+// operations, the traffic model, the state of its installations. None of it may be drawn without a
+// source that would actually have told the captain — and the absence of a source is its own state.
+// "No report" is drawn and described differently from "reported quiet", because a lane nobody has
+// looked at is not a safe lane. That distinction is the whole point of this layer. [playtest]
+const CONDITION_SOURCES = Object.freeze({
+  local: { label: 'seen from here', rank: 4, caveat: 'first hand, now' },
+  fleet: { label: 'fleet on station', rank: 3, caveat: 'fleet assessment; crews can be wrong' },
+  relay: { label: 'relay coverage', rank: 2, caveat: 'transponders: presence dependable, strength not' },
+  rumour: { label: 'traffic gossip', rank: 1, caveat: 'unconfirmed, and late' },
+  none: { label: 'no report', rank: 0, caveat: 'unknown — which is not the same as quiet' },
+});
+const CONDITION_BANDS = ['none', 'light', 'moderate', 'heavy'];
+function conditionBand(score, cuts) {
+  for (let n = cuts.length - 1; n >= 0; n--) if (score >= cuts[n]) return n + 1;
+  return 0;
+}
+// The activity roll for a system, derived rather than recorded: getSystemActivity writes a record for
+// whichever system it is asked about, and a chart sweep must not create one for all 101.
+function peekSystemActivity(index) {
+  const cycle = Math.floor((Math.max(1, state.day) - 1) / 7);
+  const record = ensurePlaytestState().activities[index];
+  if (record && record.cycle === cycle) return record.type;
+  let pick = seeded(hashString(`${fleetBook().campaignId}:${index}:${cycle}:activity`));
+  for (const [name, weight] of SYSTEM_ACTIVITY_WEIGHTS) { pick -= weight; if (pick < 0) return name; }
+  return 'quiet';
+}
+// How much civilian trade a world draws: who is willing to fly there under its flag, against how much
+// there is to come for. This is the same model the traffic spawner uses, asked about a whole galaxy
+// rather than one system.
+function trueTradeTraffic(index) {
+  const control = getSystemControl(index);
+  const host = control.controller || 'neutral';
+  const origins = Object.keys(factionNames).filter((f) => isRecognizedFactionKey(f));
+  const welcome = origins.filter((f) => World.civilianWeight(f, host, areFactionsOpposed(f, host)) > 0);
+  const weight = welcome.reduce((n, f) => n + World.civilianWeight(f, host, areFactionsOpposed(f, host)), 0);
+  const planet = state.planets[index] || {};
+  const market = clamp(finiteNumber(planet.market, 8), 0, 22);
+  const berths = (state.stationDefinitions || [])
+    .filter((d) => Number(d.systemIndex) === index && !state.destroyedStations?.[d.id]).length;
+  const closed = origins.length - welcome.length;
+  const score = weight * (0.5 + market / 16) + berths * 0.7;
+  return { score, band: conditionBand(score, [0.8, 2.4, 4.6]), host, berths, market, closed,
+    why: `${welcome.length} of ${origins.length} powers will trade under this flag, market ${market}, ${berths} berth${berths === 1 ? '' : 's'}${closed ? `, ${closed} shut out by war` : ''}` };
+}
+// What is standing between that trade and whoever would take it.
+function trueProtection(index) {
+  const book = campaignBook();
+  let hulls = 0;
+  for (const p of Object.values(book.polities || {}))
+    hulls += (p.hulls || []).filter((h) => h.status !== 'lost' && Number(h.systemIndex) === index).length;
+  const stations = (state.stationDefinitions || [])
+    .filter((d) => Number(d.systemIndex) === index && !state.destroyedStations?.[d.id]);
+  const armed = stations.filter((d) => finiteNumber(getStationDefenseProfile(d)?.damage, 0) > 0).length;
+  const authority = hasOrbitalAuthority(index);
+  const score = hulls * 1.1 + armed * 1.4 + (authority ? 1.6 : 0);
+  return { score, band: conditionBand(score, [0.9, 2.6, 4.8]), hulls, armed, authority,
+    why: `${hulls} garrison hull${hulls === 1 ? '' : 's'}, ${armed} armed installation${armed === 1 ? '' : 's'}${authority ? ', orbital authority on station' : ', no orbital authority'}` };
+}
+// Whether a world is patrolled by anyone with the standing to stop a ship. Derived from the authored
+// checkpoints and the border policies rather than getSecurityZone, which only answers about the system
+// the captain is standing in.
+function hasOrbitalAuthority(index) {
+  const control = getSystemControl(index);
+  if (control.playerControlled) return Boolean(getPlayerCheckpointConfig(index)?.enabled);
+  if (SECURITY_AUTHORED_CHECKPOINTS.some((e) => getSystemIndexByName(e.systemName) === Number(index))) return true;
+  return Boolean(FACTION_BORDER_POLICIES[control.controller]);
+}
+// What would go wrong here, and who it would be. Ambient activity and campaign operations are separate
+// things: one is the week's weather, the other is a force with a name and an arrival date.
+function trueThreat(index) {
+  const book = campaignBook();
+  const control = getSystemControl(index);
+  const ops = (book.operations || [])
+    .filter((o) => Number(o.targetSystem) === index && ['moving', 'engaged'].includes(o.status));
+  const engaged = ops.filter((o) => o.status === 'engaged');
+  const activity = peekSystemActivity(index);
+  const ambient = { quiet: 0, patrol: 0, scout: 1, skirmish: 2, raid: 3, battle: 3 }[activity] ?? 0;
+  const protection = trueProtection(index);
+  const trade = trueTradeTraffic(index);
+  // Piracy is not a roll: it is a lane worth robbing that nobody is watching.
+  const lawless = control.controller === 'pirate'
+    || (trade.band >= 2 && protection.band === 0 && !protection.authority);
+  const band = Math.min(3, Math.max(engaged.length ? 3 : ops.length ? 2 : 0, ambient, lawless ? 2 : 0));
+  const parts = [];
+  if (engaged.length) parts.push(`${formatFaction(engaged[0].faction)} engaged here`);
+  else if (ops.length) parts.push(`${formatFaction(ops[0].faction)} force inbound, arriving day ${ops[0].arriveDay}`);
+  if (ambient) parts.push(`${activity} reported this week`);
+  if (lawless) parts.push(control.controller === 'pirate' ? 'a pirate haven' : 'traffic worth robbing and nobody watching it');
+  if (!parts.length) parts.push('nothing under way');
+  return { band, activity, ops: ops.length, engaged: engaged.length, lawless, why: parts.join('; ') };
+}
+// Things that stop a lane working: installations lost or wrecked, a world held by somebody who took it.
+function trueDisruption(index) {
+  const book = campaignBook();
+  const defs = (state.stationDefinitions || []).filter((d) => Number(d.systemIndex) === index);
+  const destroyed = defs.filter((d) => state.destroyedStations?.[d.id]).length;
+  const damaged = defs.filter((d) => !state.destroyedStations?.[d.id] && campaignStationDamage(d.id) > 0).length;
+  const occupation = book.occupations?.[index] || null;
+  const band = Math.min(3, (destroyed ? 2 : 0) + (damaged ? 1 : 0) + (occupation ? 1 : 0));
+  const parts = [];
+  if (destroyed) parts.push(`${destroyed} installation${destroyed === 1 ? '' : 's'} destroyed`);
+  if (damaged) parts.push(`${damaged} damaged`);
+  if (occupation) parts.push(`occupied since day ${occupation.capturedDay}`);
+  return { band, why: parts.join(', ') || 'installations intact' };
+}
+// What the captain knows, from what is true and what would have told them. Every indicator is either a
+// reading with a source and an age, or null — and null is drawn as "no report", never as zero.
+function systemConditions(index, ctx = null) {
+  const i = Number(index);
+  if (!Number.isFinite(i) || !state.planets[i]) return null;
+  const source = isChartSystemVisible(i) ? campaignIntelSource(i, ctx) : 'none';
+  const meta = CONDITION_SOURCES[source] || CONDITION_SOURCES.none;
+  const observation = galaxyNewsBook().observations?.[i] || null;
+  const report = [...galaxyNewsBook().items].reverse().find((r) => Number(r.systemIndex) === i) || null;
+  const datedDay = observation?.day ?? report?.day ?? null;
+  const age = datedDay == null ? null : Math.max(0, state.day - datedDay);
+  const out = { index: i, source, sourceLabel: meta.label, caveat: meta.caveat, rank: meta.rank,
+    asOfDay: null, ageDays: null, traffic: null, protection: null, threat: null, disruption: null };
+  if (source === 'none') return out;
+  const live = source === 'local' || source === 'fleet';
+  if (live || source === 'relay') {
+    out.asOfDay = state.day;
+    out.ageDays = 0;
+    const trade = trueTradeTraffic(i), dis = trueDisruption(i);
+    // A relay reads transponders: it counts what is there and what has stopped answering, and it is
+    // no judge of how hard a garrison would fight.
+    out.traffic = { band: trade.band, why: trade.why };
+    out.disruption = { band: dis.band, why: dis.why };
+    const prot = trueProtection(i), threat = trueThreat(i);
+    out.protection = live
+      ? { band: prot.band, why: prot.why }
+      : { band: Math.min(2, prot.band), why: `${prot.hulls + prot.armed} armed presence${prot.hulls + prot.armed === 1 ? '' : 's'} answering; strength not readable from a transponder`, capped: true };
+    out.threat = live
+      ? { band: threat.band, why: threat.why }
+      : threat.ops
+        ? { band: Math.max(2, Math.min(3, threat.ops + 1)), why: `${threat.ops} force${threat.ops === 1 ? '' : 's'} under way against this system; the week's own activity is not readable from here`, capped: true }
+        : { band: 0, why: 'no force under way; the week\'s own activity is not readable from here', capped: true };
+    return out;
+  }
+  // Rumour: what the captain saw when they were last there, plus whatever anybody has said since.
+  // The two age separately, and the things that change week to week are not carried forward at all.
+  const seen = lastSeenDay(i);
+  if (datedDay == null && seen == null) {
+    return { ...out, source: 'none', sourceLabel: CONDITION_SOURCES.none.label, caveat: CONDITION_SOURCES.none.caveat, rank: 0 };
+  }
+  const freshest = Math.max(datedDay ?? 0, seen ?? 0);
+  out.asOfDay = freshest || null;
+  out.ageDays = freshest ? Math.max(0, state.day - freshest) : null;
+  if (seen != null) {
+    // A world's berths, its market and whose flag flies over it are what the captain looked at, and
+    // they do not turn over in a week. Its garrison and its week's weather do.
+    const trade = trueTradeTraffic(i), dis = trueDisruption(i), prot = trueProtection(i);
+    const ago = state.day - seen;
+    out.traffic = { band: trade.band, why: `${trade.why} — as the captain saw it on day ${seen}`, dated: true };
+    out.disruption = { band: dis.band, why: `${dis.why} — last seen day ${seen}`, dated: true };
+    out.protection = ago <= 14
+      ? { band: prot.band, why: `${prot.why} — seen day ${seen}`, dated: true }
+      : { band: Math.min(1, prot.band), why: `last seen day ${seen}, ${ago} days ago; a garrison that old is not a reading`, dated: true, capped: true };
+  }
+  const claimed = observation?.kind || null;
+  const band = { quiet: 0, scout: 1, skirmish: 2, raid: 3, battle: 3 }[claimed] ?? null;
+  if (band != null) {
+    out.threat = { band, why: `${claimed} reported on day ${observation.day}${observation?.attacker ? `, ships called ${formatFaction(observation.attacker)}` : ''}`, dated: true };
+  } else if (report) {
+    out.threat = { band: 1, why: `${report.kind} on day ${report.day}; nothing since`, dated: true };
+  }
+  // Threat deliberately stays null when nobody has reported one: a lane the captain flew through
+  // eighty days ago tells them nothing about who is waiting on it now.
+  return out;
+}
+// A lane is only as known as its worse end, and only as busy as its quieter one.
+function laneConditions(a, b, ctx = null) {
+  const A = systemConditions(a, ctx), B = systemConditions(b, ctx);
+  if (!A || !B) return null;
+  const worse = A.rank <= B.rank ? A : B;
+  // A lane is only as known as its worse end. One end reporting quiet says nothing about a lane whose
+  // other end nobody has looked at, so a missing reading makes the lane's reading missing — it never
+  // contributes a zero. [playtest]
+  const traffic = A.traffic && B.traffic ? { band: Math.min(A.traffic.band, B.traffic.band) } : null;
+  const threat = A.threat && B.threat ? { band: Math.max(A.threat.band, B.threat.band) } : null;
+  return { a: Number(a), b: Number(b), traffic, threat, source: worse.source, ageDays: worse.ageDays, ends: [A, B] };
+}
+// Recomputing every system's conditions per frame means re-walking every polity's hulls and every
+// station record 101 times a frame. The answer only moves when the day, the captain's position, their
+// sources or the campaign's operations move, so it is cached on exactly that.
+let conditionsMemo = { key: '', ctx: null, value: new Map() };
+function conditionsStamp() {
+  const book = campaignBook();
+  return [state.day, state.currentPlanet, (state.visitedSystems || []).length, (state.controlledSystems || []).length,
+    Object.keys(state.visitedDays || {}).length,
+    (state.playerFleet || []).filter((f) => !f.destroyed).length, (book.operations || []).length,
+    Object.keys(state.destroyedStations || {}).length, (galaxyNewsBook().items || []).length].join(':');
+}
+function conditionsFor(index) {
+  const key = conditionsStamp();
+  if (conditionsMemo.key !== key) conditionsMemo = { key, ctx: campaignIntelContext(), value: new Map() };
+  const i = Number(index);
+  if (!conditionsMemo.value.has(i)) conditionsMemo.value.set(i, systemConditions(i, conditionsMemo.ctx));
+  return conditionsMemo.value.get(i);
+}
+const CONDITION_COLORS = Object.freeze({
+  traffic: ['#3c4a60', '#6f8fb8', '#8fc6ff', '#bfe4ff'],
+  threat: ['#4a6a54', '#e0c979', '#f0975a', '#ff6b6b'],
+  protection: ['#4a5568', '#6fb8a0', '#7fe0c0', '#a8ffe0'],
+  unknown: '#8a7fa8',
+});
+// Lanes first, under everything: how much trade a route carries, how dangerous its ends are, and
+// whether the captain has any business claiming to know either.
+function drawMapLaneOverlay() {
+  if (!mapOverlayState().lanes) return;
+  const drawn = new Set();
+  for (const route of state.travelRoutes || []) {
+    const a = Number(route.from), b = Number(route.to);
+    if (!isChartSystemVisible(a) || !isChartSystemVisible(b)) continue;
+    const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+    if (drawn.has(key)) continue;
+    drawn.add(key);
+    const lane = laneConditions(a, b, conditionsMemo.ctx);
+    const pa = getStarChartSystemScreen(a), pb = getStarChartSystemScreen(b);
+    ctx.save();
+    ctx.lineCap = 'round';
+    if (!lane || !lane.traffic) {
+      // Nobody has told the captain anything about this lane. It is drawn, faintly and in its own
+      // colour, precisely so that it does not read as an empty quiet one.
+      ctx.strokeStyle = colorToRgba(CONDITION_COLORS.unknown, 0.5);
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([2, 5]);
+    } else {
+      const threat = lane.threat?.band ?? 0;
+      ctx.strokeStyle = colorToRgba(threat >= 2 ? CONDITION_COLORS.threat[threat] : CONDITION_COLORS.traffic[lane.traffic.band],
+        0.3 + lane.traffic.band * 0.2);
+      ctx.lineWidth = 1 + lane.traffic.band * 1.6;
+      ctx.setLineDash(lane.ageDays > 14 ? [10, 5] : []);
+    }
+    ctx.beginPath();
+    ctx.moveTo(pa.x, pa.y);
+    ctx.lineTo(pb.x, pb.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+// Then the systems themselves: two short arcs on the node, protection below-left and threat
+// above-right, and a dashed ring with a query for a system nothing has reported on.
+function drawMapSecurityOverlay() {
+  if (!mapOverlayState().security) return;
+  const r = MAP_PLANET_DRAW_SIZE * 0.25 + 5;
+  for (let i = 0; i < state.planets.length; i++) {
+    if (!isChartSystemVisible(i)) continue;
+    const c = conditionsFor(i);
+    if (!c) continue;
+    const screen = getStarChartSystemScreen(i);
+    ctx.save();
+    ctx.lineWidth = 2.4;
+    if (c.source === 'none') {
+      ctx.strokeStyle = colorToRgba(CONDITION_COLORS.unknown, 0.85);
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = CONDITION_COLORS.unknown;
+      ctx.font = canvasUiFont(10, 700);
+      ctx.textAlign = 'center';
+      ctx.fillText('?', screen.x, screen.y - r - 3);
+      ctx.textAlign = 'left';
+      ctx.restore();
+      continue;
+    }
+    if (c.threat) {
+      ctx.strokeStyle = CONDITION_COLORS.threat[c.threat.band];
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r, -Math.PI * 0.45, -Math.PI * 0.45 + Math.PI * 0.18 * (1 + c.threat.band));
+      ctx.stroke();
+    }
+    if (c.protection) {
+      ctx.strokeStyle = CONDITION_COLORS.protection[c.protection.band];
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r, Math.PI * 0.55, Math.PI * 0.55 + Math.PI * 0.18 * (1 + c.protection.band));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+// The readout under the chart's own header: what each indicator says for the selected system, where
+// the claim came from and how old it is. An indicator with no source prints as "no report" with the
+// sentence that says why that is not the same as quiet.
+function conditionsReadout(index) {
+  const c = conditionsFor(index);
+  if (!c) return [];
+  const name = chartSystemLabel(index);
+  const band = (v) => (v ? CONDITION_BANDS[v.band] + (v.capped ? '*' : '') + (v.dated ? '†' : '') : 'no report');
+  const age = c.ageDays == null ? '' : c.ageDays === 0 ? ', current' : `, ${c.ageDays} day${c.ageDays === 1 ? '' : 's'} old`;
+  const lines = [
+    `${name} — trade ${band(c.traffic)} | patrols ${band(c.protection)} | threat ${band(c.threat)} | disruption ${band(c.disruption)}`,
+    `Source: ${c.sourceLabel}${c.asOfDay == null ? '' : `, day ${c.asOfDay}`}${age} — ${c.caveat}`,
+  ];
+  if (c.source === 'none') lines.push('Nothing has reported on this system. Treat it as unknown, not as safe.');
+  else if (c.threat) lines.push(`Threat: ${c.threat.why}`);
+  if (c.traffic && c.source !== 'none') lines.push(`Trade: ${c.traffic.why}`);
+  return lines;
+}
 // What the captain has committed to, drawn on the chart. Three layers, each selectable, each reading
 // live state so a contract accepted anywhere marks its world at once and stops marking it the moment it
 // completes or expires. Nothing is drawn for a system the captain has not charted: an overlay that
@@ -21512,6 +21850,8 @@ function clearInterstellarMapOverlay() {
 const MAP_OVERLAY_LAYERS = Object.freeze([
   { key: 'contracts', label: 'Contract objectives', color: '#7ce8c0' },
   { key: 'cargo', label: 'Cargo destinations', color: '#ffe38a' },
+  { key: 'lanes', label: 'Trade lanes', color: '#8fc6ff', kind: 'conditions' },
+  { key: 'security', label: 'Patrols & threats', color: '#f0975a', kind: 'conditions' },
   // Deliberately not the blue the chart already uses for travel routes: an objective line drawn in the
   // engine's own route colour is invisible, because it lands on top of a line that is already there.
   { key: 'routes', label: 'Route to objective', color: '#d3a6ff' },
@@ -21519,6 +21859,9 @@ const MAP_OVERLAY_LAYERS = Object.freeze([
 function mapOverlayState() {
   const p = ensurePlaytestState();
   if (!p.mapOverlays) p.mapOverlays = { contracts: true, cargo: true, routes: true };
+  // Layers added after a save was written arrive missing; default them on rather than leaving the
+  // captain with a legend row that does nothing.
+  for (const l of MAP_OVERLAY_LAYERS) if (p.mapOverlays[l.key] === undefined) p.mapOverlays[l.key] = true;
   return p.mapOverlays;
 }
 function toggleMapOverlay(key) {
@@ -21707,6 +22050,15 @@ function drawMapOverlayLegend() {
   const objectives = mapObjectives();
   const counts = Object.fromEntries(MAP_OVERLAY_LAYERS.map((l) => [l.key, objectives.filter((o) => o.kind === l.key).length]));
   counts.routes = new Set(objectives.filter((o) => layers[o.kind]).map((o) => o.index)).size;
+  // The conditions layers count what the captain can actually say something about, and — the number
+  // that matters — how many charted systems nothing has reported on.
+  let known = 0, unknown = 0;
+  for (let i = 0; i < state.planets.length; i++) {
+    if (!isChartSystemVisible(i)) continue;
+    if (conditionsFor(i)?.source === 'none') unknown++; else known++;
+  }
+  counts.lanes = known;
+  counts.security = known;
   const rect = getStarChartPanelRect();
   const x = rect.left + 14;
   const y = rect.bottom - 18 - MAP_OVERLAY_LAYERS.length * 18;
@@ -21714,7 +22066,8 @@ function drawMapOverlayLegend() {
   ctx.fillStyle = 'rgba(4, 8, 16, 0.82)';
   ctx.strokeStyle = 'rgba(140, 170, 210, 0.45)';
   ctx.lineWidth = 1;
-  const w = 232, h = MAP_OVERLAY_LAYERS.length * 18 + 26;
+  const extra = (layers.lanes || layers.security) && unknown ? 15 : 0;
+  const w = 268, h = MAP_OVERLAY_LAYERS.length * 18 + 26 + extra;
   ctx.beginPath();
   ctx.rect(x - 8, y - 20, w, h);
   ctx.fill();
@@ -21723,6 +22076,11 @@ function drawMapOverlayLegend() {
   ctx.fillStyle = '#9fb2d0';
   ctx.textAlign = 'left';
   ctx.fillText('OVERLAYS — CLICK TO TOGGLE', x, y - 7);
+  if ((layers.lanes || layers.security) && unknown) {
+    ctx.font = canvasUiFont(10);
+    ctx.fillStyle = CONDITION_COLORS.unknown;
+    ctx.fillText(`${unknown} charted system${unknown === 1 ? '' : 's'} unreported — unknown, not safe`, x, y + MAP_OVERLAY_LAYERS.length * 18 + 5);
+  }
   MAP_OVERLAY_LAYERS.forEach((layer, n) => {
     const ly = y + 9 + n * 18;
     const on = Boolean(layers[layer.key]);
@@ -21820,7 +22178,9 @@ function drawInterstellarMapOverlay() {
     drawStarChartNebulaRegions();
     drawMapFactionTerritories();
     drawTravelRoutes();
+    drawMapLaneOverlay();
     drawMapObjectiveOverlay();
+    drawMapSecurityOverlay();
     for (let i = 0; i < state.planets.length; i++) {
       drawPlanetMarker(state.planets[i], i);
     }
@@ -22080,6 +22440,7 @@ function resetRunState() {
   state.securityPolicies = { default: null, systems: {} };
   resetSecurityRecords();
   state.visitedSystems = [];
+  state.visitedDays = {};
   state.factionSystemOverrides = {};
   state.destroyedStations = {};
   state.depletedAsteroids = {};
