@@ -8858,6 +8858,20 @@ document.addEventListener('click', (e) => {
     return;
   }
   if (e.target.closest('[data-alert-cycle]')) { cycleAlertLevel(); return; }
+  const showOnMap = e.target.closest?.('[data-contract-show]');
+  if (showOnMap) {
+    const i = Number(showOnMap.dataset.contractShow);
+    if (Number.isInteger(i) && state.planets[i]) {
+      // Order matters: openMap() selects the system the captain is standing in, so selecting the
+      // objective first meant "Show on map" opened the chart on the wrong world. [playtest]
+      if (!state.mapOpen) openMap();
+      state.selectedPlanet = i;
+      focusStarChartOnSystem(i, STAR_CHART_FOCUSED_ZOOM);
+      setLog(`${contractDestinationLabel(i)} marked on the chart.`);
+    }
+    return;
+  }
+  if (e.target.closest?.('[data-contract-ask]')) { negotiateContract(); renderTopLeftPanel(); return; }
 });
 document.addEventListener('change', (e) => {
   if (
@@ -10105,14 +10119,16 @@ function renderTopLeftPanel() {
   // One heading each: the panel's own title row supplies it, so these no longer print a second one.
   const powerContent = renderPowerPanel();
   const ewContent = renderEWPanel();
-  const panelContent = state.topLeftTab === 'power'
+  const panelContent = state.topLeftTab === 'contracts'
+    ? renderContractsPanel()
+    : state.topLeftTab === 'power'
     ? powerContent
     : state.topLeftTab === 'ew'
     ? ewContent
     : state.topLeftTab === 'settings'
     ? `<div class="panel-head">Settings</div>${gameOptions}<div class="panel-head">Save & Debug</div>${settingsActions}<div class="meta">${escapeHtml(godStatus)}</div><div class="panel-head">God Ship Switcher</div><div class="god-ship-switcher">${renderGodModeShipSwitcher()}</div>`
     : `<div class="panel-head">Inventory</div>${resources}${flags}${stationPlans}${weaponLine}${contract}<div class="panel-head">Cargo Pods</div><div class="pods">${pods}</div>`;
-  const panelTitle = { power: 'Power (OPS)', ew: 'Electronic warfare', settings: 'Settings', inventory: 'Inventory' }[state.topLeftTab] || 'Inventory';
+  const panelTitle = { power: 'Power (OPS)', ew: 'Electronic warfare', settings: 'Settings', contracts: 'Contracts', inventory: 'Inventory' }[state.topLeftTab] || 'Inventory';
   // A real header row rather than a decorative ::after bar with the content scrolling beneath it: the
   // title and the close control used to be painted over by whatever the body scrolled up into them,
   // and the panel remembers its scroll position per tab, so it reopened already overlapping. [playtest]
@@ -15020,7 +15036,7 @@ document.addEventListener('click', (e) => {
     // a long Sensors panel and EW a collapsed section inside it, which is why neither could be found.
     else if (action === 'fleet') renderFleetManager(true);
     else if (action === 'ew') openTopLeftTab('ew');
-    else if (action === 'contract') negotiateContract();
+    else if (action === 'contract') openContractsPanel();
     else if (action === 'save') saveGame();
     return;
   }
@@ -15580,6 +15596,7 @@ function handleGameCanvasClick(e) {
   if (isWormholeTransitActive()) return;
   if (state.starChart.suppressClick) return;
   const { x: mx, y: my } = canvasEventPoint(e);
+  if (state.mapOpen && handleMapOverlayLegendClick(mx, my)) return;
   if (state.mapOpen && isPointInStarChartViewport(mx, my)) {
     let closestIndex = -1;
     let closestDistance = Infinity;
@@ -19899,12 +19916,6 @@ function drawMapSystemNode(p, i, size) {
     ctx.stroke();
   }
 
-  const deliveries = getOpenContracts().filter(c => c.showMarker && getContractTargetIndex(c) === i);
-  if (deliveries.length) {
-    ctx.strokeStyle = '#ffe38a'; ctx.lineWidth = 2;
-    ctx.beginPath();ctx.arc(screen.x,screen.y,radius+7,0,Math.PI*2);ctx.stroke();
-    ctx.fillStyle='#ffe38a';ctx.font=canvasUiFont(11);ctx.fillText(`Cargo ×${deliveries.length}`,screen.x+radius+10,screen.y+4);
-  }
   if (system.hasNebula) {
     ctx.fillStyle = 'rgba(216, 196, 255, 0.78)';
     ctx.beginPath();
@@ -21448,6 +21459,235 @@ function clearInterstellarMapOverlay() {
   interstellarMapCtx.clearRect(0, 0, interstellarMapCanvas.width, interstellarMapCanvas.height);
 }
 
+// What the captain has committed to, drawn on the chart. Three layers, each selectable, each reading
+// live state so a contract accepted anywhere marks its world at once and stops marking it the moment it
+// completes or expires. Nothing is drawn for a system the captain has not charted: an overlay that
+// reveals where an undiscovered world is would be an intelligence leak dressed as a convenience.
+// [playtest]
+const MAP_OVERLAY_LAYERS = Object.freeze([
+  { key: 'contracts', label: 'Contract objectives', color: '#7ce8c0' },
+  { key: 'cargo', label: 'Cargo destinations', color: '#ffe38a' },
+  // Deliberately not the blue the chart already uses for travel routes: an objective line drawn in the
+  // engine's own route colour is invisible, because it lands on top of a line that is already there.
+  { key: 'routes', label: 'Route to objective', color: '#d3a6ff' },
+]);
+function mapOverlayState() {
+  const p = ensurePlaytestState();
+  if (!p.mapOverlays) p.mapOverlays = { contracts: true, cargo: true, routes: true };
+  return p.mapOverlays;
+}
+function toggleMapOverlay(key) {
+  const o = mapOverlayState();
+  if (!MAP_OVERLAY_LAYERS.some((l) => l.key === key)) return;
+  o[key] = !o[key];
+  setLog(`${MAP_OVERLAY_LAYERS.find((l) => l.key === key).label}: ${o[key] ? 'shown' : 'hidden'}.`);
+}
+// Every objective the captain is carrying, as {index, label, detail, kind}. Campaign contracts and
+// trade contracts and loose destination cargo all answer the same question — where am I meant to be —
+// so they are one list.
+function mapObjectives() {
+  const out = [];
+  const seen = new Set();
+  const push = (index, kind, label, detail) => {
+    const i = Number(index);
+    if (!Number.isInteger(i) || i < 0 || !state.planets[i]) return;
+    if (!isChartSystemVisible(i)) return;
+    const key = `${kind}:${i}:${label}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ index: i, kind, label, detail });
+  };
+  for (const m of (campaignBook().missions || [])) {
+    if (m.status !== 'active') continue; // only what the captain has taken on
+    push(m.systemIndex, 'contracts', `${m.kind} contract`,
+      `${chartSystemLabel(m.systemIndex)}${m.deadlineDay ? ` · day ${m.deadlineDay}` : ''}`);
+  }
+  for (const c of getOpenContracts()) {
+    if (c.showMarker === false) continue;
+    push(getContractTargetIndex(c), 'cargo', `${c.tons}t ${c.goods || 'cargo'}`,
+      `${chartSystemLabel(getContractTargetIndex(c))} · ${c.payPerTon ? `${c.payPerTon}L/t` : 'delivery'}`);
+  }
+  for (const pod of (state.cargoArray || [])) {
+    if (!(pod.tons > 0) || pod.destination === undefined) continue;
+    push(getCargoDestinationIndex(pod), 'cargo', `${pod.tons}t ${pod.item || 'cargo'}`,
+      `${getCargoDestinationName(pod) || 'destination'}${pod.payout ? ` · ${pod.payout}L` : ''}`);
+  }
+  return out;
+}
+function drawMapObjectiveOverlay() {
+  const layers = mapOverlayState();
+  const objectives = mapObjectives().filter((o) => layers[o.kind]);
+  if (!objectives.length) return;
+  const here = Number(state.currentPlanet);
+  const routeColor = MAP_OVERLAY_LAYERS.find((l) => l.key === 'routes').color;
+  // Routes first, so the markers sit on top of their own lines. Each is laid down twice: a dark casing
+  // wide enough to separate it from the chart's own route lines, then the dashed line itself.
+  if (layers.routes) {
+    for (const target of [...new Set(objectives.map((o) => o.index))]) {
+      if (target === here) continue;
+      const plan = getPlottedRoute(here, target);
+      if (!plan || !plan.systems || plan.systems.length < 2) continue;
+      const path = () => {
+        ctx.beginPath();
+        plan.systems.forEach((sys, n) => {
+          const pt = getStarChartSystemScreen(sys);
+          if (n === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
+        });
+      };
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(6, 8, 18, 0.85)';
+      ctx.lineWidth = 6;
+      ctx.setLineDash([]);
+      path();
+      ctx.stroke();
+      ctx.strokeStyle = routeColor;
+      ctx.lineWidth = 2.6;
+      ctx.setLineDash([9, 6]);
+      path();
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+  // A world can be several things at once — a contract objective and a delivery — so it gets one ring
+  // per kind at its own radius, and its labels stack beneath it rather than beside it, where the chart
+  // already writes the system's own name.
+  const byIndex = new Map();
+  for (const o of objectives) {
+    if (!byIndex.has(o.index)) byIndex.set(o.index, []);
+    byIndex.get(o.index).push(o);
+  }
+  for (const [index, list] of byIndex) {
+    const screen = getStarChartSystemScreen(index);
+    const base = MAP_PLANET_DRAW_SIZE * 0.25;
+    const kinds = MAP_OVERLAY_LAYERS.map((l) => l.key).filter((k) => list.some((o) => o.kind === k));
+    ctx.save();
+    ctx.setLineDash([]);
+    kinds.forEach((kind, n) => {
+      ctx.strokeStyle = MAP_OVERLAY_LAYERS.find((l) => l.key === kind).color;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, base + 9 + n * 4, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+    ctx.font = canvasUiFont(11);
+    ctx.textAlign = 'center';
+    const shown = list.slice(0, 2);
+    shown.forEach((o, n) => {
+      const ly = screen.y + base + 20 + n * 13;
+      const text = n === 1 && list.length > 2 ? `${o.label} +${list.length - 2} more` : o.label;
+      ctx.fillStyle = 'rgba(6, 8, 18, 0.8)';
+      const w = ctx.measureText(text).width + 8;
+      ctx.fillRect(screen.x - w / 2, ly - 10, w, 13);
+      ctx.fillStyle = MAP_OVERLAY_LAYERS.find((l) => l.key === o.kind).color;
+      ctx.fillText(text, screen.x, ly);
+    });
+    ctx.textAlign = 'left';
+    ctx.restore();
+  }
+}
+// The legend doubles as the layer picker: it says what each colour means and which layers are on, and
+// the numbers beside each are how many objectives that layer is currently showing.
+function drawMapOverlayLegend() {
+  const layers = mapOverlayState();
+  const objectives = mapObjectives();
+  const counts = Object.fromEntries(MAP_OVERLAY_LAYERS.map((l) => [l.key, objectives.filter((o) => o.kind === l.key).length]));
+  counts.routes = new Set(objectives.filter((o) => layers[o.kind]).map((o) => o.index)).size;
+  const rect = getStarChartPanelRect();
+  const x = rect.left + 14;
+  const y = rect.bottom - 18 - MAP_OVERLAY_LAYERS.length * 18;
+  ctx.save();
+  ctx.fillStyle = 'rgba(4, 8, 16, 0.82)';
+  ctx.strokeStyle = 'rgba(140, 170, 210, 0.45)';
+  ctx.lineWidth = 1;
+  const w = 232, h = MAP_OVERLAY_LAYERS.length * 18 + 26;
+  ctx.beginPath();
+  ctx.rect(x - 8, y - 20, w, h);
+  ctx.fill();
+  ctx.stroke();
+  ctx.font = canvasUiFont(10, 700);
+  ctx.fillStyle = '#9fb2d0';
+  ctx.textAlign = 'left';
+  ctx.fillText('OVERLAYS — CLICK TO TOGGLE', x, y - 7);
+  MAP_OVERLAY_LAYERS.forEach((layer, n) => {
+    const ly = y + 9 + n * 18;
+    const on = Boolean(layers[layer.key]);
+    ctx.strokeStyle = layer.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x + 6, ly - 4, 5, 0, Math.PI * 2);
+    ctx.stroke();
+    if (on) { ctx.fillStyle = layer.color; ctx.beginPath(); ctx.arc(x + 6, ly - 4, 2.4, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = on ? '#dfeaff' : '#6f7f96';
+    ctx.font = canvasUiFont(11);
+    ctx.fillText(`${layer.label} (${counts[layer.key] || 0})`, x + 18, ly);
+  });
+  ctx.restore();
+  return { x: x - 8, y: y - 20, w, h, rowY: y + 9, rowH: 18 };
+}
+let mapOverlayLegendRect = null;
+function handleMapOverlayLegendClick(mx, my) {
+  const r = mapOverlayLegendRect;
+  if (!r) return false;
+  if (mx < r.x || mx > r.x + r.w || my < r.y || my > r.y + r.h) return false;
+  const n = Math.floor((my - (r.rowY - 12)) / r.rowH);
+  const layer = MAP_OVERLAY_LAYERS[n];
+  if (layer) toggleMapOverlay(layer.key);
+  return true;
+}
+// One door for taking a contract, whichever screen offered it. Accepting has to do three things the
+// callers kept forgetting: flip the mission live, say on screen which world was just marked, and
+// refresh a contracts panel that is already open so the row stops reading "offered". [playtest]
+function acceptCampaignMission(id, { announce = true } = {}) {
+  const book = campaignBook();
+  const m = (book.missions || []).find((x) => x.id === id);
+  if (!Campaign.acceptMission(book, id, state.day)) return false;
+  if (announce) {
+    const where = contractDestinationLabel(m?.systemIndex);
+    setLog(`Contract accepted. ${where === 'unknown' ? 'No destination is set for it.' : `${where} is marked on the interstellar map.`}`);
+  }
+  if (state.topLeftTab === 'contracts' && state.topLeftPanelOpen) renderTopLeftPanel();
+  return true;
+}
+function contractDestinationLabel(index) {
+  const i = Number(index);
+  if (!Number.isInteger(i) || !state.planets[i]) return 'unknown';
+  return isChartSystemVisible(i) ? chartSystemLabel(i) : 'uncharted system';
+}
+function openContractsPanel() {
+  state.topLeftTab = 'contracts';
+  state.topLeftPanelOpen = true;
+  topLeftPanelEl?.classList.remove('hidden');
+  renderTopLeftPanel();
+}
+function renderContractsPanel() {
+  const book = campaignBook();
+  const live = (book.missions || []).filter((m) => ['offered', 'active'].includes(m.status) && m.kind !== 'archive');
+  const cargo = getOpenContracts();
+  const row = (title, where, when, actions, note) =>
+    `<div class="contract-row"><div><b>${escapeHtml(title)}</b><div class="meta">${escapeHtml(where)}${when ? ` · ${escapeHtml(when)}` : ''}${note ? ` · ${escapeHtml(note)}` : ''}</div></div><div class="contract-row-actions">${actions}</div></div>`;
+  const missionRows = live.map((m) => {
+    const where = contractDestinationLabel(m.systemIndex);
+    const when = m.deadlineDay ? `due day ${m.deadlineDay}` : '';
+    const show = `<button data-contract-show="${escapeHtml(String(m.systemIndex))}">Show on map</button>`;
+    const accept = m.status === 'offered' ? `<button data-campaign-accept="${escapeHtml(m.id)}">Accept</button>` : '';
+    return row(`${m.kind} contract`, where, when, accept + show, m.status === 'offered' ? 'offered' : 'accepted');
+  }).join('');
+  const cargoRows = cargo.map((c) => {
+    const i = getContractTargetIndex(c);
+    return row(`${c.tons}t ${c.goods || 'cargo'}`, contractDestinationLabel(i),
+      c.payPerTon ? `${c.payPerTon} L/t` : '',
+      `<button data-contract-marker="${escapeHtml(c.id)}">${c.showMarker === false ? 'Show' : 'Hide'} marker</button>`
+      + `<button data-contract-show="${escapeHtml(String(i))}">Show on map</button>`, c.employerName || '');
+  }).join('');
+  const accepted = live.filter((m) => m.status === 'active').length;
+  return `<div class="panel-head panel-subhead">Station contracts (${accepted} accepted)</div>`
+    + (missionRows || '<div class="meta">No station contracts open. Dock or hail a station to ask for work.</div>')
+    + `<div class="panel-head panel-subhead">Cargo deliveries (${cargo.length})</div>`
+    + (cargoRows || '<div class="meta">No delivery cargo aboard.</div>')
+    + `<div class="meta">Accepted contracts and delivery cargo are marked on the interstellar map. Toggle the layers from the legend at the foot of the chart.</div>`
+    + `<div class="ship-actions"><button data-contract-ask>Ask for a contract here</button><button data-top-action="close-panel">Close</button></div>`;
+}
 function drawInterstellarMapOverlay() {
   if (!interstellarMapCtx || !interstellarMapCanvas) return false;
   clearInterstellarMapOverlay();
@@ -21460,11 +21700,13 @@ function drawInterstellarMapOverlay() {
     drawStarChartNebulaRegions();
     drawMapFactionTerritories();
     drawTravelRoutes();
+    drawMapObjectiveOverlay();
     for (let i = 0; i < state.planets.length; i++) {
       drawPlanetMarker(state.planets[i], i);
     }
     ctx.restore();
     drawWorldPops();
+    mapOverlayLegendRect = drawMapOverlayLegend();
   } finally {
     ctx = previousCtx;
   }
@@ -23532,7 +23774,7 @@ function startDesignRecovery(recoveryId) {
   const text = { engineers: `Rescue the surviving ${ship?.name || 'design'} engineers at ${state.planets[r.systemIndex]?.name} and escort them to a compatible yard you control or that cooperates.`, archive: `Recover the ${ship?.name || 'design'} engineering archive from the wreck at ${state.planets[r.systemIndex]?.name}, then deliver it to a compatible yard.`, broker: `A broker offers a lead on a surviving ${ship?.name || 'design'} archive; pay the finder's fee at any trade station or bar, then recover and deliver it.` }[r.kind];
   const m = Campaign.offerMission(book, { id: campaignEngineId(book, 'mission'), key, kind: 'archive', recoveryId: r.id, shipId: r.shipId, systemIndex: r.systemIndex, step: r.kind === 'broker' ? 'lead' : 'recover', deadlineDay: state.day + 120, text, fee: r.kind === 'broker' ? Math.round(getShipPrice(ship) * 0.1) : 0 }, state.day);
   if (!m) { setLog(Campaign.liveMissions(book).length >= book.config.maxLiveMissions ? 'Too many contracts are already open; finish or abandon one first.' : 'Recovery already under way.'); return false; }
-  Campaign.acceptMission(book, m.id, state.day); r.status = 'active'; r.missionId = m.id;
+  acceptCampaignMission(m.id, { announce: false }); r.status = 'active'; r.missionId = m.id;
   setLog(`Recovery contract accepted: ${text}`);
   return true;
 }
@@ -23798,7 +24040,7 @@ document.addEventListener('click', (e) => {
   const rec = e.target.closest('[data-campaign-recover]');
   if (rec) { startDesignRecovery(rec.dataset.campaignRecover); renderCampaignPanel(); return; }
   const acc = e.target.closest('[data-campaign-accept]');
-  if (acc) { Campaign.acceptMission(campaignBook(), acc.dataset.campaignAccept, state.day); renderCampaignPanel(); return; }
+  if (acc) { acceptCampaignMission(acc.dataset.campaignAccept); renderCampaignPanel(); return; }
 });
 document.getElementById('campaign-panel')?.addEventListener('cancel', (e) => { e.preventDefault(); closeCampaignPanel(); });
 // ---- debug controls (normal transitions where possible; forced overrides are labelled) ----

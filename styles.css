@@ -1865,6 +1865,22 @@ button:disabled {
   margin-bottom: 4px;
   text-transform: uppercase;
 }
+/* The contracts list the CONTRACT button opens: what was taken on, where it is, when it is due. */
+.contract-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--lcars-line);
+}
+.contract-row b { color: var(--lcars-cream); }
+.contract-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 0 0 auto;
+}
 .contract {
   color: var(--lcars-amber);
   margin-bottom: 4px;

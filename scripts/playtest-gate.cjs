@@ -1344,6 +1344,190 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.ok(r.allegianceCount >= 30, `only ${r.allegianceCount} worlds have an authored allegiance`);
   });
 
+  // MARK — item 7. Accepting a contract left nothing on the chart: the captain was told to fly to a
+  // world and given no way to find it again, and the only list of what they had taken on was buried in
+  // the Empire panel under "escort". This reproduces the whole round trip through real clicks: accept
+  // from the contracts panel, read the marker, ask to be shown it, then finish it and let one expire.
+  await check('MARK a contract taken on is named, dated and marked, and stops being marked when it ends', async () => {
+    await fresh('play-mark');
+    const setup = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (!t.mapObjectives || !t.openContractsPanel) {
+        return { fail: 'this tree has no contract list and no map objective layer: what the captain has accepted is listed only inside the Empire panel, and its destination is never marked on the chart' };
+      }
+      s.day = 10;
+      // A charted world that is not the one the captain is standing in.
+      const target = (s.planets || []).findIndex((p, i) => i !== Number(s.currentPlanet) && t.isChartSystemVisible(i) && !t.isDominionCoreSystem(p.name));
+      if (target < 0) return { fail: 'no charted world to send the captain to' };
+      if (!s.visitedSystems.includes(target)) s.visitedSystems.push(target);
+      const m = t.offerStationMission('recon', target);
+      if (!m) return { fail: 'the station would not offer a contract to reproduce against' };
+      t.openContractsPanel();
+      const panel = document.getElementById('top-left-panel');
+      const beforeMarks = t.mapObjectives().filter((o) => o.index === target).length;
+      return { fail: null, target, name: s.planets[target].name, missionId: m.id, deadlineDay: m.deadlineDay,
+        beforeMarks, panelHtml: panel?.innerHTML || '', panelHidden: Boolean(panel?.classList.contains('hidden')) };
+    });
+    assert.ok(!setup.fail, `the contract reproduction could not be set up: ${setup.fail}`);
+    assert.equal(setup.panelHidden, false, 'the CONTRACT control did not open a panel at all');
+    assert.equal(setup.beforeMarks, 0,
+      'a contract that was merely offered, and never accepted, was already marked on the chart');
+    assert.ok(/data-campaign-accept/.test(setup.panelHtml),
+      'the contracts panel offers no way to take a contract on; the captain must still go looking for it in the Empire panel');
+
+    // Accept it the way a captain does: a real click on the button in the panel.
+    const acceptBox = await page.locator(`#top-left-panel [data-campaign-accept="${setup.missionId}"]`).first().boundingBox();
+    assert.ok(acceptBox, 'the Accept control is in the markup but not on screen');
+    await page.mouse.click(acceptBox.x + acceptBox.width / 2, acceptBox.y + acceptBox.height / 2);
+    await page.waitForTimeout(120);
+
+    const after = await ev((target) => {
+      const t = testBM1, s = t.state;
+      const marks = t.mapObjectives().filter((o) => o.index === target);
+      const panel = document.getElementById('top-left-panel');
+      return { marks, panelHtml: panel?.innerHTML || '',
+        status: (t.campaignBook().missions || []).find((m) => m.systemIndex === target)?.status,
+        log: String(s.log || '') };
+    }, setup.target);
+    assert.equal(after.status, 'active', `the Accept control did not take the contract on (status "${after.status}")`);
+    assert.equal(after.marks.length, 1,
+      `an accepted contract left ${after.marks.length} markers on the chart; the captain is told to fly somewhere and never shown where`);
+    assert.ok(/recon/i.test(after.marks[0].label),
+      `the marker does not name the contract: "${after.marks[0].label}"`);
+    assert.ok(after.marks[0].detail.includes(setup.name),
+      `the marker does not name its destination: "${after.marks[0].detail}"`);
+    assert.ok(after.marks[0].detail.includes(String(setup.deadlineDay)),
+      `the marker carries no deadline: "${after.marks[0].detail}"`);
+    assert.ok(after.panelHtml.includes(setup.name) && /due day/i.test(after.panelHtml),
+      'the contract list does not give the destination and deadline together');
+    assert.ok(new RegExp(setup.name).test(after.log),
+      `accepting said nothing about where the objective was marked: "${after.log.slice(0, 160)}"`);
+
+    // "Show on map" has to actually take the captain there.
+    const showBox = await page.locator(`#top-left-panel [data-contract-show="${setup.target}"]`).first().boundingBox();
+    assert.ok(showBox, 'the contract list has no "Show on map" control on screen');
+    await page.mouse.click(showBox.x + showBox.width / 2, showBox.y + showBox.height / 2);
+    await page.waitForTimeout(120);
+    const shown = await ev(() => ({ mapOpen: testBM1.state.mapOpen, selected: Number(testBM1.state.selectedPlanet) }));
+    assert.equal(shown.mapOpen, true, '"Show on map" did not open the chart');
+    assert.equal(shown.selected, setup.target, `"Show on map" selected system ${shown.selected} rather than the objective`);
+
+    // Finishing it, and letting one run out, both have to clear the marker.
+    const ended = await ev((target) => {
+      const t = testBM1, s = t.state;
+      const book = t.campaignBook();
+      const m = (book.missions || []).find((x) => x.systemIndex === target && x.status === 'active');
+      t.Campaign.completeMission(book, m.id, s.day, 'gate');
+      const afterComplete = t.mapObjectives().filter((o) => o.index === target).length;
+      const second = t.offerStationMission('relief', target);
+      t.acceptCampaignMission(second.id);
+      const whileLive = t.mapObjectives().filter((o) => o.index === target).length;
+      s.day = second.deadlineDay + 2;
+      t.advanceCampaign(s.day);
+      return { afterComplete, whileLive, afterExpiry: t.mapObjectives().filter((o) => o.index === target).length,
+        secondStatus: (t.campaignBook().missions || []).find((x) => x.id === second.id)?.status };
+    }, setup.target);
+    assert.equal(ended.afterComplete, 0, 'a completed contract is still marked on the chart');
+    assert.equal(ended.whileLive, 1, 'precondition: the replacement contract was marked while it was live');
+    assert.equal(ended.secondStatus, 'expired', `precondition: the replacement expired (status "${ended.secondStatus}")`);
+    assert.equal(ended.afterExpiry, 0, 'a contract whose deadline has passed is still marked on the chart');
+  });
+
+  // OVERLAY — item 9. There was no overlay: a single hardcoded ring for trade cargo, no routes, no
+  // legend, nothing selectable, and nothing that said what a ring meant. This check paints the chart
+  // for real and reads back what was drawn, so a layer that renders nothing cannot pass by declaring
+  // itself.
+  await check('OVERLAY the chart carries a selectable cargo and route layer that respects what is charted', async () => {
+    await fresh('play-overlay');
+    const setup = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (!t.MAP_OVERLAY_LAYERS || !t.drawInterstellarMapOverlay) {
+        return { fail: 'this tree draws one hardcoded ring for cargo and nothing else: no route lines, no legend, and no way to turn any of it off' };
+      }
+      const target = (s.planets || []).findIndex((p, i) => i !== Number(s.currentPlanet) && t.isChartSystemVisible(i) && !t.isDominionCoreSystem(p.name));
+      const hidden = (s.planets || []).findIndex((p, i) => t.isDominionCoreSystem(p.name));
+      if (target < 0 || hidden < 0) return { fail: 'the galaxy has no charted destination and no hidden region to test against' };
+      if (!s.visitedSystems.includes(target)) s.visitedSystems.push(target);
+      s.openContracts = [
+        { id: 'gate-cargo', goods: 'medical supplies', tons: 12, payPerTon: 40, targetIndex: target, employerName: 'Gate Office' },
+        { id: 'gate-hidden', goods: 'contraband', tons: 4, payPerTon: 90, targetIndex: hidden, employerName: 'Gate Office' },
+      ];
+      t.getOpenContracts();
+      t.openMap();
+      // Paint the chart and read back every string and every dashed stroke it put down.
+      window.__painted = [];
+      window.__dashed = 0;
+      window.__routeColor = String(t.MAP_OVERLAY_LAYERS.find((l) => l.key === 'routes').color).toLowerCase();
+      const C = CanvasRenderingContext2D.prototype;
+      if (!window.__spied) {
+        window.__spied = true;
+        const ft = C.fillText;
+        C.fillText = function (txt, ...rest) { window.__painted.push(String(txt)); return ft.call(this, txt, ...rest); };
+        // Counting any dashed stroke would count the chart's own unexplored-route dashes, so the
+        // route line is only credited when it is stroked in the overlay layer's own colour.
+        const st = C.stroke;
+        C.stroke = function (...a) {
+          const dash = (this.getLineDash && this.getLineDash()) || [];
+          if (dash.length && String(this.strokeStyle).toLowerCase() === window.__routeColor) window.__dashed++;
+          return st.apply(this, a);
+        };
+      }
+      t.drawInterstellarMapOverlay();
+      const painted = window.__painted.slice();
+      return { fail: null, target, hidden, targetName: s.planets[target].name, hiddenName: s.planets[hidden].name,
+        painted, dashed: window.__dashed,
+        layers: t.MAP_OVERLAY_LAYERS.map((l) => l.key),
+        objectives: t.mapObjectives().map((o) => ({ index: o.index, kind: o.kind })) };
+    });
+    assert.ok(!setup.fail, `the overlay reproduction could not be set up: ${setup.fail}`);
+    assert.ok(setup.layers.length >= 3, `only ${setup.layers.length} overlay layer(s) exist: ${setup.layers.join(', ')}`);
+    assert.ok(setup.painted.some((txt) => /medical supplies/.test(txt)),
+      'the chart was painted with no cargo marker; the captain cannot see where their delivery is going');
+    assert.ok(setup.painted.some((txt) => /CLICK TO TOGGLE/i.test(txt)),
+      'the chart has no legend saying what the markers mean or that they can be turned off');
+    assert.ok(setup.painted.some((txt) => /Cargo destinations \(\d+\)/.test(txt)),
+      `the legend does not count what each layer is showing: ${setup.painted.filter((t2) => /\(\d+\)/.test(t2)).join(' | ') || 'no counted rows'}`);
+    assert.ok(setup.dashed >= 1,
+      'no route line in the overlay\'s own colour was drawn between the captain and their objective; the chart\'s existing route lines are not the overlay');
+    // Discovery: the second contract points into the hidden region, and must not put a ring there.
+    assert.equal(setup.objectives.some((o) => o.index === setup.hidden), false,
+      `a delivery into a region the captain has never charted was marked on the map at ${setup.hiddenName}`);
+    assert.equal(setup.painted.some((txt) => /contraband/.test(txt)), false,
+      'the overlay named a cargo whose destination the captain has not discovered');
+
+    // Selectable: clicking the legend row turns that layer off, and the markers go with it.
+    const box = await ev(() => {
+      const t = testBM1;
+      const r = t.getStarChartPanelRect();
+      const n = t.MAP_OVERLAY_LAYERS.findIndex((l) => l.key === 'cargo');
+      const y = r.bottom - 18 - t.MAP_OVERLAY_LAYERS.length * 18 + 9 + n * 18 - 4;
+      const c = document.getElementById('game');
+      const rect = c.getBoundingClientRect();
+      return { clientX: rect.left + (r.left + 40) * (rect.width / c.width), clientY: rect.top + y * (rect.height / c.height) };
+    });
+    await page.mouse.click(box.clientX, box.clientY);
+    await page.waitForTimeout(120);
+    const afterToggle = await ev(() => {
+      const t = testBM1;
+      window.__painted = [];
+      window.__dashed = 0;
+      t.drawInterstellarMapOverlay();
+      const cargoOff = { on: t.mapOverlayState().cargo, painted: window.__painted.slice() };
+      // Negative control for the route count above: with the route layer off, nothing may be stroked
+      // in its colour, so a passing count cannot have come from the chart's own lines.
+      t.toggleMapOverlay('routes');
+      window.__dashed = 0;
+      t.drawInterstellarMapOverlay();
+      return { ...cargoOff, dashedWithRoutesOff: window.__dashed };
+    });
+    assert.equal(afterToggle.on, false,
+      'clicking the cargo row in the legend did not turn that layer off; the overlay is not selectable by pointer');
+    assert.equal(afterToggle.painted.some((txt) => /medical supplies/.test(txt)), false,
+      'the cargo layer reports itself off but its markers are still painted on the chart');
+    assert.equal(afterToggle.dashedWithRoutesOff, 0,
+      `the route layer was turned off and ${afterToggle.dashedWithRoutesOff} route line(s) were still drawn`);
+  });
+
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);
   if (failures.length) { console.log(`${failures.length} still reproduce:`); for (const f of failures) console.log(`  - ${f.name}: ${f.message.split('\n')[0]}`); process.exitCode = 1; }
   if (errors.length) { console.log(`page errors: ${errors.join(' | ')}`); process.exitCode = 1; }
