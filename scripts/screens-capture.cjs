@@ -102,13 +102,27 @@ const OUT = process.env.BM1_SCREENS_OUT || '/home/claude/bm1/patch2/validation/s
   // click at the control's own coordinates.
   const paint = () => ev(() => { try { testBM1.drawInterstellarMapOverlay(); } catch (e) {} });
 
-  // Answer the standing hail first, the way a captain would: its panel and the chart occupy the same
-  // corner of a 1440-wide window, and a shot of the chart taken underneath it is the same mistake as
-  // one taken under a dialog.
+
+  // Answer the standing hail for the layer shots: the chart-with-a-hail case has a shot of its own at
+  // the end, and these are meant to show the layers rather than the panel arrangement.
   await press('#security-order-panel [data-arrival-ack]', 'Acknowledge hail');
   if (await ev(() => !document.getElementById('security-order-panel')?.classList.contains('hidden'))) {
     note('the incoming hail would not clear from its own Acknowledge control');
   }
+
+  // A captain with some history behind them, so the conditions layer has something to show besides a
+  // galaxy of question marks: worlds seen at different times, and one of their own ships on station.
+  await ev(() => {
+    const t = testBM1, s = t.state;
+    const charted = (s.planets || []).map((p, i) => i).filter((i) => t.isChartSystemVisible(i));
+    let day = 1;
+    for (const i of charted.slice(0, 22)) { s.day = day; t.markSystemVisited(i); day += 3; }
+    s.day = 70;
+    const watched = charted[9];
+    s.playerFleet.push({ id: 'shot-eyes', shipId: 1, faction: 'terran', assignment: 'patrol',
+      systemIndex: watched, vessel: { hull: 100, condition: 'ready' } });
+    s.selectedPlanet = watched;
+  });
 
   // ---- contracts, opened by pressing CONTRACT ----
   await press('#bottom-dock [data-dock-action="contract"]', 'CON');
@@ -153,9 +167,55 @@ const OUT = process.env.BM1_SCREENS_OUT || '/home/claude/bm1/patch2/validation/s
   await paint();
   await shot('map-overlay-routes-off');
   await legendPress('routes');
+  await legendPress('security');
+  await paint();
+  await shot('map-overlay-security-off');
+  await legendPress('security');
+  await legendPress('lanes');
+  await paint();
+  await shot('map-overlay-lanes-off');
+  await legendPress('lanes');
+  await legendPress('routes');
   await legendPress('contracts');
   await paint();
   await shot('map-overlay-contracts-off');
+  await legendPress('contracts');
+
+  // The chart with an unanswered hail standing, which is the state a captain is in when they check the
+  // map on arrival. Both panels have to be whole; the script checks that rather than trusting the eye.
+  await ev(() => {
+    const t = testBM1, s = t.state;
+    t.closeMap();
+    const target = t.getSystemIndexByName('Qonos');
+    s.currentPlanet = target;
+    t.applySystemState(target);
+    t.placePlayerAtSecurityApproach();
+    t.updateSecurityOrderPanel();
+    t.openMap();
+    t.updateSecurityOrderPanel();
+  });
+  await paint();
+  await page.waitForTimeout(220);
+  const both = await ev(() => {
+    const hail = document.getElementById('security-order-panel');
+    const close = document.getElementById('btn-close-map');
+    if (!hail || hail.classList.contains('hidden')) return { fail: 'no hail is up' };
+    const hits = (el) => {
+      const b = el?.getBoundingClientRect();
+      if (!b || b.width <= 0) return false;
+      const at = document.elementFromPoint(Math.round(b.left + b.width / 2), Math.round(b.top + b.height / 2));
+      return Boolean(at && (at === el || el.contains(at) || at.contains(el)));
+    };
+    return { fail: null, ack: hits(hail.querySelector('[data-arrival-ack]')),
+      channels: hits(hail.querySelector('[data-comms="open"]')), close: hits(close) };
+  });
+  if (both.fail) note(`hail-over-chart shot: ${both.fail}`);
+  else {
+    if (!both.ack) note('with the chart open, "Acknowledge hail" does not answer a click at its own coordinates');
+    if (!both.channels) note('with the chart open, "Station channels" does not answer a click at its own coordinates');
+    if (!both.close) note('with a hail up, the chart\'s own close control does not answer a click at its own coordinates');
+  }
+  await shot('map-with-pending-hail');
 
   console.log(JSON.stringify(set));
   if (problems.length) {

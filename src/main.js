@@ -19937,15 +19937,10 @@ function drawMapLegend() {
         ? `Out of ship range: ${rangeStatus.distance}/${rangeStatus.shipRange}`
         : `Need ${plan.antimatter} antimatter | Current covers ${rangeStatus.fuelRange}`
     : 'No plotted route';
-  // With a conditions layer up, the box also has to say what the indicators on the chart mean for the
-  // system the captain has selected, where the claim came from and how old it is — a coloured arc that
-  // explains itself nowhere is decoration. [playtest]
-  const conditionLines = (mapOverlayState().lanes || mapOverlayState().security)
-    ? conditionsReadout(state.selectedPlanet) : [];
   const boxX = 54;
   const boxY = 76;
   const boxW = Math.min(740, Math.max(320, canvas.width - 108));
-  const boxH = 106 + (conditionLines.length ? conditionLines.length * 16 + 14 : 0);
+  const boxH = 106;
   ctx.save();
   ctx.fillStyle = 'rgba(4, 10, 20, 0.82)';
   ctx.fillRect(boxX, boxY, boxW, boxH);
@@ -19977,17 +19972,6 @@ function drawMapLegend() {
   const days=plan?.legs?.length?Fleet.travelDays(plan.distance):0;
   const daily=state.playerFleet.filter(f=>!f.destroyed).reduce((sum,f)=>sum+upkeepPerDay(f.shipId),0);
   drawFittedMapText(`${days} travel days | Current fleet upkeep ${daily*days} L (deliveries add upkeep on following days)`,boxX+14,boxY+95,boxW-28);
-  conditionLines.forEach((line, n) => {
-    ctx.fillStyle = n === 0 ? '#dfeaff' : n === 1 ? '#9fb2d0' : '#c9d6ea';
-    ctx.font = canvasUiFont(n === 0 ? 12 : 11);
-    drawFittedMapText(line, boxX + 14, boxY + 113 + n * 16, boxW - 28);
-  });
-  if (conditionLines.length) {
-    ctx.fillStyle = '#7f8ea6';
-    ctx.font = canvasUiFont(10);
-    drawFittedMapText('* read from transponders, strength not readable   † dated claim, not a current reading',
-      boxX + 14, boxY + 113 + conditionLines.length * 16, boxW - 28);
-  }
   ctx.restore();
 }
 
@@ -21850,9 +21834,46 @@ function drawMapSecurityOverlay() {
     ctx.restore();
   }
 }
-// The readout under the chart's own header: what each indicator says for the selected system, where
-// the claim came from and how old it is. An indicator with no source prints as "no report" with the
-// sentence that says why that is not the same as quiet.
+// Bottom-right of the chart, opposite the overlay legend: what the arcs on the selected system mean,
+// where the claim came from and how old it is. A coloured arc that explains itself nowhere is
+// decoration, so this is drawn whenever either conditions layer is on. [playtest]
+function drawConditionsPanel() {
+  const layers = mapOverlayState();
+  if (!layers.lanes && !layers.security) return;
+  const lines = conditionsReadout(state.selectedPlanet);
+  if (!lines.length) return;
+  const rect = getStarChartPanelRect();
+  const w = Math.min(430, Math.max(280, (rect.right - rect.left) * 0.46));
+  const rowH = 15;
+  const h = lines.length * rowH + 44;
+  const x = rect.right - rect.pad - w;
+  const y = rect.bottom - rect.pad - h;
+  ctx.save();
+  ctx.fillStyle = 'rgba(4, 8, 16, 0.86)';
+  ctx.strokeStyle = 'rgba(140, 170, 210, 0.45)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.fill();
+  ctx.stroke();
+  ctx.textAlign = 'left';
+  ctx.font = canvasUiFont(10, 700);
+  ctx.fillStyle = '#9fb2d0';
+  ctx.fillText('CONDITIONS — SELECTED SYSTEM', x + 10, y + 14);
+  lines.forEach((line, n) => {
+    ctx.fillStyle = n === 0 ? '#dfeaff' : n === 1 ? '#9fb2d0' : '#c9d6ea';
+    ctx.font = canvasUiFont(n === 0 ? 11 : 10);
+    drawFittedMapText(line, x + 10, y + 30 + n * rowH, w - 20);
+  });
+  ctx.font = canvasUiFont(9);
+  ctx.fillStyle = '#7f8ea6';
+  drawFittedMapText('* transponder reading, strength not readable   † dated claim, not a current one',
+    x + 10, y + h - 6, w - 20);
+  ctx.restore();
+}
+// The readout itself: what each indicator says for a system, where the claim came from and how old it
+// is. An indicator with no source prints as "no report" with the sentence that says why that is not
+// the same as quiet.
 function conditionsReadout(index) {
   const c = conditionsFor(index);
   if (!c) return [];
@@ -22213,6 +22234,7 @@ function drawInterstellarMapOverlay() {
     ctx.restore();
     drawWorldPops();
     mapOverlayLegendRect = drawMapOverlayLegend();
+    drawConditionsPanel();
   } finally {
     ctx = previousCtx;
   }
