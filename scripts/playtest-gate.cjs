@@ -1106,6 +1106,60 @@ const { startProbe } = require('./probe-harness.cjs');
       'with no latinum the captain\'s own yard raised no price objection either, so ownership is waiving more than prestige');
   });
 
+  // SAVE — withdrawing the two contracts stops them being issued, but a save made before that is
+  // still carrying one, and a blockade contract can never complete: its own completion test is written
+  // `() => false`. Left alone it runs to its deadline and fails the captain for the game's omission.
+  await check('SAVE a save carrying a withdrawn contract is not left holding it', async () => {
+    await fresh('play-save');
+    const r = await ev(() => {
+      const t = testBM1;
+      const kinds = t.WITHDRAWN_MISSION_KINDS || ['evacuation', 'blockade'];
+      const book = t.campaignBook();
+      if (typeof t.migrateWithdrawnMissions !== 'function') return { fail: 'this tree has no migration for a save carrying a contract it no longer issues' };
+      // A save from before the withdrawal: one of each kind offered, one of each accepted, and one
+      // already completed, which must be left exactly as it is.
+      book.missions = (book.missions || []).filter((m) => !kinds.includes(m.kind));
+      const made = [];
+      for (const kind of kinds) {
+        for (const status of ['offered', 'active', 'complete']) {
+          const id = `legacy-${kind}-${status}`;
+          book.missions.push({ id, key: `${kind}:1`, kind, status, systemIndex: 1, reward: 5000,
+            text: `legacy ${kind}`, deadlineDay: t.state.day + 10 });
+          made.push({ id, kind, status });
+        }
+      }
+      const before = book.missions.filter((m) => kinds.includes(m.kind)).map((m) => `${m.kind}:${m.status}`);
+      delete book.migratedWithdrawnMissions;
+      const latinumBefore = t.state.latinum;
+      const standingBefore = t.getFactionStanding('terran');
+      const result = t.migrateWithdrawnMissions(book);
+      const after = book.missions.filter((m) => kinds.includes(m.kind)).map((m) => `${m.kind}:${m.status}`);
+      // Running again must do nothing: a migration that fires twice is a migration that can undo a
+      // player's later progress.
+      const second = t.migrateWithdrawnMissions(book);
+      const afterTwice = book.missions.filter((m) => kinds.includes(m.kind)).map((m) => `${m.kind}:${m.status}`);
+      const open = book.missions.filter((m) => kinds.includes(m.kind) && ['offered', 'active'].includes(m.status));
+      // And none is issued fresh.
+      const offeredNow = kinds.map((k) => t.offerStationMission(k, 1, true));
+      return { fail: null, before, after, afterTwice, result, second, openAfter: open.length,
+        completeKept: book.missions.filter((m) => kinds.includes(m.kind) && m.status === 'complete').length,
+        offeredNow: offeredNow.map((m) => (m ? m.kind : null)),
+        latinumDelta: t.state.latinum - latinumBefore,
+        standingDelta: t.getFactionStanding('terran') - standingBefore };
+    });
+    assert.ok(!r.fail, `the save reproduction could not be set up: ${r.fail}`);
+    assert.equal(r.before.length, 6, `precondition: the save carries six withdrawn-kind contracts (${r.before.join(', ')})`);
+    assert.equal(r.openAfter, 0, `${r.openAfter} withdrawn contract(s) are still open after loading: ${r.after.join(', ')}`);
+    assert.equal(r.result.released, 2, `${r.result.released} accepted contracts were released, expected 2`);
+    assert.equal(r.result.removed, 2, `${r.result.removed} offered contracts were taken off the board, expected 2`);
+    assert.equal(r.completeKept, 2, 'a contract the captain had already completed was altered');
+    assert.equal(r.standingDelta, 0, `releasing an unfinishable contract cost the captain ${r.standingDelta} standing`);
+    assert.ok(r.latinumDelta <= 0, `releasing an unfinishable contract paid out ${r.latinumDelta} latinum`);
+    assert.deepEqual(r.second, { removed: 0, released: 0 }, 'the migration runs again on a save it has already handled');
+    assert.deepEqual(r.afterTwice, r.after, 'running the migration twice changed the save again');
+    assert.deepEqual(r.offeredNow, [null, null], `a withdrawn contract is still being issued: ${r.offeredNow.filter(Boolean).join(', ')}`);
+  });
+
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);
   if (failures.length) { console.log(`${failures.length} still reproduce:`); for (const f of failures) console.log(`  - ${f.name}: ${f.message.split('\n')[0]}`); process.exitCode = 1; }
   if (errors.length) { console.log(`page errors: ${errors.join(' | ')}`); process.exitCode = 1; }

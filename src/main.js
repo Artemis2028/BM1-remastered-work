@@ -22527,7 +22527,33 @@ function campaign() {
     migrateLegacyBudgets(book);
     campaignWorldCache = null;
   }
+  // Outside the initialise branch: a loaded save arrives with its book already initialised, which is
+  // exactly the save that can be carrying a withdrawn contract. Self-guarded, so this is one boolean
+  // read per call after the first.
+  if (book.initialized) migrateWithdrawnMissions(book);
   return book;
+}
+// A save made before these were withdrawn can be carrying one. An offered contract is simply taken off
+// the board — nothing was promised. An accepted one is released, without a penalty and with the reason
+// said out loud, because a blockade contract can never complete (its own completion test is written
+// `() => false`) and leaving it to run to its deadline would fail the captain for the game's omission.
+// Contracts of these kinds that are already complete are left exactly as they are. [review]
+function migrateWithdrawnMissions(book) {
+  if (book.migratedWithdrawnMissions) return { removed: 0, released: 0 };
+  book.migratedWithdrawnMissions = true;
+  const withdrawn = (book.missions || []).filter((m) => WITHDRAWN_MISSION_KINDS.includes(m.kind));
+  let removed = 0, released = 0;
+  for (const m of withdrawn) {
+    if (m.status === 'offered') { m.status = 'withdrawn'; m.reason = 'withdrawn: this contract had no objective to pursue'; removed++; }
+    else if (m.status === 'active') { m.status = 'released'; m.reason = 'released without penalty: this contract had no objective to pursue'; released++; }
+  }
+  if (removed || released) {
+    const parts = [];
+    if (released) parts.push(`${released} accepted ${released === 1 ? 'contract' : 'contracts'} released without penalty`);
+    if (removed) parts.push(`${removed} offered ${removed === 1 ? 'contract' : 'contracts'} withdrawn`);
+    setLog(`Evacuation and blockade contracts are unfinished and no longer issued: ${parts.join(', ')}.`);
+  }
+  return { removed, released };
 }
 function migrateLegacyBudgets(book) {
   if (book.migratedBudgets) return;
