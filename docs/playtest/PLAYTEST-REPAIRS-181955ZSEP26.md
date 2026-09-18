@@ -1,14 +1,17 @@
 # BM1 playtest repairs on top of `ae4ae4d`
 
-DTG 181904ZSEP26
+DTG 181955ZSEP26
 
 Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Nothing pushed, merged or deployed.
 The commit count is in `CANDIDATE.json`, computed by the pack script rather than typed here.
 
 ## Read this first
 
-Sixth round, on top of `7767631`, from nine items raised off laptop playtest screenshots. All nine are
-addressed. Three things in here were not asked for and need saying out loud before the list:
+Sixth round, on top of `7767631`, from nine items raised off laptop playtest screenshots, plus the
+three findings raised against `43938a7` and closed here. **Eight of the nine items are done; the ninth,
+the trade overlay, is half of what was asked** — destinations and routes to objectives exist, the
+broader trade-activity overlay does not. Three things in here were not asked for and need saying out
+loud before the list:
 
 **Two of this round's own fixes were wrong on first writing, and the screenshots caught them.** The
 chart's objective route was drawn in the same blue the chart already uses for travel routes, so it was
@@ -32,6 +35,110 @@ little haven" — which made it neutral and stopped it being hostile. Rigel's te
 independent planet" and "The Andorians however lay claim to this world and are quite willing to protect
 it", and the engine has no protectorate level to express that, so nothing was authored and the shipped
 table's `andorian` stands. That second one is **a gap, not a decision**.
+
+## The corrections to this round
+
+Raised against `43938a7` and closed here. Three findings, and each one was right.
+
+### 1. Recovery contracts were excluded from the list, and their marker never moved
+
+`renderContractsPanel` filtered on `m.kind !== 'archive'`, so the engineer-rescue job in the screenshot
+was **marked on the chart and listed nowhere**. Worse, the marker was wrong: every mission resolved to
+its `systemIndex`, and a recovery contract is the one kind whose destination moves. At the moment the
+engineers were aboard, the chart still pointed at the ground they had been picked up from.
+
+`missionObjective` now answers what a mission is asking and where, per step:
+
+| Step | What it asks | What the chart marks |
+| --- | --- | --- |
+| `lead` | pay the finder's fee at any bar or trade station | nothing — "any station" is not a place; the row says so and names where the lead leads |
+| `recover` | reach the wreck | the wreck |
+| `deliver` | deliver to a yard that can build the design | the three nearest charted candidates, with the full count in the row |
+
+Candidates are found from each yard's own record — status, construction class, the hull's mass, and
+whether that yard's trade culture may carry the design at all — across charted systems only, sorted
+nearest first and memoised. Standing, clearance and docking are decided when the captain arrives, so
+the row calls them candidates and says so rather than promising one. Eleven rings for one contract is
+not a map.
+
+**Gate RECOVER** follows the whole arc: listed at the wreck, marked at the wreck, re-marked at the
+yards with the wreck dropped once the engineers are aboard, and all of it surviving a save and a
+reload. It reproduces on `43938a7`, `7767631` and `ae4ae4d`.
+
+### 2. The screenshots were taken through an open dialog, and that was a real bug
+
+`panel-contracts.png` and the chart shots had Fleet & Shipyard open over them because the capture step
+called `close()` on an element id the fleet manager does not have, and nothing checked. Underneath that
+was a defect a captain can reach from the keyboard.
+
+**Every dialog in this game is opened with `showModal()`**, and a modal swallows the pointer for
+everything behind it but not the keyboard. Only the debug and game menus were guarded. So with Fleet &
+Shipyard open, **M opened the star chart underneath it** and C and P opened the top-left panel
+underneath it: a chart whose systems could not be clicked, behind a dialog the captain had to find and
+close first. The guard is now general and sits below the pending-overlay branches, so Escape still
+closes a purchase or contract overlay opened from inside a dialog.
+
+Two more of the same family, found while fixing it. The fleet manager was the one modal that neither
+paused the clock nor dropped held keys on open, so the ship flew and fired behind it and a key held as
+it opened stayed stuck. And each close path resumed the clock after checking the dialogs it happened to
+know about — the reports folder did not know about the Empire panel, and none of them knew about the
+fleet manager — so closing one resumed the clock while another was still up.
+
+**Gate MODAL** presses M and C with the fleet manager open and requires nothing to open behind it, then
+closes it and requires the keyboard back.
+
+`scripts/screens-capture.cjs` is committed rather than ad hoc, and does not trust itself: every panel is
+opened by clicking its own dock button, every shot first asks whether any dialog is open and says so if
+one is, and every control it presses is checked for having answered — "Show on map" must take the chart
+to that system, a legend row must flip its layer. It presses **Acknowledge** on the standing hail before
+the chart shots, because that panel and the chart share the same corner of a 1440-wide window. The run
+prints either the problems or the sentence that there were none.
+
+The chart shots are now the same populated map with each layer turned off in turn: `map-overlay.png`,
+`map-overlay-cargo-off.png`, `map-overlay-routes-off.png`, `map-overlay-contracts-off.png`.
+
+### 3. An emptied shelf is not evidence a world is a grey market
+
+The previous repair let an authored hull lot that the government's own rule filtered to nothing stand
+as written, reasoning that such a lot is the author saying the world is a grey market. It is not. It is
+a lot written before that world had a government, and reading a claim into it produced an incoherent
+rule: **a lot with one eligible hull sold one hull, and the same lot with none sold every foreign hull
+in it.** Foreign availability turned on whether one compatible hull happened to survive a filter.
+
+Two worlds say it in their own text, and they are authored with the sentence that says it, the way an
+allegiance is:
+
+| World | The phrase |
+| --- | --- |
+| Hirogen Range | "trophy vaults", beside repair docks for vessels returning from deep pursuit |
+| Suliban Helix | "trading quietly", from a chain of cell docks and patched-together habitats |
+
+Everywhere else the government's rule stands, and a lot it empties falls through to the ordinary
+price-ranked shelf, which stocks what that government would actually sell. **Breen Anchorage now sells
+a Breen Shuttle and neutral freighters** rather than a Cardassian Behemoth, and rather than nothing.
+
+The seven worlds that fall through get a fuller shelf than their authored lot held, because the generic
+shelf is what a world without an applicable lot gets. That is the trade for not inventing a claim, and
+it is the reason the gained figure below is larger than the lost one.
+
+**Measured against `7767631`: 41 hull offers lost and 71 gained; 8 weapon offers lost and 13 gained.**
+No world with an authored shipyard sells nothing.
+
+**Gate STOCK** holds four things: no authored shipyard is empty; no foreign hull is on sale at a world
+whose text does not say it deals in them; each authored exception is justified by a phrase from its own
+description and actually sells its lot; and stripping the last eligible hull out of an ordinary world's
+lot does not put the foreign hulls in that same lot on sale. It reproduces on `43938a7` with **20
+foreign hulls on sale at worlds whose text says nothing of the kind**.
+
+### 4. Two claims corrected
+
+- **The file count.** The previous handoff said 134 files, which was the archive's entry count including
+  directories. The pack holds **130 files, of which `SHA256SUMS.txt` is one, covering the other 129**.
+- **Item 9 is PARTIAL, not done.** What exists is contract and cargo destinations and routes to
+  objectives, selectable, with a counting legend, gated on what the captain has charted. The broader
+  trade-activity overlay §7 asks for — wider trade the captain has not contracted for, read through
+  discovery and intelligence limits — is **not built**. Eight of the nine items are done; the ninth is
+  half of what was asked.
 
 ## This round's nine items
 
@@ -137,7 +244,11 @@ entry to be a governance statement.
 origin source, hostility, station owners and map relation, before and after, generated from both trees
 by one script.
 
-### 9. Cargo and trade overlay on the chart
+### 9. Cargo and trade overlay on the chart — **PARTIAL**
+
+What the chart carries is contract and cargo *destinations* and routes to them. The broader
+trade-activity overlay — wider trade the captain has not contracted for, read through discovery and
+intelligence limits — is **not built**. What follows is what exists.
 
 Three selectable layers — contract objectives, cargo destinations, routes to them — with a legend at
 the foot of the chart that counts each layer and doubles as the picker. A world that is both an
@@ -154,8 +265,21 @@ pointer and requires the markers to go with the layer.
 The message readout in the status strip clipped mid-word with nothing to show it had been cut; at 1440
 the captain read "Captain aboa". It ellipses now.
 
+### Found while taking the screenshots, not fixed
+
+**The incoming-hail panel and the star chart share the same corner.** At 1440 the chart panel's right
+edge lands at x≈1324 and the hail panel runs from x≈1125 to x≈1420, so they overlap by some 200px, and
+the chart's own close control — a DOM element positioned at the panel's corner — is painted on top of
+the hail's prose. In the capture it sat over the word "declared". Answering the hail clears it, which
+is what the capture script now does and what a captain would do, but a captain who opens the chart with
+a hail standing gets both drawn over each other. Deciding which of the two should give way is a layout
+question about those two panels rather than about the overlay, and it is not in this round's scope.
+Measured and named rather than left for the next playtest.
+
 ## Still NOT DONE, and named
 
+- **The broader trade-activity overlay (§7).** Destinations and routes to objectives exist; wider trade
+  the captain has not contracted for does not. Item 9 is half done.
 - **Evacuation and blockade** remain unfinished mechanics. The design is
   `EVACUATION-BLOCKADE-DESIGN-180230ZSEP26.md`, unchanged and still unimplemented.
 - **Rigel's protectorate.** The engine has no level between "independent" and "governed by", so a world
@@ -173,11 +297,13 @@ the captain read "Captain aboa". It ellipses now.
 
 - 35 of 35 gates pass from a clean tree bound to this commit; `validation/RUN.json` records the tree
   before the first gate ran.
-- The playtest gate is 26 checks. All 26 reproduce on `ae4ae4d`; 9 on `7232dc6`; 6 on `7767631` — the
-  six that cover this round's nine items. Every failure message describes a wrong behaviour, and no
-  check fails with a TypeError.
+- The playtest gate is 29 checks. All 29 reproduce on `ae4ae4d`; 9 on `7232dc6`; 9 on `7767631`; and
+  **3 on `43938a7`** — RECOVER, MODAL and STOCK, one per finding raised against it. Every failure
+  message describes a wrong behaviour, and no check fails with a TypeError.
 - `validation/screens/` — the HUD at 1920, 1536, 1440 and 1280; the Power, EW, Fleet and Contracts
-  panels; the chart with the overlay on, with cargo off, and with routes off.
+  panels; and the same populated chart with the overlay on and with each of its three layers turned off
+  in turn. All taken by `scripts/screens-capture.cjs` through the mouse, with every panel opened from
+  its own dock button and every control it pressed checked for having answered.
 
 ## The fifth round and earlier, unchanged
 
