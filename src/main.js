@@ -5828,15 +5828,144 @@ const SYSTEM_SOVEREIGNTY_LEVELS = Object.freeze(['unclaimed', 'independent', 'co
 // Blender among the populous ones, and Terra Nova, Tellar, Rator, Virinat, Chaltok and P'Jem among the
 // named ones the matcher below already knew. Control is untouched by this: a world the table calls
 // neutral is still governed by nobody, it simply has a people now. [playtest]
+// Who lives on each world, read from that world's own description. Authored, not matched: the old
+// chain guessed from the world's name and fell back to inventing a people named after the planet,
+// which left five Tholian worlds calling themselves Crystal Loom and Webheart, read Blender as
+// nobody, and reported New Bajor's enslaved Bajorans as Dominion. Each entry carries the phrase
+// from the world's own text that says so, and a gate checks every one of them against the shipped
+// descriptions, so no entry can claim a justification the data does not contain. [review]
+//
+// A culture is NOT a government. Nothing here assigns, changes or implies who holds a world: a
+// people:* id is a people with no polity of its own — Remans under Romulan rule, Karemma under
+// Dominion supervision — and can never be mistaken for a faction key. Government comes from the
+// authored governmentId and from capture, and this table does not touch either. [review]
+const WORLD_CULTURES = Object.freeze({
+  'Earth': { id: 'terran', label: 'Terran', why: 'Homeworld of the humans' },
+  'Orion': { id: 'people:orion', label: 'Orion', why: 'Orions live a privileged life' },
+  'Lik Prime': { id: 'people:lik', label: 'Lik', why: 'The inhabitants of Lik Prime' },
+  'Alpha Centauri': { id: 'terran', label: 'Terran', why: 'colonized by humans' },
+  'New Switzerland': { id: 'terran', label: 'Terran', why: 'passivist humans' },
+  'Trey': { id: 'terran', label: 'Terran', why: 'human guards' },
+  'Epsilon': { id: 'terran', label: 'Terran', why: 'human colony' },
+  'Quintus': { id: 'terran', label: 'Terran', why: 'Earth outpost' },
+  'Gorn': { id: 'gorn', label: 'Gorn', why: 'reptillian species' },
+  'Rigel': { id: 'people:rigelian', label: 'Rigelian', why: 'independent planet inhabited by a primitive industrial society' },
+  'Vulcan': { id: 'vulcan', label: 'Vulcan', why: 'The Vulcans' },
+  'Ferenginar': { id: 'ferengi', label: 'Ferengi', why: 'Homeworld to the Ferengi race' },
+  'Lysia': { id: 'people:lysian', label: 'Lysian', why: 'Lysians' },
+  'Nausica': { id: 'people:nausicaan', label: 'Nausicaan', why: 'Nausicans' },
+  'Tholia': { id: 'tholian', label: 'Tholian', why: 'Tholians' },
+  'Flash': { id: 'people:flashian', label: 'Flashian', why: 'Flashians' },
+  'Oce Nu': { id: 'terran', label: 'Terran', why: 'battleground between the Klingons and the Humans' },
+  'Koann': { id: 'terran', label: 'Terran', why: 'shipyard for Earth\'s Imperial Fleet' },
+  'Delpi': { id: 'delpin', label: 'Delpin', why: 'The Delpi homeworld' },
+  'Andoria': { id: 'andorian', label: 'Andorian', why: 'Andorians' },
+  'Trill': { id: 'people:trill', label: 'Trill', why: 'Trills' },
+  'Tepos': { id: 'people:teposian', label: 'Teposian', why: 'Teposians' },
+  'Blender': { id: 'dominion_remnant', label: 'Blender Remnant', why: 'conquering race called the Dominion' },
+  'Remus': { id: 'people:reman', label: 'Reman', why: 'home to the Remans' },
+  'Romulus': { id: 'romulan', label: 'Romulan', why: 'the Romulan race' },
+  'Vex': { id: 'people:vexxian', label: 'Vexxian', why: 'The Vex homeworld' },
+  'Batos': { id: 'terran', label: 'Terran', why: 'Earth planet' },
+  'Worf': { id: 'klingon', label: 'Klingon', why: 'Klingon planet' },
+  'Qonos': { id: 'klingon', label: 'Klingon', why: 'homeworld of the Klingon race' },
+  'Xonok': { id: 'klingon', label: 'Klingon', why: 'the Klingons stripmine' },
+  'Du\'Qot': { id: 'klingon', label: 'Klingon', why: 'A Klingon world' },
+  'Hof-Maso': { id: 'klingon', label: 'Klingon', why: 'Klingon Empire' },
+  'Hos\'Ichu': { id: 'klingon', label: 'Klingon', why: 'Klingon populations' },
+  'Kah\'Less': { id: 'klingon', label: 'Klingon', why: 'Klingon Warrior' },
+  'Bajora': { id: 'bajoran', label: 'Bajoran', why: 'a peaceful race called the Bajorans' },
+  'Cardassia': { id: 'cardassian', label: 'Cardassian', why: 'gov:3' },
+  'Dyson': { id: 'people:dyson', label: 'Dyson', why: 'The original inhabitants of Dyson' },
+  'Pirates Haven': { id: 'pirate', label: 'Pirate', why: 'we pirates' },
+  'Sonata': { id: 'sona', label: 'Son\'a', why: 'homeworld to the Son\'a' },
+  'Iritum': { id: 'sona', label: 'Son\'a', why: 'Son\'a' },
+  'Terra Nova': { id: 'terran', label: 'Terran', why: 'frontier colony of the Earth Empire' },
+  'Tarellia': { id: 'tarellian', label: 'Tarellian', why: 'Tarellian race' },
+  'Promelus': { id: 'promelli', label: 'Promelli', why: 'Promelli' },
+  'Brea': { id: 'breen', label: 'Breen', why: 'the Breen' },
+  'Dominica': { id: 'dominion', label: 'Dominion', why: 'the dreaded Dominion' },
+  'Andreas': { id: 'terran', label: 'Terran', why: 'Civilians fleeing the Klingon advance' },
+  'New Romulus': { id: 'romulan', label: 'Romulan', why: 'Romulan colony' },
+  'Aldnas': { id: 'romulan', label: 'Romulan', why: 'Romulan colony' },
+  'Vortara': { id: 'dominion', label: 'Dominion', why: 'legendary Vorta' },
+  'New Bajor': { id: 'bajoran', label: 'Bajoran', why: 'bajorans are slaves to the dominion' },
+  'JemHadar Relay': { id: 'dominion', label: 'Dominion', why: 'Jem\'Hadar' },
+  'Karemma Exchange': { id: 'people:karemma', label: 'Karemma', why: 'Karemma' },
+  'Founders Watch': { id: 'dominion', label: 'Dominion', why: 'Founder' },
+  'Dosi Gate': { id: 'people:dosi', label: 'Dosi', why: 'Dosi' },
+  'T-Rogoran Annex': { id: 'people:trogoran', label: 'T-Rogoran', why: 'T-Rogoran' },
+  'Proxima Yard': { id: 'terran', label: 'Terran', why: 'Earth shipyard colony' },
+  'Tellar': { id: 'people:tellarite', label: 'Tellarite', why: 'Tellarite' },
+  'P\'Jem': { id: 'vulcan', label: 'Vulcan', why: 'Vulcan monastery' },
+  'T\'Khut': { id: 'vulcan', label: 'Vulcan', why: 'Vulcan frontier' },
+  'Rator': { id: 'romulan', label: 'Romulan', why: 'Romulan military colony' },
+  'Virinat': { id: 'romulan', label: 'Romulan', why: 'Romulan agricultural colony' },
+  'Chaltok': { id: 'romulan', label: 'Romulan', why: 'Romulan border world' },
+  'Lakarian': { id: 'cardassian', label: 'Cardassian', why: 'Cardassian cultural world' },
+  'Arawath': { id: 'cardassian', label: 'Cardassian', why: 'Cardassian supply system' },
+  'Monac': { id: 'cardassian', label: 'Cardassian', why: 'Cardassian industrial' },
+  'Ty\'Gokor': { id: 'klingon', label: 'Klingon', why: 'Klingon command world' },
+  'Boreth': { id: 'klingon', label: 'Klingon', why: 'Klingon monastery' },
+  'Narendra': { id: 'klingon', label: 'Klingon', why: 'Klingon border colony' },
+  'Lappa': { id: 'ferengi', label: 'Ferengi', why: 'Ferengi finance moon' },
+  'Hupyrian': { id: 'people:hupyrian', label: 'Hupyrian', why: 'Ferengi-aligned protectorate' },
+  'Breen Anchorage': { id: 'breen', label: 'Breen', why: 'Breen fleet anchorage' },
+  'Goralis': { id: 'sona', label: 'Son\'a', why: 'Son\'a refinery' },
+  'Tarellian Reach': { id: 'tarellian', label: 'Tarellian', why: 'Tarellian exploration colony' },
+  'Promelli Drift': { id: 'promelli', label: 'Promelli', why: 'Promelli bio-technology' },
+  'Crystal Loom': { id: 'tholian', label: 'Tholian', why: 'Tholian' },
+  'Webheart': { id: 'tholian', label: 'Tholian', why: 'Tholian' },
+  'Lattice Hold': { id: 'tholian', label: 'Tholian', why: 'Tholian' },
+  'Spindle Reach': { id: 'tholian', label: 'Tholian', why: 'Tholian' },
+  'Facet Gate': { id: 'tholian', label: 'Tholian', why: 'Tholian' },
+  'Hirogen Range': { id: 'hirogen', label: 'Hirogen', why: 'hunting beacons' },
+  'Suliban Helix': { id: 'suliban', label: 'Suliban', why: 'cell docks' },
+  'Lameu': { id: 'terran', label: 'Terran', why: 'used to belong to the Earth Empire' },
+  'Noron': { id: 'cardassian', label: 'Cardassian', why: 'gov:3' },
+  'Anorez': { id: 'cardassian', label: 'Cardassian', why: 'gov:3' },
+  'Erasariel': { id: 'cardassian', label: 'Cardassian', why: 'gov:3' },
+});
+// Worlds whose own description says nobody is there. Without this the government table invents a
+// people for a corpse field and the population figure invents one for a world that says "home to
+// no one".
+const WORLD_UNPEOPLED = Object.freeze({
+  'Paso': 'nothing can live on its surface',
+  'Denmark': 'died out',
+  'Iconia': 'no longer inhabit this planet',
+  'Konael': 'none of the major governments colonized',
+  'Harman': 'frozen wasteland',
+  'Kardon': 'burned away',
+  'Astron': 'home to no one',
+  'Elderea': 'uninhabited',
+  'Xindus': 'every single xindi vessel was then destroyed',
+  'Sato': 'deserted',
+  'Nexus': 'the lysians soon died out',
+  'Nyoabek': 'no one is willing to live here',
+});
+const WORLD_CULTURE_LABELS = Object.freeze(Object.fromEntries(
+  Object.values(WORLD_CULTURES).filter((c) => c.id.startsWith('people:')).map((c) => [c.id, c.label])));
+function formatCulture(id) {
+  const key = String(id || '');
+  if (key.startsWith('people:')) return WORLD_CULTURE_LABELS[key] || key.slice(7);
+  return formatFaction(key);
+}
 function getSystemCulture(index = state.currentPlanet) {
   const i = Number(index);
+  const name = String(state.planets[i]?.name || '');
+  // Authored first. A world the table names is that people whatever its government id says, which is
+  // the whole point: New Bajor's people are Bajoran while the Dominion holds it.
+  const authored = WORLD_CULTURES[name];
+  if (authored) return { id: authored.id, label: authored.label, source: 'authored', why: authored.why };
+  if (WORLD_UNPEOPLED[name]) return { id: null, label: null, source: 'unpeopled', why: WORLD_UNPEOPLED[name] };
   const origin = getBaseSystemOrigin(i);
   if (isRecognizedFactionKey(origin.faction)) return { id: origin.faction, label: formatFaction(origin.faction), source: origin.source };
   const named = matchSystemFactionByName(i, { nameOnly: true });
   if (named && isRecognizedFactionKey(named)) return { id: named, label: formatFaction(named), source: 'name' };
   const planet = state.planets[i] || {};
-  // An inhabited world nobody else governs has a people of its own, and they are not a share of a
-  // universal "independent": a quarrel with New Switzerland is not a quarrel with Orilla.
+  // Three worlds are left to this deliberately — Opusab, Biakisch and Qem-Kis — because each is
+  // described as a mixture with no people to name, and naming them after their world is the honest
+  // answer rather than a fallback covering for a gap.
   if (finiteNumber(planet.population, 0) > 0 && planet.name) return { id: `world:${i}`, label: String(planet.name), source: 'local' };
   return { id: null, label: null, source: 'none' };
 }
@@ -5865,13 +5994,14 @@ function getSystemSovereignty(index = state.currentPlanet) {
   else if (integratedDay) level = 'annexed';
   else if (occupation && heldDays < settledAfter) level = 'occupied';
   else level = 'administered';
-  const cultureLabel = people.label;
+  const cultureLabel = people.label || (culture ? formatCulture(culture) : null);
   const governorLabel = governor === PLAYER_SIDE ? 'your flag' : (governor ? formatFaction(governor) : null);
   // A world whose people are its own is named for itself — "Orilla", not "Orilla world" and not
   // "Orillan", which would be inventing a demonym the data never gave.
   const inhabitants = cultureLabel
     ? (people.source === 'local' ? cultureLabel : `${cultureLabel} world`)
-    : (level === 'unclaimed' ? 'Unclaimed world' : 'Unsettled world');
+    : (people.source === 'unpeopled' ? 'Uninhabited world'
+      : level === 'unclaimed' ? 'Unclaimed world' : 'Unsettled world');
   let rule;
   if (level === 'independent') rule = 'self-governed';
   else if (level === 'unclaimed') rule = 'no government';
@@ -5880,7 +6010,7 @@ function getSystemSovereignty(index = state.currentPlanet) {
   else if (level === 'annexed') rule = `annexed by the ${governorLabel}`;
   else if (level === 'occupied') rule = `${governorLabel} occupation${heldDays == null ? '' : ` (day ${heldDays})`}`;
   else rule = `${governorLabel} administration`;
-  return { index: i, culture, cultureSource: people.source, sovereign, governor, level, contested, heldDays,
+  return { index: i, culture, cultureSource: people.source, cultureWhy: people.why || null, sovereign, governor, level, contested, heldDays,
     cultureLabel, governorLabel, people: inhabitants, rule,
     label: `${inhabitants} \u00b7 ${rule}${contested ? ' \u00b7 contested' : ''}` };
 }

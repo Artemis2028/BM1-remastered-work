@@ -513,9 +513,16 @@ const { startProbe } = require('./probe-harness.cjs');
       if (typeof t.getSystemSovereignty !== 'function') return { fail: 'this tree reports only a controller: a world has no people it can name separately' };
       const here = Number(s.currentPlanet);
       const world = t.buildCampaignWorld(true);
-      // A world with a people of its own, governed by them.
-      const own = world.systems.findIndex((sys, i) => i !== here && sys.controller && sys.origin === sys.controller);
-      if (own < 0) return { fail: 'no self-governed world to read' };
+      // A world with a people of its own, governed by them — which means its culture and its governor
+      // are the same power, not merely that its two government fields agree. Selecting on origin ===
+      // controller picked Orion, a Terran-governed world whose people are Orion, and then asked why it
+      // did not read as self-governed.
+      const own = world.systems.findIndex((sys, i) => {
+        if (i === here || !sys.controller) return false;
+        const culture = t.getSystemCulture(i);
+        return culture.id && culture.id === sys.controller;
+      });
+      if (own < 0) return { fail: 'no world is governed by its own people' };
       t.markSystemVisited(own);
       const before = t.getSystemSovereignty(own);
       const mapBefore = t.getMapSystemInfo(own);
@@ -747,40 +754,95 @@ const { startProbe } = require('./probe-harness.cjs');
   // than a gap it short-circuited the name lookup behind it: fifty-eight of a hundred and one worlds had
   // no identity at all, Sonata among them, and the ones that did resolve were resolving off whatever
   // power the description happened to mention.
-  await check('CULT every inhabited world has a people, and they are its own', async () => {
+  // CULT-2 — the identities themselves, not just whether a label exists. The old chain guessed from
+  // the world's name and then invented a people named after the planet, so five Tholian worlds called
+  // themselves Crystal Loom and Webheart, Blender read as nobody, and New Bajor — whose own text says
+  // its Bajorans are slaves to the Dominion — reported its people as Dominion. Every identity is now
+  // authored and carries the phrase from that world's description that justifies it; this check reads
+  // the shipped descriptions and holds each claim against them.
+  await check('CULT every world is the people its own description names', async () => {
     await fresh('play-cult2');
     const r = await ev(() => {
       const t = testBM1, s = t.state;
-      if (typeof t.getSystemSovereignty !== 'function') return { fail: 'this tree reports only a controller: no world has a people it can name' };
-      const rows = (s.planets || []).map((p, i) => ({ i, name: p.name, pop: Number(p.population) || 0, sov: t.getSystemSovereignty(i) }));
-      const byName = (n) => rows.find((x) => x.name === n);
-      return {
-        total: rows.length,
-        inhabitedWithoutPeople: rows.filter((x) => x.pop > 0 && !x.sov.culture).map((x) => x.name),
-        emptyWithPeople: rows.filter((x) => x.pop === 0 && x.sov.cultureSource === 'local').map((x) => x.name),
-        sonata: byName('Sonata')?.sov || null,
-        swiss: byName('New Switzerland')?.sov || null,
-        orilla: byName('Orilla')?.sov || null,
-        blender: byName('Blender')?.sov || null,
-        earth: byName('Earth')?.sov || null,
-        distinctLocal: new Set(rows.filter((x) => x.sov.cultureSource === 'local').map((x) => x.sov.culture)).size,
-        localCount: rows.filter((x) => x.sov.cultureSource === 'local').length,
+      if (typeof t.getSystemSovereignty !== 'function') return { fail: 'this tree reports only a controller: no world has a people it can name apart from whoever governs it' };
+      // On a tree with no authored identities there is nothing to hold against the descriptions, but
+      // the worlds themselves can still be asked who they think they are — which is the reproduction.
+      const authored = t.WORLD_CULTURES || {};
+      const noTable = !t.WORLD_CULTURES;
+      const govOf = (i) => Number(s.planets[i]?.governmentId ?? (s.systemData[i] || [])[1]);
+      const indexOf = (name) => (s.planets || []).findIndex((p) => p.name === name);
+      const unjustified = [];
+      for (const [name, entry] of Object.entries(authored)) {
+        const idx = indexOf(name);
+        const planet = idx < 0 ? null : s.planets[idx];
+        if (!planet) { unjustified.push(`${name}: no such world`); continue; }
+        const why = String(entry.why || '');
+        if (why.startsWith('gov:')) {
+          if (String(govOf(idx)) !== why.slice(4)) unjustified.push(`${name}: claims governmentId ${why.slice(4)}, data says ${govOf(idx)}`);
+        } else if (!String(planet.description || '').toLowerCase().includes(why.toLowerCase())) {
+          unjustified.push(`${name}: description does not say "${why}"`);
+        }
+      }
+      for (const [name, why] of Object.entries(t.WORLD_UNPEOPLED || {})) {
+        const planet = (s.planets || []).find((p) => p.name === name);
+        if (!planet) { unjustified.push(`${name}: no such world`); continue; }
+        if (!String(planet.description || '').toLowerCase().includes(String(why).toLowerCase())) unjustified.push(`${name}: description does not say "${why}"`);
+      }
+      const at = (name) => {
+        const i = (s.planets || []).findIndex((p) => p.name === name);
+        return i < 0 ? null : { i, ...t.getSystemSovereignty(i), control: t.getSystemControl(i) };
       };
+      const named = ['Sonata', 'New Bajor', 'Blender', 'Crystal Loom', 'Webheart', 'Lattice Hold', 'Spindle Reach',
+        'Facet Gate', 'Remus', 'New Switzerland', 'Orilla', 'Earth', 'Bajora', 'Astron', 'Aldnas', 'Tellar'];
+      const got = Object.fromEntries(named.map((n) => [n, at(n)]));
+      // A people is not a polity. Nothing that is only a people may appear as a controller anywhere,
+      // and no authored identity may have quietly become one.
+      const peopleIds = Object.values(authored).map((c) => c.id).filter((id) => String(id).startsWith('people:'));
+      const peopleTreatedAsFaction = peopleIds.filter((id) => t.isRecognizedFactionKey(id));
+      const peopleGoverning = (s.planets || []).map((p, i) => t.getSystemControl(i))
+        .filter((c) => peopleIds.includes(c.controller) || peopleIds.includes(c.allegiance) || peopleIds.includes(c.origin)).length;
+      // And no world's government may be its culture merely because the table says who lives there:
+      // the government is the authored governmentId, and this compares every world against it.
+      const govTable = t.BM1_GOVERNMENT_FACTIONS || {};
+      const governmentMoved = (s.planets || []).map((p, i) => ({ i, name: p.name, origin: t.getSystemControl(i).origin, expected: govTable[govOf(i)] ?? 'neutral' }))
+        .filter((x) => String(x.origin || 'neutral') !== String(x.expected || 'neutral'))
+        .map((x) => `${x.name}: origin ${x.origin}, governmentId says ${x.expected}`);
+      const bySource = {};
+      (s.planets || []).forEach((p, i) => { const k = t.getSystemCulture(i).source; bySource[k] = (bySource[k] || 0) + 1; });
+      return { fail: null, noTable, unjustified, got, peopleTreatedAsFaction, peopleGoverning, governmentMoved, bySource };
     });
-    assert.ok(!r.fail, `the culture reproduction could not be set up: ${r.fail}`);
-    assert.ok(r.total > 50, `precondition: the galaxy has ${r.total} systems`);
-    assert.deepEqual(r.inhabitedWithoutPeople, [],
-      `${r.inhabitedWithoutPeople.length} inhabited world(s) have no people: ${r.inhabitedWithoutPeople.slice(0, 6).join(', ')}`);
-    assert.deepEqual(r.emptyWithPeople, [], `an empty world was given a people: ${r.emptyWithPeople.join(', ')}`);
-    assert.equal(r.sonata.culture, 'sona', `Sonata's people are "${r.sonata.culture}" (${r.sonata.label})`);
-    assert.notEqual(r.swiss.culture, r.orilla.culture,
-      `New Switzerland and Orilla share one identity: ${r.swiss.culture}`);
-    assert.equal(r.swiss.cultureSource, 'local', `New Switzerland resolved as ${r.swiss.cultureSource}`);
-    assert.equal(r.blender.culture !== 'dominion', true,
-      'Blender reads as a Dominion world because its description mentions the Dominion');
-    assert.equal(r.earth.culture, 'terran', `Earth's people are "${r.earth.culture}"`);
-    assert.equal(r.distinctLocal, r.localCount,
-      `${r.localCount} self-governing worlds share ${r.distinctLocal} identities between them`);
+    assert.ok(!r.fail, `the identity reproduction could not be set up: ${r.fail}`);
+    assert.deepEqual(r.unjustified, [],
+      `${r.unjustified.length} identity claim(s) are not in the world's own data: ${r.unjustified.slice(0, 3).join('; ')}`);
+    const g = r.got;
+    assert.equal(g.Sonata?.culture, 'sona', `Sonata's people are "${g.Sonata?.culture}"`);
+    assert.equal(g.Sonata?.cultureSource, 'authored',
+      `Sonata's people are resolved by ${g.Sonata?.cultureSource}${r.noTable ? ', because this tree has no authored identities and guesses from the world\'s name' : ''}`);
+    // The one that matters most: a people under someone else's government, reported as both.
+    assert.equal(g['New Bajor']?.culture, 'bajoran', `New Bajor's people are "${g['New Bajor']?.culture}"`);
+    assert.equal(g['New Bajor']?.governor, 'dominion', `New Bajor is governed by "${g['New Bajor']?.governor}"`);
+    assert.match(String(g['New Bajor']?.label), /Bajoran world/, `New Bajor reads "${g['New Bajor']?.label}"`);
+    assert.match(String(g['New Bajor']?.label), /Dominion/, `New Bajor does not name who holds it: "${g['New Bajor']?.label}"`);
+    assert.equal(g.Remus?.culture, 'people:reman', `Remus's people are "${g.Remus?.culture}"`);
+    assert.equal(g.Remus?.governor, 'romulan', `Remus is governed by "${g.Remus?.governor}"`);
+    assert.equal(g.Blender?.culture, 'dominion_remnant', `Blender's people are "${g.Blender?.culture}"`);
+    for (const n of ['Crystal Loom', 'Webheart', 'Lattice Hold', 'Spindle Reach', 'Facet Gate']) {
+      assert.equal(g[n]?.culture, 'tholian', `${n} says its people are "${g[n]?.culture}" while its description says Tholian`);
+    }
+    assert.equal(g.Aldnas?.culture, 'romulan', `Aldnas's people are "${g.Aldnas?.culture}" though its text says the colony endures`);
+    assert.equal(g.Tellar?.culture, 'people:tellarite', `Tellar's people are "${g.Tellar?.culture}"`);
+    assert.equal(g['New Switzerland']?.culture, 'terran', `New Switzerland's people are "${g['New Switzerland']?.culture}"`);
+    assert.equal(g['New Switzerland']?.governor, null, 'New Switzerland acquired a government along with its culture');
+    assert.match(String(g.Astron?.label), /Uninhabited/, `Astron reads "${g.Astron?.label}" though its text says it is home to no one`);
+    assert.equal(g.Orilla?.cultureSource, 'local', `Orilla, a refugee mixture with no people to name, resolved by ${g.Orilla?.cultureSource}`);
+    // Culture never becomes ownership.
+    assert.deepEqual(r.peopleTreatedAsFaction, [], `a people is being treated as a polity: ${r.peopleTreatedAsFaction.join(', ')}`);
+    assert.equal(r.peopleGoverning, 0, `${r.peopleGoverning} world(s) are governed by something that is only a people`);
+    assert.deepEqual(r.governmentMoved, [],
+      `naming a world's people moved its government: ${r.governmentMoved.slice(0, 3).join('; ')}`);
+    // And the guesswork is gone: no world should still be resolved by matching its name.
+    assert.equal(r.bySource.name || 0, 0, `${r.bySource.name} world(s) still have their people guessed from the world's name`);
+    assert.ok((r.bySource.authored || 0) >= 80, `only ${r.bySource.authored || 0} worlds have an authored identity`);
   });
 
   // LAYOUT — "the words still don't fit or we have issues with it overlapping". On ae4ae4d the top
