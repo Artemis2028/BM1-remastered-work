@@ -1670,6 +1670,83 @@ const { startProbe } = require('./probe-harness.cjs');
       'closing the dialog did not give the keyboard back: M no longer opens the chart');
   });
 
+  // STOCK — a world's hull lot is shaped by its government's own rule: Earth sells 2 of its 6, Andoria
+  // 1 of its 7. Giving 31 worlds a government turned that shaping rule into a closing one on nine of
+  // them, and the first repair treated an emptied lot as proof the world was a grey market — so a lot
+  // with one eligible hull sold one hull, and the same lot with none sold every foreign hull in it.
+  // Foreign availability cannot turn on whether one compatible hull happened to survive a filter.
+  await check('STOCK a world sells what its own government would, and foreign hulls only where its text says so', async () => {
+    await fresh('play-stock');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      for (const f of Object.keys(s.factionStanding || {})) s.factionStanding[f] = 100;
+      const eligible = (ship, i) => {
+        const trade = t.getTradeStandingFaction ? t.getTradeStandingFaction(i, null) : null;
+        return !ship.faction || ship.faction === 'neutral' || trade === 'neutral' || ship.faction === trade;
+      };
+      const shelf = (i) => {
+        s.currentPlanet = i; t.applySystemState(i);
+        return t.getShipyardStock(null).map((x) => s.shipStatsById[x.id]).filter(Boolean);
+      };
+      const authoredWorlds = (s.planets || []).map((p, i) => i).filter((i) => (s.planets[i].shipStockIds || []).length);
+      // Nothing with a shop may have an empty one.
+      const empty = authoredWorlds.filter((i) => shelf(i).length === 0).map((i) => `${i}:${s.planets[i].name}`);
+      // Nowhere unauthored may a foreign hull be on sale.
+      const foreignTable = t.WORLD_FOREIGN_STOCK || {};
+      const leaks = [];
+      for (const i of authoredWorlds) {
+        if (foreignTable[s.planets[i].name]) continue;
+        for (const ship of shelf(i)) {
+          if (!eligible(ship, i)) leaks.push(`${s.planets[i].name}: ${ship.name} (${ship.faction})`);
+        }
+      }
+      // The authored exceptions have to be justified by the world's own description, and have to work.
+      const exceptions = Object.entries(foreignTable).map(([name, why]) => {
+        const i = (s.planets || []).findIndex((p) => p.name === name);
+        const planet = s.planets[i];
+        const sold = i >= 0 ? shelf(i) : [];
+        return { name, why, found: i >= 0,
+          justified: i >= 0 && String(planet.description || '').toLowerCase().includes(String(why).toLowerCase()),
+          foreignSold: sold.filter((ship) => !eligible(ship, i)).length };
+      });
+      // And the one that decides it: strip the last eligible hull out of an ordinary world's lot and
+      // the foreign hulls in that same lot must not appear.
+      let pivot = null;
+      for (const i of authoredWorlds) {
+        if (foreignTable[s.planets[i].name]) continue;
+        const lot = (s.planets[i].shipStockIds || []).map((id) => s.shipStatsById[id]).filter(Boolean);
+        const good = lot.filter((x) => eligible(x, i)), bad = lot.filter((x) => !eligible(x, i));
+        if (!good.length || !bad.length) continue;
+        const before = shelf(i).map((x) => x.name);
+        const saved = s.planets[i].shipStockIds.slice();
+        s.planets[i].shipStockIds = bad.map((x) => Number(x.id));
+        s.systemStates = {};
+        const after = shelf(i);
+        s.planets[i].shipStockIds = saved;
+        s.systemStates = {};
+        pivot = { i, name: s.planets[i].name, before, strippedTo: bad.map((x) => `${x.name} (${x.faction})`),
+          afterCount: after.length, afterForeign: after.filter((x) => !eligible(x, i)).map((x) => `${x.name} (${x.faction})`) };
+        break;
+      }
+      return { worlds: authoredWorlds.length, empty, leaks, exceptions, pivot };
+    });
+    assert.ok(r.worlds > 50, `precondition: worlds with an authored hull lot (${r.worlds})`);
+    assert.deepEqual(r.empty, [],
+      `${r.empty.length} world(s) have an authored shipyard that sells nothing: ${r.empty.slice(0, 5).join(', ')}`);
+    assert.deepEqual(r.leaks, [],
+      `${r.leaks.length} foreign hull(s) are on sale at a world whose text does not say it deals in them: ${r.leaks.slice(0, 4).join('; ')}`);
+    for (const e of r.exceptions) {
+      assert.ok(e.found, `${e.name} is authored as dealing in foreign hulls but is not a world`);
+      assert.ok(e.justified, `${e.name} is authored as dealing in foreign hulls on "${e.why}", which is not in its own description`);
+      assert.ok(e.foreignSold > 0, `${e.name} is authored as dealing in foreign hulls and sells none`);
+    }
+    assert.ok(r.pivot, 'precondition: a world with both an eligible and an ineligible hull in its authored lot');
+    assert.deepEqual(r.pivot.afterForeign, [],
+      `stripping the last eligible hull out of ${r.pivot.name}'s lot put ${r.pivot.afterForeign.join(', ')} on sale: foreign availability is turning on whether one compatible hull survived the filter`);
+    assert.ok(r.pivot.afterCount > 0,
+      `${r.pivot.name} sells nothing once its lot holds no hull its government would carry`);
+  });
+
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);
   if (failures.length) { console.log(`${failures.length} still reproduce:`); for (const f of failures) console.log(`  - ${f.name}: ${f.message.split('\n')[0]}`); process.exitCode = 1; }
   if (errors.length) { console.log(`page errors: ${errors.join(' | ')}`); process.exitCode = 1; }

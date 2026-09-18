@@ -5810,6 +5810,13 @@ const WORLD_INDEPENDENT = Object.freeze({
   'Nausica': 'the Nausicans are now free',
   'Lysia': 'the Lysians finally found themselves free',
 });
+// Worlds whose own text says they deal in other powers' hulls. This is an authored claim with the
+// sentence that makes it, exactly like an allegiance: a world is not a grey market because a filter
+// emptied its shelf, and every other world's lot is shaped by its government's rule as it always was.
+const WORLD_FOREIGN_STOCK = Object.freeze({
+  'Hirogen Range': 'trophy vaults',
+  'Suliban Helix': 'trading quietly',
+});
 function getBaseSystemOrigin(index = state.currentPlanet) {
   const planet = state.planets[index] || {};
   const row = state.systemData[index] || [];
@@ -10689,14 +10696,24 @@ function getUnfilteredShipyardStock(station = getCurrentServiceStation()) {
     // filtering it to nothing leaves a world with an authored shipyard selling nothing at all. Giving
     // 31 worlds a government this round turned that from one world into nine. Where the rule would
     // empty an authored lot, the lot stands as written. [playtest]
-    const kept = (!station && !localStock.length && sellable.length) ? sellable : localStock;
+    // A world retailing another power's hulls is a claim about that world, and an authored lot that the
+    // government's own rule filters to nothing is not evidence for it — nor may foreign availability
+    // turn on whether one compatible hull happened to survive the filter. Two worlds say it in their
+    // own text; everywhere else the rule stands, and a lot it empties falls through to the ordinary
+    // price-ranked shelf below, which stocks what that government would actually sell. [playtest]
+    const kept = (!station && WORLD_FOREIGN_STOCK[getCurrentSystemName()]) ? sellable : localStock;
     const authored = [...new Map(kept.map(ship => [ship.id, ship])).values()].filter(ship => !station || stationCanSellHull(station, ship));
-    if (!station) return authored;
-    // The eight-entry station display limit never hides a design recovered to this yard.
-    const recovered = new Set((effectiveOffers.shipIds || []).filter((id) => effectiveOffers.provenance?.[`ship:${id}`] === 'recovered-archive').map(Number));
-    const shown = authored.slice(0, SHIPYARD_STOCK_SIZE);
-    for (const ship of authored.slice(SHIPYARD_STOCK_SIZE)) if (recovered.has(Number(ship.id))) shown.push(ship);
-    return shown;
+    if (!station && authored.length) return authored;
+    if (!station) {
+      // Fall through: an authored planet lot with nothing left in it is a gap in the lot, not a shop
+      // that closes.
+    } else {
+      // The eight-entry station display limit never hides a design recovered to this yard.
+      const recovered = new Set((effectiveOffers.shipIds || []).filter((id) => effectiveOffers.provenance?.[`ship:${id}`] === 'recovered-archive').map(Number));
+      const shown = authored.slice(0, SHIPYARD_STOCK_SIZE);
+      for (const ship of authored.slice(SHIPYARD_STOCK_SIZE)) if (recovered.has(Number(ship.id))) shown.push(ship);
+      return shown;
+    }
   }
   // Licensed lots and attached depots sell only their authored offers; no price-ranked fallback.
   if (stationServices?.licensedOnly) return [];
