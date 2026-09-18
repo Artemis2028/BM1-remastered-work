@@ -789,7 +789,19 @@ const { startProbe } = require('./probe-harness.cjs');
   // check plays the HUD at six widths and reads back what is actually on screen.
   await check('LAYOUT the top strip fits its own readouts at every width and sits clear of the menu and the map', async () => {
     await fresh('play-layout');
-    const widths = [1600, 1280, 1100, 1000, 860, 600];
+    // This check is about the HUD's own layout, so it starts from a bare HUD: an earlier check leaves
+    // the EW panel open, and at 600px that panel lies over the strip. (Which is worth knowing on its
+    // own — a captain who opens EW in a fight loses the power controls underneath it — but it is a
+    // question about that panel, not about whether the strip fits.)
+    await ev(() => {
+      const t = testBM1;
+      t.state.topLeftPanelOpen = false;
+      document.getElementById('top-left-panel')?.classList.add('hidden');
+      for (const d of document.querySelectorAll('dialog')) { try { d.close(); } catch (e) { /* not open */ } }
+      t.closePlanetMenu?.();
+      t.updateStats();
+    });
+    const widths = [1600, 1360, 1280, 1100, 1000, 820, 600];
     const seen = [];
     try {
       for (const w of widths) {
@@ -806,9 +818,18 @@ const { startProbe } = require('./probe-harness.cjs');
           const hit = (a, b) => Boolean(a && b && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom);
           const other = (sel) => { const el = document.querySelector(sel); return el && getComputedStyle(el).display !== 'none' ? el.getBoundingClientRect() : null; };
           const name = (el) => (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 24) || el.className;
+          // Naming whatever is on top turns "covered" from a puzzle into a finding.
+          const coveredBy = [];
+          const reachable = (el) => {
+            const r = el.getBoundingClientRect();
+            if (r.width < 1 || r.height < 1) { coveredBy.push('zero-sized'); return false; }
+            const over = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
+            if (over && (over === el || el.contains(over))) return true;
+            coveredBy.push(over ? (over.id || String(over.className || '').split(' ')[0] || over.tagName) : 'nothing (off screen)');
+            return false;
+          };
+          const onScreen = (sel) => [...stats.querySelectorAll(sel)].filter((el) => el.offsetParent !== null);
           return {
-            // The strip is one line: two means its contents did not fit the tracks it was given.
-            rows: Math.max(1, Math.round((box.bottom - box.top) / 42)),
             // Nothing sticks out past the strip's own right edge.
             spill: shown.filter((el) => el.getBoundingClientRect().right - box.right > 1)
               .map((el) => `${name(el)} by ${Math.round(el.getBoundingClientRect().right - box.right)}px`),
@@ -818,8 +839,14 @@ const { startProbe } = require('./probe-harness.cjs');
             overMenu: hit(box, other('.top-left-menu')),
             overMap: hit(box, other('.minimap-panel')),
             // Whatever the strip still carries at this width has to be reachable, not merely present.
-            alertReachable: [...stats.querySelectorAll('[data-alert-set]')].filter((b) => b.offsetParent !== null).length,
-            powerShown: [...stats.querySelectorAll('.power-chip')].filter((b) => b.offsetParent !== null).length,
+            overDock: hit(box, other('.bottom-dock')),
+            alertShown: onScreen('[data-alert-set]').length,
+            alertReachable: onScreen('[data-alert-set]').filter(reachable).length,
+            powerShown: onScreen('.power-chip').length,
+            powerReachable: onScreen('.power-chip').filter(reachable).length,
+            stepsShown: onScreen('[data-power-dist][data-power-dir]').length,
+            stepsReachable: onScreen('[data-power-dist][data-power-dir]').filter(reachable).length,
+            coveredBy: [...new Set(coveredBy)].slice(0, 3).join(', '),
           };
         }));
       }
@@ -833,21 +860,84 @@ const { startProbe } = require('./probe-harness.cjs');
     seen.forEach((r, i) => {
       const at = `${widths[i]}px`;
       if (r.missing) { wrong.push(`at ${at} there is no top strip`); return; }
-      if (r.rows !== 1) wrong.push(`at ${at} the strip wraps onto ${r.rows} rows`);
+      if (r.overDock) wrong.push(`at ${at} the strip sits across the quick-action bar`);
       if (r.spill.length) wrong.push(`at ${at} the strip runs past its own right edge: ${r.spill.join('; ')}`);
       if (r.cut.length) wrong.push(`at ${at} a readout is cut off: ${r.cut.join('; ')}`);
       if (r.overMenu) wrong.push(`at ${at} the strip sits across the menu block`);
       if (r.overMap) wrong.push(`at ${at} the strip sits across the minimap`);
       // Alert posture is the one control that has to survive to the narrowest width the game is played
       // at: it is what a captain reaches for first, and there is no room for a dialog in a fight.
-      if (r.alertReachable !== 3) wrong.push(`at ${at} ${r.alertReachable} of 3 alert settings can be reached`);
-    });
-    // Power is shown in the strip at the widths that have room for it; below that it stays on the
-    // quick-action bar and in its own panel, which the HUD checks cover.
-    [0, 1].forEach((i) => {
-      if (seen[i] && seen[i].powerShown !== 4) wrong.push(`at ${widths[i]}px the strip shows ${seen[i].powerShown} of 4 power readouts`);
+      if (r.alertShown !== 3) wrong.push(`at ${at} the strip shows ${r.alertShown} of 3 alert settings`);
+      if (r.alertReachable !== r.alertShown) wrong.push(`at ${at} ${r.alertShown - r.alertReachable} of ${r.alertShown} alert settings are covered by ${r.coveredBy} and cannot be hit`);
+      if (r.powerShown !== 4) wrong.push(`at ${at} the strip shows ${r.powerShown} of 4 power readouts`);
+      if (r.powerReachable !== r.powerShown) wrong.push(`at ${at} ${r.powerShown - r.powerReachable} of ${r.powerShown} power readouts are covered by ${r.coveredBy}`);
+      if (r.stepsShown !== 8) wrong.push(`at ${at} the strip offers ${r.stepsShown} of 8 power controls`);
+      if (r.stepsReachable !== r.stepsShown) wrong.push(`at ${at} ${r.stepsShown - r.stepsReachable} of ${r.stepsShown} power controls are covered by ${r.coveredBy} and cannot be hit`);
     });
     assert.deepEqual(wrong, [], wrong.join('; '));
+  });
+
+  // POWER — the report: "power should be shown while engaging ... including on my iPad". The strip
+  // dropped the power steppers at 1400px and the whole group at 1200px, so on a tablet there was
+  // nothing to press; and because #stats is pointer-events:none, what was left rendered without
+  // taking input at all — a control you can see, cannot hit, and which a scripted .click() reaches
+  // anyway, which is why the first version of this work passed its own gate. This check opens a touch
+  // context, presses the controls where they actually sit on screen, and reads the state back.
+  await check('POWER alert and power take a real press on a tablet, at tablet sizes', async () => {
+    const touch = await startProbe({ pageOptions: { hasTouch: true }, viewport: { width: 1180, height: 820 } });
+    try {
+      await touch.fresh('play-power');
+      const sizes = [[1180, 820, 'tablet across'], [820, 1180, 'tablet upright']];
+      const wrong = [];
+      for (const [w, h, name] of sizes) {
+        await touch.page.setViewportSize({ width: w, height: h });
+        await touch.page.waitForTimeout(220);
+        await touch.ev(() => {
+          const t = testBM1;
+          t.state.topLeftPanelOpen = false;
+          document.getElementById('top-left-panel')?.classList.add('hidden');
+          t.state.lastShieldHitAt = t.gameNow();
+          t.ensurePlaytestState().alertLevel = 'green';
+          t.updateStats();
+        });
+        await touch.page.waitForTimeout(180);
+
+        const coarse = await touch.ev(() => matchMedia('(pointer: coarse)').matches);
+        if (!coarse) { wrong.push(`${name}: the page does not report a coarse pointer, so this is not the tablet case`); continue; }
+
+        // Sizes first: a control under the 44pt floor is one a thumb misses.
+        const small = await touch.ev(() => [...document.querySelectorAll('#stats [data-alert-set], #stats [data-power-dist][data-power-dir]')]
+          .filter((b) => b.offsetParent !== null)
+          .map((b) => { const r = b.getBoundingClientRect(); return { n: b.dataset.alertSet || (b.dataset.powerDist + b.dataset.powerDir), w: Math.round(r.width), h: Math.round(r.height) }; })
+          .filter((b) => b.w < 44 || b.h < 44));
+        if (small.length) wrong.push(`${name}: ${small.length} control(s) under 44pt, smallest ${small[0].n} at ${small[0].w}x${small[0].h}`);
+
+        // Then a real press at real coordinates, which is what a finger does and what a scripted
+        // element.click() does not: it goes through hit testing and fails on a covered control.
+        const redBox = await touch.ev(() => { const b = document.querySelector('#stats [data-alert-set="red"]'); if (!b || b.offsetParent === null) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+        if (!redBox) { wrong.push(`${name}: there is no red-alert control in the strip`); continue; }
+        await touch.page.mouse.click(redBox.x, redBox.y);
+        await touch.page.waitForTimeout(140);
+        const alertNow = await touch.ev(() => testBM1.ensurePlaytestState().alertLevel);
+        if (alertNow !== 'red') wrong.push(`${name}: pressing red alert where it sits on screen left the posture at "${alertNow}"`);
+
+        const before = await touch.ev(() => Number(document.querySelector('#stats .power-chip u')?.textContent ?? -1));
+        const upBox = await touch.ev(() => { const b = document.querySelector('#stats [data-power-dist="weapons"][data-power-dir="1"]'); if (!b || b.offsetParent === null) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+        if (!upBox) { wrong.push(`${name}: there is no power control in the strip`); continue; }
+        const weaponsBefore = await touch.ev(() => testBM1.state.power?.dist?.weapons ?? -1);
+        await touch.page.mouse.click(upBox.x, upBox.y);
+        await touch.page.waitForTimeout(140);
+        const weaponsAfter = await touch.ev(() => testBM1.state.power?.dist?.weapons ?? -1);
+        if (!(weaponsAfter > weaponsBefore)) wrong.push(`${name}: pressing the weapons power control where it sits on screen left it at ${weaponsAfter}`);
+        if (before < 0) wrong.push(`${name}: the strip shows no power level`);
+
+        const dialogs = await touch.ev(() => [...document.querySelectorAll('dialog')].filter((d) => d.open).length);
+        if (dialogs) wrong.push(`${name}: setting posture or power opened ${dialogs} dialog(s) over the fight`);
+      }
+      assert.deepEqual(wrong, [], wrong.join('; '));
+    } finally {
+      await Promise.race([touch.close(), new Promise((r) => setTimeout(r, 12000))]);
+    }
   });
 
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);

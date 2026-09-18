@@ -697,6 +697,11 @@ body.ui-theme-cardassian .planet-menu::before {
   display: flex; align-items: center; gap: 4px;
   overflow: visible; padding: 0 6px; width: max-content;
   background: rgba(8, 11, 20, 0.92); color: #dfeaff;
+  /* #stats is pointer-events:none because the strip has always been a readout the captain looks past.
+     These two groups are the first controls ever put in it, and without this they render, report as
+     visible, and take no input at all: a click dispatched in code reaches them, a finger does not.
+     [playtest] */
+  pointer-events: auto;
 }
 .alert-chip {
   min-width: 26px; min-height: 26px; padding: 0 6px;
@@ -997,7 +1002,11 @@ body.ui-theme-cardassian .target-meter-track {
   top: 8px;
   z-index: 32;
   width: min(230px, calc(100vw - 36px));
-  max-height: 52px;
+  /* The box used to be capped at 52px while its six buttons overflowed it visibly down to about 152px,
+     so anything positioned below "the menu" was positioned below a box that was not where the menu
+     ended — which is how the strip came to sit across its bottom row. The box now measures what is
+     actually on screen. [playtest] */
+  max-height: none;
   padding: 0;
   overflow: visible;
   background: transparent;
@@ -3650,28 +3659,59 @@ button:disabled {
   flex: 0 0 auto;
 }
 
-/* The strip loses width in stages: first the stats, then the power labels, and only then the power
-   group itself — power is still on the quick-action bar and in its own panel. These blocks sit here,
-   above the 1320/980/640 blocks, because a later block in this file wins at the same specificity and
-   the narrower rules must be the ones that hold. [playtest] */
+/* Power and alert are the two things a captain reaches for in a fight, so neither ever leaves the
+   strip and neither ever loses its controls. What gives way instead is the row: when the readouts and
+   the four power chips no longer share one line, power takes a line of its own inside the strip and
+   keeps its steppers at full size. The earlier arrangement dropped the steppers at 1400 and the whole
+   group at 1200, which on a tablet meant the controls were simply not there. [playtest]
+   These blocks sit above the 1320/980/640 blocks because a later block of the same specificity wins,
+   and the narrower rules have to be the ones that hold. */
 @media (max-width: 1400px) {
   .top-strip {
     grid-template-columns: max-content max-content max-content minmax(60px, 1fr) repeat(6, minmax(54px, 74px));
   }
   .power-chip b { font-size: 8px; }
   .power-chip { gap: 3px; padding: 1px 5px; }
-  .power-chip button { display: none; }
   /* A few pixels of side padding is the difference between "SHLD 100%" and "SHLD 100…". */
   .top-slot,
   .top-stat { padding: 0 6px; }
   .top-stat { gap: 4px; }
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1400px) {
   .top-strip {
-    grid-template-columns: max-content max-content minmax(80px, 1fr) repeat(6, minmax(48px, 70px));
+    grid-template-columns: max-content max-content minmax(60px, 1fr) repeat(6, minmax(50px, 74px));
   }
-  .top-power { display: none; }
+  /* Its own line, the full width of the strip, rather than off the screen. The order matters: without
+     it the group is auto-placed where it sits in the markup, between the alert chips and the message,
+     and pushes the readouts down onto a third row. */
+  .top-power {
+    grid-column: 1 / -1;
+    order: 9;
+    /* The base rule sizes this group to its content so its chips are never clipped in a one-row
+       strip. On its own row it has to take the row's width instead, or it lays four chips out at
+       their natural size and runs off the end. */
+    width: auto;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 2px;
+  }
+  /* Four across, or two and two. A flex basis packed as many as would fit and stranded the fourth on
+     a line of its own with three-quarters of the row empty beside it. */
+  .top-power {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .power-chip {
+    justify-content: center;
+    gap: 5px;
+    padding: 2px 6px;
+    min-height: 40px;
+  }
+  .power-chip b { font-size: 10px; }
+  .power-chip u { font-size: 13px; min-width: 14px; }
+  .power-chip button { min-width: 34px; min-height: 34px; font-size: 15px; }
 }
 
 @media (max-width: 1080px) {
@@ -3680,11 +3720,21 @@ button:disabled {
        clear of the minimap: 260px of panel, 18px of margin and a gap. */
     left: 18px;
     right: 290px;
-    top: 140px;
+    top: 168px;
   }
 }
 
 @media (max-width: 1320px) {
+  #stats {
+    /* The minimap moves to the top right here and the strip is two rows tall from 1400 down, so the
+       strip stops sharing the menu's line and takes its own beneath it, ending before the minimap:
+       260px of panel, its 18px margin and a gap. Pinned beside the menu at this width it had barely
+       400px to lay nine readouts into and clipped most of them. [playtest] */
+    left: 18px;
+    right: 290px;
+    top: 168px;
+    width: auto;
+  }
   .minimap-panel {
     top: 64px;
     right: 18px;
@@ -3704,7 +3754,7 @@ button:disabled {
        minimap. [playtest] */
     left: 18px;
     right: 290px;
-    top: 140px;
+    top: 168px;
     width: auto;
   }
   .top-left-menu {
@@ -3716,6 +3766,7 @@ button:disabled {
     grid-template-columns: max-content max-content minmax(80px, 1fr) repeat(3, minmax(44px, 1fr));
     font-size: 11px;
   }
+  .top-power { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   /* Antimatter, shields and hull are what a fight needs; duranium, latinum and standing are in the
      inventory panel and on the planet card. Counted from the end: every slot in the strip is a div, so
      counting from the front hid all six stats rather than the last three. */
@@ -3845,20 +3896,22 @@ button:disabled {
     grid-template-columns: minmax(0, 1fr);
   }
   .top-strip {
-    /* ship, alert, message, the three stats the 980px block leaves standing. Seven tracks for six
-       slots left the row stretched and the numbers adrift from their labels; tracks wider than the
-       space between the menu and the minimap pushed the last pills past the strip's own edge. */
-    grid-template-columns: max-content max-content minmax(48px, 1fr) repeat(3, minmax(46px, 1fr));
+    /* A phone cannot hold the posture pill, the alert chips, a message and three readouts on one
+       line without squeezing every one of them, so at this width the strip is explicitly stacked:
+       posture and alert, then the message, then the readouts, then power. Taller, and all of it
+       legible and hittable, which is the trade a phone asks for. [playtest] */
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     font-size: 10px;
     gap: 4px;
   }
+  .top-ship,
+  .top-alert { grid-column: span 3; }
+  .top-alert { width: auto; justify-content: center; }
+  .top-message { grid-column: 1 / -1; }
+  .top-stat { grid-column: span 1; }
   .top-stat {
     padding: 0 6px;
     gap: 3px;
-  }
-  .alert-chip {
-    min-width: 22px;
-    padding: 0 3px;
   }
   .top-alert {
     padding: 0 4px;
@@ -3909,14 +3962,14 @@ button:disabled {
     left: 12px;
     top: 8px;
     width: min(230px, calc(100vw - 24px));
-    max-height: 52px;
+    max-height: none;
   }
   #stats {
     /* Its own line under the menu block, full width. Top 52 assumed a menu collapsed to one row;
        it is three rows at this width and the strip was underneath it. [playtest] */
     left: 12px;
     right: 12px;
-    top: 140px;
+    top: 168px;
   }
   .target-window {
     left: 12px;
@@ -3981,7 +4034,7 @@ button:disabled {
   }
   .dock-panel {
     left: 70px;
-    top: 140px;
+    top: 168px;
   }
   .planet-menu.station-menu .dock-panel {
     top: 92px;
@@ -4517,4 +4570,21 @@ button:disabled {
     flex: 1 1 calc(50% - 4px);
     min-width: 0;
   }
+}
+
+/* A finger is not a mouse pointer. Where the browser reports a coarse primary input, every control the
+   HUD offers meets the 44pt floor at any width — the alert chips were 26x26 and the bar's buttons 33pt
+   wide on a tablet, which is a control you can see and cannot reliably hit. This block is last in the
+   sheet on purpose: it has to win over every width block above it. [playtest] */
+@media (pointer: coarse) {
+  .alert-chip { min-width: 44px; min-height: 44px; padding: 0 8px; font-size: 14px; }
+  .top-alert { gap: 6px; padding: 0 6px; }
+  .power-chip { min-height: 48px; gap: 6px; }
+  .power-chip button { min-width: 44px; min-height: 44px; font-size: 17px; }
+  .power-chip u { font-size: 14px; min-width: 16px; }
+  .bottom-dock { min-height: 52px; }
+  .bottom-dock button { min-height: 48px; }
+  .top-left-tabs button { min-height: 44px; }
+  .security-order-body > button { min-height: 44px; }
+  .minimap-panel > button { min-height: 44px; }
 }

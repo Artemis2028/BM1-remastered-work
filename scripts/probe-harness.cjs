@@ -24,7 +24,10 @@ async function startProbe(options = {}) {
   const server = createServer(root);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const browser = await chromium.launch({ headless: true, executablePath: process.env.BM1_CHROMIUM_PATH, args: ['--single-process', '--no-zygote', '--no-sandbox', '--disable-dev-shm-usage', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-  const page = await browser.newPage({ viewport: options.viewport || { width: 1280, height: 800 }, serviceWorkers: 'block' });
+  // pageOptions is additive and unused by the existing gates: it exists so a gate can ask for a touch
+  // context, which is the only way to make `(pointer: coarse)` match and therefore the only way to
+  // check the HUD the way a tablet sees it.
+  const page = await browser.newPage({ viewport: options.viewport || { width: 1280, height: 800 }, serviceWorkers: 'block', ...(options.pageOptions || {}) });
   const errors = []; page.on('pageerror', (e) => errors.push(e.message));
   await page.route('**/src/main.js*', async (route) => { const r = await route.fetch(); await route.fulfill({ response: r, body: (await r.text()) + '\n' + EXPORTS }); });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
