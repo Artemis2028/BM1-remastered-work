@@ -297,7 +297,7 @@ Measured and named rather than left for the next playtest.
 
 - 35 of 35 gates pass from a clean tree bound to this commit; `validation/RUN.json` records the tree
   before the first gate ran.
-- The playtest gate is 29 checks. All 29 reproduce on `ae4ae4d`; 9 on `7232dc6`; 9 on `7767631`; and
+- The playtest gate is 29 checks. All 29 reproduce on `ae4ae4d`; 12 on `7232dc6`; 9 on `7767631`; and
   **3 on `43938a7`** — RECOVER, MODAL and STOCK, one per finding raised against it. Every failure
   message describes a wrong behaviour, and no check fails with a TypeError.
 - `validation/screens/` — the HUD at 1920, 1536, 1440 and 1280; the Power, EW, Fleet and Contracts
