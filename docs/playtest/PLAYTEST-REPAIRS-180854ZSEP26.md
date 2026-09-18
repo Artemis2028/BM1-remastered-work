@@ -36,8 +36,9 @@ own yard and watching it still say no.
 guessed from the world's name and, when that failed, invented a people named after the planet. Eighty-
 five worlds now carry an authored identity with the phrase from their own description that justifies
 it; twelve are recorded uninhabited because their text says so; three are left to the local fallback
-deliberately. **Thirty-three worlds changed their people and none changed its government** — the diff
-across all 101 worlds is in `validation/world-identity-diff.txt`.
+deliberately. **Thirty-two worlds changed their people and none changed its government** — the full
+comparison of all 101, with before and after culture, controller, allegiance, origin and governor, is
+`validation/world-identity-report.md`, generated from the shipped tree.
 
 **4. Evacuation and blockade stay unfinished, and a save carrying one is not left holding it.**
 Withdrawing them stopped them being issued; it did nothing for an existing save. A blockade contract
@@ -115,9 +116,16 @@ Dosi, T-Rogorans, Tellarites, Hupyrians, Orions, Rigelians, Lik, Lysians, Nausic
 Trill, Teposians, Vexxians. A `people:` id is not a faction key and can never become one; the gate
 asserts none of them is recognised as a polity and none governs anything.
 
-**No world's government moved.** `validation/world-identity-diff.txt` prints the controller, allegiance,
-origin and governor of all 101 worlds before and after: the government diff is empty, and the gate
-proves it independently by comparing every world's origin against its own authored `governmentId`.
+**No world's government moved.** `validation/world-identity-report.md` prints all 101 worlds with
+their culture, controller, allegiance, origin and governor before and after, generated from both trees
+by one script so the two sides cannot be shaped differently. The four government columns are identical
+on every row, and the gate proves it independently by comparing every world's origin against its own
+authored `governmentId`. Thirty-two worlds changed their people; 41 planet-card readouts changed,
+because a readout also moves when the government beside an unchanged people is printed differently.
+
+Orilla is **not** among them: it stays the local fallback, "Orilla · self-governed", because its text
+describes a refugee mixture with no people to name. An earlier draft of this document said otherwise;
+the report is now generated from the shipped tree rather than an intermediate one.
 
 New Bajor reads "Bajoran world · Dominion administration" and Remus "Reman world · Romulan
 administration". New Switzerland's people are Terran and its government is still nobody's.
