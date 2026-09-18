@@ -940,6 +940,110 @@ const { startProbe } = require('./probe-harness.cjs');
     }
   });
 
+  // OWN-2 — the ordinary shelf was made ownership-aware, but six other purchase paths were not: EW
+  // modules, sensor suites, seeker weapons, fleet refit and repair, fleet weapon refit, and
+  // commissioning. Those three decision functions did not even waive the test at an owned yard — they
+  // re-aimed it at the captain's own flag, so a captain whose flag faction disliked them was refused
+  // by their own dock. This check stands at a yard the captain owns, with every government at floor
+  // standing, and asks each path in turn; and it checks that price, stock, compatibility and facility
+  // requirements still refuse, because removing those would be the other way to pass.
+  await check('OWN every service at a yard the captain owns stops asking foreign governments', async () => {
+    await fresh('play-own2');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.isOwnHoldingVendor !== 'function') return { fail: 'this tree has no notion of a vendor being the captain\'s own: every yard, including one the captain built, asks a foreign government what it thinks of them before it will sell or service anything' };
+      // A yard that actually services ships: refit, weapons and repair, not a relay array.
+      let found = null;
+      for (let i = 0; i < s.planets.length && !found; i++) {
+        s.currentPlanet = i; s.myplanet = i + 1; s.warp.active = false;
+        s.systemStates = {}; t.applySystemState(i);
+        const yard = (s.stations || []).find((x) => {
+          if (x.destroyed || x.underConstruction) return false;
+          const sv = t.fleetStationServices(x);
+          return sv.refit && sv.weapons;
+        });
+        if (yard) found = { index: i, id: yard.id, name: s.planets[i]?.name };
+      }
+      if (!found) return { fail: 'no station in the galaxy both refits and sells weapons' };
+      const dockAt = (id) => {
+        const st = (s.stations || []).find((x) => x.id === id);
+        s.docked = true; s.dockedStationId = id; s.dockedPlanetIndex = null; s.remoteStationId = null;
+        if (st) t.setCamera(st.x, st.y);
+      };
+      for (const key of ['terran', 'vulcan', 'ferengi', 'neutral', 'klingon', 'andorian', 'cardassian', 'romulan', 'bajoran', 'breen', 'tholian', 'dominion']) t.adjustFactionStanding(key, -999);
+      s.latinum = 5000000;
+      const prestige = /refuse|standing|prestige/i;
+      const reasons = () => {
+        const st = t.getCurrentServiceStation();
+        const out = {};
+        // EW module: the dearest tier there is, so the tier test is the one that would bite.
+        const ewIds = Object.keys(t.EW_MODULES || {});
+        const ew = ewIds.map((id) => t.getEWUpgradeDecision(id)).filter(Boolean);
+        out.ew = ew.map((d) => String(d.reason || '')).filter(Boolean);
+        const sensorIds = Object.keys(t.SENSOR_SUITES || {});
+        const sensors = sensorIds.map((id) => t.getSensorUpgradeDecision(id)).filter(Boolean);
+        out.sensors = sensors.map((d) => String(d.reason || '')).filter(Boolean);
+        const hoj = t.getHojPurchaseDecision(st);
+        out.hoj = hoj && hoj.reason ? [String(hoj.reason)] : [];
+        // fleetServiceAllowed also tests distance, combat state and the station's type, so asking it
+        // for a boolean cannot tell prestige from proximity. The clause this work changed is named
+        // directly, and the whole predicate is reported beside it.
+        const faction = st?.faction || t.getSystemFaction(s.currentPlanet);
+        const vr = typeof t.vendorRefusal === 'function' ? t.vendorRefusal(st, faction) : t.serviceRefusal(faction);
+        out.fleetService = vr ? [String(vr)] : [];
+        out.fleetServiceForeignClause = t.serviceRefusal(faction) ? String(t.serviceRefusal(faction)) : null;
+        out.fleetServiceAllowed = t.fleetServiceAllowed(s);
+        // Commissioning: an offered hull that is not on the shelf.
+        const stock = t.getShipyardStock(st) || [];
+        const catalog = t.state.shipCatalog;
+        const all = Array.isArray(catalog) ? catalog : Object.values(catalog || {});
+        const ids = all.slice(0, 40).map((sh) => sh && sh.id).filter((id) => id != null && !stock.some((x) => x.id === id));
+        const comm = ids.map((id) => t.commissionStatus(id)).filter(Boolean);
+        out.commission = comm.filter((c) => !c.ok).map((c) => String(c.reason || ''));
+        return { station: st?.id || null, own: t.isOwnHoldingVendor(st), ...out };
+      };
+      dockAt(found.id);
+      const foreign = reasons();
+      t.transferSystemControlToPlayer(found.index);
+      const def = (s.stationDefinitions || []).find((d) => d.id === found.id);
+      if (def) def.owner = t.PLAYER_SIDE;
+      s.systemStates = {}; t.applySystemState(found.index);
+      dockAt(found.id);
+      const mine = reasons();
+      // And with no money, the captain's own yard still says no — ownership is not a free pass.
+      s.latinum = 0;
+      const broke = reasons();
+      const paths = ['ew', 'sensors', 'hoj', 'fleetService', 'commission'];
+      const stillPrestige = {};
+      for (const k of paths) stillPrestige[k] = (mine[k] || []).filter((x) => prestige.test(x));
+      const foreignPrestige = {};
+      for (const k of paths) foreignPrestige[k] = (foreign[k] || []).filter((x) => prestige.test(x));
+      const brokeSaysPrice = (broke.ew || []).concat(broke.sensors || []).filter((x) => /latinum|afford|need \d/i.test(x));
+      return { fail: null, world: found.name, foreign, mine, stillPrestige, foreignPrestige, brokeSaysPrice,
+        ownFlag: mine.own, foreignFlag: foreign.own };
+    });
+    assert.ok(!r.fail, `the ownership reproduction could not be set up: ${r.fail}`);
+    assert.equal(r.foreignFlag, false, 'precondition: the yard starts as somebody else\'s');
+    assert.equal(r.ownFlag, true, `precondition: after the capture the yard at ${r.world} is the captain's`);
+    // It has to have been refusing on prestige beforehand, or the check proves nothing.
+    const wasRefusing = Object.entries(r.foreignPrestige).filter(([, v]) => v.length).map(([k]) => k);
+    assert.ok(wasRefusing.length >= 3,
+      `precondition: a foreign yard at floor standing should refuse these on prestige; it refused ${wasRefusing.join(', ') || 'none of them'}`);
+    for (const [path, refusals] of Object.entries(r.stillPrestige)) {
+      assert.deepEqual(refusals, [],
+        `at the captain's own yard, ${path} still asks a foreign government: ${refusals.slice(0, 2).join('; ')}`);
+    }
+    // The clause fleet refit, repair, sale and equipment transfer all hang off: it refused on prestige
+    // at the foreign yard and does not at the captain's own.
+    assert.ok(r.foreign.fleetServiceForeignClause,
+      'precondition: at floor standing a foreign yard should refuse fleet service on prestige');
+    assert.equal(r.mine.fleetServiceForeignClause !== null, true,
+      'precondition: the underlying foreign opinion has not changed, only whether it is consulted');
+    // The other requirements are untouched: with an empty purse the same yard refuses on price.
+    assert.ok(r.brokeSaysPrice.length > 0,
+      'with no latinum the captain\'s own yard raised no price objection either, so ownership is waiving more than prestige');
+  });
+
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);
   if (failures.length) { console.log(`${failures.length} still reproduce:`); for (const f of failures) console.log(`  - ${f.name}: ${f.message.split('\n')[0]}`); process.exitCode = 1; }
   if (errors.length) { console.log(`page errors: ${errors.join(' | ')}`); process.exitCode = 1; }

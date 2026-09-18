@@ -4400,6 +4400,16 @@ function isUnlockedFaction(faction = 'neutral') {
 // A refusal that never applies to your own holding. Every call that asks "will this vendor deal with
 // me" goes through here so the answer is the same in the shop, the market, the weapon rack and the
 // remote channel: your own station and your own world always will. [playtest]
+// What a vendor thinks of the captain, for a purchase tier. At a holding the captain owns there is no
+// foreign opinion to consult, so the test is satisfied rather than re-aimed: EW modules, sensor suites
+// and seeker weapons did not waive it at an owned yard, they swapped the tested faction to the
+// captain's own flag, which refused them at their own dock whenever that flag's standing was low.
+// Price, stock, compatibility, facility and clearance are untouched by this — only the foreign
+// opinion is. [review]
+function vendorStanding(station = getCurrentServiceStation(), faction = null) {
+  if (isOwnHoldingVendor(station)) return STANDING_MAX;
+  return getFactionStanding(String(faction || ''));
+}
 function vendorRefusal(station, faction) {
   if (isOwnHoldingVendor(station)) return null;
   return serviceRefusal(faction);
@@ -4532,7 +4542,7 @@ function getEWUpgradeDecision(id,entity=state) {
   const owner=st?getStationOwner(st):getSystemFaction(state.currentPlanet)||'neutral';
   const faction=owner===PLAYER_SIDE?getPlayerFlag():owner.startsWith('private:')?'neutral':owner;
   const requirement=getConfiguredPurchaseTierThresholds()?.[u?.tier]??PURCHASE_TIER_STANDING[u?.tier]??0;
-  const standing=getFactionStanding(faction),blocked=getSecurityDockingBlock(owner);
+  const standing=vendorStanding(st,faction),blocked=getSecurityDockingBlock(owner);
   const service=!st||(!st.destroyed&&!st.underConstruction&&fleetStationServices(st).refit);
   const reason=!u?'Unknown module':!hasServiceConnection()?getServiceTransferBlock():blocked?String(blocked):!service?'No electronic refit service':
     a!==state&&(!state.npcShips.includes(a)||!isPlayerSideNpc(a)||a.destroyed||a.trafficWarp?.phase==='away'||sensorDistance(playerWorldPosition(),a)>2400)?'Ship is not locally commanded':
@@ -4953,7 +4963,7 @@ function getSensorUpgradeDecision(id, entity = state) {
   const faction = String(st ? getStationOwner(st) : getSystemFaction(state.currentPlanet) || 'neutral'),
     gateFaction = faction === PLAYER_SIDE ? getPlayerFlag() : faction.startsWith('private:') ? 'neutral' : faction;
   const requirement = getConfiguredPurchaseTierThresholds()?.[u?.tier] ?? PURCHASE_TIER_STANDING[u?.tier] ?? 0;
-  const standing = getFactionStanding(gateFaction),
+  const standing = vendorStanding(st, gateFaction),
     blocked = getSecurityDockingBlock(faction);
   const service = !st || (!st.destroyed && !st.underConstruction && fleetStationServices(st).refit);
   const reason = !u ? 'Unknown suite' : !hasServiceConnection() ? getServiceTransferBlock() : blocked ? String(blocked) : !service ?
@@ -10172,7 +10182,7 @@ function getHojPurchaseDecision(station=getCurrentServiceStation()) {
   const owner=station?getStationOwner(station):null;
   const faction=owner===PLAYER_SIDE?getPlayerFlag():owner?.startsWith('private:')?'neutral':owner;
   const requirement=getConfiguredPurchaseTierThresholds()?.respected??PURCHASE_TIER_STANDING.respected;
-  const standing=faction?getFactionStanding(faction):0;
+  const standing=faction?vendorStanding(station,faction):0;
   const service=station&&!station.destroyed&&!station.underConstruction&&fleetStationServices(station).weapons&&getStationCapabilities(station).services.advancedWeapons;
   const blocked=owner?getSecurityDockingBlock(owner):null;
   const reason=!hasServiceConnection()?getServiceTransferBlock():!service?'Military or science weapons service required':blocked?String(blocked):standing<requirement?`Requires ${requirement} ${formatFaction(faction)} standing; yours ${standing}`:null;
@@ -11939,6 +11949,10 @@ function buyFactionFlag(faction) {
     return;
   }
   const key = normalizeFactionKey(faction);
+  // Deliberately not ownership-aware: this asks whether that government will issue you its colours,
+  // which is its decision and not the local vendor's. Owning the world you are standing on does not
+  // change whose flag it is. The vendor half of the transaction is already covered by
+  // requireServiceConnection above, which is ownership-aware. [review]
   const flagRefusal = serviceRefusal(key);
   if (flagRefusal) {
     setLog(flagRefusal);
@@ -22286,7 +22300,9 @@ function fleetServiceAllowed(npc, physical = false) {
       (!st.destroyed &&
         !st.underConstruction &&
         /shipyard|starbase|maintenance/i.test(getShipStats(st.stationTypeId).name || ''))) &&
-    !serviceRefusal(st?.faction || getSystemFaction(state.currentPlanet)) &&
+    // Fleet repair, refit, sale and equipment transfer all hang off this one test. A yard the captain
+    // built does not ask a foreign government whether it will service their own ships. [review]
+    !vendorRefusal(st, st?.faction || getSystemFaction(state.currentPlanet)) &&
     !getSecurityDockingBlock(st ? getStationOwner(st) : getSystemControl(state.currentPlanet).polityId)
   );
 }
@@ -23267,7 +23283,7 @@ function compatibleRecoveryYard(station, shipId) {
   const trade = getTradeStandingFaction(systemIndex, station);
   if (!ship || !(trade === 'neutral' || isFactionShipStockEligible(ship.faction, trade))) return false;
   if (state.shipCatalog && !state.shipCatalog.eligibleForStock(ship.id, buildPurchaseContext(getCurrentPurchaseVendor(station)))) return false;
-  return owner === PLAYER_SIDE || !serviceRefusal(station.faction) && !getSecurityDockingBlock(owner);
+  return !vendorRefusal(station, station.faction) && !getSecurityDockingBlock(owner);
 }
 function advanceRecoveryMissions() {
   if (!state.gameStarted || state.warp.active) return;
@@ -23688,7 +23704,9 @@ function commissionStatus(shipId) {
   if (decision && !decision.allowed && decision.reason !== 'funds') return { ok: false, reason: describePurchaseDecision(decision, ship) };
   const price = decision?.price ?? getShipPrice(ship);
   const owner = st ? getStationOwner(st) : getSystemControl(state.currentPlanet).polityId;
-  const block = getSecurityDockingBlock(owner) || serviceRefusal(st?.faction || getSystemFaction(state.currentPlanet));
+  // The catalog tier test below is already ownership-aware; this half was not, so commissioning at
+  // your own yard still asked what a foreign government thought of you. [review]
+  const block = getSecurityDockingBlock(owner) || vendorRefusal(st, st?.faction || getSystemFaction(state.currentPlanet));
   if (block) return { ok: false, reason: block };
   if (fleetReservations().some((r) => r.status === 'waiting' && r.system === Number(state.currentPlanet) && r.hull === Number(shipId))) return { ok: false, reason: 'Already commissioned here' };
   if (state.latinum < price) return { ok: false, reason: 'Need latinum', price };
@@ -23999,7 +24017,7 @@ function refitFleetWeapon(id, slot, weaponId, buy = false) {
       )
         return false;
       if (weapon.guidance === 'home-on-jam' && !getHojPurchaseDecision().canBuy) return false;
-      if (serviceRefusal(getCurrentServiceStation()?.faction || getSystemFaction(state.currentPlanet)))
+      if (vendorRefusal(getCurrentServiceStation(), getCurrentServiceStation()?.faction || getSystemFaction(state.currentPlanet)))
         return false;
       state.latinum -= getWeaponPrice(weapon);
       npc.weaponInventory.push(weaponId);
