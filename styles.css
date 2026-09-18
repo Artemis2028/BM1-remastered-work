@@ -297,6 +297,7 @@ button:focus-visible {
   background: var(--lcars-red);
   color: #000;
 }
+body[class*="ui-theme-"] .fleet-manager,
 body[class*="ui-theme-"] .top-left-panel,
 body[class*="ui-theme-"] .planet-menu,
 body[class*="ui-theme-"] .minimap-panel,
@@ -626,7 +627,7 @@ body.ui-theme-cardassian .planet-menu::before {
      its own message and wrapped the stats onto a second row. The first three tracks size to their
      contents — they hold short fixed strings and controls, and a fixed width cut into both. The
      message is the slot that gives up room, because it is the one that can ellipsis. [playtest] */
-  grid-template-columns: max-content max-content max-content minmax(140px, 1fr) repeat(6, minmax(66px, 86px));
+  grid-template-columns: max-content max-content minmax(140px, 1fr) repeat(6, minmax(66px, 86px));
   gap: 6px;
   padding: 0 2px;
   background: transparent;
@@ -693,6 +694,21 @@ body.ui-theme-cardassian .planet-menu::before {
    view. Nothing here opens a dialog. [playtest] */
 /* These two carry controls rather than text: they size to their content and never clip it, which is
    what the shared .top-slot ellipsis rule would otherwise do to them. */
+/* The posture readout is the alert control: one click cycles green, yellow, red. #stats is
+   pointer-events:none, so like the power group it has to opt back in, or it renders, reports as
+   visible, and takes nothing. [playtest] */
+.top-ship[data-alert-cycle] {
+  pointer-events: auto;
+  cursor: pointer;
+  border: 0;
+  font: inherit;
+  text-align: center;
+}
+.top-ship[data-alert-cycle]:hover { filter: brightness(1.12); }
+.top-ship[data-alert-cycle]:focus-visible { outline: 2px solid var(--lcars-cream); outline-offset: 2px; }
+/* Held above the chosen posture by combat: the tooltip says why, and the readout says it is not a
+   setting the captain is free to lower right now. */
+.top-ship.alert-held { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.55); }
 .top-alert, .top-power {
   display: flex; align-items: center; gap: 4px;
   overflow: visible; padding: 0 6px; width: max-content;
@@ -1064,37 +1080,65 @@ body.ui-theme-cardassian .target-meter-track {
 .top-left-panel::before {
   content: none;
 }
-.top-left-panel::after {
-  content: "";
-  position: absolute;
-  pointer-events: none;
-  left: 14px;
-  right: 14px;
-  top: 12px;
-  height: 30px;
+/* The header used to be a decorative ::after bar pinned to the panel while the content scrolled
+   underneath it with 54px of padding as the only thing holding it clear. The panel remembers its
+   scroll position per tab and restores it on every re-render, so it reopened already scrolled and
+   printed its own title and the Energy line over the bar — and the panel's overflow:hidden and
+   rounded corners then clipped the heading to "OWER (OPS)". The header is a real row now: the panel
+   is a flex column, the row does not scroll, and the body scrolls beneath it. [playtest] */
+.top-left-panel {
+  display: flex;
+  flex-direction: column;
+}
+.top-left-panel-head {
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 14px 8px;
+  padding: 0 8px 0 18px;
+  min-height: 34px;
   border-radius: 17px;
   background: var(--lcars-orange);
+  color: var(--lcars-black);
+  font-family: var(--bm2-display-font);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
-.top-left-panel > * {
-  position: relative;
-  z-index: 1;
+.top-left-panel-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .top-left-panel-close {
-  position: absolute;
+  position: static;
+  flex: 0 0 auto;
   z-index: 3;
-  top: 14px;
-  right: 20px;
 }
 .top-left-panel-content {
   position: relative;
   z-index: 1;
-  max-height: min(680px, calc(100vh - 132px));
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 54px 14px 14px;
+  padding: 0 14px 14px;
   overscroll-behavior: contain;
   scrollbar-color: var(--lcars-orange) rgba(0, 0, 0, 0.45);
   scrollbar-gutter: stable;
+}
+/* A heading inside the body, for a section rather than the panel. */
+.panel-subhead {
+  margin-top: 10px;
+}
+.ew-panel {
+  display: block;
 }
 .top-left-panel.hidden {
   display: none;
@@ -3674,7 +3718,7 @@ button:disabled {
    1400 and stays inline above it. [review] */
 @media (max-width: 1600px) {
   .top-strip {
-    grid-template-columns: max-content max-content max-content minmax(80px, 1fr) repeat(6, minmax(54px, 80px));
+    grid-template-columns: max-content max-content minmax(80px, 1fr) repeat(6, minmax(54px, 80px));
   }
   .top-slot,
   .top-stat { padding: 0 7px; }
@@ -3683,7 +3727,7 @@ button:disabled {
 
 @media (max-width: 1400px) {
   .top-strip {
-    grid-template-columns: max-content max-content max-content minmax(60px, 1fr) repeat(6, minmax(54px, 74px));
+    grid-template-columns: max-content max-content minmax(60px, 1fr) repeat(6, minmax(54px, 74px));
   }
   .power-chip b { font-size: 8px; }
   .power-chip { gap: 3px; padding: 1px 5px; }
@@ -3695,7 +3739,7 @@ button:disabled {
 
 @media (max-width: 1400px) {
   .top-strip {
-    grid-template-columns: max-content max-content minmax(60px, 1fr) repeat(6, minmax(50px, 74px));
+    grid-template-columns: max-content minmax(60px, 1fr) repeat(6, minmax(50px, 74px));
   }
   /* Its own line, the full width of the strip, rather than off the screen. The order matters: without
      it the group is auto-placed where it sits in the markup, between the alert chips and the message,
@@ -3778,7 +3822,7 @@ button:disabled {
   }
   .top-strip {
     margin-left: 0;
-    grid-template-columns: max-content max-content minmax(80px, 1fr) repeat(3, minmax(44px, 1fr));
+    grid-template-columns: max-content minmax(80px, 1fr) repeat(3, minmax(44px, 1fr));
     font-size: 11px;
   }
   .top-power { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -3919,7 +3963,7 @@ button:disabled {
      row here instead would push the hail's buttons underneath the disabled-ship panel, and those
      buttons are how a captain answers the thing threatening them. [playtest] */
   .top-strip {
-    grid-template-columns: max-content max-content repeat(3, minmax(46px, 1fr));
+    grid-template-columns: max-content repeat(3, minmax(46px, 1fr));
     font-size: 10px;
     gap: 4px;
   }
@@ -4500,11 +4544,80 @@ button:disabled {
 .sensor-contact-list { max-height: 220px; overflow-y: auto; }
 .sensor-contact-list .meta { border-bottom: 1px solid #ffffff28; padding: 5px 0; }
 
-.fleet-manager {color:#d9eaff;background:#101b2a;border:1px solid #6384a2;width:min(900px,94vw);max-height:86vh;overflow:auto;padding:20px;z-index:10000;}
-.fleet-manager::backdrop {background:#0009;}
-.fleet-manager details {padding:10px;border-bottom:1px solid #456;}
-.fleet-manager button,.fleet-manager select {margin:5px;padding:6px;color:#e5f2ff;background:#253d56;border:1px solid #66829c;}
-.fleet-manager label {display:inline-block;margin:6px;}
+/* The fleet manager was slate blue with grey pill buttons in an amber-on-black game, and ignored every
+   faction theme because nothing themed targeted it. It uses the same tokens, faces and control shapes
+   as the other panels now, including a real LCARS title bar and the shared close control. [playtest] */
+.fleet-manager {
+  color: var(--lcars-text);
+  background: var(--lcars-panel);
+  border: 2px solid var(--lcars-line);
+  border-radius: 10px;
+  width: min(900px, 94vw);
+  max-height: 86vh;
+  overflow: hidden;
+  padding: 0;
+  z-index: 10000;
+  font-family: var(--bm2-ui-font);
+}
+/* Scoped to [open]: a plain "display: flex" on a <dialog> overrides the user-agent rule that hides a
+   closed one, so the fleet manager stayed on screen after it was closed and covered the HUD. */
+.fleet-manager[open] {
+  display: flex;
+  flex-direction: column;
+}
+.fleet-manager::backdrop { background: rgba(0, 0, 0, 0.72); }
+.fleet-manager h2 {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 14px 8px;
+  padding: 0 8px 0 18px;
+  min-height: 34px;
+  border-radius: 17px;
+  background: var(--lcars-orange);
+  color: var(--lcars-black);
+  font-family: var(--bm2-display-font);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.fleet-manager > *:not(h2) { padding-inline: 14px; }
+.fleet-manager .fleet-manager-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 14px 14px;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--lcars-orange) rgba(0, 0, 0, 0.45);
+}
+.fleet-manager h3 {
+  margin: 12px 0 6px;
+  font-family: var(--bm2-display-font);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lcars-cream);
+}
+.fleet-manager details {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--lcars-line);
+}
+.fleet-manager select {
+  margin: 5px;
+  padding: 6px 10px;
+  color: var(--lcars-black);
+  background: var(--lcars-cream);
+  border: 0;
+  border-radius: 999px;
+  font-family: var(--bm2-ui-font);
+  font-weight: 600;
+}
+.fleet-manager label { display: inline-block; margin: 6px; color: var(--lcars-text); }
+.fleet-manager p, .fleet-manager .meta { color: var(--lcars-muted); }
 
 /* Public Cheats & Debug dialog: independent of the frequently redrawn HUD. */
 :is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) {

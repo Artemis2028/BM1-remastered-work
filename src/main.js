@@ -4570,7 +4570,10 @@ function renderEWPanel() {
   const names=(q.own||[]).map(k=>sensorActors.get(k)?.entity).filter(n=>n&&isPlayerSideNpc(n)&&sensorDistance(playerWorldPosition(),n)<=2400).map(n=>getTargetName(n));
   const own=names.length>0,self=q.selfNoise>0,foreign=q.noise**2>(q.ownNoise||0)**2+(q.selfNoise||0)**2+1e-8;
   const label=q.noise===0?'Clear':own?`Own fleet jammer${foreign?' + other/unattributed':''}: ${names.join(', ')}`:self?`Own jammer${foreign?' + other/unattributed':''}`:'Other/unattributed';
-  return `<details data-sensor-details="ew"><summary>Electronic warfare</summary>${controls(state)}<div class="meta">Interference: ${escapeHtml(label)} · RF range ${(Math.sqrt(q.quality)*100).toFixed(0)}% · Scan rate ${(q.quality*100).toFixed(0)}%</div><div class="meta">Electronics ${(t.electronics||0).toFixed(1)} EU/s · Jammer ${(t.jammer||0).toFixed(1)} · ECCM ${(t.eccm||0).toFixed(1)}. Fleet jammer: detectable around 3,000 units by standard sensors at 5 points. Nearby friendly receivers are affected.</div>${state.docked?refit(state):''}${state.npcShips.filter(n=>!n.destroyed&&isPlayerSideNpc(n)&&sensorDistance(playerWorldPosition(),n)<=2400).map(n=>controls(n)+(state.docked?refit(n):'')).join('')}</details>`;
+  // Rendered open, in one place, and without a <summary> repeating the panel's own heading: this used
+  // to be a collapsed <details> that also appeared inside the OPS panel, so EW was two clicks away in
+  // two places and printed its own name twice when it got there. [playtest]
+  return `<div class="ew-panel">${controls(state)}<div class="meta">Interference: ${escapeHtml(label)} · RF range ${(Math.sqrt(q.quality)*100).toFixed(0)}% · Scan rate ${(q.quality*100).toFixed(0)}%</div><div class="meta">Electronics ${(t.electronics||0).toFixed(1)} EU/s · Jammer ${(t.jammer||0).toFixed(1)} · ECCM ${(t.eccm||0).toFixed(1)}. Fleet jammer: detectable around 3,000 units by standard sensors at 5 points. Nearby friendly receivers are affected.</div>${state.docked?refit(state):''}${state.npcShips.filter(n=>!n.destroyed&&isPlayerSideNpc(n)&&sensorDistance(playerWorldPosition(),n)<=2400).map(n=>controls(n)+(state.docked?refit(n):'')).join('')}</div>`;
 }
 
 function sensorSnapshotActor(entity, zone = null) {
@@ -5016,9 +5019,10 @@ function renderSensorPanelMarkup() {
  <div class="meta">Rated passive ${Math.round(profile.passive)} / active ${Math.round(profile.active)} units at 5 points. Active transmissions reveal your presence.</div>
  <div class="sensor-actions"><button data-sensor-action="toggle">Transponder: ${e.transponder?'On':'Off'}</button><button data-sensor-action="sweep">Active sweep</button><button data-sensor-action="focus">Focused scan</button><button data-sensor-action="cancel">Cancel scan</button></div>
  <div class="meta">Declared: ${escapeHtml(e.declaration)} · ${isPlayerCloaked()?'Suppressed by cloak':e.transponder?'Transmitting':'Running dark'}</div>
- <details class="sensor-contact-list" data-sensor-details="contacts"><summary>Contact reports (${reports.length})</summary>${reports.slice(-12).map(c=>`<div class="meta">${escapeHtml(c.report?.hull||receivedDeclaration(c,sensorClock)||'Unidentified contact')}${sensorClock-(c.jammerAt??-Infinity)<=.400001?' · Jamming emission':''} — ${freshTrack(c,sensorClock)?'Tracked':c.cue?.expiresAt>=sensorClock?'Attack origin':c.position?'Last known position':'Broadcast only'} · ${Math.max(0,sensorClock-(c.report?.assessedAt??(c.cue?.expiresAt>=sensorClock?c.cue.launchedAt:c.position?c.observedAt:c.declaredAt))).toFixed(1)}s old${c.report?.weapons?'<br>Weapons: '+escapeHtml(c.report.weapons.join(', ')||'None')+'<br>'+escapeHtml(c.report.condition)+' · EW: '+escapeHtml(c.report.ewModule||'Unknown')+' · '+escapeHtml(c.report.reactor||'Reactor unknown')+' · '+escapeHtml(c.report.crew)+'<br>'+escapeHtml(c.report.cargo):''}</div>`).join('')}</details>
- ${localFleet.length?'<details data-sensor-details="fleet"><summary>Local fleet sensors & crew</summary>'+localFleet.map(n=>`<div class="meta">${escapeHtml(getTargetName(n))} — ${escapeHtml(n.crewSkill)} / ${escapeHtml(n.crewTemperament)} · ${escapeHtml(SENSOR_SUITES[ensureActorSensors(n).suite].name)}${state.docked?refit(n):''}</div>`).join('')+'</details>':''}
- ${state.docked?'<details data-sensor-details="refit"><summary>Sensor refit — captain’s ship</summary>'+refit(state)+'</details>':''}`;
+ <div class="panel-head panel-subhead">Contact reports (${reports.length})</div>
+ <div class="sensor-contact-list" data-sensor-details="contacts">${reports.length?'':'<div class="meta">No contacts detected.</div>'}${reports.slice(-12).map(c=>`<div class="meta">${escapeHtml(c.report?.hull||receivedDeclaration(c,sensorClock)||'Unidentified contact')}${sensorClock-(c.jammerAt??-Infinity)<=.400001?' · Jamming emission':''} — ${freshTrack(c,sensorClock)?'Tracked':c.cue?.expiresAt>=sensorClock?'Attack origin':c.position?'Last known position':'Broadcast only'} · ${Math.max(0,sensorClock-(c.report?.assessedAt??(c.cue?.expiresAt>=sensorClock?c.cue.launchedAt:c.position?c.observedAt:c.declaredAt))).toFixed(1)}s old${c.report?.weapons?'<br>Weapons: '+escapeHtml(c.report.weapons.join(', ')||'None')+'<br>'+escapeHtml(c.report.condition)+' · EW: '+escapeHtml(c.report.ewModule||'Unknown')+' · '+escapeHtml(c.report.reactor||'Reactor unknown')+' · '+escapeHtml(c.report.crew)+'<br>'+escapeHtml(c.report.cargo):''}</div>`).join('')}</div>
+ ${localFleet.length?'<details data-sensor-details="fleet" open><summary>Local fleet sensors & crew</summary>'+localFleet.map(n=>`<div class="meta">${escapeHtml(getTargetName(n))} — ${escapeHtml(n.crewSkill)} / ${escapeHtml(n.crewTemperament)} · ${escapeHtml(SENSOR_SUITES[ensureActorSensors(n).suite].name)}${state.docked?refit(n):''}</div>`).join('')+'</details>':''}
+ ${state.docked?'<details data-sensor-details="refit" open><summary>Sensor refit — captain’s ship</summary>'+refit(state)+'</details>':''}`;
 }
 
 function sensorAttackSnapshot(source) {
@@ -5412,15 +5416,14 @@ function renderPowerPanel() {
       + `<div class="power-tank-val">${value}</div></div>`;
   }).join('');
   const allocated = defs.reduce((sum, [key]) => sum + getPowerDist(key), 0);
-  return `<div class="panel-head">Power Distribution (OPS) Control</div>`
-    + `<div class="meta">Energy ${energy}/${max} (${pct}%) | Allocated ${allocated}/${POWER_DIST_BUDGET} | Drag a system slider</div>`
+  return `<div class="meta">Energy ${energy}/${max} (${pct}%) | Allocated ${allocated}/${POWER_DIST_BUDGET} | Drag a system slider</div>`
     + `<div class="meta" data-power-readout>Reactor ${profile.reactorOutput.toFixed(1)} EU/s · Draw ${telemetry.consumption.toFixed(1)} EU/s · ${telemetry.net >= 0 ? (energy >= max ? 'Surplus' : 'Recovering') : 'Draining'} ${Math.abs(telemetry.net).toFixed(1)} EU/s</div>`
     + `<div class="meta">Weapon draw is averaged over one second. Lower system settings reduce demand; reactor output stays fixed.</div>`
     + `<div class="meta" data-power-unused>Unused allocation: ${POWER_DIST_BUDGET - allocated} points. Stored energy is shown above.</div>`
     + `<div class="power-tanks">${tanks}</div>`
     + `<div class="meta" data-power-effects>Impulse ${(powerEngineFactor(power.dist) * 100).toFixed(0)}% · Weapon damage ${(powerWeaponFactor(power.dist) * 100).toFixed(0)}% · Shield recovery ${(getPowerDist('shields') / 5 * 100).toFixed(0)}%</div>`
     + `<div class="meta">Relative to normal allocation (5 points). Stronger shots cost more energy; stronger engines and faster shield recovery draw more power. Weapon recharge stays unchanged. Recent shield hits and available energy still limit recovery.</div>`
-    + renderSensorPanelMarkup() + renderEWPanel()
+    + renderSensorPanelMarkup()
     + `<button data-fleet-action="open">Fleet, boarding & shipyard</button>`
     + `<div class="ship-actions"><button data-top-action="close-panel">Close</button></div>`;
 }
@@ -8783,7 +8786,7 @@ document.addEventListener('click', (e) => {
     if (['green', 'yellow', 'red'].includes(level)) { ensurePlaytestState().alertLevel = level; updateStats(); }
     return;
   }
-  if (e.target.closest('[data-alert-control]')) openGameMenu();
+  if (e.target.closest('[data-alert-cycle]')) { cycleAlertLevel(); return; }
 });
 document.addEventListener('change', (e) => {
   if (
@@ -10028,8 +10031,9 @@ function renderTopLeftPanel() {
   const godStatus = state.godMode
     ? `God Mode active | ${state.latinum}L | ${state.duranium}D | AM ${state.antimatter}/${state.fuelCap}`
     : 'Enable God Mode to max credits, duranium and antimatter, then switch ships instantly.';
-  const powerContent = `<div class="panel-head">Power (OPS)</div>${renderPowerPanel()}`;
-  const ewContent = `<div class="panel-head">Electronic warfare</div>${renderEWPanel()}`;
+  // One heading each: the panel's own title row supplies it, so these no longer print a second one.
+  const powerContent = renderPowerPanel();
+  const ewContent = renderEWPanel();
   const panelContent = state.topLeftTab === 'power'
     ? powerContent
     : state.topLeftTab === 'ew'
@@ -10037,7 +10041,13 @@ function renderTopLeftPanel() {
     : state.topLeftTab === 'settings'
     ? `<div class="panel-head">Settings</div>${gameOptions}<div class="panel-head">Save & Debug</div>${settingsActions}<div class="meta">${escapeHtml(godStatus)}</div><div class="panel-head">God Ship Switcher</div><div class="god-ship-switcher">${renderGodModeShipSwitcher()}</div>`
     : `<div class="panel-head">Inventory</div>${resources}${flags}${stationPlans}${weaponLine}${contract}<div class="panel-head">Cargo Pods</div><div class="pods">${pods}</div>`;
-  topLeftPanelEl.innerHTML = `<button class="panel-close top-left-panel-close" data-top-action="close-panel" aria-label="Close ${escapeHtml(state.topLeftTab)} panel">&times;</button><div class="top-left-panel-content">${panelContent}</div>`;
+  const panelTitle = { power: 'Power (OPS)', ew: 'Electronic warfare', settings: 'Settings', inventory: 'Inventory' }[state.topLeftTab] || 'Inventory';
+  // A real header row rather than a decorative ::after bar with the content scrolling beneath it: the
+  // title and the close control used to be painted over by whatever the body scrolled up into them,
+  // and the panel remembers its scroll position per tab, so it reopened already overlapping. [playtest]
+  topLeftPanelEl.innerHTML = `<div class="top-left-panel-head"><span>${escapeHtml(panelTitle)}</span>`
+    + `<button class="panel-close top-left-panel-close" data-top-action="close-panel" aria-label="Close ${escapeHtml(state.topLeftTab)} panel">&times;</button></div>`
+    + `<div class="top-left-panel-content">${panelContent}</div>`;
   for(const el of topLeftPanelEl.querySelectorAll('details[data-sensor-details]'))el.open=sensorDetailsOpen.has(el.dataset.sensorDetails);
   const restoredScrollTarget = state.topLeftTab === 'settings'
     ? topLeftPanelEl.querySelector('.god-ship-switcher')
@@ -12467,7 +12477,9 @@ function updateStats() {
   // row and the ship readout, and nothing here opens a dialog. [playtest]
   const alertNow = getAlertStatus();
   const alertChoice = ensurePlaytestState().alertLevel || 'green';
-  const alertButtons = ['green', 'yellow', 'red'].map((level) => `<button data-alert-set="${level}" class="alert-chip alert-${level}${alertChoice === level ? ' active' : ''}" title="Set ${level} alert"${alertChoice === level ? ' aria-pressed="true"' : ''}>${level[0].toUpperCase()}</button>`).join('');
+  const alertWhy = alertOverrideReason();
+  const alertTip = `Alert posture. Click to cycle green, yellow, red. Set: ${alertChoice}.`
+    + (alertWhy ? ` Held at ${alertNow} because ${alertWhy}.` : '');
   const powerChips = [['engines', 'ENG'], ['weapons', 'WPN'], ['shields', 'SHD'], ['sensors', 'SEN']].map(([key, label]) => {
     const value = getPowerDist(key);
     return `<span class="power-chip" style="--p:${value * 10}%" title="${label} power ${value} of 10">`
@@ -12476,8 +12488,7 @@ function updateStats() {
       + `<button data-power-dist="${key}" data-power-dir="1" aria-label="More ${label} power">+</button></span>`;
   }).join('');
   statsEl.innerHTML = `<div class="top-strip">
-      <div class="top-slot top-ship alert-${alertNow}" title="Current posture">${escapeHtml(mode)} &middot; ${alertNow.toUpperCase()}</div>
-      <div class="top-slot top-alert" role="group" aria-label="Alert posture">${alertButtons}</div>
+      <button type="button" class="top-slot top-ship alert-${alertNow}${alertWhy ? ' alert-held' : ''}" data-alert-cycle title="${escapeHtml(alertTip)}" aria-label="${escapeHtml(alertTip)}">${escapeHtml(mode)} &middot; ${alertNow.toUpperCase()}</button>
       <div class="top-slot top-power" role="group" aria-label="Power distribution">${powerChips}</div>
       <div class="top-slot top-message">${escapeHtml(message)}</div>
       <div class="top-stat"><span>AM</span>${state.antimatter}/${state.fuelCap}</div>
@@ -16341,6 +16352,29 @@ function damageCombatTarget(target, damage, source = 'player', color = '#74d6ff'
 }
 
 const FLEET_STANCES = ['follow', 'attack', 'seek', 'planet', 'explore', 'trade'];
+// Why the ship is at a posture the captain did not choose. The readout shows the effective posture and
+// the captain sets the intended one; when combat overrides the choice, saying so is better than
+// appearing to ignore the click. [playtest]
+function alertOverrideReason(now = gameNow()) {
+  const stance = getFleetStance();
+  if (stance === 'attack' || stance === 'seek') return 'the fleet is engaging';
+  if (state.lastShieldHitAt && now - state.lastShieldHitAt < 6000) return 'the ship is under fire';
+  if (stance === 'explore' || stance === 'planet' || stance === 'trade') return `a ${stance} stance holds the ship at yellow`;
+  return null;
+}
+function cycleAlertLevel() {
+  const order = ['green', 'yellow', 'red'];
+  const p = ensurePlaytestState();
+  const from = p.alertLevel || 'green';
+  const to = order[(order.indexOf(from) + 1) % order.length];
+  p.alertLevel = to;
+  const effective = getAlertStatus();
+  const why = alertOverrideReason();
+  if (effective !== to && why) setLog(`Alert set to ${to}, but the ship is at ${effective} because ${why}.`);
+  else setLog(`Alert ${to}.`);
+  updateStats();
+  return to;
+}
 function getAlertStatus(now = gameNow()) {
   const stance = getFleetStance();
   if (stance === 'attack' || stance === 'seek') return 'red';
@@ -24362,12 +24396,14 @@ function renderFleetManager(open = false) {
       return `<div>${escapeHtml(s.name)} · ${integrated ? 'Integrated design (commission only)' : `Stock ${stock?.quantity || 0}${stock ? ` · resupply ~day ${stock.nextDay}` : ''}`}${design.state === 'lost' ? ` · ${escapeHtml(design.text)}` : ''} · Plan ${p.price} L / ${p.required} ${escapeHtml(p.faction)} standing ${btn('plan', p.reason || 'Buy plans', String(s.id))}${b.shipPlans.includes(Number(s.id)) ? btn('build', 'Build equipped ship', String(s.id)) : ''}</div>`;
     })
     .join('');
-  fleetManagerEl.innerHTML = `<h2>Fleet & shipyard</h2>${btn('close', 'Close')}<p>Calendar day ${state.day} · Fleet upkeep ${state.playerFleet.filter((f) => !f.destroyed).reduce((n, f) => n + upkeepPerDay(f.shipId), 0)} L/day. Personal vessel exempt.</p>
+  // The title bar carries the close control, and everything else scrolls beneath it, so the heading and
+  // the close never end up underneath the body the way the OPS panel's did. [playtest]
+  fleetManagerEl.innerHTML = `<h2>Fleet &amp; shipyard${btn('close', '\u00d7')}</h2><div class="fleet-manager-body"><p>Calendar day ${state.day} · Fleet upkeep ${state.playerFleet.filter((f) => !f.destroyed).reduce((n, f) => n + upkeepPerDay(f.shipId), 0)} L/day. Personal vessel exempt.</p>
     <p>Arrears ${b.debt.toFixed(2)} L ${btn('pay', 'Settle arrears')}</p><p>Team: ${b.boarding ? b.boarding.phase : b.team.available ? 'Available' : 'Lost'} · XP ${b.team.xp}. ${btn('board', 'Board selected disabled ship')}${btn('cancel', 'Cancel deployment')}${btn('recruit', 'Recruit (2000 L)')}${btn('train', 'Train +5 XP (1000 L)')}</p>
     <p>${btn('repair', 'Repair personal hull', 'player')}${btn('rescue', 'Request recovery')}</p><h3>Formations</h3>${groups}${btn('group', 'New formation')}<h3>Owned vessels (${state.playerFleet.filter((f) => !f.destroyed).length})</h3>${roster || '<p>No fleet vessels.</p>'}<h3>Plans & construction</h3>${plans || '<p>Dock at a suitable vendor.</p>'}${b.orders.map((o) => `<p>${escapeHtml(getShipStats(o.shipId).name)}: ${o.status}, ${Math.max(0, o.remainingDays)} work days remaining</p>`).join('')}<h3>Financial book</h3><p>Older history: ${b.ledgerArchive.entries} entries summarized below; recent entries remain itemized.</p>${Object.entries(b.ledgerArchive.byKind).map(([kind, total]) => `<p>${escapeHtml(kind)}: ${total.amount.toFixed(2)} L total, ${total.paid.toFixed(2)} L paid.</p>`).join('')}${b.ledger
       .slice(-20)
       .map((e) => `<p>Day ${e.day}: ${e.kind} ${e.amount.toFixed(2)} L</p>`)
-      .join('')}`;
+      .join('')}</div>`;
 }
 document.addEventListener('click', (event) => {
   const el = event.target.closest('[data-fleet-action]');

@@ -640,29 +640,39 @@ const { startProbe } = require('./probe-harness.cjs');
       s.lastShieldHitAt = t.gameNow();
       t.updateStats();
       const before = { alert: t.ensurePlaytestState().alertLevel || 'green', power: t.state.power?.dist?.weapons ?? null, dialogs: dialogsOpen() };
-      const alertChips = [...stats.querySelectorAll('[data-alert-set]')].map((b) => b.dataset.alertSet);
+      const pill = stats.querySelector('[data-alert-cycle]');
       const powerChips = [...stats.querySelectorAll('[data-power-dist]')].map((b) => `${b.dataset.powerDist}${b.dataset.powerDir}`);
-      stats.querySelector('[data-alert-set="red"]')?.click();
-      const afterAlert = { alert: t.ensurePlaytestState().alertLevel, dialogs: dialogsOpen() };
+      // Three clicks cycles green -> yellow -> red -> green, so it must land back where it started.
+      // Re-queried each time: clicking it re-renders the strip, which detaches the node.
+      const seen = [];
+      for (let n = 0; n < 3; n++) {
+        stats.querySelector('[data-alert-cycle]')?.click();
+        seen.push(t.ensurePlaytestState().alertLevel);
+      }
+      const afterAlert = { alert: seen[1], cycle: seen, dialogs: dialogsOpen() };
       const up = stats.querySelector('[data-power-dist="weapons"][data-power-dir="1"]');
       // A control the captain cannot see is not a control they can use, whatever a query selector says.
       const upReachable = Boolean(up && up.offsetParent !== null);
-      const alertReachable = [...stats.querySelectorAll('[data-alert-set]')].filter((b) => b.offsetParent !== null).length;
+      const livePill = stats.querySelector('[data-alert-cycle]');
+      const alertReachable = livePill && livePill.offsetParent !== null ? 1 : 0;
+      const alertTip = livePill ? String(livePill.getAttribute('title') || '') : '';
       const start = t.state.power?.dist?.weapons ?? 0;
       up?.click();
       const afterPower = { weapons: t.state.power?.dist?.weapons ?? 0, dialogs: dialogsOpen() };
-      stats.querySelector('[data-alert-set="green"]')?.click();
-      return { fail: null, before, alertChips, powerChips, afterAlert, afterPower, start, upReachable, alertReachable, engaged: t.getAlertStatus() };
+      return { fail: null, before, pillPresent: Boolean(livePill), alertTip, powerChips, afterAlert, afterPower, start, upReachable, alertReachable, engaged: t.getAlertStatus() };
     });
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.waitForTimeout(150);
     assert.ok(!r.fail, String(r.fail));
-    assert.deepEqual(r.alertChips, ['green', 'yellow', 'red'], `the strip offers ${r.alertChips.join(', ') || 'no'} alert settings`);
+    assert.equal(r.pillPresent, true, 'the strip has no posture readout to set the alert from');
     assert.ok(r.powerChips.length >= 8, `the strip offers ${r.powerChips.length} power controls`);
-    assert.equal(r.alertReachable, 3, `${r.alertReachable} of 3 alert settings can actually be reached on screen`);
+    assert.equal(r.alertReachable, 1, 'the posture readout is not on screen');
+    assert.match(r.alertTip, /click/i, `the posture readout does not say it can be clicked: "${r.alertTip}"`);
+    assert.deepEqual(r.afterAlert.cycle, ['yellow', 'red', 'green'],
+      `clicking the posture readout three times went ${r.afterAlert.cycle.join(' -> ')} rather than yellow -> red -> green`);
     assert.equal(r.upReachable, true, 'the power control is in the markup but not on screen');
     assert.equal(r.engaged, 'red', 'precondition: the ship is under fire, which is when this matters');
-    assert.equal(r.afterAlert.alert, 'red', `setting red alert from the strip left it at "${r.afterAlert.alert}"`);
+    assert.equal(r.afterAlert.alert, 'red', `the second click should reach red; it reached "${r.afterAlert.alert}"`);
     assert.equal(r.afterAlert.dialogs, r.before.dialogs, 'changing alert posture opened a dialog');
     assert.ok(r.afterPower.weapons > r.start, `raising weapon power from the strip left it at ${r.afterPower.weapons}`);
     assert.equal(r.afterPower.dialogs, r.before.dialogs, 'changing power opened a dialog');
@@ -902,8 +912,8 @@ const { startProbe } = require('./probe-harness.cjs');
             overMap: hit(box, other('.minimap-panel')),
             // Whatever the strip still carries at this width has to be reachable, not merely present.
             overDock: hit(box, other('.bottom-dock')),
-            alertShown: onScreen('[data-alert-set]').length,
-            alertReachable: onScreen('[data-alert-set]').filter(reachable).length,
+            alertShown: onScreen('[data-alert-cycle]').length,
+            alertReachable: onScreen('[data-alert-cycle]').filter(reachable).length,
             powerShown: onScreen('.power-chip').length,
             powerReachable: onScreen('.power-chip').filter(reachable).length,
             stepsShown: onScreen('[data-power-dist][data-power-dir]').length,
@@ -935,8 +945,8 @@ const { startProbe } = require('./probe-harness.cjs');
       if (r.overMap) wrong.push(`at ${at} the strip sits across the minimap`);
       // Alert posture is the one control that has to survive to the narrowest width the game is played
       // at: it is what a captain reaches for first, and there is no room for a dialog in a fight.
-      if (r.alertShown !== 3) wrong.push(`at ${at} the strip shows ${r.alertShown} of 3 alert settings`);
-      if (r.alertReachable !== r.alertShown) wrong.push(`at ${at} ${r.alertShown - r.alertReachable} of ${r.alertShown} alert settings are covered by ${r.coveredBy} and cannot be hit`);
+      if (r.alertShown !== 1) wrong.push(`at ${at} the strip has no posture readout to set the alert from`);
+      if (r.alertReachable !== r.alertShown) wrong.push(`at ${at} the posture readout is covered by ${r.coveredBy} and cannot be hit`);
       // Power stays in the strip at every width the game is played at. Below 641px it does not: that
       // column has to hold the menu, the strip, an incoming hail and the disabled-ship panel, and the
       // hail's own controls win. There it must still be one press away on the bar, which is checked.
@@ -988,13 +998,13 @@ const { startProbe } = require('./probe-harness.cjs');
             covered: over && !(over === b || b.contains(over)) ? (over.id || String(over.className || '').split(' ')[0] || over.tagName) : null };
         }, sel);
 
-        const red = await centre('#stats [data-alert-set="red"]');
-        if (!red) { wrong.push(`${name}: there is no red-alert control in the strip`); continue; }
-        if (red.covered) wrong.push(`${name}: the red-alert control is under ${red.covered} and a click cannot reach it`);
-        await page.mouse.click(red.x, red.y);
+        const pill = await centre('#stats [data-alert-cycle]');
+        if (!pill) { wrong.push(`${name}: there is no posture readout in the strip`); continue; }
+        if (pill.covered) wrong.push(`${name}: the posture readout is under ${pill.covered} and a click cannot reach it`);
+        await page.mouse.click(pill.x, pill.y);
         await page.waitForTimeout(140);
         const alertNow = await ev(() => testBM1.ensurePlaytestState().alertLevel);
-        if (alertNow !== 'red') wrong.push(`${name}: clicking red alert where it sits on screen left the posture at "${alertNow}"`);
+        if (alertNow !== 'yellow') wrong.push(`${name}: clicking the posture readout where it sits left the posture at "${alertNow}"`);
 
         const up = await centre('#stats [data-power-dist="weapons"][data-power-dir="1"]');
         if (!up) { wrong.push(`${name}: there is no power control in the strip`); continue; }
