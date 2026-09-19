@@ -5819,7 +5819,7 @@ const WORLD_INDEPENDENT = Object.freeze({
 // other how the Suliban trade, and reading a shipyard's inventory out of either was the same mistake
 // as reading a grey market out of an emptied shelf, one step further back. Selling foreign hulls is a
 // gameplay decision about where a captain may buy what, not a thing a description proves; the specific
-// worlds and hulls are proposed in docs/playtest/FOREIGN-STOCK-PROPOSAL, for review before any of it
+// worlds and hulls are proposed in docs/playtest/FOREIGN-MARKETS-SPEC, for review before any of it
 // is authored. Until then every world's shelf is its own government's. [playtest]
 const WORLD_FOREIGN_STOCK = Object.freeze({});
 function getBaseSystemOrigin(index = state.currentPlanet) {

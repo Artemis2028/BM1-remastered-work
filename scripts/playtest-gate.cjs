@@ -1865,7 +1865,7 @@ const { startProbe } = require('./probe-harness.cjs');
     // where a captain may buy what, with a standing cost attached; it is not a thing a world's prose
     // proves, and two worlds were authored here on phrases that describe what the Hirogen keep and how
     // the Suliban trade. The specific worlds and hulls are proposed for review in
-    // docs/playtest/FOREIGN-STOCK-PROPOSAL; an entry appearing here without that decision trips this.
+    // docs/playtest/FOREIGN-MARKETS-SPEC; an entry appearing here without that decision trips this.
     assert.deepEqual(r.exceptions.map((e) => e.name), [],
       `${r.exceptions.length} world(s) are authored as selling foreign hulls: ${r.exceptions.map((e) => `${e.name} on "${e.why}"`).join('; ')} — that is a gameplay decision, and it belongs in the proposal until it is taken`);
     assert.ok(r.pivot, 'precondition: a world with both an eligible and an ineligible hull in its authored lot');

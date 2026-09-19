@@ -1,11 +1,21 @@
 # BM1 playtest repairs on top of `ae4ae4d`
 
-DTG 191546ZSEP26
+DTG 191702ZSEP26
 
 Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Nothing pushed, merged or deployed.
 The commit count is in `CANDIDATE.json`, computed by the pack script rather than typed here.
 
 ## Read this first
+
+**This round is §4 fleet trading**, on top of `8b7d9b0`, which is closed. It is the first section
+below. Everything under "Closing the overlay and intelligence round" and beneath it is the record of
+the rounds before it, newest first, unchanged.
+
+Three things in this round need saying before the detail: **fleet trading as specified prints money**,
+and the seeded fixtures say by how much rather than the number being tuned away; **recall and
+rendezvous are deliberately not in here**, so a stopped trader holds position where it is; and the
+foreign-market work is now an approved specification, `FOREIGN-MARKETS-SPEC-191624ZSEP26.md`, with
+**nothing implemented**.
 
 Sixth round, on top of `7767631`, from nine items raised off laptop playtest screenshots, plus the
 three findings raised against `43938a7` and the four goals raised against `2316331`, all closed here. **All nine items are done**: the trade overlay, which was
@@ -34,6 +44,122 @@ little haven" — which made it neutral and stopped it being hostile. Rigel's te
 independent planet" and "The Andorians however lay claim to this world and are quite willing to protect
 it", and the engine has no protectorate level to express that, so nothing was authored and the shipped
 table's `andorian` stands. That second one is **a gap, not a decision**.
+
+## Fleet trading
+
+Raised against `8b7d9b0`, which is closed. §4 only, plus the minimum it needs. **Recall and
+rendezvous are deliberately not in here**; that is §5.
+
+A fleet ship can be set to trade at a danger setting — Safe, Cautious, Risky or Any — from its row in
+the Fleet panel, or for a whole formation at once. It buys where it stands, carries the cargo to a
+world it remembers paying more, sells at whatever that world is actually paying when it arrives, and
+starts the next run from there.
+
+### What a trader is allowed to know
+
+This is the part that decides whether any of the rest means anything, and it is where the round spent
+its effort.
+
+`getPlanetMarket()` creates a world's board the first time anything asks for it, and
+`updatePlanetMarketVariance()` then drifts every board that exists by up to ±2 a day. A route planner
+that called it would do two wrong things at once: price runs off markets the captain has never looked
+at, and start prices moving on worlds nobody has ever visited. So planning reads a new record instead —
+`state.marketLog[system] = { day, offers }`, written only where the captain can actually read a board,
+which is the existing `commodityTradeBlock()` rule: close on the world or dock somewhere that trades.
+Arriving in a system is not that, and does not record prices.
+
+Danger is read the same way. A live threat reading is used where one exists; otherwise the captain's
+last observation of **who was watching the place** decides, which is the same inference the live model
+makes — a lane worth robbing that nobody is watching — read off a dated record. Protection and traffic
+are carried forward by the observation record and the week's fighting deliberately is not, which is
+exactly why a route can read quiet on paper and not be.
+
+And the destination's **government** is read from the record too. A world that has changed hands since
+the last look is still a candidate; the trader finds out when it gets there and is turned away, and the
+captain reads that in a report. Testing the live controller would have quietly deleted the route
+instead, which is the planner knowing something the captain does not.
+
+The leg itself is rolled against the truth. `TRADE a route that looked quiet is flown against what is
+actually there` builds that case: a destination the records call band 0, handed to pirates, still
+chosen by a **Safe** trader, and 120 seeded legs into it produce attacks.
+
+### The money
+
+One debit when the cargo is bought, one credit when it is sold. The cargo lives on the fleet record and
+never enters `state.cargoArray`, so it cannot be sold a second time from the market screen — the gate
+asserts the captain's own hold is empty after a run. Upkeep goes on accruing through the travel days
+exactly as before, through `Fleet.recordBill`, so travel time is paid for and nothing is billed twice.
+The personal-ship exemption is untouched.
+
+### Attacked, damaged, disabled, lost
+
+One seeded roll per leg against the destination's true threat, relieved by its true protection. How
+hard the hit lands follows how bad the place is: a quiet lane scratches the paint, a system with a
+battle in it can leave a freighter adrift in one pass. A catastrophic hit on a healthy ship **disables**
+rather than destroys her; only a hit on a ship already disabled finishes her. Without that rule the
+disabled band is a tenth of the hull and a heavy bite steps straight over it, so a state the rest of the
+game is built around — boarding, recovery, repair — never occurred out here at all.
+
+A disabled or destroyed trader stops. So does one turned away at a port, one with nothing profitable to
+run, and one the captain stops by hand.
+
+### What it says and what it does not
+
+Attacks, losses, exceptional profit and inability to continue are reported. Ordinary buys and sales are
+not: they are in the panel. A trader's row carries its state, its cargo, its destination, its ETA, this
+trip's expected profit or the last trip's realised one, and its cumulative total.
+
+### Also fixed, unasked
+
+**A new campaign inherited the previous one's market boards.** `state.planetMarkets` was saved and
+loaded but never cleared on a new game, so a world the new captain had never seen already had a price
+history drifting behind it. Found by the gate that checks a trader plans only on what has been read.
+
+**A trader will not spend the captain's last 500 latinum.** Nobody asked for this. Without it a pair of
+autonomous ships can empty the account between one repair and the next, which is not a trade-off the
+captain ever chose. It is one constant, `TRADE_PURSE_RESERVE`.
+
+### One thing that needs a decision, with numbers
+
+**Fleet trading as specified prints money, and the fixtures show how much.** Over 180 days, one
+Concord-class Grand Cruiser turned 100,000 latinum into 740,000 at Safe and 680,000 at Any. The cause
+is in the data rather than in this round: a world's board prices goods at 1–20 latinum a ton, the
+captain's own market screen trades **one ton at a time**, and that hull's hold is **10,000 tons**. The
+margin is per ton, so a fleet trader makes ten thousand times what the captain makes by hand, and it
+compounds every eleven days.
+
+Nothing here was tuned to hide that, because tuning it is a design decision rather than an
+implementation one. The smallest levers, neither of them taken: the purse reserve is already a single
+constant, and a per-run ton cap would be a second. The full table is
+`validation/fleet-trade-fixtures.json` and `validation/fleet-trade.log`.
+
+The same fixtures show the danger setting doing its job — 14 destinations at Safe, 16 at Cautious, 17
+at Risky and Any, and after 180 days the Safe trader is at 100% hull, the Risky one at 74% and the Any
+one at 63%. In this seed all four settings picked the *same* run, because the most profitable route
+available happened to be one Safe would take; the setting cost nothing here and the hull damage is what
+separated them.
+
+### Seeded fixtures
+
+`scripts/fleet-trade-fixtures.cjs`, run as a gate, covering each danger setting, cargo-capacity scaling
+across five hulls, stale-market decisions at five price outcomes including a realised loss, access
+refusal across five standings, profit and loss over 180 days at each setting, and save/reload mid-run.
+Same seed, same table.
+
+### Seven adversarial checks
+
+All seven reproduce on `8b7d9b0` with behavioural messages and no `TypeError`s. The playtest gate goes
+34 → 41.
+
+| Check | Reproduces |
+| --- | --- |
+| `TRADE a fleet ship ordered to trade buys, carries and sells on its own` | the order does nothing; the ship never leaves and the purse never moves; the cargo sits in the captain's hold |
+| `TRADE the hold a ship actually has limits what it carries and earns` | capacity ignored, so profit does not scale with the ship sent |
+| `TRADE the danger setting decides where a trader is willing to go` | every setting considers the same destinations, and a world nobody has reported on counts as quiet |
+| `TRADE a trader plans on prices the captain has read, and sells at the ones that are there` | the planner reads worlds the captain has never looked at, and a collapsed market still books a profit |
+| `TRADE a route that looked quiet is flown against what is actually there` | the leg is rolled against the captain's own records, so a quiet-looking route can never be anything else |
+| `TRADE a government that refuses the captain refuses their freighters` | standing does not reach the trader; it runs cargo to a port that will not deal with the captain and sells it |
+| `TRADE orders, cargo, profit and remembered prices survive a reload` | a saved campaign comes back with its traders parked and its price records blank |
 
 ## Closing the overlay and intelligence round
 
@@ -154,7 +280,8 @@ numbers, which is the evidence.
 
 ### The foreign-market proposal, second draft
 
-`FOREIGN-STOCK-PROPOSAL-191545ZSEP26.md` replaces the first, three of whose four sections were wrong.
+`FOREIGN-STOCK-PROPOSAL-191545ZSEP26.md` replaced the first, three of whose four sections were wrong.
+It is itself superseded by `FOREIGN-MARKETS-SPEC-191624ZSEP26.md`, below.
 
 - **Suliban Helix was called ungoverned.** This candidate's own world-identity evidence makes it a
   self-governed Suliban world, exactly as Hirogen Range is self-governed Hirogen. The fence is a
@@ -243,7 +370,7 @@ those phrases was the same mistake as reading a grey market out of an emptied sh
 back. The table is empty and **the gate holds it empty**: every world sells its own government's
 designs and neutral ones, and no world anywhere sells a hull its government would not carry.
 
-`FOREIGN-STOCK-PROPOSAL-191545ZSEP26.md` proposes three worlds chosen for what they are in the campaign
+`FOREIGN-MARKETS-SPEC-191624ZSEP26.md` names three worlds chosen for what they are in the campaign
 rather than for their prose — the Suliban Helix as a fence limited to small hulls at a premium and a
 standing cost, Hirogen Range selling only designs the Hirogen have actually destroyed a hull of in this
 campaign, Pirates Haven selling stolen hulls at a discount in poor condition and visibly — with the
@@ -506,7 +633,7 @@ Measured and named rather than left for the next playtest.
 ## Still NOT DONE, and named
 
 - **Foreign hull stock** is withdrawn, not designed. The third-draft proposal is
-  `FOREIGN-STOCK-PROPOSAL-191545ZSEP26.md`, and it asks for three decisions rather than implying them;
+  `FOREIGN-MARKETS-SPEC-191624ZSEP26.md`, now approved rather than asking;
   until they are taken, every world sells its own government's designs.
 - **A captured hull does not record who it was taken from.** The Pirates Haven section of that proposal
   degrades gracefully without it, but the field does not exist.
@@ -516,10 +643,12 @@ Measured and named rather than left for the next playtest.
   `EVACUATION-BLOCKADE-DESIGN-180230ZSEP26.md`, unchanged and still unimplemented.
 - **Rigel's protectorate.** The engine has no level between "independent" and "governed by", so a world
   whose text names a protector is indistinguishable from one the protector governs outright.
+- **§4 fleet trading is done** and **§9's fleet-trade fixtures are done**. **§5 recall and
+  rendezvous is deliberately not**: a stopped trader finishes the leg it has already paid for, sells,
+  and holds position, and there is no order to bring it home.
 - **§3.3 bilateral peace, §3.4 cargo capacity and contract economy, §3.5 uninhabited worlds,** the rest
-  of **§3.6** (modal sticky header, 44×44 close, scroll reset, multi-press close), **§4** fleet
-  trading, **§5** recall and rendezvous, **§6** fleet repair UX, **§9** seeded economy table and
-  fleet-trade fixtures — all still open.
+  of **§3.6** (modal sticky header, 44×44 close, scroll reset, multi-press close), **§5** recall and
+  rendezvous, **§6** fleet repair UX, **§9's** seeded economy table — all still open.
 - **The 1400px power-wrap breakpoint** is still parked pending a real `window.innerWidth` from the
   laptop.
 - **The EW panel lies over the strip at ≤600px.** Named last round, still unfixed; laptop play is the
