@@ -25846,6 +25846,7 @@ function ensureFleetTradeState(f, risk) {
   t.expectedProfit = Number.isFinite(Number(t.expectedProfit)) ? Math.round(Number(t.expectedProfit)) : null;
   t.cumulative = Math.round(finiteNumber(t.cumulative, 0));
   t.note = typeof t.note === 'string' ? t.note : '';
+  t.path = Array.isArray(t.path) ? t.path.map(Number).filter((i) => Number.isFinite(i) && state.planets[i]) : [];
   return t;
 }
 function fleetTradeCapacity(f) {
@@ -25892,6 +25893,23 @@ function plannedRiskBand(index) {
   const band = protection >= 2 ? 0 : protection === 0 && traffic >= 2 ? 2 : protection === 0 || traffic >= 2 ? 1 : 0;
   return { band, asOfDay: Number(seen.day) || null, live: false };
 }
+// The worst thing the captain's records say about anywhere on the way, not just the far end. A quiet
+// destination reached through a system nobody is watching is not a quiet run, and checking only the
+// destination let a Safe trader be routed straight through a pirate haven. Passing through is not
+// docking, so a government that refuses the captain is only consulted at the destination. [playtest]
+function plannedRouteRisk(from, to) {
+  const route = getPlottedRoute(from, to);
+  if (!route) return null;
+  const path = (route.systems || []).map(Number).filter((i) => Number.isFinite(i) && i !== Number(from));
+  let worst = null;
+  const unreported = [];
+  for (const i of path) {
+    const r = plannedRiskBand(i);
+    if (!r) { unreported.push(i); continue; }
+    if (!worst || r.band > worst.band) worst = { band: r.band, asOfDay: r.asOfDay, live: r.live, at: i };
+  }
+  return { route, path, worst, unreported };
+}
 function fleetTradeCandidates(f, t) {
   const from = fleetShipSystem(f);
   const rule = TRADE_RISK_RULES[t.risk] || TRADE_RISK_RULES.cautious;
@@ -25899,26 +25917,27 @@ function fleetTradeCandidates(f, t) {
   for (let i = 0; i < state.planets.length; i++) {
     if (i === from) continue;
     if (!knownMarket(i)) continue;
-    if (!getPlottedRoute(from, i)) continue;
     // Who the captain thinks holds the place, not who holds it. A world that changed hands after the
     // last look is still a candidate; the ship finds out when it gets there and is turned away, which
     // is a report the captain reads rather than a route that quietly never existed.
     const recordedController = conditionLog()[i]?.controller;
     if (recordedController !== undefined && recordedController !== null && serviceRefusal(recordedController)) continue;
-    const risk = plannedRiskBand(i);
-    if (!risk) {
-      if (!rule.acceptUnreported) continue;
-    } else if (risk.band > rule.maxBand) continue;
+    const risk = plannedRouteRisk(from, i);
+    if (!risk) continue;
+    if (risk.unreported.length && !rule.acceptUnreported) continue;
+    if (risk.worst && risk.worst.band > rule.maxBand) continue;
     out.push(i);
   }
   return out;
 }
 function planFleetTradeRun(f, t) {
   const from = fleetShipSystem(f);
-  const here = recordMarketObservation(from);
-  if (!here) return { ok: false, note: 'No market here.' };
+  // Access first, then knowledge. A ship told to leave does not come away with the week's prices, so
+  // nothing is recorded until the port has agreed to deal with her. [playtest]
   const refusal = serviceRefusal(getSystemFaction(from));
   if (refusal) return { ok: false, note: refusal };
+  const here = recordMarketObservation(from);
+  if (!here) return { ok: false, note: 'No market here.' };
   const capacity = fleetTradeCapacity(f);
   if (capacity < 1) return { ok: false, note: `${f.name} has no cargo hold.` };
   const purse = Math.max(0, Math.floor(finiteNumber(state.latinum, 0)) - TRADE_PURSE_RESERVE);
@@ -25926,7 +25945,9 @@ function planFleetTradeRun(f, t) {
   const upkeep = upkeepPerDay(f.shipId);
   let best = null;
   for (const to of fleetTradeCandidates(f, t)) {
-    const route = getPlottedRoute(from, to);
+    const risk = plannedRouteRisk(from, to);
+    if (!risk) continue;
+    const route = risk.route;
     const days = Math.max(1, Fleet.travelDays(finiteNumber(route.distance, 0)));
     for (const offer of here.offers) {
       const sell = knownMarketPrice(to, offer.goods);
@@ -25936,7 +25957,8 @@ function planFleetTradeRun(f, t) {
       const net = (sell - offer.price) * tons - upkeep * days;
       if (net <= 0) continue;
       const score = net / days;
-      if (!best || score > best.score) best = { to, goods: offer.goods, tons, unit: offer.price, sell, days, net, score };
+      if (!best || score > best.score)
+        best = { to, goods: offer.goods, tons, unit: offer.price, sell, days, net, score, path: risk.path };
     }
   }
   if (!best) return { ok: false, note: 'No profitable run from here on current information.' };
@@ -25957,6 +25979,9 @@ function beginFleetTradeLeg(f, t, plan, day = state.day) {
   t.expectedUnit = plan.sell;
   t.origin = from;
   t.destination = plan.to;
+  // The systems the ship will pass through, kept so the run is rolled against the route it flew even
+  // if the chart changes while it is out there.
+  t.path = Array.isArray(plan.path) && plan.path.length ? plan.path.slice() : [plan.to];
   // The last completed trip's realised profit stays on screen until this one produces its own. Zeroing
   // it here put a 0 in the panel the instant a run paid out, which read as "that trip made nothing".
   t.expectedProfit = Math.round(finiteNumber(plan.net, 0));
@@ -26025,9 +26050,26 @@ function resolveFleetTradeLegRisk(f, t, at) {
   setLog(`${f.name} was attacked at ${where}; hull ${Math.round((v.hull / v.maxHull) * 100)}%, cargo intact.`);
   return 'damaged';
 }
+// The run is flown, not teleported. Every system on the route gets its own roll against its own truth,
+// in the order the ship passes through them, and the first one that cripples her ends the run where it
+// happened rather than at a destination she never reached. [playtest]
+function resolveFleetTradeRouteRisk(f, t) {
+  const path = (Array.isArray(t.path) && t.path.length ? t.path : [t.destination])
+    .map(Number).filter((i) => Number.isFinite(i) && state.planets[i]);
+  let worst = null;
+  for (const at of path) {
+    const outcome = resolveFleetTradeLegRisk(f, t, at);
+    if (outcome) worst = outcome;
+    if (outcome === 'destroyed' || outcome === 'disabled') {
+      // She did not arrive. Where she stopped is where she is.
+      if (outcome === 'disabled') { f.systemIndex = at; f.assignment = 'defense'; delete f.transit; }
+      return outcome;
+    }
+  }
+  return worst;
+}
 function completeFleetTradeSale(f, t) {
   const at = fleetShipSystem(f);
-  recordMarketObservation(at);
   const where = state.planets[at]?.name || 'this system';
   const refusal = serviceRefusal(getSystemFaction(at));
   if (refusal) {
@@ -26037,6 +26079,8 @@ function completeFleetTradeSale(f, t) {
     setLog(`${f.name} cannot sell at ${where}: ${refusal}`);
     return false;
   }
+  // Docked, and dealt with: the board is read here and not before.
+  recordMarketObservation(at);
   const offer = getPlanetMarket(at).find((o) => o.goods === t.goods);
   if (!offer) {
     t.active = false;
@@ -26078,8 +26122,9 @@ function advanceFleetTrading(day = state.day) {
     ensureFleetTradeState(f);
     if (f.transit) continue; // still on the leg; the calendar moves it
     if (t.stage === 'outbound') {
-      const outcome = resolveFleetTradeLegRisk(f, t, fleetShipSystem(f));
+      const outcome = resolveFleetTradeRouteRisk(f, t);
       if (outcome === 'destroyed') continue;
+      if (outcome === 'disabled') continue; // stopped short; the cargo is still aboard where she lies
       completeFleetTradeSale(f, t);
       if (!t.active || t.stage === 'holding') continue;
     }

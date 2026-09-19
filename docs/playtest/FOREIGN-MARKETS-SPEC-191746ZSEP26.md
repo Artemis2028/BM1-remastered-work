@@ -1,11 +1,19 @@
 # Foreign hull markets — approved specification
 
-DTG 191624ZSEP26 · supersedes `FOREIGN-STOCK-PROPOSAL-191545ZSEP26.md` · **nothing here is implemented**
+DTG 191746ZSEP26 · supersedes `FOREIGN-MARKETS-SPEC-191624ZSEP26.md` and the proposal before it · **nothing here is implemented**
 
-Base: `8b7d9b0` (`191546ZSEP26`), closed as the overlay/intelligence round and not modified by this
-document. It was written against that commit with the tree untouched, and carried into the repository
-by the fleet-trading round that follows it. **Foreign markets remain unimplemented**; this is the
-document the round that implements them works from.
+Base: `8b7d9b0` (`191546ZSEP26`), closed as the overlay/intelligence round. **Foreign markets remain
+unimplemented**; this is the document the round that implements them works from.
+
+**Two amendments in this revision, both from review, and the second is load-bearing:**
+
+| # | Amendment | Where |
+| --- | --- | --- |
+| 9 | The prize producer requires **disabled *and* taken**, not disabled | §2 |
+| 10 | **Persistent strategic vessel identity is a prerequisite** before any offscreen campaign operation may produce a prize | §0, §6 |
+
+Amendment 10 changes the order of work and empties two of the three shelves until it is done. §0 says
+why.
 
 This is no longer a proposal. The eight decisions below were made by the reviewer and are recorded here
 as requirements, not options.
@@ -20,6 +28,49 @@ as requirements, not options.
 | 6 | Pirates preferentially sell **real** prizes | §3.3 |
 | 7 | Standing penalties deduplicated | §4.2 |
 | 8 | All standing deltas explicit | §4.1, §4.4 |
+
+---
+
+## 0. Prerequisite: strategic hulls have no identity to preserve
+
+Decision 4 says a prize preserves the **actual vessel's identity and state**. §1.1 shows the engine has
+the primitive for that — `Fleet.snapshotVessel()` plus the `name` and `seed` the capture path records.
+But that is the *tactical* representation, and it exists only for hulls that have been in a scene.
+
+The **strategic** representation is different. A campaign polity's hull is created at
+`campaign-strategy.mjs:379`:
+
+```js
+const hull = { id: nextCampaignId(book, 'hull'), shipId: Number(id), hull: maxHull, maxHull,
+               crew: 1, systemIndex: Number(systemIndex), status: 'ready', opId: null };
+```
+
+No `name`. No `seed`. No `vessel`. It is a design, a hull fraction and a location — which is exactly the
+shape decision 4 rejected. So an offscreen Hirogen operation that disables and takes something has
+nothing to make a prize *out of*. Any prize it produced would have to have its identity **invented at
+the moment of sale**, which is the "the Hirogen may now sell Romulan Scouts" licence wearing a name
+badge. Worse than the licence, in fact: the licence was honest about being a licence.
+
+**Therefore.** Before any offscreen producer exists, strategic hulls must carry persistent identity:
+
+- **P0.1** — a `name` and a `seed`, assigned at `addHull` and stable for the hull's life, so the same
+  vessel is the same vessel across engagements, reports and sales.
+- **P0.2** — a `vessel` snapshot maintained across strategic engagements, so "the condition the fight
+  left it in" is a real recorded state rather than the `hull`/`maxHull` pair rounded into a word.
+- **P0.3** — that identity surviving the hull's normal lifecycle, including `pruneLostHulls`
+  (`campaign-strategy.mjs`), which today clears destroyed hulls once no operation names them.
+
+Until P0 exists, **the only producer is a boarding capture by the captain**, which does have identity
+(`main.js:23341`). That has two consequences, and neither should be discovered after the fact:
+
+1. **Hirogen Range's shelf is empty.** Its prizes come from Hirogen hunts, which are campaign
+   operations. Shipping §3.2 before P0 ships a shop with nothing in it, or a shop with invented
+   merchandise.
+2. **Pirates Haven's shelf is one generic hull.** Its prize tier needs pirate-held prizes (campaign
+   operations, same problem) or `takenFrom: 'player'` records, which §1.2 already says cannot occur.
+
+So §6's order changes: P0 first, or those two markets wait. Suliban Helix is unaffected — it sells from
+the catalogue and never touches a prize record.
 
 ---
 
@@ -112,27 +163,43 @@ impossible.
 
 ## 2. What never becomes a prize
 
-A prize is created only where a hull survives. Two sources, one rule:
+A prize is created only where a hull was **left intact and then taken**. Disabled is where a hull *can*
+be taken; it is not evidence that anyone took it. The previous revision treated "a campaign operation
+whose target ends `disabled`" as a producer on its own, which would have turned every derelict left
+floating after a strategic engagement into stock on a shelf — including hulls whose own side recovered
+them, and hulls nobody ever went back for.
 
-- **a campaign operation** whose target ends `disabled` — `classifyDamage` (`ship-fleet.mjs:37`) draws
-  the line at `hull <= disableThreshold(max)` with `hull > 0`;
-- **a boarding** that ends `outcome: 'captured'` (`ship-fleet.mjs:375`), which is also the only path
-  that sets `prizeStabilized`.
+**Both conditions, together:**
+
+- the hull is `disabled` and not `destroyed` — `classifyDamage` (`ship-fleet.mjs:37`) draws that line at
+  `hull <= disableThreshold(max)` with `hull > 0`; **and**
+- somebody **took** it: possession changed, and the record says who.
+
+A boarding that ends `outcome: 'captured'` (`ship-fleet.mjs:375`) satisfies both in one step — it can
+only begin against a `disabled` target and `captured` is the taking, which is also the only path that
+sets `prizeStabilized`. An offscreen operation satisfies the first and must state the second
+explicitly; see §0 for why it cannot do so yet.
 
 Nothing else. In particular:
 
 - `condition === 'destroyed'` (`hull <= 0`) produces nothing;
 - `outcome: 'scuttled'` produces nothing — the boarding failed and the crew took the ship with them;
-- `outcome: 'cancelled'` and `'target-lost'` produce nothing.
+- `outcome: 'cancelled'` and `'target-lost'` produce nothing;
+- **a hull left disabled and not taken produces nothing**, however the engagement ended.
 
-This is a single predicate, written once, called from both producers:
+One predicate, written once, called from both producers:
 
 ```js
 function prizeEligible(result) {
-  return result.outcome === 'captured'
-    || (result.condition === 'disabled' && result.hull > 0);
+  // Disabled is where a hull can be taken. Taken is what makes it a prize.
+  return result.condition === 'disabled'
+    && result.hull > 0
+    && result.taken === true          // possession changed hands
+    && result.takenBy != null;        // and the record says to whom
 }
 ```
+
+A boarding maps onto it as `{ condition: 'disabled', hull, taken: outcome === 'captured', takenBy: 'player' }`.
 
 The Borg are excluded from prize generation entirely, and any hull the ordinary shelf refuses
 (`rosterState: 'retired' | 'prototype'`, `isUnbalancedPrototype`) is refused here too, so a prize can
@@ -306,12 +373,14 @@ Per the UI writing rule: state the faction and the number. Do not explain what l
 
 ## 5. Validation the implementing round owes
 
-Seven adversarial checks, each reproducing a specific wrong behaviour and failing behaviourally (never
-with a `TypeError`) on a tree that has the defect. Playtest gate 34 → 41.
+Nine adversarial checks, each reproducing a specific wrong behaviour and failing behaviourally (never
+with a `TypeError`) on a tree that has the defect.
 
 | Gate | Reproduces |
 | --- | --- |
 | `PRIZE-WRECK` | a destroyed hull, or a `scuttled` boarding, becoming merchandise |
+| `PRIZE-TAKEN` | a hull left disabled and never taken appearing on a shelf — the engagement ends with a derelict and nobody claims it, and it must produce nothing |
+| `PRIZE-INVENTED` | a prize whose `name` or `seed` was generated at the moment it was offered rather than carried from the vessel — any producer without persistent identity must produce nothing at all, not a plausible-looking record |
 | `PRIZE-IDENTITY` | a purchased prize arriving as a fresh full-hull spawn instead of that vessel — asserts `name`, `seed` and `vessel.hull` survive the purchase |
 | `PRIZE-CONSUMED` | two prizes of one design; buying one must leave exactly one, and 30 days must not restore it (guards `advanceStock`) |
 | `PRIZE-DURABLE` | prizes vanishing when `book.history` passes `config.historyLimit` |
@@ -328,18 +397,30 @@ deleted.
 
 ## 6. Implementation order
 
-1. `prizeEligible` and the `book.prizes[]` record, with its bound and its persistence — no market yet.
-   `PRIZE-WRECK`, `PRIZE-DURABLE`.
+1. `prizeEligible` — disabled **and** taken — and the `book.prizes[]` record, with its bound and its
+   persistence. No producer and no market yet. `PRIZE-WRECK`, `PRIZE-TAKEN`, `PRIZE-DURABLE`.
 2. `takenFrom` at the capture site, before the faction is overwritten.
-3. `buyPrize` and `restoreVessel` on purchase. `PRIZE-IDENTITY`, `PRIZE-CONSUMED`.
+3. `buyPrize` and `restoreVessel` on purchase. `PRIZE-IDENTITY`, `PRIZE-CONSUMED`. At this point the
+   captain's own boarding captures are the only things that can become prizes, which is correct.
 4. `applyForeignMarketStanding` and the confirmation prompt. `STANDING-ONCE`.
 5. Suliban Helix: the `WORLD_FOREIGN_STOCK` descriptor and the gate. `GATE-SULIBAN`, `HOLD` update.
-6. Hirogen Range: the prize shelf and the hunt-evidence gate.
-7. Pirates Haven: the ordered shelf, the fallback, the contact rule, the shelf-only refusal exemption.
-   `CONTACT-PIRATE`.
+   **This market is shippable without P0** — it sells from the catalogue and never touches a prize.
+6. **P0: persistent strategic vessel identity** (§0). `name` and `seed` at `addHull`, a `vessel`
+   snapshot maintained across strategic engagements, and both surviving `pruneLostHulls`.
+   `PRIZE-INVENTED` is the check that keeps this honest: until P0 lands, an offscreen producer must
+   produce **nothing**, not a record with a generated name on it.
+7. Hirogen Range: the prize shelf and the hunt-evidence gate. **Requires P0.**
+8. Pirates Haven: the ordered shelf, the fallback, the contact rule, the shelf-only refusal exemption.
+   `CONTACT-PIRATE`. **Requires P0** for anything but the single generic fallback hull.
 
-Steps 1–4 are the engine; 5–7 are three worlds sharing it. If the round is cut short, it should be cut
-after 4, with no market shipped, rather than shipping one market on a shelf that regenerates.
+Steps 1–4 are the engine, 5 is a market that needs nothing else, and 6 is the gate on the other two.
+If the round is cut short it should be cut after 5: one market working, the engine in place, and the
+two prize markets unshipped rather than shipped empty or shipped inventing their merchandise.
+
+**P0 is not small.** It touches hull creation, strategic engagement resolution and hull pruning, and it
+changes what a campaign save contains. It is worth scoping on its own before it is folded into a
+foreign-market round — it is arguably a strategic-layer feature that foreign markets happen to need,
+not a foreign-market feature.
 
 ## 7. Unchanged constraints
 

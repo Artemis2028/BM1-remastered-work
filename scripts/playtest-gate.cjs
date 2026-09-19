@@ -2524,6 +2524,129 @@ const { startProbe } = require('./probe-harness.cjs');
       `${r.before.markets} remembered markets came back as ${r.after.markets}`);
   });
 
+
+  // TRADE-8 — only the destination was looked at: a Safe trader was routed straight through a system
+  // its own records call dangerous, because the risk test stopped at the far end of the route.
+  await check('TRADE the danger on a run is the danger on the whole route', async () => {
+    await fresh('play-trade-route');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({});
+      window.__tradeShip('gate-route-1', { big: true });
+      if (typeof t.fleetTradeCandidates !== 'function') return { built: false, reason: 'a trader has no route risk at all' };
+      const f = s.playerFleet.find((x) => x.id === 'gate-route-1');
+      const home = Number(s.currentPlanet);
+      // A destination the captain's own records call quiet, reached through a system those same records
+      // call dangerous. Both readings are the ones already written by looking at those worlds; nothing
+      // is planted.
+      let pair = null;
+      for (let d = 0; d < s.planets.length && !pair; d++) {
+        if (d === home || !t.knownMarket(d)) continue;
+        const db = t.plannedRiskBand(d);
+        if (!db || db.band !== 0 || t.trueThreat(d).band !== 0) continue;
+        const route = t.getPlottedRoute(home, d);
+        if (!route) continue;
+        for (const i of (route.systems || []).map(Number)) {
+          if (i === home || i === d) continue;
+          const vb = t.plannedRiskBand(i);
+          if (vb && vb.band > 0) { pair = { dest: d, via: i }; break; }
+        }
+      }
+      if (!pair) return { built: true, found: false };
+      // and it is dangerous in fact as well as on paper, so the run has something to be flown into
+      t.transferSystemControlToFaction(pair.via, 'pirate');
+      const viaBand = t.plannedRiskBand(pair.via);
+      const destBand = t.plannedRiskBand(pair.dest);
+      const safe = t.fleetTradeCandidates(f, t.ensureFleetTradeState(f, 'safe'));
+      const any = t.fleetTradeCandidates(f, t.ensureFleetTradeState(f, 'any'));
+      // and the run itself: arrivals at a destination that is genuinely quiet, flown through that system
+      const truthVia = { threat: t.trueThreat(pair.via).band, protection: t.trueProtection(pair.via).band };
+      const truthDest = { threat: t.trueThreat(pair.dest).band, protection: t.trueProtection(pair.dest).band };
+      let touched = 0, flown = 0;
+      for (let k = 0; k < 60; k++) {
+        const probe = { id: `gate-route-p${k}`, shipId: f.shipId, name: `Probe ${k}`, faction: s.playerFaction,
+          assignment: 'defense', systemIndex: pair.dest, seed: k };
+        const pt = t.ensureFleetTradeState(probe, 'any');
+        pt.origin = home; pt.destination = pair.dest; pt.path = [pair.via, pair.dest];
+        pt.etaDay = 600 + k; pt.goods = t.knownMarket(pair.dest).offers[0].goods;
+        pt.tons = 1; pt.paid = 1; pt.unitPaid = 1; pt.expectedUnit = 1; pt.active = true; pt.stage = 'outbound';
+        s.playerFleet.push(probe);
+        t.advanceFleetTrading(s.day);
+        flown++;
+        const v = probe.vessel;
+        if (v && v.hull < v.maxHull) touched++;
+        s.playerFleet = s.playerFleet.filter((x) => x.id !== probe.id);
+      }
+      return { built: true, found: true, ...pair, viaBand, destBand, truthVia, truthDest,
+        safeHas: safe.includes(pair.dest), anyHas: any.includes(pair.dest), flown, touched };
+    });
+    assert.ok(r.built, `a trader has no route risk: ${r.reason}`);
+    assert.ok(r.found, 'precondition: no destination was reachable through another system');
+    assert.ok(r.viaBand && r.viaBand.band > 0,
+      `precondition: handing ${r.via} to pirates and looking at it did not make the records call it dangerous`);
+    assert.equal(r.destBand && r.destBand.band, 0,
+      `precondition: the destination itself reads as dangerous (band ${r.destBand && r.destBand.band})`);
+    assert.equal(r.anyHas, true, `precondition: system ${r.dest} is not a destination at all`);
+    assert.equal(r.safeHas, false,
+      `a Safe trader will run to system ${r.dest} through system ${r.via}, which its own records put at band ${r.viaBand.band}`);
+    assert.ok(r.truthVia.threat > 0, 'precondition: the system in the middle is not actually dangerous');
+    assert.equal(r.truthDest.threat, 0,
+      `precondition: the destination is itself dangerous (band ${r.truthDest.threat}), so this proves nothing`);
+    assert.ok(r.touched > 0,
+      `${r.flown} runs were flown through pirate-held system ${r.via} to a quiet destination and every ship arrived unmarked`);
+  });
+
+  // TRADE-9 — a trader turned away at a port still came home with that week's prices, and planned its
+  // next run on them.
+  await check('TRADE a port that turns a freighter away teaches it nothing', async () => {
+    await fresh('play-trade-access');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({});
+      window.__tradeShip('gate-access-1', { big: true });
+      if (typeof t.knownMarket !== 'function') return { checked: false, reason: 'a trader keeps no price records' };
+      const f = s.playerFleet.find((x) => x.id === 'gate-access-1');
+      const trade = t.ensureFleetTradeState(f, 'any');
+      const home = Number(s.currentPlanet);
+      const target = t.fleetTradeCandidates(f, trade).find((i) => {
+        const key = s.conditionLog[i]?.controller;
+        return key && key !== 'neutral' && key !== s.playerFaction && i !== home;
+      });
+      if (target == null) return { checked: true, found: false };
+      const faction = s.conditionLog[target].controller;
+      const goods = t.knownMarket(target).offers[0].goods;
+      t.adjustFactionStanding(faction, -100, { silent: true });
+      // the captain has never read this board
+      delete s.marketLog[target];
+      const knewBefore = Boolean(t.knownMarket(target));
+      // arriving with cargo, and being turned away
+      f.systemIndex = target;
+      trade.goods = goods; trade.tons = 5; trade.paid = 25; trade.unitPaid = 5; trade.expectedUnit = 9;
+      trade.destination = target; trade.path = [target]; trade.stage = 'outbound'; trade.active = true;
+      const purse = s.latinum;
+      t.advanceFleetTrading(s.day);
+      const afterArrival = { known: Boolean(t.knownMarket(target)), purse: s.latinum, note: trade.note, active: trade.active };
+      // and standing at a port that refuses her, planning the next run teaches her nothing either
+      delete s.marketLog[target];
+      const g = { id: 'gate-access-2', shipId: f.shipId, name: 'Refused', faction: s.playerFaction,
+        assignment: 'defense', systemIndex: target, seed: 2 };
+      s.playerFleet.push(g);
+      const plan = t.planFleetTradeRun(g, t.ensureFleetTradeState(g, 'any'));
+      const afterPlanning = { known: Boolean(t.knownMarket(target)), ok: plan.ok, note: plan.note };
+      return { checked: true, found: true, target, faction, goods, knewBefore, afterArrival, afterPlanning, purse };
+    });
+    assert.ok(r.checked, `${r.reason}`);
+    assert.ok(r.found, 'precondition: no governed destination was available to refuse the captain');
+    assert.equal(r.knewBefore, false, 'precondition: the price record for that world was not cleared');
+    assert.equal(r.afterArrival.active, false, 'precondition: the trader was not actually turned away');
+    assert.equal(r.afterArrival.purse, r.purse, `a refused sale still paid the captain ${r.afterArrival.purse - r.purse} latinum`);
+    assert.equal(r.afterArrival.known, false,
+      `${r.faction} turned the freighter away at system ${r.target} and she came home with that week's prices`);
+    assert.equal(r.afterPlanning.ok, false, 'a trader planned a run out of a port that will not deal with her');
+    assert.equal(r.afterPlanning.known, false,
+      `a trader standing at a port that refuses her read its board anyway`);
+  });
+
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);
   if (failures.length) { console.log(`${failures.length} still reproduce:`); for (const f of failures) console.log(`  - ${f.name}: ${f.message.split('\n')[0]}`); process.exitCode = 1; }
   if (errors.length) { console.log(`page errors: ${errors.join(' | ')}`); process.exitCode = 1; }

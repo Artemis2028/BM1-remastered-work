@@ -1,21 +1,26 @@
 # BM1 playtest repairs on top of `ae4ae4d`
 
-DTG 191702ZSEP26
+DTG 191746ZSEP26
 
 Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Nothing pushed, merged or deployed.
 The commit count is in `CANDIDATE.json`, computed by the pack script rather than typed here.
 
 ## Read this first
 
-**This round is §4 fleet trading**, on top of `8b7d9b0`, which is closed. It is the first section
-below. Everything under "Closing the overlay and intelligence round" and beneath it is the record of
-the rounds before it, newest first, unchanged.
+**This round is fleet-trading repairs**, on top of `5d32b7c`. **§4 is not closed.** It is the first
+section below; "Fleet trading" beneath it is the round that built it, and everything under that is the
+record of the rounds before, newest first, unchanged.
 
-Three things in this round need saying before the detail: **fleet trading as specified prints money**,
-and the seeded fixtures say by how much rather than the number being tuned away; **recall and
-rendezvous are deliberately not in here**, so a stopped trader holds position where it is; and the
-foreign-market work is now an approved specification, `FOREIGN-MARKETS-SPEC-191624ZSEP26.md`, with
-**nothing implemented**.
+Four things need saying before the detail. **A Safe trader could be routed through a system its own
+records call dangerous**, because only the destination was examined — fixed, with a gate. **A trader
+turned away at a port came home with its prices** — fixed, with a gate. **The pack's cover sheets
+shipped describing the previous round**; the duplicated narrative is gone and the pack now refuses to
+build when its stamps disagree with what is being packed. And the economy question is **costed rather
+than tuned**: `CARGO-ECONOMY-PROPOSAL-191746ZSEP26.md`, nothing implemented.
+
+The foreign-market specification is amended twice, and one of those amendments reorders the work:
+**persistent strategic vessel identity is now a prerequisite** before any offscreen operation may
+produce a prize, which leaves two of its three shelves unshippable until it exists.
 
 Sixth round, on top of `7767631`, from nine items raised off laptop playtest screenshots, plus the
 three findings raised against `43938a7` and the four goals raised against `2316331`, all closed here. **All nine items are done**: the trade overlay, which was
@@ -44,6 +49,116 @@ little haven" — which made it neutral and stopped it being hostile. Rigel's te
 independent planet" and "The Andorians however lay claim to this world and are quite willing to protect
 it", and the engine has no protectorate level to express that, so nothing was authored and the shipped
 table's `andorian` stands. That second one is **a gap, not a decision**.
+
+## Fleet-trading repairs
+
+Raised against `5d32b7c`, which stays the base. §4 is **not closed**.
+
+### 1. Danger is the danger on the route, not at the far end
+
+The risk test stopped at the destination, so a Safe trader could be routed straight through a system
+its own records call dangerous as long as the world at the end looked quiet. Planning now takes the
+**worst** planned risk band over every system on the plotted route, and a route with an unreported
+system on it is refused by Safe and Cautious the same way an unreported destination is. Passing through
+is not docking, so a government that refuses the captain is still only consulted at the destination.
+
+The run is flown rather than teleported: every system on the path gets its own seeded roll against its
+own truth, in the order the ship passes through them. The path is recorded at departure and persisted,
+so a run is rolled against the route it actually flew even if the chart changes while it is out there.
+A ship crippled part-way stops **where it happened** — `systemIndex` is set to that system rather than
+to a destination she never reached, which is what repair and recovery need to be true.
+
+`TRADE the danger on a run is the danger on the whole route` builds the case out of existing readings:
+a destination the records call band 0 and that is quiet in fact, reached through a system those same
+records already call dangerous. On `5d32b7c` it fails with *"a Safe trader will run to system 15 through
+system 16, which its own records put at band 2"*, and 60 runs through a pirate-held system arrive
+unmarked.
+
+### 2. A port that turns a freighter away teaches it nothing
+
+`completeFleetTradeSale` recorded the board and *then* checked whether the port would deal with the
+captain, so a trader turned away at the dock came home with that week's prices and planned its next run
+on them. The same order was wrong in the planner. Access is now established first, and the board is
+read only once the port has agreed to deal — on arrival, after the refusal check and immediately before
+the sale.
+
+On `5d32b7c`: *"andorian turned the freighter away at system 10 and she came home with that week's
+prices"*.
+
+The captain's own market screen is unchanged. A board the captain can see is knowledge they actually
+have, and the refusal still stops them trading on it — and stops a trader being sent there at all.
+
+### 3. The pack's cover sheets stopped going stale
+
+`README.template.md` was 482 lines carrying a hand-written round narrative, a hardcoded DTG and a
+hardcoded base; `manifest.py` was 46KB of the same. Both shipped in the last pack describing the round
+*before* it — `191546ZSEP26`, base `7767631` — beside counts and checksums that were correct, because
+the numbers were computed and the prose beside them was not.
+
+The prose is gone rather than corrected. It duplicated the change document, which is in the pack and is
+rewritten every round; one telling is enough.
+
+- **`CANDIDATE.json` records only what is computed**: commits and tree from git, the gate list and exit
+  codes read from `gate-exit-codes.txt`, the playtest gate's totals and per-baseline reproduction counts
+  read from the logs themselves, and `new_this_round` **derived** as the checks that still reproduce on
+  `base_this_round` and pass on the candidate. It cannot describe a different round than the one packed.
+- **`README.md` is a short cover sheet** filled from the same values, and `finalize.sh` refuses to write
+  one that still carries a placeholder or any DTG but this round's.
+- **`make-pack.sh` takes `BASE` as an argument** and refuses when it is not an ancestor of HEAD, when
+  the change document does not exist, when its filename does not carry this round's DTG, when it is not
+  stamped `DTG <this round>` at the top, or when `CANDIDATE.json`'s DTG, base or document name disagree
+  with what is being packed.
+
+### 4. The two gates
+
+Both reproduce behaviourally on `5d32b7c` with no `TypeError`. The playtest gate goes 41 → 43.
+
+| Check | Reproduces |
+| --- | --- |
+| `TRADE the danger on a run is the danger on the whole route` | only the destination is examined, so a Safe run is routed through a system the records call dangerous, and every ship arrives unmarked |
+| `TRADE a port that turns a freighter away teaches it nothing` | a refused trader comes home with that port's prices, and a trader standing at a refusing port reads its board anyway |
+
+### 5. The economy, costed rather than tuned
+
+`CARGO-ECONOMY-PROPOSAL-191746ZSEP26.md`. **Nothing implemented.** The short version: the fleet trader
+did not break the economy, it was the first thing able to execute at a scale the market model never
+priced. A world's board has no depth — 10,000 tons of one good clears at the same unit price as one
+ton. Upkeep is charged on mass while profit is earned on cargo capacity, and the largest hold in the
+game (10,000 tons) sits on a **mass-6** hull paying below-median upkeep. The cheapest route to the
+problem is a **180,000-latinum** freighter with a 3,500-ton hold.
+
+Four options are costed; the recommendation is **market depth**: a world absorbs `market * 25` tons of
+a good at the posted price and moves one latinum against you per further block, symmetric on buying.
+At market 11 that leaves a 110-ton run untouched, takes 8% off a 650-ton run, and turns a 10,000-ton
+dump from 90,000 latinum into 19,900 — a loss against its own purchase. The captain's own 220-ton ship
+is unaffected.
+
+### 6. The foreign-market spec, amended twice
+
+Two amendments, and the second reorders the work.
+
+**The prize producer requires disabled *and* taken.** "A campaign operation whose target ends
+`disabled`" was a producer on its own, which would have turned every derelict left floating after a
+strategic engagement into stock — including hulls their own side recovered and hulls nobody went back
+for. One predicate now requires the hull intact, possession changed, and the record naming who took it.
+
+**Persistent strategic vessel identity is a prerequisite.** Decision 4 says a prize preserves the actual
+vessel's identity and state. The engine has that primitive for *tactical* hulls. A **strategic** hull is
+created as `{ id, shipId, hull, maxHull, crew, systemIndex, status, opId }` — no `name`, no `seed`, no
+`vessel` snapshot. So an offscreen operation has nothing to make a prize out of, and any prize it
+produced would have its identity invented at the moment of sale: the licence the whole specification
+was written to avoid, wearing a name badge.
+
+Until that exists, the only producer is a boarding capture by the captain. Which means **Hirogen Range's
+shelf is empty and Pirates Haven's is one generic hull** — shipping either now ships an empty shop or an
+inventing one. Suliban Helix is unaffected: it sells from the catalogue and never touches a prize. The
+implementation order now puts Suliban Helix at step 5, the identity work at step 6, and the two prize
+markets behind it, with a `PRIZE-INVENTED` check that requires a producer without persistent identity
+to produce **nothing** rather than something plausible.
+
+That work is not small — hull creation, strategic engagement resolution, hull pruning, and what a
+campaign save contains — and it is arguably a strategic-layer feature that foreign markets happen to
+need rather than a foreign-market feature.
 
 ## Fleet trading
 
@@ -281,7 +396,7 @@ numbers, which is the evidence.
 ### The foreign-market proposal, second draft
 
 `FOREIGN-STOCK-PROPOSAL-191545ZSEP26.md` replaced the first, three of whose four sections were wrong.
-It is itself superseded by `FOREIGN-MARKETS-SPEC-191624ZSEP26.md`, below.
+It is itself superseded by `FOREIGN-MARKETS-SPEC-191746ZSEP26.md`, below.
 
 - **Suliban Helix was called ungoverned.** This candidate's own world-identity evidence makes it a
   self-governed Suliban world, exactly as Hirogen Range is self-governed Hirogen. The fence is a
@@ -370,7 +485,7 @@ those phrases was the same mistake as reading a grey market out of an emptied sh
 back. The table is empty and **the gate holds it empty**: every world sells its own government's
 designs and neutral ones, and no world anywhere sells a hull its government would not carry.
 
-`FOREIGN-MARKETS-SPEC-191624ZSEP26.md` names three worlds chosen for what they are in the campaign
+`FOREIGN-MARKETS-SPEC-191746ZSEP26.md` names three worlds chosen for what they are in the campaign
 rather than for their prose — the Suliban Helix as a fence limited to small hulls at a premium and a
 standing cost, Hirogen Range selling only designs the Hirogen have actually destroyed a hull of in this
 campaign, Pirates Haven selling stolen hulls at a discount in poor condition and visibly — with the
@@ -633,7 +748,7 @@ Measured and named rather than left for the next playtest.
 ## Still NOT DONE, and named
 
 - **Foreign hull stock** is withdrawn, not designed. The third-draft proposal is
-  `FOREIGN-MARKETS-SPEC-191624ZSEP26.md`, now approved rather than asking;
+  `FOREIGN-MARKETS-SPEC-191746ZSEP26.md`, now approved rather than asking;
   until they are taken, every world sells its own government's designs.
 - **A captured hull does not record who it was taken from.** The Pirates Haven section of that proposal
   degrades gracefully without it, but the field does not exist.
@@ -643,7 +758,8 @@ Measured and named rather than left for the next playtest.
   `EVACUATION-BLOCKADE-DESIGN-180230ZSEP26.md`, unchanged and still unimplemented.
 - **Rigel's protectorate.** The engine has no level between "independent" and "governed by", so a world
   whose text names a protector is indistinguishable from one the protector governs outright.
-- **§4 fleet trading is done** and **§9's fleet-trade fixtures are done**. **§5 recall and
+- **§4 fleet trading is built but not closed** — two repairs landed here and the cargo/economy
+  question is open in front of the reviewer. **§9's fleet-trade fixtures are done**. **§5 recall and
   rendezvous is deliberately not**: a stopped trader finishes the leg it has already paid for, sells,
   and holds position, and there is no order to bring it home.
 - **§3.3 bilateral peace, §3.4 cargo capacity and contract economy, §3.5 uninhabited worlds,** the rest
