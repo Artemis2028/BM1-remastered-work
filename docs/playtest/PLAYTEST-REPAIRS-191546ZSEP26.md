@@ -1,6 +1,6 @@
 # BM1 playtest repairs on top of `ae4ae4d`
 
-DTG 191454ZSEP26
+DTG 191546ZSEP26
 
 Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Nothing pushed, merged or deployed.
 The commit count is in `CANDIDATE.json`, computed by the pack script rather than typed here.
@@ -34,6 +34,68 @@ little haven" — which made it neutral and stopped it being hostile. Rigel's te
 independent planet" and "The Andorians however lay claim to this world and are quite willing to protect
 it", and the engine has no protectorate level to express that, so nothing was authored and the shipped
 table's `andorian` stands. That second one is **a gap, not a decision**.
+
+## Closing the overlay and intelligence round
+
+Raised against `cbf879a`. Two changes and a writing rule.
+
+### The map stopped narrating its own design decisions
+
+An unreported system printed *"Nothing has reported on this system. Treat it as unknown, not as safe."*
+beneath four readings that already said "no report". A stale one carried *"unconfirmed, and late"* and
+*"a garrison that old is not a reading"*. The legend counted unreported systems and then explained what
+unreported meant. A footnote explained two marks. The question mark, the source and the date had
+already said all of it.
+
+What the readout says now:
+
+```
+Paso — Trade: ? · Patrols: ? · Threat: ? · Disruption: ?
+No current intelligence
+
+Orion — Trade: heavy · Patrols: light (est.) · Threat: none reported · Disruption: none
+Traffic reports · observed day 20 · 60 days old
+Trade: 9/21 powers trading · market 11 · 1 berth · 12 at war
+```
+
+Sources are labels — **Direct observation**, **Fleet report**, **Relay telemetry**, **Traffic
+reports** — not sentences about what each is worth. A reading its source cannot fully make is marked
+`(est.)`. The legend footer reads `91 unreported systems`. An indicator with no reading reads "none
+reported", which is deliberately not the word a source actually observed.
+
+**A correction that came out of writing it:** fleet *protection* was marked as an assessment while
+being fed the exact count. A crew can count hulls; what they judge is what is happening. Only the
+threat reading is an estimate now, and it is the one that goes through `assessIntel`.
+
+### The rule, applied where the same habit had got in
+
+> If the interface has already communicated uncertainty mechanically — a `?`, "unknown",
+> "unconfirmed", a date, or a confidence indicator — it does not explain that uncertainty again in
+> prose. Give the source, the confidence or age where it is relevant, and the reading. The player draws
+> the conclusion.
+
+Applied to the galaxy reports, which carry a confidence field and a date already: *"Information dated
+day 14; conditions may have changed."* is now *"Dated day 14."*, *"Fleet assessment — mistakes
+possible"* is *"Fleet assessment"*, and an identification no longer appends that it may be mistaken to
+a report already marked unconfirmed. The identity-pool check followed the text.
+
+Three gates that required the prose now require the shape instead, and two of them additionally
+require that **no line narrates uncertainty a mark or a date has already carried**.
+
+### Two amendments to the foreign-market proposal
+
+- **A destroyed hull is wreckage, not merchandise.** The Hirogen section said a prize is created when
+  an operation "destroys or disables" a hull, which would have let them sell ships they had blown
+  apart. Only a hull disabled and then taken, or captured intact, becomes a prize — and the engine
+  already draws that line at `hull <= disableThreshold(max)`, and already knows a prize stabilised from
+  one scuttled.
+- **A pirate shelf should hold what pirates took.** It was a weekly roll dressed as loot. It is now
+  prize records held by `pirate` first, then hulls the captain themselves lost to them if `takenFrom`
+  is built, then at most one generic hull and only when those are empty. Both market sections therefore
+  depend on `book.prizes[]`, and the decision list says so.
+
+**Nothing in the proposal is implemented.** With this, the overlay and intelligence work is the round
+as it stands; foreign markets and fleet trading are the next pieces of work, not part of this one.
 
 ## The blocker repair, and the second proposal draft
 
@@ -443,7 +505,7 @@ Measured and named rather than left for the next playtest.
 
 ## Still NOT DONE, and named
 
-- **Foreign hull stock** is withdrawn, not designed. The second-draft proposal is
+- **Foreign hull stock** is withdrawn, not designed. The third-draft proposal is
   `FOREIGN-STOCK-PROPOSAL-191545ZSEP26.md`, and it asks for three decisions rather than implying them;
   until they are taken, every world sells its own government's designs.
 - **A captured hull does not record who it was taken from.** The Pirates Haven section of that proposal
@@ -468,7 +530,7 @@ Measured and named rather than left for the next playtest.
 - 35 of 35 gates pass from a clean tree bound to this commit; `validation/RUN.json` records the tree
   before the first gate ran.
 - The playtest gate is 34 checks. All 34 reproduce on `ae4ae4d`, and each later base reproduces the
-  findings raised against it: 6 on `43938a7`, 4 on `2316331`, and **2 on `7dd9735`** — STALE-TRUTH and
+  findings raised against it: 8 on `43938a7`, 6 on `2316331`, and **2 on `7dd9735`** — STALE-TRUTH and
   LIVE-INVALIDATION, which run against that tree and fail on its numbers rather than on a missing
   function. Every failure message describes a wrong behaviour, and no check fails with a TypeError.
 - `validation/screens/` — the HUD at 1920, 1536, 1440 and 1280; the Power, EW, Fleet and Contracts
