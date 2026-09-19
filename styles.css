@@ -4633,6 +4633,18 @@ button:disabled {
   padding: 10px 0;
   border-bottom: 1px solid var(--lcars-line);
 }
+/* A trader's state, cargo, destination and money, kept together so the panel answers "what is this
+   ship doing and is it paying" without the captain reading four separate lines. */
+.fleet-trade {
+  margin: 6px 0 4px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--lcars-orange);
+  background: rgba(0, 0, 0, 0.25);
+}
+.fleet-trade p {
+  margin: 3px 0;
+  font-size: 13px;
+}
 .fleet-manager select {
   margin: 5px;
   padding: 6px 10px;

@@ -603,6 +603,7 @@ const state = {
   visitedSystems: [],
   visitedDays: {}, // systemIndex -> the day the captain was last there; absent means date unknown
   conditionLog: {}, // systemIndex -> the trade/security reading taken there, as it was read
+  marketLog: {}, // systemIndex -> the market board as it was last read there, with its date
   conditionsRev: 0,
   factionSystemOverrides: {},
   factionStanding: {},
@@ -10770,6 +10771,12 @@ function markSystemVisited(systemIndex = state.currentPlanet) {
   // unknown" rather than as today. [playtest]
   if (!state.visitedDays || typeof state.visitedDays !== 'object') state.visitedDays = {};
   state.visitedDays[index] = Number(state.day) || 1;
+  // Standing in a system is a local observation of who is there, and a local observation writes a
+  // record. Without this the record only existed for a captain who opened the star chart, so what their
+  // traders were allowed to know depended on a UI habit rather than on where they had been. Prices are
+  // not recorded here: the game already requires closing on the world to read its board, and arriving
+  // in the system is not that. [playtest]
+  systemConditions(index);
 }
 // The day the captain was last at a system. The conditions record carries its own date, so this is
 // what the rest of the game asks when it wants to know how long ago somebody was somewhere.
@@ -13287,6 +13294,7 @@ function saveGame(slot = state.currentSaveSlot || 1) {
     visitedSystems: state.visitedSystems,
     visitedDays: state.visitedDays || {},
     conditionLog: state.conditionLog || {},
+    marketLog: state.marketLog || {},
     factionSystemOverrides: state.factionSystemOverrides,
     destroyedStations: state.destroyedStations,
     depletedAsteroids: state.depletedAsteroids,
@@ -13441,6 +13449,17 @@ function loadGame(slot = state.currentSaveSlot || 1) {
     if (Number.isFinite(i) && v && typeof v === 'object' && Number(v.day) > 0) state.conditionLog[i] = v;
   }
   state.conditionsRev = (Number(state.conditionsRev) || 0) + 1;
+  // Remembered prices, with the day they were read. A save written before these existed loads with
+  // none, so a reloaded trader re-learns the board where it is standing and plans from nothing else.
+  state.marketLog = {};
+  for (const [k, v] of Object.entries(s.marketLog || {})) {
+    const i = Number(k);
+    if (!Number.isFinite(i) || !v || typeof v !== 'object' || !(Number(v.day) > 0)) continue;
+    const offers = (Array.isArray(v.offers) ? v.offers : [])
+      .filter((o) => o && typeof o.goods === 'string' && Number(o.price) > 0)
+      .map((o) => ({ goods: String(o.goods), price: Math.max(1, Math.round(Number(o.price))) }));
+    if (offers.length) state.marketLog[i] = { day: Number(v.day), offers };
+  }
   state.visitedSystems = Array.isArray(s.visitedSystems)
     ? s.visitedSystems.map((index) => Number(index)).filter(Number.isFinite)
     : [state.currentPlanet];
@@ -13727,6 +13746,38 @@ function getPlanetMarket(planetIndex = state.currentPlanet) {
   return offers;
 }
 
+// ---------- what the captain knows about prices ----------
+// getPlanetMarket() creates a world's board the first time anything asks for it, and
+// updatePlanetMarketVariance() then drifts every board that exists. So a route planner that called it
+// would both invent knowledge the captain does not have and start moving prices on worlds nobody has
+// ever visited. Planning reads this record instead; only standing in a system reads the board. [playtest]
+function marketLog() {
+  if (!state.marketLog || typeof state.marketLog !== 'object') state.marketLog = {};
+  return state.marketLog;
+}
+function recordMarketObservation(index = state.currentPlanet) {
+  const i = Number(index);
+  if (!Number.isFinite(i) || !state.planets[i]) return null;
+  const log = marketLog();
+  const day = Number(state.day) || 1;
+  if (log[i] && log[i].day === day) return log[i];
+  log[i] = {
+    day,
+    offers: getPlanetMarket(i).map((o) => ({ goods: String(o.goods), price: Math.max(1, Math.round(Number(o.price) || 1)) })),
+  };
+  return log[i];
+}
+function knownMarket(index) {
+  const record = marketLog()[Number(index)];
+  return record && Array.isArray(record.offers) && record.offers.length ? record : null;
+}
+function knownMarketPrice(index, goods) {
+  const record = knownMarket(index);
+  if (!record) return null;
+  const offer = record.offers.find((o) => o.goods === goods);
+  return offer ? offer.price : null;
+}
+
 // Commodity trade is with the world itself, or with a site that does commerce of some kind. The target
 // is the site that does none at all — a relay, a subspace communicator, a defence platform — which was
 // exposing the world's market simply because it could be hailed. A starbase, shipyard, trade station or
@@ -13748,7 +13799,10 @@ function commodityTradeBlock() {
     : 'No commodity market in range. Close on the world, or dock at a site that trades.';
 }
 function currentMarketOffers() {
-  return commodityTradeBlock() ? [] : getPlanetMarket(state.currentPlanet);
+  if (commodityTradeBlock()) return [];
+  // Reading the board is how a price becomes known. Nothing else writes the captain's price record.
+  recordMarketObservation(state.currentPlanet);
+  return getPlanetMarket(state.currentPlanet);
 }
 
 function getLooseCargoPods() {
@@ -22579,6 +22633,12 @@ function resetRunState() {
   state.visitedSystems = [];
   state.visitedDays = {};
   state.conditionLog = {};
+  state.marketLog = {};
+  // The boards themselves, not only the captain's memory of them. A new campaign was inheriting the
+  // previous one's prices, because the market cache was saved and loaded but never cleared on a new
+  // game — so a world the new captain has never seen already had a price history drifting behind it.
+  // Found by the gate that checks a trader plans only on what has been read. [playtest]
+  state.planetMarkets = {};
   state.factionSystemOverrides = {};
   state.destroyedStations = {};
   state.depletedAsteroids = {};
@@ -23218,6 +23278,7 @@ function advanceFleetCalendar(days, id) {
       advanceFactionReconstruction(day);
       collectGalaxyReports(day);
       completeFleetJourneys();
+      advanceFleetTrading(day);
       const completed = completeDueStationConstructions({ silent: true, deferScene: state.warp.active });
       if (state.warp.active) state.warp.completedStations = (state.warp.completedStations || 0) + completed;
       Fleet.progressBuilds(fleetBook(), fleetBuildStationStatus, deliverFleetBuild);
@@ -25253,7 +25314,18 @@ function renderFleetManager(open = false) {
             `<label>Slot ${i + 1}<select data-fleet-slot="${i}" data-fleet-id="${escapeHtml(f.id)}">${options([[0, 'Empty'], ...WEAPON_CATALOG.filter((w) => w.minMass <= getShipStats(f.shipId).mass).map((w) => [w.id, w.name])], w || 0)}</select></label>`,
         )
         .join('');
-      return `<details><summary>${escapeHtml(f.name)} · ${v ? Math.round((v.hull / v.maxHull) * 100) + '% hull' : 'Ready'} · ${escapeHtml(v?.condition || 'operational')} · ${upkeepPerDay(f.shipId)} L/day · ${escapeHtml(state.planets[f.assignment === 'escort' ? state.currentPlanet : f.systemIndex]?.name || 'Transit')}</summary>
+      const trade = fleetTradeState(f);
+      const tradeLine = trade ? ` · ${escapeHtml(fleetTradeStatusLine(f))}` : '';
+      const tradeBlock = `<div class="fleet-trade"><label>Risk<select data-fleet-trade-risk="${escapeHtml(f.id)}">${options(
+        TRADE_RISK_LEVELS.map((r) => [r, TRADE_RISK_LABELS[r]]),
+        trade?.risk || 'cautious',
+      )}</select></label>${trade?.active ? btn('trade-stop', 'Stop trading', f.id) : btn('trade-start', 'Start trading', f.id)}
+      <p>${escapeHtml(fleetTradeStatusLine(f) || 'Not trading')}</p>
+      <p>Hold ${trade?.tons || 0}/${fleetTradeCapacity(f)} t${trade?.goods ? ` · ${escapeHtml(trade.goods)} · paid ${trade.paid} L` : ''}${
+        trade?.destination != null ? ` · ${escapeHtml(state.planets[trade.destination]?.name || '?')} · ETA day ${trade.etaDay}` : ''
+      }</p>
+      <p>${trade?.expectedProfit != null ? `This trip ${trade.expectedProfit} L expected` : `Last trip ${trade?.tripProfit ?? 0} L`} · Total ${trade?.cumulative ?? 0} L</p></div>`;
+      return `<details><summary>${escapeHtml(f.name)} · ${v ? Math.round((v.hull / v.maxHull) * 100) + '% hull' : 'Ready'} · ${escapeHtml(v?.condition || 'operational')} · ${upkeepPerDay(f.shipId)} L/day · ${escapeHtml(state.planets[f.assignment === 'escort' ? state.currentPlanet : f.systemIndex]?.name || 'Transit')}${tradeLine}</summary>
     <label>Formation<select data-fleet-group="${escapeHtml(f.id)}">${options(
       b.formations.map((g) => [g.id, g.name]),
       group?.id,
@@ -25266,6 +25338,7 @@ function renderFleetManager(open = false) {
       ],
       f.intent || '',
     )}</select></label>
+    ${tradeBlock}
     ${n ? btn('transfer', 'Take command', f.id) + btn('repair', 'Repair hull', f.id) + btn('sell', 'Sell ship', f.id) + slots : 'Remote vessel'}
     ${
       n
@@ -25321,7 +25394,7 @@ function renderFleetManager(open = false) {
     <select data-fleet-destination="${escapeHtml(g.id)}">${options(
       state.planets.map((p, i) => [i, chartSystemLabel(i)]).filter(([i])=>isChartSystemVisible(i)),
       g.destination ?? state.currentPlanet,
-    )}</select>${btn('dispatch', 'Dispatch to system', g.id)}</div>`,
+    )}</select>${btn('dispatch', 'Dispatch to system', g.id)}${btn('trade-start-group', 'Trade with formation', g.id)}${btn('trade-stop-group', 'Stop formation trading', g.id)}</div>`,
     )
     .join('');
   const ships = hasServiceChannel() ? getShipyardStock() : [];
@@ -25373,6 +25446,17 @@ document.addEventListener('click', (event) => {
   if (action === 'transfer') transferFleetCommand(id);
   if (action === 'rescue') recoverDisabledPlayer();
   if (action === 'dispatch') dispatchFleetFormation(id);
+  if (action === 'trade-start') startFleetTrading(id, selectedFleetTradeRisk(id));
+  if (action === 'trade-stop') stopFleetTrading(id);
+  if (action === 'trade-start-group' || action === 'trade-stop-group') {
+    const g = b.formations.find((x) => x.id === id);
+    const members = g ? state.playerFleet.filter((f) => g.members.includes(f.id) && !f.destroyed) : [];
+    if (!members.length) setLog('That formation has no ships to trade with.');
+    for (const f of members)
+      if (action === 'trade-start-group')
+        startFleetTrading(f.id, selectedFleetTradeRisk(f.id));
+      else stopFleetTrading(f.id);
+  }
   if (action === 'equipment-transfer') {
     const selects = [...fleetManagerEl.querySelectorAll('select')],
       item = selects.find((e) => e.dataset.fleetItem === id)?.value,
@@ -25395,6 +25479,7 @@ document.addEventListener('change', (event) => {
     const f = state.playerFleet.find((f) => f.id === el.dataset.fleetIntent);
     if (f) f.intent = el.value;
   }
+  if (el.dataset.fleetTradeRisk) setFleetTradeRisk(el.dataset.fleetTradeRisk, el.value);
   if (el.dataset.fleetFlagship) {
     const g = b.formations.find((g) => g.id === el.dataset.fleetFlagship);
     if (g && g.members.includes(el.value)) g.flagship = el.value;
@@ -25703,6 +25788,381 @@ function completeFleetJourneys() {
       if (!state.warp.active && f.systemIndex === state.currentPlanet && !fleetLocalActor(f.id))
         state.npcShips.push(...getPlayerFleetNpcShips().filter((n) => n.fleetId === f.id));
     }
+}
+
+// ---------- autonomous fleet trading ----------
+// A trader buys where it stands, carries the cargo somewhere it remembers paying more, and sells at
+// whatever that world is actually paying when it gets there. Every number the captain's ships act on
+// is one the captain could have read; every number the galaxy answers with is the truth.
+const TRADE_RISK_LEVELS = Object.freeze(['safe', 'cautious', 'risky', 'any']);
+const TRADE_RISK_LABELS = Object.freeze({ safe: 'Safe', cautious: 'Cautious', risky: 'Risky', any: 'Any' });
+// The worst threat a setting will accept, and whether a world nobody has reported on is a candidate at
+// all. A report saying "quiet" and no report are different answers, and only the looser settings treat
+// them the same.
+const TRADE_RISK_RULES = Object.freeze({
+  safe: { maxBand: 0, acceptUnreported: false },
+  cautious: { maxBand: 1, acceptUnreported: false },
+  risky: { maxBand: 2, acceptUnreported: true },
+  any: { maxBand: 3, acceptUnreported: true },
+});
+// Odds of being jumped on a leg, read from what is TRUE at the destination, never from the record the
+// route was planned on. Somebody watching the place lowers it; nothing removes it but an empty lane.
+const TRADE_ENCOUNTER_BASE = Object.freeze([0, 0.08, 0.2, 0.38]);
+const TRADE_ENCOUNTER_RELIEF = Object.freeze([0, 0.03, 0.06, 0.1]);
+const TRADE_EXCEPTIONAL_FLOOR = 150;
+// A trader will not spend the captain's last latinum. Nobody asked for this, and without it a pair of
+// autonomous ships can empty the account between one repair and the next, which is not a trade-off the
+// captain ever chose. [playtest]
+const TRADE_PURSE_RESERVE = 500;
+
+function tradeSeed(key) {
+  return seeded(Math.abs(hashString(String(key))) % 1000003);
+}
+function normalizeTradeRisk(risk) {
+  const key = String(risk || '').toLowerCase();
+  return TRADE_RISK_LEVELS.includes(key) ? key : 'cautious';
+}
+function fleetShipSystem(f) {
+  return Number(f.assignment === 'escort' ? state.currentPlanet : f.systemIndex);
+}
+function fleetTradeState(f) {
+  return f && f.trade && typeof f.trade === 'object' ? f.trade : null;
+}
+function ensureFleetTradeState(f, risk) {
+  if (!f.trade || typeof f.trade !== 'object') f.trade = {};
+  const t = f.trade;
+  t.risk = normalizeTradeRisk(risk === undefined ? t.risk : risk);
+  t.stage = ['idle', 'outbound', 'holding'].includes(t.stage) ? t.stage : 'idle';
+  t.active = Boolean(t.active);
+  t.goods = typeof t.goods === 'string' ? t.goods : null;
+  t.tons = Math.max(0, Math.round(finiteNumber(t.tons, 0)));
+  t.paid = Math.max(0, Math.round(finiteNumber(t.paid, 0)));
+  t.origin = Number.isFinite(Number(t.origin)) ? Number(t.origin) : null;
+  t.destination = Number.isFinite(Number(t.destination)) ? Number(t.destination) : null;
+  t.etaDay = Number.isFinite(Number(t.etaDay)) ? Number(t.etaDay) : null;
+  t.expectedUnit = Number.isFinite(Number(t.expectedUnit)) ? Number(t.expectedUnit) : null;
+  t.unitPaid = Number.isFinite(Number(t.unitPaid)) ? Number(t.unitPaid) : null;
+  t.tripProfit = Math.round(finiteNumber(t.tripProfit, 0));
+  t.expectedProfit = Number.isFinite(Number(t.expectedProfit)) ? Math.round(Number(t.expectedProfit)) : null;
+  t.cumulative = Math.round(finiteNumber(t.cumulative, 0));
+  t.note = typeof t.note === 'string' ? t.note : '';
+  return t;
+}
+function fleetTradeCapacity(f) {
+  return Math.max(0, Math.floor(finiteNumber(getShipStats(f.shipId).cargoCapacity, 0)));
+}
+function fleetVesselCondition(f) {
+  const actor = fleetLocalActor(f.id);
+  return actor?.condition || f.vessel?.condition || 'operational';
+}
+// A fleet ship bought rather than captured carries no snapshot until something happens to it. Damage
+// has to land somewhere that survives the actor being despawned, so the snapshot is created here at
+// full health rather than invented at the moment of the hit.
+function ensureFleetVesselSnapshot(f) {
+  if (f.vessel && Number.isFinite(Number(f.vessel.maxHull)) && Number(f.vessel.maxHull) > 0) return f.vessel;
+  const d = getNpcCombatDurability(f.shipId);
+  f.vessel = {
+    version: 1,
+    maxHull: d.hull,
+    hull: d.hull,
+    maxShields: d.shields,
+    shields: d.shields,
+    condition: 'operational',
+    shotCooldownMs: 0,
+    readyMs: 0,
+    recoveryMs: 0,
+  };
+  return f.vessel;
+}
+// What the captain's own records say a destination is worth worrying about. The observation record
+// deliberately does not carry a week's fighting forward, so where there is no live threat reading this
+// falls back to who was watching the place when somebody last looked — which is exactly the inference
+// that goes stale.
+function plannedRiskBand(index) {
+  const i = Number(index);
+  const conditions = systemConditions(i);
+  if (conditions && conditions.threat)
+    return { band: Number(conditions.threat.band), asOfDay: conditions.asOfDay, live: true };
+  const seen = conditionLog()[i] || null;
+  if (!seen) return null;
+  const protection = seen.protection ? Number(seen.protection.band) : 0;
+  const traffic = seen.traffic ? Number(seen.traffic.band) : 0;
+  // The same inference the live model makes: a lane worth robbing that nobody is watching. Read off a
+  // dated record it is a guess about who is there now, which is the point.
+  const band = protection >= 2 ? 0 : protection === 0 && traffic >= 2 ? 2 : protection === 0 || traffic >= 2 ? 1 : 0;
+  return { band, asOfDay: Number(seen.day) || null, live: false };
+}
+function fleetTradeCandidates(f, t) {
+  const from = fleetShipSystem(f);
+  const rule = TRADE_RISK_RULES[t.risk] || TRADE_RISK_RULES.cautious;
+  const out = [];
+  for (let i = 0; i < state.planets.length; i++) {
+    if (i === from) continue;
+    if (!knownMarket(i)) continue;
+    if (!getPlottedRoute(from, i)) continue;
+    // Who the captain thinks holds the place, not who holds it. A world that changed hands after the
+    // last look is still a candidate; the ship finds out when it gets there and is turned away, which
+    // is a report the captain reads rather than a route that quietly never existed.
+    const recordedController = conditionLog()[i]?.controller;
+    if (recordedController !== undefined && recordedController !== null && serviceRefusal(recordedController)) continue;
+    const risk = plannedRiskBand(i);
+    if (!risk) {
+      if (!rule.acceptUnreported) continue;
+    } else if (risk.band > rule.maxBand) continue;
+    out.push(i);
+  }
+  return out;
+}
+function planFleetTradeRun(f, t) {
+  const from = fleetShipSystem(f);
+  const here = recordMarketObservation(from);
+  if (!here) return { ok: false, note: 'No market here.' };
+  const refusal = serviceRefusal(getSystemFaction(from));
+  if (refusal) return { ok: false, note: refusal };
+  const capacity = fleetTradeCapacity(f);
+  if (capacity < 1) return { ok: false, note: `${f.name} has no cargo hold.` };
+  const purse = Math.max(0, Math.floor(finiteNumber(state.latinum, 0)) - TRADE_PURSE_RESERVE);
+  if (purse < 1) return { ok: false, note: `No latinum to spare for cargo; ${TRADE_PURSE_RESERVE} L is held back.` };
+  const upkeep = upkeepPerDay(f.shipId);
+  let best = null;
+  for (const to of fleetTradeCandidates(f, t)) {
+    const route = getPlottedRoute(from, to);
+    const days = Math.max(1, Fleet.travelDays(finiteNumber(route.distance, 0)));
+    for (const offer of here.offers) {
+      const sell = knownMarketPrice(to, offer.goods);
+      if (!sell || sell <= offer.price) continue;
+      const tons = Math.min(capacity, Math.floor(purse / offer.price));
+      if (tons < 1) continue;
+      const net = (sell - offer.price) * tons - upkeep * days;
+      if (net <= 0) continue;
+      const score = net / days;
+      if (!best || score > best.score) best = { to, goods: offer.goods, tons, unit: offer.price, sell, days, net, score };
+    }
+  }
+  if (!best) return { ok: false, note: 'No profitable run from here on current information.' };
+  return { ok: true, plan: best };
+}
+function beginFleetTradeLeg(f, t, plan, day = state.day) {
+  const from = fleetShipSystem(f);
+  const cost = plan.unit * plan.tons;
+  if (cost > Math.floor(finiteNumber(state.latinum, 0))) return false;
+  // One debit, here, for cargo that lives on this ship's record and nowhere else. It never enters the
+  // captain's own hold, so it cannot be sold a second time from the market screen.
+  state.latinum -= cost;
+  state.mylatinum = state.latinum;
+  t.goods = plan.goods;
+  t.tons = plan.tons;
+  t.paid = cost;
+  t.unitPaid = plan.unit;
+  t.expectedUnit = plan.sell;
+  t.origin = from;
+  t.destination = plan.to;
+  // The last completed trip's realised profit stays on screen until this one produces its own. Zeroing
+  // it here put a 0 in the panel the instant a run paid out, which read as "that trip made nothing".
+  t.expectedProfit = Math.round(finiteNumber(plan.net, 0));
+  t.stage = 'outbound';
+  t.note = '';
+  f.assignment = 'transit';
+  f.transit = { from, to: plan.to, arrivalDay: Number(day) + plan.days };
+  t.etaDay = f.transit.arrivalDay;
+  state.npcShips = state.npcShips.filter((n) => n.fleetId !== f.id);
+  return true;
+}
+// The leg is rolled against the destination as it is, not as the record said. A route planned from a
+// month-old reading of a heavily patrolled world is rolled against whoever is there now.
+function resolveFleetTradeLegRisk(f, t, at) {
+  const threat = trueThreat(at);
+  const protection = trueProtection(at);
+  const chance = Math.max(
+    0,
+    (TRADE_ENCOUNTER_BASE[threat.band] || 0) - (TRADE_ENCOUNTER_RELIEF[protection.band] || 0),
+  );
+  if (chance <= 0) return null;
+  if (tradeSeed(`trade-encounter:${f.id}:${t.origin}:${at}:${t.etaDay}`) >= chance) return null;
+  const severity = tradeSeed(`trade-harm:${f.id}:${at}:${t.etaDay}`);
+  const v = ensureFleetVesselSnapshot(f);
+  v.shields = 0;
+  // How hard the hit lands follows how bad the place is. A quiet lane's opportunist scratches the
+  // paint; a system with a battle in it can leave a freighter adrift in one pass, and can finish one
+  // that was already hurt. A single fixed damage band made heavy space survivable and light space
+  // pointless. [playtest]
+  const bite = [0, 0.25, 0.45, 0.85][threat.band] || 0.25;
+  const wasDisabled = v.condition === 'disabled';
+  let hull = Math.max(0, v.hull - Math.max(1, Math.round(v.maxHull * bite * (0.35 + severity * 0.65))));
+  // A freighter that takes a catastrophic hit is left adrift, not vaporised. The first such hit
+  // disables her; only a hit on a ship already disabled finishes her. Without this the disabled band is
+  // a tenth of the hull and a single heavy bite steps straight over it, so a state the rest of the game
+  // is built around — boarding, recovery, repair — never occurred out here at all. [playtest]
+  if (!wasDisabled && hull <= 0) hull = Math.max(1, Math.round(Fleet.disableThreshold(v.maxHull) * 0.5));
+  v.hull = hull;
+  v.condition = Fleet.classifyDamage(v.hull, v.maxHull);
+  const actor = fleetLocalActor(f.id);
+  if (actor) {
+    actor.combatHull = v.hull;
+    actor.combatShields = 0;
+    actor.condition = v.condition;
+    actor.destroyed = v.condition === 'destroyed';
+  }
+  const where = state.planets[at]?.name || 'open space';
+  if (v.condition === 'destroyed') {
+    f.destroyed = true;
+    f.vessel = v;
+    Fleet.removeVessel(fleetBook(), f.id);
+    state.npcShips = state.npcShips.filter((n) => n.fleetId !== f.id);
+    t.active = false;
+    t.stage = 'holding';
+    t.note = `Lost at ${where}.`;
+    setLog(`${f.name} was destroyed running cargo into ${where}. ${t.tons} tons and ${t.paid} latinum lost with her.`);
+    return 'destroyed';
+  }
+  if (v.condition === 'disabled') {
+    t.active = false;
+    t.stage = 'holding';
+    t.note = `Disabled at ${where}; repair before trading again.`;
+    setLog(`${f.name} was attacked at ${where} and is disabled, holding with ${t.tons} tons aboard.`);
+    return 'disabled';
+  }
+  setLog(`${f.name} was attacked at ${where}; hull ${Math.round((v.hull / v.maxHull) * 100)}%, cargo intact.`);
+  return 'damaged';
+}
+function completeFleetTradeSale(f, t) {
+  const at = fleetShipSystem(f);
+  recordMarketObservation(at);
+  const where = state.planets[at]?.name || 'this system';
+  const refusal = serviceRefusal(getSystemFaction(at));
+  if (refusal) {
+    t.active = false;
+    t.stage = 'holding';
+    t.note = refusal;
+    setLog(`${f.name} cannot sell at ${where}: ${refusal}`);
+    return false;
+  }
+  const offer = getPlanetMarket(at).find((o) => o.goods === t.goods);
+  if (!offer) {
+    t.active = false;
+    t.stage = 'holding';
+    t.note = `${where} is not buying ${t.goods}.`;
+    setLog(`${f.name} arrived at ${where} with ${t.tons} tons of ${t.goods} and found no buyer.`);
+    return false;
+  }
+  const revenue = offer.price * t.tons;
+  state.latinum += revenue;
+  state.mylatinum = state.latinum;
+  const profit = revenue - t.paid;
+  const expected = Math.max(0, (finiteNumber(t.expectedUnit, 0) - finiteNumber(t.unitPaid, 0)) * t.tons);
+  t.tripProfit = profit;
+  t.expectedProfit = null;
+  t.cumulative += profit;
+  // Reported only when it is news: a loss, or a run that beat what the records promised. An ordinary
+  // profitable trip is in the panel and nowhere else.
+  if (profit < 0)
+    setLog(`${f.name} sold ${t.tons} tons of ${t.goods} at ${where} for ${revenue} L — a loss of ${Math.abs(profit)}. ${t.goods} was ${t.expectedUnit} L there on day ${knownMarket(t.destination)?.day ?? '?'}, and is ${offer.price} now.`);
+  else if (profit >= Math.max(TRADE_EXCEPTIONAL_FLOOR, expected * 2))
+    setLog(`${f.name} cleared ${profit} latinum on ${t.goods} at ${where}.`);
+  t.goods = null;
+  t.tons = 0;
+  t.paid = 0;
+  t.unitPaid = null;
+  t.expectedUnit = null;
+  t.destination = null;
+  t.etaDay = null;
+  t.stage = t.active ? 'idle' : 'holding';
+  t.note = t.active ? '' : 'Stopped; holding position.';
+  return true;
+}
+function advanceFleetTrading(day = state.day) {
+  for (const f of state.playerFleet) {
+    const t = fleetTradeState(f);
+    if (!t) continue;
+    if (f.destroyed) { t.active = false; continue; }
+    ensureFleetTradeState(f);
+    if (f.transit) continue; // still on the leg; the calendar moves it
+    if (t.stage === 'outbound') {
+      const outcome = resolveFleetTradeLegRisk(f, t, fleetShipSystem(f));
+      if (outcome === 'destroyed') continue;
+      completeFleetTradeSale(f, t);
+      if (!t.active || t.stage === 'holding') continue;
+    }
+    if (!t.active) { if (t.stage !== 'holding') { t.stage = 'holding'; t.note = t.note || 'Stopped; holding position.'; } continue; }
+    const condition = fleetVesselCondition(f);
+    if (condition !== 'operational') {
+      t.stage = 'holding';
+      t.note = `${condition === 'disabled' ? 'Disabled' : 'Lost'}; repair before trading again.`;
+      t.active = false;
+      continue;
+    }
+    const run = planFleetTradeRun(f, t);
+    if (!run.ok) {
+      // Inability to continue is news the first time it happens, not once a day forever.
+      if (t.stage !== 'idle' || t.note !== run.note) setLog(`${f.name}: ${run.note}`);
+      t.stage = 'idle';
+      t.note = run.note;
+      continue;
+    }
+    beginFleetTradeLeg(f, t, run.plan, day);
+  }
+}
+// Fleet ids carry colons, so the risk control is found by reading the selects rather than by building
+// an attribute selector out of one.
+function selectedFleetTradeRisk(id) {
+  if (!fleetManagerEl) return undefined;
+  for (const el of fleetManagerEl.querySelectorAll('select[data-fleet-trade-risk]'))
+    if (el.dataset.fleetTradeRisk === id) return el.value;
+  return undefined;
+}
+function fleetTradeStatusLine(f) {
+  const t = fleetTradeState(f);
+  if (!t) return '';
+  if (f.transit && t.stage === 'outbound')
+    return `Trading (${TRADE_RISK_LABELS[t.risk]}) · ${t.tons} t ${t.goods} → ${state.planets[t.destination]?.name || '?'} · ETA day ${t.etaDay}`;
+  if (t.active) return `Trading (${TRADE_RISK_LABELS[t.risk]}) · ${t.note || 'seeking a run'}`;
+  return `Not trading${t.note ? ` · ${t.note}` : ''}`;
+}
+function startFleetTrading(id, risk) {
+  const f = state.playerFleet.find((x) => x.id === id && !x.destroyed);
+  if (!f) return false;
+  const condition = fleetVesselCondition(f);
+  if (condition !== 'operational') {
+    setLog(`${f.name} is ${condition}; repair her before sending her out to trade.`);
+    return false;
+  }
+  if (fleetTradeCapacity(f) < 1) {
+    setLog(`${f.name} has no cargo hold.`);
+    return false;
+  }
+  const t = ensureFleetTradeState(f, risk);
+  // A travelling escort has to stop being one: it cannot both hold station on the captain and run a
+  // route. It is released here, at the system it is standing in.
+  if (f.assignment === 'escort') {
+    f.systemIndex = state.currentPlanet;
+    f.assignment = 'defense';
+  }
+  t.active = true;
+  if (t.stage === 'holding') t.stage = 'idle';
+  t.note = '';
+  setLog(`${f.name} begins trading at ${TRADE_RISK_LABELS[t.risk]} risk.`);
+  return true;
+}
+function stopFleetTrading(id) {
+  const f = state.playerFleet.find((x) => x.id === id);
+  const t = f && fleetTradeState(f);
+  if (!t) return false;
+  t.active = false;
+  // Stopping does not abandon a leg already paid for. The ship finishes it, sells, and holds.
+  if (t.stage !== 'outbound') {
+    t.stage = 'holding';
+    t.note = 'Stopped; holding position.';
+    setLog(`${f.name} stops trading and holds position.`);
+  } else setLog(`${f.name} will finish the run to ${state.planets[t.destination]?.name || 'her destination'} and hold there.`);
+  return true;
+}
+function setFleetTradeRisk(id, risk) {
+  const f = state.playerFleet.find((x) => x.id === id);
+  if (!f) return false;
+  const t = ensureFleetTradeState(f, risk);
+  // A change of risk applies to the next run, not to a leg already under way.
+  if (t.stage === 'idle') t.note = '';
+  return Boolean(t);
 }
 function fleetFormationPoint(npc, now) {
   const g = fleetBook().formations.find((g) => g.members.includes(npc.fleetId));

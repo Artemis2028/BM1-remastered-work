@@ -18,6 +18,48 @@ const { startProbe } = require('./probe-harness.cjs');
     catch (err) { failures.push({ name, message: String(err?.message || err) }); console.log('FAIL', name, '\n      ', String(err?.message || err).split('\n')[0]); }
   }
 
+
+  // Fleet trading: a trader, a purse, and a set of worlds whose boards and conditions the captain has
+  // actually read. Everything the planner is allowed to use is put here deliberately; nothing else is.
+  await page.evaluate(() => {
+    window.__tradeSetup = (opts) => {
+      const t = testBM1, s = t.state;
+      const o = opts || {};
+      s.latinum = o.latinum ?? 100000; s.mylatinum = s.latinum; s.day = o.day ?? 10;
+      s.playerFleet.length = 0;
+      const home = s.currentPlanet;
+      const learn = o.learn ?? Math.min(24, s.planets.length);
+      const learned = [];
+      for (let i = 0; i < learn; i++) {
+        s.currentPlanet = i;
+        t.markSystemVisited(i);
+        if (typeof t.recordMarketObservation === 'function') t.recordMarketObservation(i);
+        learned.push(i);
+      }
+      s.currentPlanet = home;
+      return { home, learned };
+    };
+    window.__tradeShip = (id, opts) => {
+      const t = testBM1, s = t.state;
+      const o = opts || {};
+      const ships = Object.values(s.shipStatsById).filter((x) => x && x.assetType === 'ship' && Number(x.cargoCapacity) > 0);
+      ships.sort((a, b) => Number(a.cargoCapacity) - Number(b.cargoCapacity));
+      const pick = o.big ? ships[ships.length - 1] : ships[Math.floor(ships.length / 2)];
+      const f = { id, shipId: Number(o.shipId ?? pick.id), name: o.name || id, faction: s.playerFaction,
+        assignment: 'defense', systemIndex: o.at ?? s.currentPlanet, seed: o.seed ?? 3 };
+      s.playerFleet.push(f);
+      t.autoAssignFleet(f);
+      return { id, shipId: f.shipId, capacity: Number(t.getShipStats(f.shipId).cargoCapacity) || 0 };
+    };
+    window.__tradeDays = (n) => {
+      const t = testBM1, s = t.state;
+      for (let i = 0; i < n; i++) {
+        s.day += 1;
+        t.completeFleetJourneys();
+        if (typeof t.advanceFleetTrading === 'function') t.advanceFleetTrading(s.day);
+      }
+    };
+  });
   await page.evaluate(() => {
     window.__panelHtml = (tab) => { testBM1.openCampaignPanel(tab); const html = document.getElementById('campaign-panel').innerHTML; testBM1.closeCampaignPanel(); return html; };
     // The gate works out for itself which worlds belong to the hidden region, from the authored name
@@ -2206,6 +2248,280 @@ const { startProbe } = require('./probe-harness.cjs');
       `after the ship moved, the second system reads "${r.atSecond[1]}" — the cache did not notice`);
     assert.notEqual(r.atSecond[0], 'fleet',
       `after the ship left, the first system still reads "${r.atSecond[0]}"`);
+  });
+
+
+  // TRADE-1 — a fleet ship set to trade did nothing: fleet ships had no autonomous trading at all, so
+  // an order to trade left the ship parked and the captain's account untouched.
+  await check('TRADE a fleet ship ordered to trade buys, carries and sells on its own', async () => {
+    await fresh('play-trade-run');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({});
+      const ship = window.__tradeShip('gate-trade-1', { big: true });
+      if (typeof t.startFleetTrading !== 'function') return { ordered: false, reason: 'no trade order exists on a fleet ship' };
+      const before = s.latinum;
+      t.startFleetTrading('gate-trade-1', 'any');
+      window.__tradeDays(60);
+      const f = s.playerFleet.find((x) => x.id === 'gate-trade-1');
+      const trade = f && f.trade;
+      return {
+        ordered: true, capacity: ship.capacity, before, after: s.latinum,
+        cumulative: trade ? trade.cumulative : 0,
+        moved: f ? Number(f.systemIndex) !== Number(s.currentPlanet) || Boolean(f.transit) : false,
+        captainHold: (s.cargoArray || []).reduce((n, pod) => n + Number(pod.tons || 0), 0),
+        reason: '',
+      };
+    });
+    assert.ok(r.ordered, `a fleet ship was ordered to trade and nothing took the order: ${r.reason}`);
+    assert.ok(r.moved, 'the trader was ordered out and never left the system it was parked in');
+    assert.ok(r.cumulative > 0,
+      `the trader ran for 60 days and has ${r.cumulative} latinum of realised profit to show for it`);
+    assert.ok(r.after > r.before,
+      `the captain had ${r.before} latinum before the run and ${r.after} after`);
+    assert.equal(r.captainHold, 0,
+      `${r.captainHold} tons of the trader's cargo is sitting in the captain's own hold, where it can be sold a second time`);
+  });
+
+  // TRADE-2 — the hold was ignored: a ship's cargo capacity did not limit what it carried, so profit
+  // did not scale with the ship the captain sent.
+  await check('TRADE the hold a ship actually has limits what it carries and earns', async () => {
+    await fresh('play-trade-capacity');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({});
+      const small = window.__tradeShip('gate-cap-small', { big: false, seed: 4 });
+      const big = window.__tradeShip('gate-cap-big', { big: true, seed: 4 });
+      if (typeof t.planFleetTradeRun !== 'function') return { planned: false, reason: 'no trade planner exists' };
+      const fs = s.playerFleet.find((x) => x.id === 'gate-cap-small');
+      const fb = s.playerFleet.find((x) => x.id === 'gate-cap-big');
+      const ps = t.planFleetTradeRun(fs, t.ensureFleetTradeState(fs, 'any'));
+      const pb = t.planFleetTradeRun(fb, t.ensureFleetTradeState(fb, 'any'));
+      return { planned: true, small: { cap: small.capacity, plan: ps.ok ? ps.plan : null, note: ps.note },
+        big: { cap: big.capacity, plan: pb.ok ? pb.plan : null, note: pb.note }, reason: '' };
+    });
+    assert.ok(r.planned, `nothing plans a trade run: ${r.reason}`);
+    assert.ok(r.small.plan, `the smaller ship found no run at all: ${r.small.note}`);
+    assert.ok(r.big.plan, `the larger ship found no run at all: ${r.big.note}`);
+    assert.ok(r.big.cap > r.small.cap, `precondition: both test ships have the same hold (${r.small.cap})`);
+    assert.ok(r.small.plan.tons <= r.small.cap,
+      `a ${r.small.cap}-ton hold was loaded with ${r.small.plan.tons} tons`);
+    assert.ok(r.big.plan.tons > r.small.plan.tons,
+      `the ${r.big.cap}-ton ship loads ${r.big.plan.tons} tons and the ${r.small.cap}-ton ship loads ${r.small.plan.tons} — the hold is not being read`);
+    assert.ok(r.big.plan.net > r.small.plan.net,
+      `the bigger hold is expected to earn ${r.big.plan.net} against the smaller one's ${r.small.plan.net}`);
+  });
+
+  // TRADE-3 — the danger setting did nothing: every setting considered the same destinations, so
+  // "Safe" was a label rather than a constraint, and a world nobody had ever reported on counted as
+  // quiet.
+  await check('TRADE the danger setting decides where a trader is willing to go', async () => {
+    await fresh('play-trade-risk');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({});
+      window.__tradeShip('gate-risk-1', { big: true });
+      if (typeof t.fleetTradeCandidates !== 'function') return { gated: false, reason: 'a trader has no danger setting' };
+      const f = s.playerFleet.find((x) => x.id === 'gate-risk-1');
+      const counts = {};
+      const sets = {};
+      for (const level of ['safe', 'cautious', 'risky', 'any']) {
+        const list = t.fleetTradeCandidates(f, t.ensureFleetTradeState(f, level));
+        counts[level] = list.length; sets[level] = list;
+      }
+      // a world nobody has reported on
+      const unreported = sets.safe[0];
+      delete s.conditionLog[unreported];
+      s.conditionsRev = (Number(s.conditionsRev) || 0) + 1;
+      const after = {};
+      for (const level of ['safe', 'cautious', 'risky', 'any'])
+        after[level] = t.fleetTradeCandidates(f, t.ensureFleetTradeState(f, level)).includes(unreported);
+      return { gated: true, counts, unreported, after, safeSubsetOfAny: sets.safe.every((i) => sets.any.includes(i)), reason: '' };
+    });
+    assert.ok(r.gated, `the danger setting is not consulted: ${r.reason}`);
+    assert.ok(r.counts.any > r.counts.safe,
+      `Safe and Any consider the same ${r.counts.safe} destinations, so the setting changes nothing`);
+    assert.ok(r.counts.cautious >= r.counts.safe && r.counts.risky >= r.counts.cautious && r.counts.any >= r.counts.risky,
+      `the settings are not ordered: safe ${r.counts.safe}, cautious ${r.counts.cautious}, risky ${r.counts.risky}, any ${r.counts.any}`);
+    assert.ok(r.safeSubsetOfAny, 'a destination Safe accepts is refused by Any');
+    assert.equal(r.after.safe, false,
+      `system ${r.unreported} has no report at all and a Safe trader will still run to it`);
+    assert.equal(r.after.cautious, false,
+      `system ${r.unreported} has no report at all and a Cautious trader will still run to it`);
+    assert.equal(r.after.any, true,
+      `system ${r.unreported} is refused by Any, which accepts everything`);
+  });
+
+  // TRADE-4 — the planner read the world instead of the captain's records: it priced runs off markets
+  // the captain had never looked at, which both invents knowledge and starts prices drifting on worlds
+  // nobody has visited.
+  await check('TRADE a trader plans on prices the captain has read, and sells at the ones that are there', async () => {
+    await fresh('play-trade-stale');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      const setup = window.__tradeSetup({ learn: 12 });
+      window.__tradeShip('gate-stale-1', { big: true });
+      if (typeof t.planFleetTradeRun !== 'function') return { planned: false, reason: 'no trade planner exists' };
+      const f = s.playerFleet.find((x) => x.id === 'gate-stale-1');
+      const knownBefore = Object.keys(s.marketLog || {}).map(Number).sort((a, b) => a - b);
+      const plan = t.planFleetTradeRun(f, t.ensureFleetTradeState(f, 'any'));
+      const knownAfter = Object.keys(s.marketLog || {}).map(Number).sort((a, b) => a - b);
+      const boardsAfter = Object.keys(s.planetMarkets || {}).map(Number).sort((a, b) => a - b);
+      if (!plan.ok) return { planned: true, ran: false, note: plan.note, knownBefore, knownAfter, boardsAfter };
+      const dest = plan.plan.to, goods = plan.plan.goods;
+      const remembered = t.knownMarketPrice(dest, goods);
+      const before = s.latinum;
+      t.startFleetTrading('gate-stale-1', 'any');
+      window.__tradeDays(1); // buys and departs
+      const paid = f.trade.paid;
+      // the destination's board collapses while the run is committed
+      t.getPlanetMarket(dest);
+      for (const o of s.planetMarkets[dest]) if (o.goods === goods) o.price = 1;
+      // stop after this leg so the trip being measured is the one that was priced, not a later one
+      t.stopFleetTrading('gate-stale-1');
+      let guard = 0;
+      while (f.trade.stage !== 'holding' && guard++ < 100) window.__tradeDays(1);
+      return { planned: true, ran: true, dest, goods, remembered, paid, before, after: s.latinum,
+        trip: f.trade.tripProfit, stage: f.trade.stage, knownBefore, knownAfter, boardsAfter, learned: setup.learned.length };
+    });
+    assert.ok(r.planned, `nothing plans a trade run: ${r.reason}`);
+    assert.deepEqual(r.knownAfter, r.knownBefore,
+      `planning a run added ${r.knownAfter.length - r.knownBefore.length} worlds to what the captain knows about prices`);
+    assert.ok(r.boardsAfter.every((i) => r.knownBefore.includes(i)),
+      `planning a run opened the market on ${r.boardsAfter.filter((i) => !r.knownBefore.includes(i)).join(', ')}, which the captain has never read`);
+    assert.ok(r.ran, `no run was available to price: ${r.note}`);
+    assert.ok(r.remembered > 1,
+      `precondition: the remembered price at ${r.dest} was already ${r.remembered}`);
+    assert.ok(r.trip < 0,
+      `${r.goods} was remembered at ${r.remembered} and is selling at 1; the trip booked ${r.trip} latinum instead of a loss`);
+    assert.ok(r.after < r.before,
+      `the captain paid ${r.paid} for cargo that sold into a collapsed market and still finished up (${r.before} to ${r.after})`);
+  });
+
+  // TRADE-5 — the leg was rolled against the captain's own records, so a route that looked quiet on a
+  // dated reading could never turn out to be anything else.
+  await check('TRADE a route that looked quiet is flown against what is actually there', async () => {
+    await fresh('play-trade-danger');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({});
+      window.__tradeShip('gate-danger-1', { big: true });
+      if (typeof t.resolveFleetTradeLegRisk !== 'function') return { rolled: false, reason: 'a trade leg carries no risk at all' };
+      const f = s.playerFleet.find((x) => x.id === 'gate-danger-1');
+      t.ensureFleetTradeState(f, 'safe');
+      const plan = t.planFleetTradeRun(f, f.trade);
+      if (!plan.ok) return { rolled: true, sampled: false, note: plan.note };
+      const dest = plan.plan.to;
+      const recordedBefore = t.plannedRiskBand(dest);
+      t.transferSystemControlToFaction(dest, 'pirate');
+      const recordedAfter = t.plannedRiskBand(dest);
+      const truth = { threat: t.trueThreat(dest).band, protection: t.trueProtection(dest).band };
+      const stillChosen = t.fleetTradeCandidates(f, f.trade).includes(dest);
+      const outcomes = { none: 0, damaged: 0, disabled: 0, destroyed: 0 };
+      for (let k = 0; k < 120; k++) {
+        const probe = { id: `gate-danger-p${k}`, shipId: f.shipId, name: `Probe ${k}`, faction: s.playerFaction,
+          assignment: 'defense', systemIndex: dest, seed: k };
+        const pt = t.ensureFleetTradeState(probe, 'safe');
+        pt.origin = plan.plan.to === dest ? Number(s.currentPlanet) : 0;
+        pt.etaDay = 400 + k; pt.tons = 5; pt.paid = 25; pt.active = true; pt.stage = 'outbound';
+        s.playerFleet.push(probe);
+        outcomes[t.resolveFleetTradeLegRisk(probe, pt, dest) || 'none']++;
+        s.playerFleet = s.playerFleet.filter((x) => x.id !== probe.id);
+      }
+      return { rolled: true, sampled: true, dest, recordedBefore, recordedAfter, truth, stillChosen, outcomes };
+    });
+    assert.ok(r.rolled, `a trade leg carries no risk: ${r.reason}`);
+    assert.ok(r.sampled, `no Safe run was available to test: ${r.note}`);
+    assert.equal(r.recordedBefore.band, 0,
+      `precondition: the destination did not read as quiet (band ${r.recordedBefore.band})`);
+    assert.equal(r.recordedAfter.band, 0,
+      `the captain's dated record changed by itself when the world changed hands — it now reads band ${r.recordedAfter.band}`);
+    assert.ok(r.truth.threat > 0,
+      'precondition: handing the destination to pirates did not make it dangerous');
+    assert.equal(r.stillChosen, true,
+      'the trader stopped choosing a destination it has no way of knowing changed hands');
+    assert.ok(r.outcomes.damaged + r.outcomes.disabled + r.outcomes.destroyed > 0,
+      `120 legs were flown into a pirate-held system the records call quiet and not one ship was touched`);
+    assert.ok(r.outcomes.none > 0,
+      'every single leg into that system ended in an attack, which is not a risk, it is a wall');
+  });
+
+  // TRADE-6 — standing did not reach the trader: a ship would run cargo to a government that will not
+  // deal with the captain, and sell it there anyway.
+  await check('TRADE a government that refuses the captain refuses their freighters', async () => {
+    await fresh('play-trade-refusal');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({});
+      window.__tradeShip('gate-refuse-1', { big: true });
+      if (typeof t.fleetTradeCandidates !== 'function') return { checked: false, reason: 'a trader does not consult standing' };
+      const f = s.playerFleet.find((x) => x.id === 'gate-refuse-1');
+      t.ensureFleetTradeState(f, 'any');
+      const before = t.fleetTradeCandidates(f, f.trade);
+      const target = before.find((i) => {
+        const key = s.conditionLog[i]?.controller;
+        return key && key !== 'neutral' && key !== s.playerFaction;
+      }) ?? before.find((i) => t.getSystemFaction(i) && t.getSystemFaction(i) !== 'neutral');
+      if (target == null) return { checked: true, found: false };
+      const faction = s.conditionLog[target]?.controller || t.getSystemFaction(target);
+      t.adjustFactionStanding(faction, -100, { silent: true });
+      const after = t.fleetTradeCandidates(f, f.trade);
+      // and a trader already standing there is turned away rather than selling
+      f.systemIndex = target;
+      const trade = t.ensureFleetTradeState(f, 'any');
+      trade.goods = t.knownMarket(target).offers[0].goods; trade.tons = 5; trade.paid = 25;
+      trade.stage = 'outbound'; trade.active = true; trade.destination = target;
+      const purse = s.latinum;
+      const sold = t.completeFleetTradeSale(f, trade);
+      return { checked: true, found: true, target, faction, refusal: t.serviceRefusal(faction),
+        had: before.includes(target), still: after.includes(target), sold, purse, after: s.latinum, note: trade.note, active: trade.active };
+    });
+    assert.ok(r.checked, `standing never reaches a trader: ${r.reason}`);
+    assert.ok(r.found, 'precondition: no governed destination was available to refuse the captain');
+    assert.ok(r.refusal, `precondition: dropping ${r.faction} standing to the floor did not make them refuse the captain`);
+    assert.equal(r.had, true, `precondition: system ${r.target} was not a candidate to begin with`);
+    assert.equal(r.still, false,
+      `${r.faction} will not deal with the captain and their freighters are still being sent to system ${r.target}`);
+    assert.equal(r.sold, false,
+      `a trader sold cargo at a port that refuses the captain`);
+    assert.equal(r.after, r.purse,
+      `a refused sale still paid the captain ${r.after - r.purse} latinum`);
+    assert.equal(r.active, false, 'a trader turned away from its destination carried on trading');
+    assert.ok(/refuse/i.test(String(r.note)), `the trader does not say why it stopped: "${r.note}"`);
+  });
+
+  // TRADE-7 — trade orders and remembered prices did not survive a reload: a saved campaign came back
+  // with its traders parked and its price records blank.
+  await check('TRADE orders, cargo, profit and remembered prices survive a reload', async () => {
+    await fresh('play-trade-persist');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({});
+      window.__tradeShip('gate-persist-1', { big: true });
+      if (typeof t.startFleetTrading !== 'function') return { saved: false, reason: 'there is no trade order to save' };
+      t.startFleetTrading('gate-persist-1', 'risky');
+      window.__tradeDays(30);
+      const f = s.playerFleet.find((x) => x.id === 'gate-persist-1');
+      const before = { trade: JSON.parse(JSON.stringify(f.trade || null)), markets: Object.keys(s.marketLog || {}).length };
+      t.saveGame(9);
+      t.startWithFaction('terran');
+      const wiped = { fleet: s.playerFleet.length, markets: Object.keys(s.marketLog || {}).length };
+      t.loadGame(9);
+      const g = s.playerFleet.find((x) => x.id === 'gate-persist-1');
+      return { saved: true, before, wiped, after: { trade: g ? JSON.parse(JSON.stringify(g.trade || null)) : null, markets: Object.keys(s.marketLog || {}).length } };
+    });
+    assert.ok(r.saved, `${r.reason}`);
+    assert.ok(r.before.markets > 0, 'precondition: the captain had read no markets to remember');
+    assert.equal(r.wiped.markets, 0, 'precondition: starting a new campaign kept the old price records');
+    assert.ok(r.after.trade, 'the trader came back from the save with no trade order at all');
+    assert.equal(r.after.trade.risk, r.before.trade.risk,
+      `the danger setting came back as ${r.after.trade.risk} instead of ${r.before.trade.risk}`);
+    assert.equal(r.after.trade.cumulative, r.before.trade.cumulative,
+      `cumulative profit came back as ${r.after.trade.cumulative} instead of ${r.before.trade.cumulative}`);
+    assert.equal(r.after.trade.tons, r.before.trade.tons,
+      `the ${r.before.trade.tons} tons in the hold came back as ${r.after.trade.tons}`);
+    assert.equal(r.after.markets, r.before.markets,
+      `${r.before.markets} remembered markets came back as ${r.after.markets}`);
   });
 
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);
