@@ -105,7 +105,7 @@ those phrases was the same mistake as reading a grey market out of an emptied sh
 back. The table is empty and **the gate holds it empty**: every world sells its own government's
 designs and neutral ones, and no world anywhere sells a hull its government would not carry.
 
-`FOREIGN-STOCK-PROPOSAL-182129ZSEP26.md` proposes three worlds chosen for what they are in the campaign
+`FOREIGN-STOCK-PROPOSAL-191454ZSEP26.md` proposes three worlds chosen for what they are in the campaign
 rather than for their prose — the Suliban Helix as a fence limited to small hulls at a premium and a
 standing cost, Hirogen Range selling only designs the Hirogen have actually destroyed a hull of in this
 campaign, Pirates Haven selling stolen hulls at a discount in poor condition and visibly — with the
@@ -368,7 +368,7 @@ Measured and named rather than left for the next playtest.
 ## Still NOT DONE, and named
 
 - **Foreign hull stock** is withdrawn, not designed. The proposal is
-  `FOREIGN-STOCK-PROPOSAL-182129ZSEP26.md`; until it is decided, every world sells its own
+  `FOREIGN-STOCK-PROPOSAL-191454ZSEP26.md`; until it is decided, every world sells its own
   government's designs.
 - **The lead step of a recovery contract has nothing to mark**, because "any bar or trade station" is
   not a place. The row says so; a set of *candidate* stations is not built.
