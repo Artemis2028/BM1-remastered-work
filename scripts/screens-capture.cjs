@@ -110,18 +110,36 @@ const OUT = process.env.BM1_SCREENS_OUT || '/home/claude/bm1/patch2/validation/s
     note('the incoming hail would not clear from its own Acknowledge control');
   }
 
-  // A captain with some history behind them, so the conditions layer has something to show besides a
-  // galaxy of question marks: worlds seen at different times, and one of their own ships on station.
-  await ev(() => {
+  // A captain with some history behind them, so the conditions layer shows what it is for rather than a
+  // galaxy of question marks. These are real observations — stand in the system, take the reading — at
+  // different days, plus one of their own ships left on station.
+  const observedAt = await ev(() => {
     const t = testBM1, s = t.state;
+    const home = Number(s.currentPlanet);
     const charted = (s.planets || []).map((p, i) => i).filter((i) => t.isChartSystemVisible(i));
-    let day = 1;
-    for (const i of charted.slice(0, 22)) { s.day = day; t.markSystemVisited(i); day += 3; }
+    let day = 4;
+    const seen = [];
+    for (const i of charted.slice(0, 20)) {
+      if (i === home) continue;
+      s.day = day;
+      s.currentPlanet = i;
+      t.applySystemState(i);
+      t.markSystemVisited(i);
+      t.conditionsFor(i);
+      seen.push({ i, day });
+      day += 3;
+    }
     s.day = 70;
-    const watched = charted[9];
+    s.currentPlanet = home;
+    t.applySystemState(home);
+    // One ship left watching, so a live remote reading is on the chart beside the dated ones.
+    const watched = seen[12]?.i ?? seen[0].i;
     s.playerFleet.push({ id: 'shot-eyes', shipId: 1, faction: 'terran', assignment: 'patrol',
       systemIndex: watched, vessel: { hull: 100, condition: 'ready' } });
-    s.selectedPlanet = watched;
+    s.conditionsRev = (s.conditionsRev || 0) + 1;
+    // Select a world the captain saw a while ago, so the readout shows a dated reading.
+    s.selectedPlanet = seen[3]?.i ?? watched;
+    return { watched, selected: s.selectedPlanet, seen: seen.length };
   });
 
   // ---- contracts, opened by pressing CONTRACT ----
@@ -217,7 +235,7 @@ const OUT = process.env.BM1_SCREENS_OUT || '/home/claude/bm1/patch2/validation/s
   }
   await shot('map-with-pending-hail');
 
-  console.log(JSON.stringify(set));
+  console.log(JSON.stringify({ ...set, ...observedAt }));
   if (problems.length) {
     console.log(`\n${problems.length} problem(s) with these captures:`);
     for (const p of problems) console.log(`  - ${p}`);

@@ -21933,7 +21933,7 @@ function drawConditionsPanel() {
   const lines = conditionsReadout(state.selectedPlanet);
   if (!lines.length) return;
   const rect = getStarChartPanelRect();
-  const w = Math.min(430, Math.max(280, (rect.right - rect.left) * 0.46));
+  const w = Math.min(520, Math.max(300, (rect.right - rect.left) * 0.52));
   const rowH = 15;
   const h = lines.length * rowH + 26;
   const x = rect.right - rect.pad - w;
