@@ -1851,9 +1851,14 @@ const { startProbe } = require('./probe-harness.cjs');
       const falseCalm = unreported.filter((c) => c.threat || c.traffic || c.protection || c.disruption)
         .map((c) => `${s.planets[c.index].name}`);
 
-      // A system the captain flew through, long ago.
-      const seen = charted.find((i) => i !== Number(s.currentPlanet));
-      t.markSystemVisited(seen);
+      // A system the captain flew through, long ago — observed by standing in it, because marking a
+      // system visited is not the same as having looked at it.
+      const home = Number(s.currentPlanet);
+      const seen = charted.find((i) => i !== home);
+      s.day = 1;
+      s.currentPlanet = seen; t.applySystemState(seen); t.markSystemVisited(seen);
+      t.conditionsFor(seen);
+      s.currentPlanet = home; t.applySystemState(home);
       s.day = 80;
       const stale = t.conditionsFor(seen);
       const staleRead = t.conditionsReadout(seen);
@@ -1861,6 +1866,7 @@ const { startProbe } = require('./probe-harness.cjs');
       // The same system with one of their own ships standing in it.
       s.playerFleet.push({ id: 'gate-eyes', shipId: 1, faction: 'terran', assignment: 'patrol',
         systemIndex: seen, vessel: { hull: 100, condition: 'ready' } });
+      s.conditionsRev = (s.conditionsRev || 0) + 1;
       const live = t.conditionsFor(seen);
       const liveRead = t.conditionsReadout(seen);
 
@@ -1890,7 +1896,7 @@ const { startProbe } = require('./probe-harness.cjs');
 
     // A memory is not a reading.
     assert.equal(r.stale.source, 'rumour', `a system flown through long ago reports as "${r.stale.source}"`);
-    assert.ok(r.stale.age >= 70, `the stale reading is ${r.stale.age} days old; it should carry the age of the visit`);
+    assert.ok(r.stale.age >= 70, `the stale reading is ${r.stale.age} days old; it should carry the age of the observation`);
     assert.ok(r.stale.traffic && r.stale.trafficDated,
       'what the captain saw of a world\'s trade is not carried forward, or is not marked as dated');
     assert.equal(r.stale.threat, null,
@@ -2043,6 +2049,154 @@ const { startProbe } = require('./probe-harness.cjs');
     }
     await page.setViewportSize({ width: 1280, height: 800 });
     assert.deepEqual(trouble, [], trouble.join('; '));
+  });
+
+  // STALE-TRUTH — the first cut of the conditions layer stored only the *day* of a visit and then
+  // rendered today's truth beneath it, so a world whose stations were destroyed, whose government
+  // changed and whose market collapsed after the captain left showed the new reality stamped with the
+  // old date. That is not a stale reading; it is a leak wearing one's clothes.
+  await check('STALE-TRUTH a world changed behind the captain\'s back still shows what they saw', async () => {
+    await fresh('play-stale');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      // No precondition on the record existing: a tree without one still runs this and fails on what it
+      // shows, which is the point — the numbers are the evidence, not the absence of a function.
+      if (!t.conditionsFor) return { fail: 'this tree has no conditions layer at all' };
+      const home = Number(s.currentPlanet);
+      const A = (s.planets || []).map((p, i) => i).find((i) => i !== home && t.isChartSystemVisible(i));
+      if (A == null) return { fail: 'no second charted world to observe' };
+      // Observe it, standing in it.
+      s.day = 20;
+      s.currentPlanet = A; t.applySystemState(A); t.markSystemVisited(A);
+      const observed = t.conditionsFor(A);
+      const record = t.conditionLog ? JSON.parse(JSON.stringify(t.conditionLog()[A] || null)) : null;
+      // Leave, and let the world turn over without telling them.
+      s.currentPlanet = home; t.applySystemState(home);
+      s.day = 80;
+      for (const d of (s.stationDefinitions || []).filter((x) => Number(x.systemIndex) === A)) s.destroyedStations[d.id] = true;
+      s.planets[A].market = 1;
+      s.factionSystemOverrides = { ...(s.factionSystemOverrides || {}), [A]: 'klingon' };
+      t.campaignBook().operations.push({ id: 'stale-op', faction: 'klingon', kind: 'assault', targetSystem: A,
+        status: 'engaged', createdDay: s.day, arriveDay: s.day, hullIds: [], committed: 4 });
+      const shown = t.conditionsFor(A);
+      const truthNow = { traffic: t.trueTradeTraffic(A).band, disruption: t.trueDisruption(A).band, threat: t.trueThreat(A).band };
+      // And it survives being put down and picked up.
+      t.saveGame(7); t.loadGame(7);
+      const afterLoad = t.conditionsFor(A);
+      // Then somebody finally tells them.
+      s.currentPlanet = A; t.applySystemState(A); t.markSystemVisited(A);
+      const refreshed = t.conditionsFor(A);
+      return { fail: null, A, record,
+        observed: { traffic: observed.traffic?.band, disruption: observed.disruption?.band },
+        shown: { source: shown.source, age: shown.ageDays, asOf: shown.asOfDay,
+          traffic: shown.traffic?.band, trafficWhy: shown.traffic?.why,
+          disruption: shown.disruption?.band, threat: shown.threat?.band },
+        truthNow,
+        afterLoad: { traffic: afterLoad.traffic?.band, disruption: afterLoad.disruption?.band, asOf: afterLoad.asOfDay },
+        refreshed: { source: refreshed.source, traffic: refreshed.traffic?.band, disruption: refreshed.disruption?.band, age: refreshed.ageDays },
+        readout: t.conditionsReadout(A) };
+    });
+    assert.ok(!r.fail, `the stale-truth reproduction could not be set up: ${r.fail}`);
+    assert.equal(r.shown.source, 'rumour', `after leaving, the system reports as "${r.shown.source}"`);
+    assert.equal(r.shown.asOf, 20, `the reading is dated day ${r.shown.asOf} rather than the day it was taken`);
+    assert.equal(r.shown.age, 60, `the reading is ${r.shown.age} days old rather than 60`);
+
+    // The three that were changed behind their back.
+    assert.equal(r.shown.traffic, r.observed.traffic,
+      `trade reads ${r.shown.traffic} after the market collapsed and the flag changed; it should still read what was seen (${r.observed.traffic})`);
+    assert.notEqual(r.shown.traffic, r.truthNow.traffic,
+      `trade reads today's truth (${r.truthNow.traffic}) under a 60-day-old date`);
+    assert.equal(r.shown.disruption, r.observed.disruption,
+      `disruption reads ${r.shown.disruption} after every installation was destroyed; it should still read what was seen (${r.observed.disruption})`);
+    assert.notEqual(r.shown.disruption, r.truthNow.disruption,
+      `disruption reads today's truth (${r.truthNow.disruption}) under a 60-day-old date`);
+    assert.equal(r.shown.threat, undefined,
+      `a force engaged at the system after the captain left is on their chart anyway (threat ${r.shown.threat})`);
+    assert.ok(/as seen on day 20/.test(String(r.shown.trafficWhy)),
+      `the reading does not say when it was taken: "${r.shown.trafficWhy}"`);
+
+    assert.ok(r.record && r.record.day === 20,
+      `nothing was written down when the captain stood in the system, so there is nothing to show them later: ${JSON.stringify(r.record)}`);
+    assert.equal(r.afterLoad.asOf, 20, 'the record did not survive a save and a reload');
+    assert.equal(r.afterLoad.traffic, r.observed.traffic, 'the remembered trade reading changed across a reload');
+    assert.equal(r.afterLoad.disruption, r.observed.disruption, 'the remembered disruption reading changed across a reload');
+
+    // And going back replaces it.
+    assert.equal(r.refreshed.source, 'local', 'standing in the system again did not make it a live reading');
+    assert.equal(r.refreshed.age, 0, `going back left the reading ${r.refreshed.age} days old`);
+    assert.equal(r.refreshed.disruption, r.truthNow.disruption,
+      `going back still shows the old disruption reading (${r.refreshed.disruption}) rather than what is there (${r.truthNow.disruption})`);
+  });
+
+  // LIVE-INVALIDATION — the conditions cache was keyed on counts, so a station could be wrecked
+  // without changing how many were destroyed, an operation could go from moving to engaged without
+  // changing how many there were, and a ship could move without changing how many there were. The
+  // captain would be standing in the system watching it happen and the chart would not move.
+  await check('LIVE-INVALIDATION what the captain is watching changes on the chart at once', async () => {
+    await fresh('play-live');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (!t.conditionsFor) return { fail: 'this tree has no conditions layer at all' };
+      const here = Number(s.currentPlanet);
+      const book = t.campaignBook();
+      s.day = 30;
+      const day = s.day;
+      const base = t.conditionsFor(here);
+      // A station wrecked but not destroyed: the count of destroyed stations does not move.
+      const destroyedBefore = Object.keys(s.destroyedStations || {}).length;
+      const def = (s.stationDefinitions || []).find((d) => Number(d.systemIndex) === here);
+      book.stationDamage[def.id] = 0.5;
+      const damaged = t.conditionsFor(here);
+      const destroyedAfter = Object.keys(s.destroyedStations || {}).length;
+      // An operation arriving, then engaging: the count of operations does not move on the second.
+      book.operations.push({ id: 'live-op', faction: 'klingon', kind: 'assault', targetSystem: here,
+        status: 'moving', createdDay: day, arriveDay: day + 3, hullIds: [], committed: 3 });
+      const moving = t.conditionsFor(here);
+      const opCount = book.operations.length;
+      book.operations.find((o) => o.id === 'live-op').status = 'engaged';
+      const engaged = t.conditionsFor(here);
+      // A ship moving between systems: the size of the fleet does not move.
+      const others = (s.planets || []).map((p, i) => i).filter((i) => i !== here && t.isChartSystemVisible(i)).slice(0, 2);
+      for (const i of others) t.markSystemVisited(i);
+      s.playerFleet.push({ id: 'live-eyes', shipId: 1, faction: 'terran', assignment: 'patrol',
+        systemIndex: others[0], vessel: { hull: 100, condition: 'ready' } });
+      const atFirst = [t.conditionsFor(others[0]).source, t.conditionsFor(others[1]).source];
+      const fleetSize = s.playerFleet.length;
+      s.playerFleet.find((f) => f.id === 'live-eyes').systemIndex = others[1];
+      const atSecond = [t.conditionsFor(others[0]).source, t.conditionsFor(others[1]).source];
+      return { fail: null, day, dayStill: s.day,
+        destroyedUnchanged: destroyedBefore === destroyedAfter,
+        disruption: [base.disruption?.band, damaged.disruption?.band],
+        opCountUnchanged: opCount === book.operations.length,
+        threat: [base.threat?.band, moving.threat?.band, engaged.threat?.band],
+        movingWhy: moving.threat?.why, engagedWhy: engaged.threat?.why,
+        fleetSizeUnchanged: fleetSize === s.playerFleet.length,
+        atFirst, atSecond };
+    });
+    assert.ok(!r.fail, `the invalidation reproduction could not be set up: ${r.fail}`);
+    assert.equal(r.dayStill, r.day, 'precondition: the day did not advance during this check');
+
+    assert.equal(r.destroyedUnchanged, true, 'precondition: wrecking a station did not change how many are destroyed');
+    assert.ok(r.disruption[1] > r.disruption[0],
+      `a station was wrecked in front of the captain and disruption stayed at ${r.disruption[0]}`);
+
+    assert.ok(r.threat[1] > (r.threat[0] ?? 0) || /inbound/.test(String(r.movingWhy)),
+      `a force set out for this system and the threat reading stayed at ${r.threat[0]}`);
+    assert.equal(r.opCountUnchanged, true, 'precondition: engaging did not change how many operations there are');
+    assert.ok(r.threat[2] > r.threat[1],
+      `the force engaged in front of the captain and the threat reading stayed at ${r.threat[1]}`);
+    assert.ok(/engaged/.test(String(r.engagedWhy)),
+      `the reading does not say the force engaged: "${r.engagedWhy}"`);
+
+    assert.equal(r.fleetSizeUnchanged, true, 'precondition: moving a ship did not change the size of the fleet');
+    assert.equal(r.atFirst[0], 'fleet',
+      `with the ship at the first system it reads "${r.atFirst[0]}"`);
+    assert.notEqual(r.atFirst[1], 'fleet',
+      'the second system reads as having a ship on station before one arrived');
+    assert.equal(r.atSecond[1], 'fleet',
+      `after the ship moved, the second system reads "${r.atSecond[1]}" — the cache did not notice`);
+    assert.notEqual(r.atSecond[0], 'fleet',
+      `after the ship left, the first system still reads "${r.atSecond[0]}"`);
   });
 
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);

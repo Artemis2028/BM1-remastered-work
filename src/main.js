@@ -602,6 +602,8 @@ const state = {
   securityOutcomeNotice: null, // last player-visitor outcome, shown briefly in the order panel
   visitedSystems: [],
   visitedDays: {}, // systemIndex -> the day the captain was last there; absent means date unknown
+  conditionLog: {}, // systemIndex -> the trade/security reading taken there, as it was read
+  conditionsRev: 0,
   factionSystemOverrides: {},
   factionStanding: {},
   feats: {},
@@ -9463,6 +9465,9 @@ function recordLocalIntel() {
   const previous = ensurePlaytestState().news?.observations?.[state.currentPlanet];
   if (previous?.day === state.day && previous.kind === kind && previous.attacker === (attack?.faction || null)) return;
   galaxyNewsBook().observations[state.currentPlanet] = {day:state.day, kind, attacker:attack?.faction || null};
+  // And the trade/security reading, so the record exists whether or not the captain ever opens the
+  // chart while they are here. systemConditions writes it too; both go through the same recorder.
+  conditionsFor(state.currentPlanet);
 }
 function makeIntelReport(index, observation, id, day) {
   if (!observation || !state.planets[index]) return null;
@@ -10766,6 +10771,8 @@ function markSystemVisited(systemIndex = state.currentPlanet) {
   if (!state.visitedDays || typeof state.visitedDays !== 'object') state.visitedDays = {};
   state.visitedDays[index] = Number(state.day) || 1;
 }
+// The day the captain was last at a system. The conditions record carries its own date, so this is
+// what the rest of the game asks when it wants to know how long ago somebody was somewhere.
 function lastSeenDay(index) {
   const d = Number(state.visitedDays?.[Number(index)]);
   return Number.isFinite(d) && d > 0 ? d : null;
@@ -13279,6 +13286,7 @@ function saveGame(slot = state.currentSaveSlot || 1) {
     securityEncounters: (captureSecurityParticipants(state.securityLiveSystemIndex), ensureSecurityEncounters()),
     visitedSystems: state.visitedSystems,
     visitedDays: state.visitedDays || {},
+    conditionLog: state.conditionLog || {},
     factionSystemOverrides: state.factionSystemOverrides,
     destroyedStations: state.destroyedStations,
     depletedAsteroids: state.depletedAsteroids,
@@ -13425,6 +13433,14 @@ function loadGame(slot = state.currentSaveSlot || 1) {
     const i = Number(k), d = Number(v);
     if (Number.isFinite(i) && Number.isFinite(d) && d > 0) state.visitedDays[i] = d;
   }
+  // The observations themselves, not just their dates. A save written before these existed loads with
+  // none, which reads as never having looked rather than as having looked today.
+  state.conditionLog = {};
+  for (const [k, v] of Object.entries(s.conditionLog || {})) {
+    const i = Number(k);
+    if (Number.isFinite(i) && v && typeof v === 'object' && Number(v.day) > 0) state.conditionLog[i] = v;
+  }
+  state.conditionsRev = (Number(state.conditionsRev) || 0) + 1;
   state.visitedSystems = Array.isArray(s.visitedSystems)
     ? s.visitedSystems.map((index) => Number(index)).filter(Number.isFinite)
     : [state.currentPlanet];
@@ -21656,6 +21672,37 @@ function trueDisruption(index) {
   if (occupation) parts.push(`occupied since day ${occupation.capturedDay}`);
   return { band, why: parts.join(', ') || 'installations intact' };
 }
+// What the captain actually observed, kept. The first cut of this stored only the *day* of a visit and
+// then rendered today's truth under it — so a world whose stations were destroyed, whose government
+// changed or whose garrison moved after the captain left would show the new reality stamped with the
+// old date. That is not a stale reading, it is a leak wearing a stale reading's clothes. A reading
+// taken with a live source is written down here, and a system with no live source is displayed from
+// this record and from nothing else: change the world without telling the captain and the map stays
+// wrong, and dated, until somebody tells them. [review]
+function conditionLog() {
+  if (!state.conditionLog || typeof state.conditionLog !== 'object') state.conditionLog = {};
+  return state.conditionLog;
+}
+function recordConditionObservation(index, reading) {
+  const i = Number(index);
+  if (!Number.isFinite(i) || !reading) return;
+  const log = conditionLog();
+  const keep = (v) => (v ? { band: v.band, why: v.why, capped: Boolean(v.capped) } : null);
+  log[i] = {
+    day: Number(state.day) || 1,
+    source: reading.source,
+    controller: getSystemControl(i).controller || null,
+    market: Math.round(finiteNumber(state.planets[i]?.market, 0)),
+    berths: (state.stationDefinitions || []).filter((d) => Number(d.systemIndex) === i && !state.destroyedStations?.[d.id]).length,
+    traffic: keep(reading.traffic),
+    protection: keep(reading.protection),
+    disruption: keep(reading.disruption),
+    // The week's weather is not carried forward at all: a fight the captain watched a month ago says
+    // nothing about who is there now, and a dated threat comes from a dated *claim*, below.
+    threat: null,
+  };
+  state.conditionsRev = (Number(state.conditionsRev) || 0) + 1;
+}
 // What the captain knows, from what is true and what would have told them. Every indicator is either a
 // reading with a source and an age, or null — and null is drawn as "no report", never as zero.
 function systemConditions(index, ctx = null) {
@@ -21665,21 +21712,20 @@ function systemConditions(index, ctx = null) {
   const meta = CONDITION_SOURCES[source] || CONDITION_SOURCES.none;
   const observation = galaxyNewsBook().observations?.[i] || null;
   const report = [...galaxyNewsBook().items].reverse().find((r) => Number(r.systemIndex) === i) || null;
-  const datedDay = observation?.day ?? report?.day ?? null;
-  const age = datedDay == null ? null : Math.max(0, state.day - datedDay);
   const out = { index: i, source, sourceLabel: meta.label, caveat: meta.caveat, rank: meta.rank,
     asOfDay: null, ageDays: null, traffic: null, protection: null, threat: null, disruption: null };
   if (source === 'none') return out;
-  const live = source === 'local' || source === 'fleet';
-  if (live || source === 'relay') {
+
+  // ---- a live source: read the world, and write down what was read ------------------------------
+  if (source === 'local' || source === 'fleet' || source === 'relay') {
+    const live = source === 'local' || source === 'fleet';
     out.asOfDay = state.day;
     out.ageDays = 0;
-    const trade = trueTradeTraffic(i), dis = trueDisruption(i);
+    const trade = trueTradeTraffic(i), dis = trueDisruption(i), prot = trueProtection(i), threat = trueThreat(i);
     // A relay reads transponders: it counts what is there and what has stopped answering, and it is
     // no judge of how hard a garrison would fight.
     out.traffic = { band: trade.band, why: trade.why };
     out.disruption = { band: dis.band, why: dis.why };
-    const prot = trueProtection(i), threat = trueThreat(i);
     out.protection = live
       ? { band: prot.band, why: prot.why }
       : { band: Math.min(2, prot.band), why: `${prot.hulls + prot.armed} armed presence${prot.hulls + prot.armed === 1 ? '' : 's'} answering; strength not readable from a transponder`, capped: true };
@@ -21688,27 +21734,49 @@ function systemConditions(index, ctx = null) {
       : threat.ops
         ? { band: Math.max(2, Math.min(3, threat.ops + 1)), why: `${threat.ops} force${threat.ops === 1 ? '' : 's'} under way against this system; the week's own activity is not readable from here`, capped: true }
         : { band: 0, why: 'no force under way; the week\'s own activity is not readable from here', capped: true };
+    // A crew watching from their own bridge is better than gossip and is not infallible, which is the
+    // rule this game already uses for reports. The captain standing there sees what is there; a ship
+    // on station files an assessment, run through the same seeded model the galaxy reports use, so its
+    // threat reading can be wrong in either direction and its confidence decays with nothing. [review]
+    if (source === 'fleet') {
+      const truthKind = threat.activity || 'quiet';
+      const guess = assessIntel({ kind: truthKind, attacker: null }, {
+        seed: `${fleetBook().campaignId}:fleet-conditions:${i}:${Math.floor((Math.max(1, state.day) - 1) / 7)}`,
+        ownShips: true, age: 0, candidates: intelIdentityCandidates(),
+      });
+      const band = { quiet: 0, scout: 1, skirmish: 2, raid: 3, battle: 3 }[guess.kind] ?? threat.band;
+      // An operation with a name and an arrival date is a transponder fact, not a judgement call, so a
+      // crew never talks one away; what they can get wrong is the week's weather around it.
+      out.threat = { band: Math.max(band, threat.ops ? Math.max(2, Math.min(3, threat.ops + 1)) : 0),
+        why: guess.correct ? threat.why : `crew reports ${guess.kind}${threat.ops ? `, and ${threat.ops} force${threat.ops === 1 ? '' : 's'} under way` : ''}`,
+        assessed: true };
+      out.protection = { band: prot.band, why: `${prot.why} — crew's count`, assessed: true };
+    }
+    recordConditionObservation(i, out);
     return out;
   }
-  // Rumour: what the captain saw when they were last there, plus whatever anybody has said since.
-  // The two age separately, and the things that change week to week are not carried forward at all.
-  const seen = lastSeenDay(i);
-  if (datedDay == null && seen == null) {
+
+  // ---- no live source: the record, and whatever anybody has said since --------------------------
+  const seen = conditionLog()[i] || null;
+  const datedDay = observation?.day ?? report?.day ?? null;
+  if (!seen && datedDay == null) {
     return { ...out, source: 'none', sourceLabel: CONDITION_SOURCES.none.label, caveat: CONDITION_SOURCES.none.caveat, rank: 0 };
   }
-  const freshest = Math.max(datedDay ?? 0, seen ?? 0);
+  const freshest = Math.max(seen?.day ?? 0, datedDay ?? 0);
   out.asOfDay = freshest || null;
   out.ageDays = freshest ? Math.max(0, state.day - freshest) : null;
-  if (seen != null) {
-    // A world's berths, its market and whose flag flies over it are what the captain looked at, and
-    // they do not turn over in a week. Its garrison and its week's weather do.
-    const trade = trueTradeTraffic(i), dis = trueDisruption(i), prot = trueProtection(i);
-    const ago = state.day - seen;
-    out.traffic = { band: trade.band, why: `${trade.why} — as the captain saw it on day ${seen}`, dated: true };
-    out.disruption = { band: dis.band, why: `${dis.why} — last seen day ${seen}`, dated: true };
-    out.protection = ago <= 14
-      ? { band: prot.band, why: `${prot.why} — seen day ${seen}`, dated: true }
-      : { band: Math.min(1, prot.band), why: `last seen day ${seen}, ${ago} days ago; a garrison that old is not a reading`, dated: true, capped: true };
+  if (seen) {
+    // Every one of these is the value that was written down, not today's. The world may have turned
+    // over twice since; the captain would not know.
+    const ago = Math.max(0, state.day - seen.day);
+    const asSeen = (v, what) => (v ? { band: v.band, why: `${v.why} — as seen on day ${seen.day}`, dated: true, capped: Boolean(v.capped) } : null);
+    out.traffic = asSeen(seen.traffic);
+    out.disruption = asSeen(seen.disruption);
+    out.protection = seen.protection
+      ? (ago <= 14
+        ? { ...asSeen(seen.protection), capped: Boolean(seen.protection.capped) }
+        : { band: Math.min(1, seen.protection.band), why: `seen day ${seen.day}, ${ago} days ago; a garrison that old is not a reading`, dated: true, capped: true })
+      : null;
   }
   const claimed = observation?.kind || null;
   const band = { quiet: 0, scout: 1, skirmish: 2, raid: 3, battle: 3 }[claimed] ?? null;
@@ -21717,8 +21785,8 @@ function systemConditions(index, ctx = null) {
   } else if (report) {
     out.threat = { band: 1, why: `${report.kind} on day ${report.day}; nothing since`, dated: true };
   }
-  // Threat deliberately stays null when nobody has reported one: a lane the captain flew through
-  // eighty days ago tells them nothing about who is waiting on it now.
+  // Threat stays null when nobody has reported one: a lane the captain flew through eighty days ago
+  // tells them nothing about who is waiting on it now.
   return out;
 }
 // A lane is only as known as its worse end, and only as busy as its quieter one.
@@ -21734,18 +21802,39 @@ function laneConditions(a, b, ctx = null) {
   return { a: Number(a), b: Number(b), traffic, threat, source: worse.source, ageDays: worse.ageDays, ends: [A, B] };
 }
 // Recomputing every system's conditions per frame means re-walking every polity's hulls and every
-// station record 101 times a frame. The answer only moves when the day, the captain's position, their
-// sources or the campaign's operations move, so it is cached on exactly that.
-let conditionsMemo = { key: '', ctx: null, value: new Map() };
-function conditionsStamp() {
+// station record 101 times a frame, so the answer is cached — but a cache keyed on *counts* is a stale
+// map with a straight face. A station can be damaged without changing how many are destroyed; an
+// operation can go from moving to engaged without changing how many there are; a fleet can move
+// without changing how many ships it has. This is a revision of the state the readings actually read,
+// not a tally of it. A counter bumped by hand at every mutation site would be cheaper and would go
+// wrong the first time one of the thirty sites forgot; this cannot. [review]
+function conditionsRevision() {
   const book = campaignBook();
-  return [state.day, state.currentPlanet, (state.visitedSystems || []).length, (state.controlledSystems || []).length,
-    Object.keys(state.visitedDays || {}).length,
-    (state.playerFleet || []).filter((f) => !f.destroyed).length, (book.operations || []).length,
-    Object.keys(state.destroyedStations || {}).length, (galaxyNewsBook().items || []).length].join(':');
+  const parts = [state.day, state.currentPlanet, Number(state.warp?.active), state.conditionsRev || 0];
+  // Forces: where every hull is and whether it is still flying.
+  for (const [id, p] of Object.entries(book.polities || {})) {
+    let n = 0;
+    for (const h of p.hulls || []) n += Number(h.systemIndex) + (h.status === 'lost' ? 9973 : h.status === 'repairing' ? 31 : 0);
+    parts.push(`${id}${(p.hulls || []).length}.${n}`);
+  }
+  // Operations: which system, whose, and what stage — the stage is the part a count cannot see.
+  for (const o of book.operations || []) if (o.status !== 'resolved') parts.push(`${o.targetSystem}${o.status[0]}${o.faction || ''}`);
+  // Installations: lost, and wrecked without being lost.
+  parts.push(Object.keys(state.destroyedStations || {}).sort().join(','));
+  for (const [id, d] of Object.entries(book.stationDamage || {})) if (d > 0) parts.push(`${id}~${Math.round(d * 100)}`);
+  parts.push(Object.keys(book.occupations || {}).sort().join(','));
+  // The captain's own eyes, and the ground under them.
+  for (const f of state.playerFleet || []) if (!f.destroyed) parts.push(`f${f.id}@${f.systemIndex}${f.assignment || ''}`);
+  parts.push((state.controlledSystems || []).join(','), Object.keys(state.factionSystemOverrides || {}).sort().join(','));
+  parts.push((state.visitedSystems || []).length, Object.keys(state.conditionLog || {}).length);
+  // Who is at war with whom, which decides who will trade here at all.
+  const dip = ensurePlaytestState().diplomacy;
+  parts.push(dip?.lastDay ?? 0, (dip?.pairs || dip?.relations) ? Object.keys(dip.pairs || dip.relations).length : 0);
+  return parts.join('|');
 }
+let conditionsMemo = { key: '', ctx: null, value: new Map() };
 function conditionsFor(index) {
-  const key = conditionsStamp();
+  const key = conditionsRevision();
   if (conditionsMemo.key !== key) conditionsMemo = { key, ctx: campaignIntelContext(), value: new Map() };
   const i = Number(index);
   if (!conditionsMemo.value.has(i)) conditionsMemo.value.set(i, systemConditions(i, conditionsMemo.ctx));
@@ -22489,6 +22578,7 @@ function resetRunState() {
   resetSecurityRecords();
   state.visitedSystems = [];
   state.visitedDays = {};
+  state.conditionLog = {};
   state.factionSystemOverrides = {};
   state.destroyedStations = {};
   state.depletedAsteroids = {};
