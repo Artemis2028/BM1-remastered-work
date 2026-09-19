@@ -1,6 +1,6 @@
 # BM1 playtest repairs on top of `ae4ae4d`
 
-DTG 182129ZSEP26
+DTG 191454ZSEP26
 
 Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Nothing pushed, merged or deployed.
 The commit count is in `CANDIDATE.json`, computed by the pack script rather than typed here.
@@ -34,6 +34,82 @@ little haven" — which made it neutral and stopped it being hostile. Rigel's te
 independent planet" and "The Andorians however lay claim to this world and are quite willing to protect
 it", and the engine has no protectorate level to express that, so nothing was authored and the shipped
 table's `andorian` stands. That second one is **a gap, not a decision**.
+
+## The blocker repair, and the second proposal draft
+
+Raised against `7dd9735`. The blocker was right, and it was the worst kind: the feature looked correct
+and lied.
+
+### The dated intelligence was reading current truth
+
+`visitedDays` stored only the **day** of a visit. A stale reading then called the live
+`trueTradeTraffic`, `trueProtection` and `trueDisruption` and printed today's answers under "as the
+captain saw it on day X". Visit a world on day 20, leave, have its stations destroyed and its
+government change on day 60, and on day 80 the chart showed the **day-80 reality with a 60-day-old date
+on it**. That is not a stale reading; it is a leak wearing one's clothes, and it is exactly the model
+this layer exists to implement.
+
+A reading taken with a live source is now **written down** — the day, the source, the controller, the
+market, the berths, and the four bands with the sentences that explain them — and a system with no live
+source is displayed from that record and from nothing else. Change the world without telling the
+captain and the map stays wrong, and dated, until somebody tells them. The record is saved and loaded;
+a save written before it loads with none, which reads as never having looked rather than as having
+looked today.
+
+### The cache could not see what it was caching
+
+`conditionsStamp` tracked counts. A station can be wrecked without changing how many are destroyed; an
+operation can go from moving to engaged without changing how many there are; a ship can move without
+changing how many there are. All three are things the captain can be standing there watching.
+
+The key is now a **revision of the state the readings read**, not a tally of it: where every hull is and
+whether it is flying, which system each live operation is against and what stage it is at, which
+installations are lost and which are wrecked, where the captain's own ships are, and who is at war with
+whom. A counter bumped by hand at every mutation site would be cheaper and would go wrong the first
+time one of thirty sites forgot; this cannot.
+
+### "Crews can be wrong" is now true
+
+A ship on station fed exact truth while claiming fallibility. Its threat reading now goes through
+`assessIntel` — the same seeded model the galaxy reports use, at own-ships accuracy — so it is usually
+right and sometimes not, and it is marked as an assessment. An operation with a name and an arrival
+date is a transponder fact rather than a judgement call, so a crew never talks one away; what they can
+get wrong is the week's weather around it.
+
+### Two adversarial gates, both of which run on `7dd9735`
+
+Neither bails at a precondition: both execute against the reviewed candidate and fail there on the
+numbers, which is the evidence.
+
+- **STALE-TRUTH** observes a world, leaves, destroys its installations, collapses its market, changes
+  its flag and engages a force at it, and requires the chart to keep showing what was seen — then
+  saves, reloads and requires the record to survive, then goes back and requires it to refresh. On
+  `7dd9735`: *"trade reads 2 after the market collapsed and the flag changed; it should still read what
+  was seen (3)"*.
+- **LIVE-INVALIDATION** wrecks a station, walks an operation from moving to engaged and moves a ship
+  between systems, all without advancing the day, and requires the chart to move each time. On
+  `7dd9735`: *"a station was wrecked in front of the captain and disruption stayed at 0"*.
+
+### The foreign-market proposal, second draft
+
+`FOREIGN-STOCK-PROPOSAL-191454ZSEP26.md` replaces the first, three of whose four sections were wrong.
+
+- **Suliban Helix was called ungoverned.** This candidate's own world-identity evidence makes it a
+  self-governed Suliban world, exactly as Hirogen Range is self-governed Hirogen. The fence is a
+  Suliban service; Suliban standing is what opens it.
+- **The Hirogen were selling a licence, not prizes.** Availability derived from designs they had once
+  killed, which empties the shop when the record ages out. It is now a `book.prizes[]` collection
+  created when a hunt takes a hull, living outside `history`, consumed on sale: three captured scouts
+  are three scouts.
+- **Pirates Haven charged everyone five Terran standing.** The cost now follows the party harmed — the
+  hull's government always, the previous owner where known (which needs a `takenFrom` at capture and is
+  marked as not tracked today), and any government policing that approach, named by its own checkpoint
+  rather than by being Terran.
+
+Discovery is settled as proposed: the Suliban fence findable normally, the Hirogen shelf only after the
+captain has seen evidence of a hunt, Pirates Haven findable once charted with its current stock learned
+only on contact. The document ends with the three decisions it asks for. **Nothing in it is
+implemented.**
 
 ## The seventh round — the four goals from `2316331`
 
@@ -367,9 +443,11 @@ Measured and named rather than left for the next playtest.
 
 ## Still NOT DONE, and named
 
-- **Foreign hull stock** is withdrawn, not designed. The proposal is
-  `FOREIGN-STOCK-PROPOSAL-191454ZSEP26.md`; until it is decided, every world sells its own
-  government's designs.
+- **Foreign hull stock** is withdrawn, not designed. The second-draft proposal is
+  `FOREIGN-STOCK-PROPOSAL-191454ZSEP26.md`, and it asks for three decisions rather than implying them;
+  until they are taken, every world sells its own government's designs.
+- **A captured hull does not record who it was taken from.** The Pirates Haven section of that proposal
+  degrades gracefully without it, but the field does not exist.
 - **The lead step of a recovery contract has nothing to mark**, because "any bar or trade station" is
   not a place. The row says so; a set of *candidate* stations is not built.
 - **Evacuation and blockade** remain unfinished mechanics. The design is
@@ -389,9 +467,10 @@ Measured and named rather than left for the next playtest.
 
 - 35 of 35 gates pass from a clean tree bound to this commit; `validation/RUN.json` records the tree
   before the first gate ran.
-- The playtest gate is 29 checks. All 29 reproduce on `ae4ae4d`; 12 on `7232dc6`; 9 on `7767631`; and
-  **3 on `43938a7`** — RECOVER, MODAL and STOCK, one per finding raised against it. Every failure
-  message describes a wrong behaviour, and no check fails with a TypeError.
+- The playtest gate is 34 checks. All 34 reproduce on `ae4ae4d`, and each later base reproduces the
+  findings raised against it: 6 on `43938a7`, 4 on `2316331`, and **2 on `7dd9735`** — STALE-TRUTH and
+  LIVE-INVALIDATION, which run against that tree and fail on its numbers rather than on a missing
+  function. Every failure message describes a wrong behaviour, and no check fails with a TypeError.
 - `validation/screens/` — the HUD at 1920, 1536, 1440 and 1280; the Power, EW, Fleet and Contracts
   panels; and the same populated chart with the overlay on and with each of its three layers turned off
   in turn. All taken by `scripts/screens-capture.cjs` through the mouse, with every panel opened from
