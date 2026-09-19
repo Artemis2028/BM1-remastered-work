@@ -1,9 +1,9 @@
-# Foreign hull stock — proposal for review, second draft
+# Foreign hull stock — proposal for review, third draft
 
-DTG 191454ZSEP26 · against the candidate on top of `7767631` · **nothing here is implemented**
+DTG 191545ZSEP26 · against the candidate on top of `7767631` · **nothing here is implemented**
 
 Every world's shipyard sells its own government's designs and neutral ones, and nothing else. This
-document proposes where that should stop being true. It is a second draft: the first was reviewed and
+document proposes where that should stop being true. It is a third draft: the first was reviewed and
 three of its four sections were wrong in ways worth recording.
 
 ## Why the original two entries were withdrawn
@@ -61,9 +61,20 @@ on offer.
 **What it is.** A hunt produces a hull. The hull is the merchandise. Not "the Hirogen may now sell
 Romulan Scouts" but "there is a Romulan Scout here, at 68%, taken on day 214".
 
+**A destroyed hull is wreckage, not merchandise.** The first draft said "destroys or disables", which
+would have let the Hirogen sell ships they had blown apart. Only two things become a prize:
+
+- a hull **disabled** and then taken — the engine already draws that line, at
+  `hull <= disableThreshold(max)` in `ship-fleet.mjs`, and already has the notion of a prize being
+  stabilised rather than scuttled (`prizeStabilized`, `outcome: 'captured' | 'scuttled'`);
+- a hull **captured** intact.
+
+A hull whose `condition` reaches `destroyed`, or a boarding that ends `scuttled`, produces nothing to
+sell. That is the difference between a hunt and a kill, and the Hirogen sections of this proposal only
+work if the distinction is kept.
+
 **What this needs that does not exist.** A prize record, created at the moment a Hirogen operation
-destroys or disables a hull — the engine already knows the design, the system and the day at that
-point (`op.defenderLosses` and the hull's own `shipId`/`systemIndex`). Proposed shape:
+takes a hull that was disabled rather than destroyed. Proposed shape:
 
 ```
 book.prizes[] = { id, holder: 'hirogen', shipId, condition, takenDay, takenFrom, atSystem, status }
@@ -73,8 +84,9 @@ It lives in its own collection, **not** in `history`, and nothing that trims the
 touch it. Selling one sets `status: 'sold'` and removes it from the shelf. If the Hirogen take three
 Romulan Scouts, there are three, and selling one leaves two.
 
-**Stock.** Whatever prizes are on the shelf, up to four shown. Condition 55–85%, carried on the hull the
-captain buys — this is the one place in the game a damaged hull is the point rather than a problem.
+**Stock.** Whatever prizes are on the shelf, up to four shown. Condition is whatever the hull was at
+when it was taken — a prize is never in better shape than the fight left it — and it rides on the hull
+the captain buys. This is the one place in the game a damaged hull is the point rather than a problem.
 
 **Price.** Ordinary price scaled by condition. The Hirogen do not haggle; the scarcity is the constraint.
 
@@ -89,7 +101,20 @@ any other.
 **What it is.** A pirate-held, hostile world the captain must fight or bluff their way into. A market
 behind a threat is a different thing from a shop.
 
-**Stock.** Up to two hulls, any faction, mass ≤ 5, refreshed weekly. Condition 60–80%, no warranty.
+**Stock — actual stolen hulls first.** A pirate market should be selling things pirates took, not a
+weekly roll dressed as loot. The shelf is, in order:
+
+1. **prize records held by `pirate`** — the same collection the Hirogen use, filled the same way: a
+   hull disabled or captured by pirates, in the condition the fight left it, consumed when sold. This
+   should be the normal case, and it makes the market a consequence of what the pirates have actually
+   been doing;
+2. **hulls the captain sold or lost to them**, if the `takenFrom` field below exists — buying your own
+   ship back from the people who took it is the best thing this market could offer;
+3. **a generic fallback** of at most one hull, mass ≤ 5, only when the first two are empty, so a
+   newly-started campaign does not show a bare shelf.
+
+Two hulls at a time, refreshed as prizes arrive rather than weekly. Condition from the prize record; no
+warranty.
 
 **Price.** 20% under ordinary.
 
@@ -118,7 +143,7 @@ is worth the trip, which is the right shape for a place like that.
 - **Any of this without the standing cost.** A foreign market with no diplomatic consequence is a
   bigger shop, and it would quietly remove the reason to care whose space the captain is in.
 - **Any of this without the prize records.** A shelf derived from a statistic is a shelf that empties
-  when the statistic is pruned.
+  when the statistic is pruned — and a shelf rolled weekly is not loot, it is a shop with a theme.
 
 ## What this asks the reviewer to decide
 
@@ -126,7 +151,9 @@ is worth the trip, which is the right shape for a place like that.
    captain is at war with are unreachable except by capture and the recovery contracts. That may be the
    intended shape of the game.
 2. Whether the two new records — `book.prizes[]` and `takenFrom` on a captured hull — are worth their
-   weight. The Hirogen section does not work without the first; the Pirates Haven section degrades
-   gracefully without the second, falling back to the hull's government alone.
+   weight. **Both of the market sections now depend on the first**, since a pirate shelf of actual
+   stolen hulls is the same collection under a different holder; the Pirates Haven section degrades
+   gracefully without the second, falling back to the hull's government alone, and loses only the
+   buy-your-own-ship-back case.
 3. Whether the Suliban standing threshold is a gate or a price. As written it is a gate: below it,
    nothing is offered.

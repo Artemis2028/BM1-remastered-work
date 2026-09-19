@@ -92,7 +92,7 @@ numbers, which is the evidence.
 
 ### The foreign-market proposal, second draft
 
-`FOREIGN-STOCK-PROPOSAL-191454ZSEP26.md` replaces the first, three of whose four sections were wrong.
+`FOREIGN-STOCK-PROPOSAL-191545ZSEP26.md` replaces the first, three of whose four sections were wrong.
 
 - **Suliban Helix was called ungoverned.** This candidate's own world-identity evidence makes it a
   self-governed Suliban world, exactly as Hirogen Range is self-governed Hirogen. The fence is a
@@ -181,7 +181,7 @@ those phrases was the same mistake as reading a grey market out of an emptied sh
 back. The table is empty and **the gate holds it empty**: every world sells its own government's
 designs and neutral ones, and no world anywhere sells a hull its government would not carry.
 
-`FOREIGN-STOCK-PROPOSAL-191454ZSEP26.md` proposes three worlds chosen for what they are in the campaign
+`FOREIGN-STOCK-PROPOSAL-191545ZSEP26.md` proposes three worlds chosen for what they are in the campaign
 rather than for their prose — the Suliban Helix as a fence limited to small hulls at a premium and a
 standing cost, Hirogen Range selling only designs the Hirogen have actually destroyed a hull of in this
 campaign, Pirates Haven selling stolen hulls at a discount in poor condition and visibly — with the
@@ -444,7 +444,7 @@ Measured and named rather than left for the next playtest.
 ## Still NOT DONE, and named
 
 - **Foreign hull stock** is withdrawn, not designed. The second-draft proposal is
-  `FOREIGN-STOCK-PROPOSAL-191454ZSEP26.md`, and it asks for three decisions rather than implying them;
+  `FOREIGN-STOCK-PROPOSAL-191545ZSEP26.md`, and it asks for three decisions rather than implying them;
   until they are taken, every world sells its own government's designs.
 - **A captured hull does not record who it was taken from.** The Pirates Haven section of that proposal
   degrades gracefully without it, but the field does not exist.
