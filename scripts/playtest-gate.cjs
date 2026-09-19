@@ -1903,17 +1903,23 @@ const { startProbe } = require('./probe-harness.cjs');
       `a system last seen 79 days ago reports a threat level anyway: ${JSON.stringify(r.stale.threat)}`);
     assert.equal(r.stale.protectionCapped, true,
       'a garrison seen 79 days ago is reported at full confidence');
-    assert.ok(r.staleRead.some((l) => /traffic gossip/.test(l) && /day 1/.test(l) && /days old/.test(l)),
+    assert.ok(r.staleRead.some((l) => /Traffic reports/.test(l) && /observed day 1\b/.test(l) && /days old/.test(l)),
       `the readout does not give the source, the day and the age: ${JSON.stringify(r.staleRead)}`);
-    assert.ok(r.staleRead.some((l) => /threat no report/.test(l)),
-      `the readout does not say the threat is unreported: ${JSON.stringify(r.staleRead)}`);
+    assert.ok(r.staleRead.some((l) => /Threat: none reported/.test(l)),
+      `the readout does not distinguish an unreported threat from a quiet one: ${JSON.stringify(r.staleRead)}`);
+    // The instrument states the reading and its provenance and stops. It does not explain what a date
+    // or a question mark means. [review]
+    assert.deepEqual(r.staleRead.filter((l) => /not safe|not the same as|treat it as|may have changed|crews can be wrong/i.test(l)), [],
+      `the readout narrates its own uncertainty instead of reporting: ${JSON.stringify(r.staleRead)}`);
 
     // A ship on station is a reading.
     assert.equal(r.live.source, 'fleet', `a system with the captain's own ship in it reports as "${r.live.source}"`);
     assert.equal(r.live.age, 0, `a ship standing in the system reports a ${r.live.age}-day-old picture`);
     assert.equal(r.live.threat, true, 'a ship standing in the system still cannot say what is happening there');
-    assert.ok(r.liveRead.some((l) => /fleet on station/.test(l) && /crews can be wrong/.test(l)),
-      `the readout does not name the source or its caveat: ${JSON.stringify(r.liveRead)}`);
+    assert.ok(r.liveRead.some((l) => /Fleet report/.test(l)),
+      `the readout does not name the source: ${JSON.stringify(r.liveRead)}`);
+    assert.ok(r.liveRead.some((l) => /\(est\.\)/.test(l)),
+      `a fleet reading is not marked as an assessment: ${JSON.stringify(r.liveRead)}`);
 
     // A lane is only as known as its worse end.
     assert.ok(r.lane, 'precondition: a lane with one unlooked-at end');
@@ -1982,8 +1988,10 @@ const { startProbe } = require('./probe-harness.cjs');
       'no system was marked as unreported on the chart; every charted system is being drawn as though something is known about it');
     assert.ok(r.withBoth.unknownStrokes > 0,
       'no lane was drawn in the unknown colour; a lane nobody has looked at is being drawn as an ordinary one');
-    assert.ok(r.withBoth.painted.some((x) => /unreported/.test(x) && /not safe/.test(x)),
-      `the legend does not say how many charted systems are unreported, or that unreported is not safe: ${r.withBoth.painted.filter((x) => /unreported|unknown/i.test(x)).join(' | ') || 'no such row'}`);
+    assert.ok(r.withBoth.painted.some((x) => /^\d+ unreported systems?$/.test(x)),
+      `the legend does not count the unreported systems: ${r.withBoth.painted.filter((x) => /unreported|unknown/i.test(x)).join(' | ') || 'no such row'}`);
+    assert.deepEqual(r.withBoth.painted.filter((x) => /not safe|not the same as|treat it as/i.test(x)), [],
+      `the legend explains what unreported means instead of counting it: ${r.withBoth.painted.filter((x) => /not safe|not the same as/i.test(x)).join(' | ')}`);
     assert.equal(r.securityOff.queries, 0,
       'the security layer reports itself off and is still marking systems on the chart');
     assert.equal(r.neither.unknownStrokes, 0,
@@ -2079,6 +2087,7 @@ const { startProbe } = require('./probe-harness.cjs');
       t.campaignBook().operations.push({ id: 'stale-op', faction: 'klingon', kind: 'assault', targetSystem: A,
         status: 'engaged', createdDay: s.day, arriveDay: s.day, hullIds: [], committed: 4 });
       const shown = t.conditionsFor(A);
+      const staleReadout = t.conditionsReadout(A);
       const truthNow = { traffic: t.trueTradeTraffic(A).band, disruption: t.trueDisruption(A).band, threat: t.trueThreat(A).band };
       // And it survives being put down and picked up.
       t.saveGame(7); t.loadGame(7);
@@ -2094,7 +2103,7 @@ const { startProbe } = require('./probe-harness.cjs');
         truthNow,
         afterLoad: { traffic: afterLoad.traffic?.band, disruption: afterLoad.disruption?.band, asOf: afterLoad.asOfDay },
         refreshed: { source: refreshed.source, traffic: refreshed.traffic?.band, disruption: refreshed.disruption?.band, age: refreshed.ageDays },
-        readout: t.conditionsReadout(A) };
+        readout: staleReadout };
     });
     assert.ok(!r.fail, `the stale-truth reproduction could not be set up: ${r.fail}`);
     assert.equal(r.shown.source, 'rumour', `after leaving, the system reports as "${r.shown.source}"`);
@@ -2112,8 +2121,8 @@ const { startProbe } = require('./probe-harness.cjs');
       `disruption reads today's truth (${r.truthNow.disruption}) under a 60-day-old date`);
     assert.equal(r.shown.threat, undefined,
       `a force engaged at the system after the captain left is on their chart anyway (threat ${r.shown.threat})`);
-    assert.ok(/as seen on day 20/.test(String(r.shown.trafficWhy)),
-      `the reading does not say when it was taken: "${r.shown.trafficWhy}"`);
+    assert.ok(r.readout.some((l) => /observed day 20/.test(l) && /60 days old/.test(l)),
+      `the readout does not say when the reading was taken: ${JSON.stringify(r.readout)}`);
 
     assert.ok(r.record && r.record.day === 20,
       `nothing was written down when the captain stood in the system, so there is nothing to show them later: ${JSON.stringify(r.record)}`);

@@ -9478,11 +9478,11 @@ function makeIntelReport(index, observation, id, day) {
   const place = known ? `near ${state.planets[index].name}` : 'beyond surveyed space';
   const source = ownShips ? 'Fleet observers' : 'Civilian relays';
   const claims = {quiet:'report no major clashes',scout:'report reconnaissance activity',skirmish:'report a minor fleet action',raid:'report a possible raid',battle:'report a major fleet action'};
-  const identity = estimate.attacker ? ` Ships identified as ${formatFaction(estimate.attacker)}; identification may be mistaken.` : '';
+  const identity = estimate.attacker ? ` Ships identified as ${formatFaction(estimate.attacker)}.` : '';
   const kind = {quiet:'Situation report',scout:'Reconnaissance report',skirmish:'Clash report',raid:'Raid report',battle:'Fleet action report'}[estimate.kind];
   return {id,day:day+estimate.delay,systemIndex:known?index:null,kind,category:'intel',factions:[estimate.attacker].filter(Boolean),playerRelated:ownShips || (known && ownsReportLocation(index)),
-    confidence:ownShips?'Fleet assessment — mistakes possible':'Unconfirmed civilian report',
-    text:`${source} ${claims[estimate.kind]} ${place}.${identity} Information dated day ${observation.day}; conditions may have changed.`};
+    confidence:ownShips?'Fleet assessment':'Unconfirmed civilian report',
+    text:`${source} ${claims[estimate.kind]} ${place}.${identity} Dated day ${observation.day}.`};
 }
 function collectRegionalIntel(day) {
   const news = galaxyNewsBook();
@@ -21572,11 +21572,11 @@ function clearInterstellarMapOverlay() {
 // "No report" is drawn and described differently from "reported quiet", because a lane nobody has
 // looked at is not a safe lane. That distinction is the whole point of this layer. [playtest]
 const CONDITION_SOURCES = Object.freeze({
-  local: { label: 'seen from here', rank: 4, caveat: 'first hand, now' },
-  fleet: { label: 'fleet on station', rank: 3, caveat: 'fleet assessment; crews can be wrong' },
-  relay: { label: 'relay coverage', rank: 2, caveat: 'transponders: presence dependable, strength not' },
-  rumour: { label: 'traffic gossip', rank: 1, caveat: 'unconfirmed, and late' },
-  none: { label: 'no report', rank: 0, caveat: 'unknown — which is not the same as quiet' },
+  local: { label: 'Direct observation', rank: 4 },
+  fleet: { label: 'Fleet report', rank: 3 },
+  relay: { label: 'Relay telemetry', rank: 2 },
+  rumour: { label: 'Traffic reports', rank: 1 },
+  none: { label: 'No current intelligence', rank: 0 },
 });
 const CONDITION_BANDS = ['none', 'light', 'moderate', 'heavy'];
 function conditionBand(score, cuts) {
@@ -21609,7 +21609,7 @@ function trueTradeTraffic(index) {
   const closed = origins.length - welcome.length;
   const score = weight * (0.5 + market / 16) + berths * 0.7;
   return { score, band: conditionBand(score, [0.8, 2.4, 4.6]), host, berths, market, closed,
-    why: `${welcome.length} of ${origins.length} powers will trade under this flag, market ${market}, ${berths} berth${berths === 1 ? '' : 's'}${closed ? `, ${closed} shut out by war` : ''}` };
+    why: `${welcome.length}/${origins.length} powers trading · market ${market} · ${berths} berth${berths === 1 ? '' : 's'}${closed ? ` · ${closed} at war` : ''}` };
 }
 // What is standing between that trade and whoever would take it.
 function trueProtection(index) {
@@ -21623,7 +21623,7 @@ function trueProtection(index) {
   const authority = hasOrbitalAuthority(index);
   const score = hulls * 1.1 + armed * 1.4 + (authority ? 1.6 : 0);
   return { score, band: conditionBand(score, [0.9, 2.6, 4.8]), hulls, armed, authority,
-    why: `${hulls} garrison hull${hulls === 1 ? '' : 's'}, ${armed} armed installation${armed === 1 ? '' : 's'}${authority ? ', orbital authority on station' : ', no orbital authority'}` };
+    why: `${hulls} garrison hull${hulls === 1 ? '' : 's'} · ${armed} armed installation${armed === 1 ? '' : 's'} · ${authority ? 'orbital authority' : 'no orbital authority'}` };
 }
 // Whether a world is patrolled by anyone with the standing to stop a ship. Derived from the authored
 // checkpoints and the border policies rather than getSecurityZone, which only answers about the system
@@ -21651,12 +21651,12 @@ function trueThreat(index) {
     || (trade.band >= 2 && protection.band === 0 && !protection.authority);
   const band = Math.min(3, Math.max(engaged.length ? 3 : ops.length ? 2 : 0, ambient, lawless ? 2 : 0));
   const parts = [];
-  if (engaged.length) parts.push(`${formatFaction(engaged[0].faction)} engaged here`);
-  else if (ops.length) parts.push(`${formatFaction(ops[0].faction)} force inbound, arriving day ${ops[0].arriveDay}`);
-  if (ambient) parts.push(`${activity} reported this week`);
-  if (lawless) parts.push(control.controller === 'pirate' ? 'a pirate haven' : 'traffic worth robbing and nobody watching it');
+  if (engaged.length) parts.push(`${formatFaction(engaged[0].faction)} engaged`);
+  else if (ops.length) parts.push(`${formatFaction(ops[0].faction)} inbound, day ${ops[0].arriveDay}`);
+  if (ambient) parts.push(`${activity} this week`);
+  if (lawless) parts.push(control.controller === 'pirate' ? 'pirate haven' : 'unpatrolled trade lane');
   if (!parts.length) parts.push('nothing under way');
-  return { band, activity, ops: ops.length, engaged: engaged.length, lawless, why: parts.join('; ') };
+  return { band, activity, ops: ops.length, engaged: engaged.length, lawless, why: parts.join(' · ') };
 }
 // Things that stop a lane working: installations lost or wrecked, a world held by somebody who took it.
 function trueDisruption(index) {
@@ -21667,10 +21667,10 @@ function trueDisruption(index) {
   const occupation = book.occupations?.[index] || null;
   const band = Math.min(3, (destroyed ? 2 : 0) + (damaged ? 1 : 0) + (occupation ? 1 : 0));
   const parts = [];
-  if (destroyed) parts.push(`${destroyed} installation${destroyed === 1 ? '' : 's'} destroyed`);
+  if (destroyed) parts.push(`${destroyed} destroyed`);
   if (damaged) parts.push(`${damaged} damaged`);
   if (occupation) parts.push(`occupied since day ${occupation.capturedDay}`);
-  return { band, why: parts.join(', ') || 'installations intact' };
+  return { band, why: parts.join(' · ') || 'installations intact' };
 }
 // What the captain actually observed, kept. The first cut of this stored only the *day* of a visit and
 // then rendered today's truth under it — so a world whose stations were destroyed, whose government
@@ -21712,7 +21712,7 @@ function systemConditions(index, ctx = null) {
   const meta = CONDITION_SOURCES[source] || CONDITION_SOURCES.none;
   const observation = galaxyNewsBook().observations?.[i] || null;
   const report = [...galaxyNewsBook().items].reverse().find((r) => Number(r.systemIndex) === i) || null;
-  const out = { index: i, source, sourceLabel: meta.label, caveat: meta.caveat, rank: meta.rank,
+  const out = { index: i, source, sourceLabel: meta.label, rank: meta.rank,
     asOfDay: null, ageDays: null, traffic: null, protection: null, threat: null, disruption: null };
   if (source === 'none') return out;
 
@@ -21728,12 +21728,12 @@ function systemConditions(index, ctx = null) {
     out.disruption = { band: dis.band, why: dis.why };
     out.protection = live
       ? { band: prot.band, why: prot.why }
-      : { band: Math.min(2, prot.band), why: `${prot.hulls + prot.armed} armed presence${prot.hulls + prot.armed === 1 ? '' : 's'} answering; strength not readable from a transponder`, capped: true };
+      : { band: Math.min(2, prot.band), why: `${prot.hulls + prot.armed} armed presence${prot.hulls + prot.armed === 1 ? '' : 's'} answering`, capped: true };
     out.threat = live
       ? { band: threat.band, why: threat.why }
       : threat.ops
-        ? { band: Math.max(2, Math.min(3, threat.ops + 1)), why: `${threat.ops} force${threat.ops === 1 ? '' : 's'} under way against this system; the week's own activity is not readable from here`, capped: true }
-        : { band: 0, why: 'no force under way; the week\'s own activity is not readable from here', capped: true };
+        ? { band: Math.max(2, Math.min(3, threat.ops + 1)), why: `${threat.ops} force${threat.ops === 1 ? '' : 's'} under way`, capped: true }
+        : { band: 0, why: 'no force under way', capped: true };
     // A crew watching from their own bridge is better than gossip and is not infallible, which is the
     // rule this game already uses for reports. The captain standing there sees what is there; a ship
     // on station files an assessment, run through the same seeded model the galaxy reports use, so its
@@ -21748,9 +21748,9 @@ function systemConditions(index, ctx = null) {
       // An operation with a name and an arrival date is a transponder fact, not a judgement call, so a
       // crew never talks one away; what they can get wrong is the week's weather around it.
       out.threat = { band: Math.max(band, threat.ops ? Math.max(2, Math.min(3, threat.ops + 1)) : 0),
-        why: guess.correct ? threat.why : `crew reports ${guess.kind}${threat.ops ? `, and ${threat.ops} force${threat.ops === 1 ? '' : 's'} under way` : ''}`,
+        why: guess.correct ? threat.why : `${guess.kind} reported${threat.ops ? ` · ${threat.ops} force${threat.ops === 1 ? '' : 's'} under way` : ''}`,
         assessed: true };
-      out.protection = { band: prot.band, why: `${prot.why} — crew's count`, assessed: true };
+      out.protection = { band: prot.band, why: prot.why };
     }
     recordConditionObservation(i, out);
     return out;
@@ -21760,7 +21760,7 @@ function systemConditions(index, ctx = null) {
   const seen = conditionLog()[i] || null;
   const datedDay = observation?.day ?? report?.day ?? null;
   if (!seen && datedDay == null) {
-    return { ...out, source: 'none', sourceLabel: CONDITION_SOURCES.none.label, caveat: CONDITION_SOURCES.none.caveat, rank: 0 };
+    return { ...out, source: 'none', sourceLabel: CONDITION_SOURCES.none.label, rank: 0 };
   }
   const freshest = Math.max(seen?.day ?? 0, datedDay ?? 0);
   out.asOfDay = freshest || null;
@@ -21769,13 +21769,14 @@ function systemConditions(index, ctx = null) {
     // Every one of these is the value that was written down, not today's. The world may have turned
     // over twice since; the captain would not know.
     const ago = Math.max(0, state.day - seen.day);
-    const asSeen = (v, what) => (v ? { band: v.band, why: `${v.why} — as seen on day ${seen.day}`, dated: true, capped: Boolean(v.capped) } : null);
+    // The date is on its own line in the readout, so the reading itself does not repeat it.
+    const asSeen = (v) => (v ? { band: v.band, why: v.why, dated: true, capped: Boolean(v.capped) } : null);
     out.traffic = asSeen(seen.traffic);
     out.disruption = asSeen(seen.disruption);
     out.protection = seen.protection
       ? (ago <= 14
         ? { ...asSeen(seen.protection), capped: Boolean(seen.protection.capped) }
-        : { band: Math.min(1, seen.protection.band), why: `seen day ${seen.day}, ${ago} days ago; a garrison that old is not a reading`, dated: true, capped: true })
+        : { band: Math.min(1, seen.protection.band), why: seen.protection.why, dated: true, capped: true })
       : null;
   }
   const claimed = observation?.kind || null;
@@ -21934,7 +21935,7 @@ function drawConditionsPanel() {
   const rect = getStarChartPanelRect();
   const w = Math.min(430, Math.max(280, (rect.right - rect.left) * 0.46));
   const rowH = 15;
-  const h = lines.length * rowH + 44;
+  const h = lines.length * rowH + 26;
   const x = rect.right - rect.pad - w;
   const y = rect.bottom - rect.pad - h;
   ctx.save();
@@ -21954,28 +21955,27 @@ function drawConditionsPanel() {
     ctx.font = canvasUiFont(n === 0 ? 11 : 10);
     drawFittedMapText(line, x + 10, y + 30 + n * rowH, w - 20);
   });
-  ctx.font = canvasUiFont(9);
-  ctx.fillStyle = '#7f8ea6';
-  drawFittedMapText('* transponder reading, strength not readable   † dated claim, not a current one',
-    x + 10, y + h - 6, w - 20);
   ctx.restore();
 }
-// The readout itself: what each indicator says for a system, where the claim came from and how old it
-// is. An indicator with no source prints as "no report" with the sentence that says why that is not
-// the same as quiet.
+// The readout: the reading, where it came from, how old it is, and what it is made of. A `?`, a source
+// and a date already say everything there is to say about how much to trust it, so nothing here
+// restates that in prose — an instrument does not explain what its own dial means. [review]
 function conditionsReadout(index) {
   const c = conditionsFor(index);
   if (!c) return [];
   const name = chartSystemLabel(index);
-  const band = (v) => (v ? CONDITION_BANDS[v.band] + (v.capped ? '*' : '') + (v.dated ? '†' : '') : 'no report');
-  const age = c.ageDays == null ? '' : c.ageDays === 0 ? ', current' : `, ${c.ageDays} day${c.ageDays === 1 ? '' : 's'} old`;
+  if (c.source === 'none') {
+    return [`${name} — Trade: ? · Patrols: ? · Threat: ? · Disruption: ?`, 'No current intelligence'];
+  }
+  const band = (v) => (v ? CONDITION_BANDS[v.band] + (v.capped || v.assessed ? ' (est.)' : '') : 'none reported');
+  const age = c.ageDays == null ? '' : c.ageDays === 0 ? '' : ` · ${c.ageDays} day${c.ageDays === 1 ? '' : 's'} old`;
+  const when = c.asOfDay == null ? '' : ` · ${c.ageDays === 0 ? 'day' : 'observed day'} ${c.asOfDay}`;
   const lines = [
-    `${name} — trade ${band(c.traffic)} | patrols ${band(c.protection)} | threat ${band(c.threat)} | disruption ${band(c.disruption)}`,
-    `Source: ${c.sourceLabel}${c.asOfDay == null ? '' : `, day ${c.asOfDay}`}${age} — ${c.caveat}`,
+    `${name} — Trade: ${band(c.traffic)} · Patrols: ${band(c.protection)} · Threat: ${band(c.threat)} · Disruption: ${band(c.disruption)}`,
+    `${c.sourceLabel}${when}${age}`,
   ];
-  if (c.source === 'none') lines.push('Nothing has reported on this system. Treat it as unknown, not as safe.');
-  else if (c.threat) lines.push(`Threat: ${c.threat.why}`);
-  if (c.traffic && c.source !== 'none') lines.push(`Trade: ${c.traffic.why}`);
+  if (c.threat?.why) lines.push(`Threat: ${c.threat.why}`);
+  if (c.traffic?.why) lines.push(`Trade: ${c.traffic.why}`);
   return lines;
 }
 // What the captain has committed to, drawn on the chart. Three layers, each selectable, each reading
@@ -22215,7 +22215,7 @@ function drawMapOverlayLegend() {
   if ((layers.lanes || layers.security) && unknown) {
     ctx.font = canvasUiFont(10);
     ctx.fillStyle = CONDITION_COLORS.unknown;
-    ctx.fillText(`${unknown} charted system${unknown === 1 ? '' : 's'} unreported — unknown, not safe`, x, y + MAP_OVERLAY_LAYERS.length * 18 + 5);
+    ctx.fillText(`${unknown} unreported system${unknown === 1 ? '' : 's'}`, x, y + MAP_OVERLAY_LAYERS.length * 18 + 5);
   }
   MAP_OVERLAY_LAYERS.forEach((layer, n) => {
     const ly = y + 9 + n * 18;
@@ -23988,7 +23988,7 @@ function reportCampaignEvent(spec) {
   if (!text) return false;
   const news = galaxyNewsBook();
   const report = { id: spec.id, systemIndex: index, day: spec.day + estimate.delay, kind: spec.kind, category: CAMPAIGN_REPORT_KIND,
-    confidence: source === 'fleet' ? 'Fleet assessment — mistakes possible' : 'Unconfirmed civilian report',
+    confidence: source === 'fleet' ? 'Fleet assessment' : 'Unconfirmed civilian report',
     factions: [...new Set([estimate.attacker, ...involved])].filter(isRecognizedFactionKey),
     // The blame this account carries is the assessor's guess, and a reader that counts fleets by power
     // must count this one — not the fleet's real owner. [fifth review]
@@ -24013,7 +24013,7 @@ function campaignEventStake(systemIndex, extra = []) {
 }
 // A mistaken account still has to name somebody. This keeps the wording identical in both directions.
 function intelAttribution(estimate) {
-  return estimate.attacker ? ` Ships identified as ${formatFaction(estimate.attacker)}; identification may be mistaken.` : '';
+  return estimate.attacker ? ` Ships identified as ${formatFaction(estimate.attacker)}.` : '';
 }
 // A design is the captain's business when they fly one, own a hull of one, or hold its plan.
 function playerHoldsDesign(shipId) {
