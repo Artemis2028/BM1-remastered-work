@@ -1,5 +1,7 @@
 import * as World from './faction-world.mjs';
 import { assessIntel, intelRandom } from './galaxy-intelligence.mjs';
+import * as StationRoles from './station-roles.mjs';
+import * as Campaign from './campaign-strategy.mjs';
 const TRANSPORTER_RANGE = 2500;
 const WORLD_CARGO_DROPOFF_RANGE = 600;
 const JUMP_BACKGROUND_REPORT_LIMIT = 6;
@@ -33,7 +35,7 @@ const playtestClock = { stoppedAt: null, offset: 0 };
 function gameNow() { return (playtestClock.stoppedAt ?? performance.now()) - playtestClock.offset; }
 function pauseGameClock() { if (playtestClock.stoppedAt === null) playtestClock.stoppedAt = performance.now(); }
 function resumeGameClock() {
-  if (document.getElementById('galaxy-reports')?.open) return;
+  if (document.getElementById('galaxy-reports')?.open || document.getElementById('campaign-panel')?.open) return;
   if (playtestClock.stoppedAt !== null) { playtestClock.offset += performance.now() - playtestClock.stoppedAt; playtestClock.stoppedAt = null; }
   keys.clear(); heldWeaponInputs.clear();
 }
@@ -204,6 +206,7 @@ const FACTION_BORDER_POLICIES = Object.freeze({
   romulan: { warFlag: 'closed', independent: 'challenge', other: 'challenge', unknown: 'closed' },
   cardassian: { warFlag: 'closed', independent: 'challenge', other: 'challenge', unknown: 'challenge' },
   dominion: { warFlag: 'closed', independent: 'closed', other: 'challenge', unknown: 'closed' },
+  dominion_remnant: { warFlag: 'closed', independent: 'challenge', other: 'challenge', unknown: 'closed' },
   breen: { warFlag: 'closed', independent: 'challenge', other: 'challenge', unknown: 'closed' },
   terran: { warFlag: 'closed', independent: 'open', other: 'open', unknown: 'challenge' },
   andorian: { warFlag: 'closed', independent: 'open', other: 'open', unknown: 'challenge' },
@@ -488,6 +491,7 @@ const factionEmblemAssets = {
   cardassian: 'assets/game/factions/cardassian.png',
   klingon: 'assets/game/factions/klingon.png',
   dominion: 'assets/game/factions/dominion.png',
+  dominion_remnant: 'assets/game/factions/dominion.png',
   breen: 'assets/game/factions/breen.png',
   tholian: 'assets/game/factions/tholian.png',
   bajoran: 'assets/game/factions/bajoran.png',
@@ -597,6 +601,9 @@ const state = {
   securityLiveSystemIndex: null, // which system's NPCs are live in state.npcShips (for participant capture)
   securityOutcomeNotice: null, // last player-visitor outcome, shown briefly in the order panel
   visitedSystems: [],
+  visitedDays: {}, // systemIndex -> the day the captain was last there; absent means date unknown
+  conditionLog: {}, // systemIndex -> the trade/security reading taken there, as it was read
+  conditionsRev: 0,
   factionSystemOverrides: {},
   factionStanding: {},
   feats: {},
@@ -1217,6 +1224,7 @@ const factionUiThemes = {
   ferengi: 'ferengi',
   cardassian: 'cardassian',
   dominion: 'dominion',
+  dominion_remnant: 'dominion',
   breen: 'breen',
   tholian: 'tholian',
   vulcan: 'vulcan',
@@ -1334,6 +1342,27 @@ function getTradeStandingFaction(systemIndex = state.currentPlanet, station = nu
   return side === 'neutral' || isRecognizedFactionKey(side) ? side : null;
 }
 
+// Your own holdings are your own. A world you hold, and a station you built on it, sell you what they
+// have without asking what a foreign government thinks of you: prestige is how strangers decide whether
+// to deal with you, and at your own yard there are no strangers. Everything else still applies — what
+// is actually in stock, what you can afford, security clearance, regional rules and the designs nobody
+// may build. This waives the standing test and nothing else. [playtest]
+function isOwnHoldingVendor(station = getCurrentServiceStation(), systemIndex = state.currentPlanet) {
+  const i = Number(station?.systemIndex ?? systemIndex);
+  if (station) return getStationOwner(station, i) === PLAYER_SIDE;
+  return Boolean(getSystemControl(i).playerControlled);
+}
+// The standings a purchase decision is judged against. Unchanged everywhere except at your own vendor,
+// where the standing that would be tested is your own and is therefore met.
+function purchaseStandings(station = getCurrentServiceStation()) {
+  const standings = Object.fromEntries(Object.keys(factionRelations).map((key) => [key, getFactionStanding(key)]));
+  if (!isOwnHoldingVendor(station)) return standings;
+  // Every standing, not just the one this vendor happens to quote: a design's tier may be measured
+  // against its own culture's opinion rather than the seller's, and at your own yard neither is being
+  // asked. Nothing else about the decision moves — stock, funds, region and the banned designs stand.
+  for (const key of Object.keys(standings)) standings[key] = STANDING_MAX;
+  return standings;
+}
 function getCurrentPurchaseVendor(station = getCurrentServiceStation()) {
   const stationStats = station ? getShipStats(station.stationTypeId) : null;
   return {
@@ -1368,7 +1397,22 @@ function getNpcShipId(seedValue, role = 'traffic') {
   return pickSeededPoolItem(pool, seedValue, 'npc-any-ship') || pool[0];
 }
 
-function getNpcShipIdForFaction(faction = 'neutral', seedValue = 1, role = 'patrol') {
+// Which culture's hulls a power actually flies. The Blender remnant is Jem'Hadar: it has its own
+// diplomacy and its own name, and the ships are Dominion ships, so anything choosing a hull asks this
+// rather than the diplomatic identity. [playtest]
+const SHIP_POOL_FACTION = Object.freeze({ dominion_remnant: 'dominion' });
+// ...and how much of that culture it flies. The remnant fields two designs, the Jem'Hadar attack ship
+// and the Jem'Hadar battlecruiser, and nothing else: the battleship, the cruiser, the scout and the
+// freighter are the Dominion the player has not met yet, and meeting a raiding garrison must not spoil
+// them. A faction listed here draws only from its list — campaign hulls, patrols, escorts, all of it —
+// so there is no path by which a larger Dominion hull reaches the board under a remnant flag. [playtest]
+const FACTION_DESIGN_POOL = Object.freeze({ dominion_remnant: Object.freeze([322, 48]) });
+function shipPoolFaction(faction) { return SHIP_POOL_FACTION[String(faction || '')] || faction; }
+function factionDesignPool(faction) { return FACTION_DESIGN_POOL[String(faction || '')] || null; }
+function getNpcShipIdForFaction(rawFaction = 'neutral', seedValue = 1, role = 'patrol') {
+  const restricted = factionDesignPool(rawFaction);
+  if (restricted) return pickSeededPoolItem(restricted, seedValue, `npc-faction-ship:${rawFaction}`) || restricted[0];
+  const faction = shipPoolFaction(rawFaction);
   if (state.shipCatalog) return pickCatalogSpawnId(role, faction, seedValue);
   const pool = state.npcShipIds?.length ? state.npcShipIds : FALLBACK_NPC_SHIP_IDS;
   const exact = pool.filter((id) => getShipFaction(id) === faction);
@@ -1384,6 +1428,7 @@ const factionShipNamePrefixes = {
   cardassian: 'CDS',
   klingon: 'IKS',
   dominion: 'DVS',
+  dominion_remnant: 'DVS',
   breen: 'BWS',
   ferengi: 'FMS',
   tholian: 'TAS',
@@ -4151,6 +4196,11 @@ const factionNames = {
   cardassian: 'Cardassian',
   klingon: 'Klingon',
   dominion: 'Dominion',
+  // The isolated Jem'Hadar holding at Blender. It flies Dominion hulls and fights like them, and it is
+  // NOT the Dominion beyond the wormhole: it has its own diplomacy, its own quarrels, and a ceasefire
+  // with it settles nothing about the expedition. Named for the place so a captain reading a report
+  // cannot mistake one for the other. [playtest]
+  dominion_remnant: 'Blender Remnant',
   breen: 'Breen',
   tholian: 'Tholian',
   bajoran: 'Bajoran',
@@ -4168,12 +4218,15 @@ const factionNames = {
 };
 
 const factionRelations = {
-  terran: { friendly: ['vulcan', 'andorian', 'bajoran'], hostile: ['dominion', 'cardassian', 'klingon', 'romulan', 'gorn', 'hirogen', 'suliban', 'borg'] },
+  terran: { friendly: ['vulcan', 'andorian', 'bajoran'], hostile: ['dominion', 'dominion_remnant', 'cardassian', 'klingon', 'romulan', 'gorn', 'hirogen', 'suliban', 'borg'] },
   vulcan: { friendly: ['terran', 'andorian', 'bajoran'], hostile: ['dominion', 'cardassian', 'klingon', 'hirogen', 'borg'] },
-  romulan: { friendly: ['klingon'], hostile: ['dominion', 'cardassian', 'terran', 'vulcan', 'andorian', 'borg'] },
+  romulan: { friendly: ['klingon'], hostile: ['dominion', 'dominion_remnant', 'cardassian', 'terran', 'vulcan', 'andorian', 'borg'] },
   cardassian: { friendly: ['dominion'], hostile: ['terran', 'romulan', 'klingon', 'vulcan', 'andorian', 'bajoran', 'borg'] },
   klingon: { friendly: ['romulan'], hostile: ['dominion', 'cardassian', 'terran', 'vulcan', 'andorian', 'gorn', 'borg'] },
   dominion: { friendly: ['cardassian'], hostile: ['terran', 'romulan', 'klingon', 'vulcan', 'ferengi', 'andorian', 'bajoran', 'hirogen', 'borg'] },
+  // Cut off from the wormhole and surrounded: it raids Terran and Romulan shipping and is raided back,
+  // and it has no quarrel with anyone else worth spending Jem'Hadar on.
+  dominion_remnant: { friendly: ['dominion', 'cardassian'], hostile: ['terran', 'romulan'] },
   breen: { friendly: [], hostile: ['terran', 'romulan', 'klingon', 'vulcan', 'ferengi', 'andorian', 'borg'] },
   tholian: { friendly: [], hostile: ['dominion', 'cardassian', 'klingon', 'terran', 'pirate', 'gorn', 'suliban', 'borg'] },
   bajoran: { friendly: ['terran', 'vulcan', 'andorian'], hostile: ['dominion', 'cardassian', 'pirate', 'borg'] },
@@ -4347,6 +4400,23 @@ function isUnlockedFaction(faction = 'neutral') {
   if (key === 'cardassian' && !feats.bajoranFleetDown && getFactionStanding('cardassian') < 50) return false;
   return true;
 }
+// A refusal that never applies to your own holding. Every call that asks "will this vendor deal with
+// me" goes through here so the answer is the same in the shop, the market, the weapon rack and the
+// remote channel: your own station and your own world always will. [playtest]
+// What a vendor thinks of the captain, for a purchase tier. At a holding the captain owns there is no
+// foreign opinion to consult, so the test is satisfied rather than re-aimed: EW modules, sensor suites
+// and seeker weapons did not waive it at an owned yard, they swapped the tested faction to the
+// captain's own flag, which refused them at their own dock whenever that flag's standing was low.
+// Price, stock, compatibility, facility and clearance are untouched by this — only the foreign
+// opinion is. [review]
+function vendorStanding(station = getCurrentServiceStation(), faction = null) {
+  if (isOwnHoldingVendor(station)) return STANDING_MAX;
+  return getFactionStanding(String(faction || ''));
+}
+function vendorRefusal(station, faction) {
+  if (isOwnHoldingVendor(station)) return null;
+  return serviceRefusal(faction);
+}
 function serviceRefusal(faction = 'neutral') {
   const key = normalizeFactionKey(faction);
   if (getEffectiveAttitude(key) === 'hostile') return `${formatFaction(key)} ports refuse you. Standing ${getFactionStanding(key)}. Repair it by trading elsewhere.`;
@@ -4475,8 +4545,8 @@ function getEWUpgradeDecision(id,entity=state) {
   const owner=st?getStationOwner(st):getSystemFaction(state.currentPlanet)||'neutral';
   const faction=owner===PLAYER_SIDE?getPlayerFlag():owner.startsWith('private:')?'neutral':owner;
   const requirement=getConfiguredPurchaseTierThresholds()?.[u?.tier]??PURCHASE_TIER_STANDING[u?.tier]??0;
-  const standing=getFactionStanding(faction),blocked=getSecurityDockingBlock(owner);
-  const service=!st||(!st.destroyed&&!st.underConstruction&&/shipyard|science|university|maintenance|starbase/i.test(getShipStats(st.stationTypeId).name||st.name||''));
+  const standing=vendorStanding(st,faction),blocked=getSecurityDockingBlock(owner);
+  const service=!st||(!st.destroyed&&!st.underConstruction&&fleetStationServices(st).refit);
   const reason=!u?'Unknown module':!hasServiceConnection()?getServiceTransferBlock():blocked?String(blocked):!service?'No electronic refit service':
     a!==state&&(!state.npcShips.includes(a)||!isPlayerSideNpc(a)||a.destroyed||a.trafficWarp?.phase==='away'||sensorDistance(playerWorldPosition(),a)>2400)?'Ship is not locally commanded':
     ensureActorEW(a).module===id?'Already installed':standing<requirement?`Requires ${requirement} ${formatFaction(faction)} standing; yours ${standing}`:state.latinum<u.price?'Insufficient latinum':null;
@@ -4503,7 +4573,10 @@ function renderEWPanel() {
   const names=(q.own||[]).map(k=>sensorActors.get(k)?.entity).filter(n=>n&&isPlayerSideNpc(n)&&sensorDistance(playerWorldPosition(),n)<=2400).map(n=>getTargetName(n));
   const own=names.length>0,self=q.selfNoise>0,foreign=q.noise**2>(q.ownNoise||0)**2+(q.selfNoise||0)**2+1e-8;
   const label=q.noise===0?'Clear':own?`Own fleet jammer${foreign?' + other/unattributed':''}: ${names.join(', ')}`:self?`Own jammer${foreign?' + other/unattributed':''}`:'Other/unattributed';
-  return `<details data-sensor-details="ew"><summary>Electronic warfare</summary>${controls(state)}<div class="meta">Interference: ${escapeHtml(label)} · RF range ${(Math.sqrt(q.quality)*100).toFixed(0)}% · Scan rate ${(q.quality*100).toFixed(0)}%</div><div class="meta">Electronics ${(t.electronics||0).toFixed(1)} EU/s · Jammer ${(t.jammer||0).toFixed(1)} · ECCM ${(t.eccm||0).toFixed(1)}. Fleet jammer: detectable around 3,000 units by standard sensors at 5 points. Nearby friendly receivers are affected.</div>${state.docked?refit(state):''}${state.npcShips.filter(n=>!n.destroyed&&isPlayerSideNpc(n)&&sensorDistance(playerWorldPosition(),n)<=2400).map(n=>controls(n)+(state.docked?refit(n):'')).join('')}</details>`;
+  // Rendered open, in one place, and without a <summary> repeating the panel's own heading: this used
+  // to be a collapsed <details> that also appeared inside the OPS panel, so EW was two clicks away in
+  // two places and printed its own name twice when it got there. [playtest]
+  return `<div class="ew-panel">${controls(state)}<div class="meta">Interference: ${escapeHtml(label)} · RF range ${(Math.sqrt(q.quality)*100).toFixed(0)}% · Scan rate ${(q.quality*100).toFixed(0)}%</div><div class="meta">Electronics ${(t.electronics||0).toFixed(1)} EU/s · Jammer ${(t.jammer||0).toFixed(1)} · ECCM ${(t.eccm||0).toFixed(1)}. Fleet jammer: detectable around 3,000 units by standard sensors at 5 points. Nearby friendly receivers are affected.</div>${state.docked?refit(state):''}${state.npcShips.filter(n=>!n.destroyed&&isPlayerSideNpc(n)&&sensorDistance(playerWorldPosition(),n)<=2400).map(n=>controls(n)+(state.docked?refit(n):'')).join('')}</div>`;
 }
 
 function sensorSnapshotActor(entity, zone = null) {
@@ -4896,10 +4969,9 @@ function getSensorUpgradeDecision(id, entity = state) {
   const faction = String(st ? getStationOwner(st) : getSystemFaction(state.currentPlanet) || 'neutral'),
     gateFaction = faction === PLAYER_SIDE ? getPlayerFlag() : faction.startsWith('private:') ? 'neutral' : faction;
   const requirement = getConfiguredPurchaseTierThresholds()?.[u?.tier] ?? PURCHASE_TIER_STANDING[u?.tier] ?? 0;
-  const standing = getFactionStanding(gateFaction),
+  const standing = vendorStanding(st, gateFaction),
     blocked = getSecurityDockingBlock(faction);
-  const service = !st || (!st.destroyed && !st.underConstruction && /shipyard|science|university|maintenance|starbase/i
-    .test(st.name || getShipStats(st.stationTypeId).name || ''));
+  const service = !st || (!st.destroyed && !st.underConstruction && fleetStationServices(st).refit);
   const reason = !u ? 'Unknown suite' : !hasServiceConnection() ? getServiceTransferBlock() : blocked ? String(blocked) : !service ?
     'No sensor refit service' : a !== state && (a.destroyed || a.trafficWarp?.phase === 'away' || sensorDistance(
       playerWorldPosition(), a) > 2400 || !state.npcShips.some(n => n === a && isPlayerSideNpc(n))) ?
@@ -4950,9 +5022,10 @@ function renderSensorPanelMarkup() {
  <div class="meta">Rated passive ${Math.round(profile.passive)} / active ${Math.round(profile.active)} units at 5 points. Active transmissions reveal your presence.</div>
  <div class="sensor-actions"><button data-sensor-action="toggle">Transponder: ${e.transponder?'On':'Off'}</button><button data-sensor-action="sweep">Active sweep</button><button data-sensor-action="focus">Focused scan</button><button data-sensor-action="cancel">Cancel scan</button></div>
  <div class="meta">Declared: ${escapeHtml(e.declaration)} · ${isPlayerCloaked()?'Suppressed by cloak':e.transponder?'Transmitting':'Running dark'}</div>
- <details class="sensor-contact-list" data-sensor-details="contacts"><summary>Contact reports (${reports.length})</summary>${reports.slice(-12).map(c=>`<div class="meta">${escapeHtml(c.report?.hull||receivedDeclaration(c,sensorClock)||'Unidentified contact')}${sensorClock-(c.jammerAt??-Infinity)<=.400001?' · Jamming emission':''} — ${freshTrack(c,sensorClock)?'Tracked':c.cue?.expiresAt>=sensorClock?'Attack origin':c.position?'Last known position':'Broadcast only'} · ${Math.max(0,sensorClock-(c.report?.assessedAt??(c.cue?.expiresAt>=sensorClock?c.cue.launchedAt:c.position?c.observedAt:c.declaredAt))).toFixed(1)}s old${c.report?.weapons?'<br>Weapons: '+escapeHtml(c.report.weapons.join(', ')||'None')+'<br>'+escapeHtml(c.report.condition)+' · EW: '+escapeHtml(c.report.ewModule||'Unknown')+' · '+escapeHtml(c.report.reactor||'Reactor unknown')+' · '+escapeHtml(c.report.crew)+'<br>'+escapeHtml(c.report.cargo):''}</div>`).join('')}</details>
- ${localFleet.length?'<details data-sensor-details="fleet"><summary>Local fleet sensors & crew</summary>'+localFleet.map(n=>`<div class="meta">${escapeHtml(getTargetName(n))} — ${escapeHtml(n.crewSkill)} / ${escapeHtml(n.crewTemperament)} · ${escapeHtml(SENSOR_SUITES[ensureActorSensors(n).suite].name)}${state.docked?refit(n):''}</div>`).join('')+'</details>':''}
- ${state.docked?'<details data-sensor-details="refit"><summary>Sensor refit — captain’s ship</summary>'+refit(state)+'</details>':''}`;
+ <div class="panel-head panel-subhead">Contact reports (${reports.length})</div>
+ <div class="sensor-contact-list" data-sensor-details="contacts">${reports.length?'':'<div class="meta">No contacts detected.</div>'}${reports.slice(-12).map(c=>`<div class="meta">${escapeHtml(c.report?.hull||receivedDeclaration(c,sensorClock)||'Unidentified contact')}${sensorClock-(c.jammerAt??-Infinity)<=.400001?' · Jamming emission':''} — ${freshTrack(c,sensorClock)?'Tracked':c.cue?.expiresAt>=sensorClock?'Attack origin':c.position?'Last known position':'Broadcast only'} · ${Math.max(0,sensorClock-(c.report?.assessedAt??(c.cue?.expiresAt>=sensorClock?c.cue.launchedAt:c.position?c.observedAt:c.declaredAt))).toFixed(1)}s old${c.report?.weapons?'<br>Weapons: '+escapeHtml(c.report.weapons.join(', ')||'None')+'<br>'+escapeHtml(c.report.condition)+' · EW: '+escapeHtml(c.report.ewModule||'Unknown')+' · '+escapeHtml(c.report.reactor||'Reactor unknown')+' · '+escapeHtml(c.report.crew)+'<br>'+escapeHtml(c.report.cargo):''}</div>`).join('')}</div>
+ ${localFleet.length?'<details data-sensor-details="fleet" open><summary>Local fleet sensors & crew</summary>'+localFleet.map(n=>`<div class="meta">${escapeHtml(getTargetName(n))} — ${escapeHtml(n.crewSkill)} / ${escapeHtml(n.crewTemperament)} · ${escapeHtml(SENSOR_SUITES[ensureActorSensors(n).suite].name)}${state.docked?refit(n):''}</div>`).join('')+'</details>':''}
+ ${state.docked?'<details data-sensor-details="refit" open><summary>Sensor refit — captain’s ship</summary>'+refit(state)+'</details>':''}`;
 }
 
 function sensorAttackSnapshot(source) {
@@ -5346,15 +5419,14 @@ function renderPowerPanel() {
       + `<div class="power-tank-val">${value}</div></div>`;
   }).join('');
   const allocated = defs.reduce((sum, [key]) => sum + getPowerDist(key), 0);
-  return `<div class="panel-head">Power Distribution (OPS) Control</div>`
-    + `<div class="meta">Energy ${energy}/${max} (${pct}%) | Allocated ${allocated}/${POWER_DIST_BUDGET} | Drag a system slider</div>`
+  return `<div class="meta">Energy ${energy}/${max} (${pct}%) | Allocated ${allocated}/${POWER_DIST_BUDGET} | Drag a system slider</div>`
     + `<div class="meta" data-power-readout>Reactor ${profile.reactorOutput.toFixed(1)} EU/s · Draw ${telemetry.consumption.toFixed(1)} EU/s · ${telemetry.net >= 0 ? (energy >= max ? 'Surplus' : 'Recovering') : 'Draining'} ${Math.abs(telemetry.net).toFixed(1)} EU/s</div>`
     + `<div class="meta">Weapon draw is averaged over one second. Lower system settings reduce demand; reactor output stays fixed.</div>`
     + `<div class="meta" data-power-unused>Unused allocation: ${POWER_DIST_BUDGET - allocated} points. Stored energy is shown above.</div>`
     + `<div class="power-tanks">${tanks}</div>`
     + `<div class="meta" data-power-effects>Impulse ${(powerEngineFactor(power.dist) * 100).toFixed(0)}% · Weapon damage ${(powerWeaponFactor(power.dist) * 100).toFixed(0)}% · Shield recovery ${(getPowerDist('shields') / 5 * 100).toFixed(0)}%</div>`
     + `<div class="meta">Relative to normal allocation (5 points). Stronger shots cost more energy; stronger engines and faster shield recovery draw more power. Weapon recharge stays unchanged. Recent shield hits and available energy still limit recovery.</div>`
-    + renderSensorPanelMarkup() + renderEWPanel()
+    + renderSensorPanelMarkup()
     + `<button data-fleet-action="open">Fleet, boarding & shipyard</button>`
     + `<div class="ship-actions"><button data-top-action="close-panel">Close</button></div>`;
 }
@@ -5624,33 +5696,50 @@ function getBaseSystemFaction(index = state.currentPlanet) {
 
 // Name/description heuristics for worlds without a mapped government ID. Returns null, never
 // a default, so an unrecognized world stays unknown instead of quietly becoming independent.
-function matchSystemFactionByName(index = state.currentPlanet) {
+// The same rules the heuristics always used, as data, so they can be asked two different questions.
+// `names` match the world's own name and settle who its people are. `text` also matches the authored
+// description, which mentions powers rather than naming inhabitants — a world described as raided by
+// Klingons is not a Klingon world — so description matches answer "whose space is this" and never
+// "whose world is this". Order is significant and is the order these rules have always had.
+// New Switzerland is deliberately absent from the Terran names: it is one of the independents the
+// factions proposal names as a culture of its own, and matching it to Earth is what erased it. [playtest]
+const SYSTEM_NAME_RULES = Object.freeze([
+  { faction: 'pirate', names: ['pirates haven'], text: ['pirate'] },
+  { faction: 'terran', names: ['terra nova', 'andreas', 'mars', 'luna', 'proxima', 'tellar'], text: ['human colony', 'terran'] },
+  { faction: 'andorian', names: ['andoria'], text: [] },
+  { faction: 'ferengi', names: ['ferenginar', 'lappa', 'hupyrian'], text: ['ferengi'] },
+  { faction: 'vulcan', names: ['vulcan', "p'jem", "t'khut", "ni'var"], text: ['vulcan'] },
+  { faction: 'bajoran', names: ['bajora'], exact: true, text: [], special: 'bajoran' },
+  { faction: 'andorian', names: [], text: ['andorian'] },
+  { faction: 'gorn', names: ['gorn'], text: ['gorn'] },
+  { faction: 'hirogen', names: ['hirogen'], text: ['hirogen'] },
+  { faction: 'suliban', names: ['suliban'], text: ['suliban'] },
+  { faction: 'romulan', names: ['romulus', 'remus', 'rator', 'virinat', 'chaltok'], text: ['romulan', 'reman'] },
+  { faction: 'cardassian', names: ['cardassia', 'lakarian', 'arawath', 'monac'], text: ['cardassian'] },
+  { faction: 'klingon', names: ['qonos', 'worf', 'kah', 'boreth', "ty'gokor", 'narendra'], text: ['klingon'] },
+  { faction: 'breen', names: ['breen', 'brea'], text: ['breen'] },
+  { faction: 'sona', names: ['sonata', 'iritum', 'goralis'], text: ["son'a", 'briar patch'] },
+  { faction: 'dominion', names: ['dominica', 'vortara'], text: ['dominion', "jem'hadar", "jem'haddar", 'vorta', 'founder', 'karemma', 'dosi', 't-rogoran'] },
+  { faction: 'tholian', names: ['thol'], text: ['tholian'] },
+  { faction: 'delpin', names: ['delpi'], text: [] },
+  { faction: 'tarellian', names: ['tarellia'], text: [] },
+  { faction: 'promelli', names: ['promel'], text: [] },
+]);
+function matchSystemFactionByName(index = state.currentPlanet, { nameOnly = false } = {}) {
   const planet = state.planets[index] || {};
   const row = state.systemData[index] || [];
   const name = String(planet.name || row[0] || '').toLowerCase();
   const desc = String(row[7] || '').toLowerCase();
   const text = `${name} ${desc}`;
-
-  if (name.includes('pirates haven') || text.includes('pirate')) return 'pirate';
-  if (name.includes('terra nova') || name.includes('andreas') || name.includes('new switzerland') || name.includes('mars') || name.includes('luna') || name.includes('proxima') || name.includes('tellar') || text.includes('human colony') || text.includes('terran')) return 'terran';
-  if (name.includes('andoria')) return 'andorian';
-  if (name.includes('ferenginar') || name.includes('lappa') || name.includes('hupyrian') || text.includes('ferengi')) return 'ferengi';
-  if (name.includes('vulcan') || name.includes("p'jem") || name.includes("t'khut") || name.includes("ni'var") || text.includes('vulcan')) return 'vulcan';
-  if (name === 'bajora' || (text.includes('bajoran') && !text.includes('dominion'))) return 'bajoran';
-  if (text.includes('andorian')) return 'andorian';
-  if (name.includes('gorn') || text.includes('gorn')) return 'gorn';
-  if (name.includes('hirogen') || text.includes('hirogen')) return 'hirogen';
-  if (name.includes('suliban') || text.includes('suliban')) return 'suliban';
-  if (name.includes('romulus') || name.includes('remus') || name.includes('rator') || name.includes('virinat') || name.includes('chaltok') || text.includes('romulan') || text.includes('reman')) return 'romulan';
-  if (name.includes('cardassia') || name.includes('lakarian') || name.includes('arawath') || name.includes('monac') || text.includes('cardassian')) return 'cardassian';
-  if (name.includes('qonos') || name.includes('worf') || name.includes('kah') || name.includes('boreth') || name.includes("ty'gokor") || name.includes('narendra') || text.includes('klingon')) return 'klingon';
-  if (name.includes('breen') || name.includes('brea') || text.includes('breen')) return 'breen';
-  if (name.includes('sonata') || name.includes('iritum') || name.includes('goralis') || text.includes("son'a") || text.includes('briar patch')) return 'sona';
-  if (name.includes('dominica') || name.includes('vortara') || text.includes('dominion') || text.includes("jem'hadar") || text.includes("jem'haddar") || text.includes('vorta') || text.includes('founder') || text.includes('karemma') || text.includes('dosi') || text.includes('t-rogoran')) return 'dominion';
-  if (name.includes('thol') || text.includes('tholian')) return 'tholian';
-  if (name.includes('delpi')) return 'delpin';
-  if (name.includes('tarellia')) return 'tarellian';
-  if (name.includes('promel')) return 'promelli';
+  for (const rule of SYSTEM_NAME_RULES) {
+    if (rule.special === 'bajoran') {
+      if (name === 'bajora') return rule.faction;
+      if (!nameOnly && desc.includes('bajoran') && !text.includes('dominion')) return rule.faction;
+      continue;
+    }
+    if (rule.names.some((n) => name.includes(n))) return rule.faction;
+    if (!nameOnly && rule.text.some((t) => text.includes(t))) return rule.faction;
+  }
   return null;
 }
 
@@ -5663,9 +5752,84 @@ function getPlayerFlag() { return normalizeFactionKey(state.playerFaction || 'ne
 // Original political identity of a system: a mapped government ID (an explicit 'neutral' there is
 // independence recorded in the data), else a name match, else unknown (null). Nothing here
 // invents ownership; gameplay fallbacks to 'neutral' happen only in getSystemFaction.
+// Who holds each world, read from that world's own description. Separate from WORLD_CULTURES: a world
+// can be Reman and Romulan-held, or Bajoran and Dominion-held. The shipped government table only
+// answers for 43 of the 101 worlds and maps the rest to neutral, which is why the Tholians held
+// exactly one world while five more introduced themselves in their own first sentence as Tholian
+// space — and why none of those five was hostile to a Terran captain. Each entry carries the phrase
+// that places it inside that power's territory, and a gate holds every one against the shipped
+// descriptions. [playtest]
+//
+// This sits UNDER a player capture and under an explicit override, so taking a world still takes it
+// and an existing save's captures survive untouched.
+// Two worlds are deliberately NOT here. Blender's text says its survivors "went unnoticed" and are
+// rebuilding — that is hiding, not holding, and giving the remnant a world would make it a territorial
+// polity in the campaign's war ledger. Gorn's race is stated wiped out and its world unpopulated; a
+// dead race holds nothing. Both keep their people; neither gets territory. [review]
+const WORLD_ALLEGIANCE = Object.freeze({
+  'Crystal Loom': { faction: 'tholian', why: 'Tholian forge-world' },
+  'Webheart': { faction: 'tholian', why: 'political knot of the growing Tholian empire' },
+  'Lattice Hold': { faction: 'tholian', why: 'Tholian escort flotillas' },
+  'Spindle Reach': { faction: 'tholian', why: 'guards the outer filaments of Tholian space' },
+  'Facet Gate': { faction: 'tholian', why: 'Tholian merchants bargain under the protection of web cannons' },
+  'New Romulus': { faction: 'romulan', why: 'A young Romulan colony' },
+  'Rator': { faction: 'romulan', why: 'Romulan military colony' },
+  'Virinat': { faction: 'romulan', why: 'Romulan agricultural colony' },
+  'Chaltok': { faction: 'romulan', why: 'Romulan border world' },
+  'Ty\'Gokor': { faction: 'klingon', why: 'hidden Klingon command world' },
+  'Boreth': { faction: 'klingon', why: 'Klingon monastery world' },
+  'Narendra': { faction: 'klingon', why: 'Klingon border colony' },
+  'Lakarian': { faction: 'cardassian', why: 'Cardassian cultural world' },
+  'Arawath': { faction: 'cardassian', why: 'Cardassian supply system' },
+  'Monac': { faction: 'cardassian', why: 'Cardassian industrial' },
+  'Terra Nova': { faction: 'terran', why: 'frontier colony of the Earth Empire' },
+  'Proxima Yard': { faction: 'terran', why: 'Earth shipyard colony' },
+  'P\'Jem': { faction: 'vulcan', why: 'Vulcan monastery' },
+  'T\'Khut': { faction: 'vulcan', why: 'Vulcan frontier settlement' },
+  'Lappa': { faction: 'ferengi', why: 'Ferengi finance moon' },
+  'Breen Anchorage': { faction: 'breen', why: 'Breen fleet anchorage' },
+  'Iritum': { faction: 'sona', why: 'mining planet for the Son\'a' },
+  'Goralis': { faction: 'sona', why: 'Son\'a refinery' },
+  'Sonata': { faction: 'sona', why: 'homeworld to the Son\'a' },
+  'Tarellia': { faction: 'tarellian', why: 'homeworld to the Tarellian race' },
+  'Tarellian Reach': { faction: 'tarellian', why: 'Tarellian exploration colony' },
+  'Promelus': { faction: 'promelli', why: 'The homeworld of the Promelli' },
+  'Promelli Drift': { faction: 'promelli', why: 'Promelli bio-technology' },
+  'Hirogen Range': { faction: 'hirogen', why: 'hunting beacons' },
+  'Suliban Helix': { faction: 'suliban', why: 'cell docks' },
+  'Brea': { faction: 'breen', why: 'The homeworld of the Breen' },
+});
+// Worlds whose own text states who governs them, and the answer is nobody. Listed so a later pass
+// cannot quietly hand them to a neighbour: independence here is a fact about the world, not an absence
+// of data — so the value is the sentence that says it, and a world whose description says nothing
+// about government is NOT listed here. It stays on the shipped table, which is a gap, not a claim.
+const WORLD_INDEPENDENT = Object.freeze({
+  'Andreas': 'No government claims Andreas, and none patrol it',
+  'Lameu': 'Now it has its own government',
+  'Orilla': 'who died out many years ago',
+  'Opusab': 'Many people from different governments get along here',
+  'Biakisch': 'they have managed to go unnoticed by any advanced species',
+  'Dyson': 'Their government, rich and advanced beyond all others',
+  'Nausica': 'the Nausicans are now free',
+  'Lysia': 'the Lysians finally found themselves free',
+});
+// Empty on purpose. Two worlds were authored here on "trophy vaults" and "trading quietly", and
+// neither phrase says a world sells other powers' hulls — one describes what the Hirogen keep and the
+// other how the Suliban trade, and reading a shipyard's inventory out of either was the same mistake
+// as reading a grey market out of an emptied shelf, one step further back. Selling foreign hulls is a
+// gameplay decision about where a captain may buy what, not a thing a description proves; the specific
+// worlds and hulls are proposed in docs/playtest/FOREIGN-STOCK-PROPOSAL, for review before any of it
+// is authored. Until then every world's shelf is its own government's. [playtest]
+const WORLD_FOREIGN_STOCK = Object.freeze({});
 function getBaseSystemOrigin(index = state.currentPlanet) {
   const planet = state.planets[index] || {};
   const row = state.systemData[index] || [];
+  const name = String(planet.name || '');
+  // Authored first: the shipped government table cannot express most of these, and where it has no
+  // answer it says neutral, which reads as "nobody holds this" rather than "we did not record it".
+  const held = WORLD_ALLEGIANCE[name];
+  if (held) return { faction: held.faction, source: 'allegiance', why: held.why };
+  if (WORLD_INDEPENDENT[name]) return { faction: 'neutral', source: 'independent', why: WORLD_INDEPENDENT[name] };
   const gov = Number(planet.governmentId ?? row[1]);
   if (Number.isFinite(gov) && BM1_GOVERNMENT_FACTIONS[gov] !== undefined) {
     return { faction: BM1_GOVERNMENT_FACTIONS[gov], source: 'government' };
@@ -5727,7 +5891,209 @@ function getSystemControl(index = state.currentPlanet) {
   if (controller === PLAYER_SIDE) allegiance = getPlayerFlag();
   else if (isRecognizedFactionKey(controller)) allegiance = controller;
   else allegiance = 'neutral';
-  return { index: i, origin: origin.faction, originSource: origin.source, controller, controlSource, polityId, allegiance, playerControlled };
+  return { index: i, origin: origin.faction, originSource: origin.source, originWhy: origin.why || null, controller, controlSource, polityId, allegiance, playerControlled };
+}
+
+// Who the people of a world are, and who governs them. These are two different facts and the HUD
+// showed only the second, so Bajor under a Dominion flag read as a Dominion world with nothing to say
+// the people are Bajoran or that the flag over them is an occupier's. The ladder below is not a new
+// mechanic: it names states the campaign already runs on — a fresh capture suppresses a world's output
+// and recovers it over `occupationIntegrationDays`, and a holder that finishes integrating its industry
+// gets its designs. So "occupation", "administration" and "annexed" are readable names for the three
+// things the model already does to a captured world. [playtest]
+const SYSTEM_SOVEREIGNTY_LEVELS = Object.freeze(['unclaimed', 'independent', 'colony', 'occupied', 'administered', 'annexed']);
+// Who the people of a world are. Deliberately separate from getBaseSystemOrigin, which answers who
+// governs it: the government table maps four of its ids to 'neutral', meaning "no great power governs
+// here", and because that is a value rather than a gap it short-circuited the name lookup behind it.
+// Fifty-eight of a hundred and one worlds therefore had no identity at all — Sonata, Dyson, Tepos and
+// Blender among the populous ones, and Terra Nova, Tellar, Rator, Virinat, Chaltok and P'Jem among the
+// named ones the matcher below already knew. Control is untouched by this: a world the table calls
+// neutral is still governed by nobody, it simply has a people now. [playtest]
+// Who lives on each world, read from that world's own description. Authored, not matched: the old
+// chain guessed from the world's name and fell back to inventing a people named after the planet,
+// which left five Tholian worlds calling themselves Crystal Loom and Webheart, read Blender as
+// nobody, and reported New Bajor's enslaved Bajorans as Dominion. Each entry carries the phrase
+// from the world's own text that says so, and a gate checks every one of them against the shipped
+// descriptions, so no entry can claim a justification the data does not contain. [review]
+//
+// A culture is NOT a government. Nothing here assigns, changes or implies who holds a world: a
+// people:* id is a people with no polity of its own — Remans under Romulan rule, Karemma under
+// Dominion supervision — and can never be mistaken for a faction key. Government comes from the
+// authored governmentId and from capture, and this table does not touch either. [review]
+const WORLD_CULTURES = Object.freeze({
+  'Earth': { id: 'terran', label: 'Terran', why: 'Homeworld of the humans' },
+  'Orion': { id: 'people:orion', label: 'Orion', why: 'Orions live a privileged life' },
+  'Lik Prime': { id: 'people:lik', label: 'Lik', why: 'The inhabitants of Lik Prime' },
+  'Alpha Centauri': { id: 'terran', label: 'Terran', why: 'colonized by humans' },
+  'New Switzerland': { id: 'terran', label: 'Terran', why: 'passivist humans' },
+  'Trey': { id: 'terran', label: 'Terran', why: 'human guards' },
+  'Epsilon': { id: 'terran', label: 'Terran', why: 'human colony' },
+  'Quintus': { id: 'terran', label: 'Terran', why: 'Earth outpost' },
+  'Gorn': { id: 'gorn', label: 'Gorn', why: 'reptillian species' },
+  'Rigel': { id: 'people:rigelian', label: 'Rigelian', why: 'independent planet inhabited by a primitive industrial society' },
+  'Vulcan': { id: 'vulcan', label: 'Vulcan', why: 'The Vulcans' },
+  'Ferenginar': { id: 'ferengi', label: 'Ferengi', why: 'Homeworld to the Ferengi race' },
+  'Lysia': { id: 'people:lysian', label: 'Lysian', why: 'Lysians' },
+  'Nausica': { id: 'people:nausicaan', label: 'Nausicaan', why: 'Nausicans' },
+  'Tholia': { id: 'tholian', label: 'Tholian', why: 'Tholians' },
+  'Flash': { id: 'people:flashian', label: 'Flashian', why: 'Flashians' },
+  'Oce Nu': { id: 'terran', label: 'Terran', why: 'battleground between the Klingons and the Humans' },
+  'Koann': { id: 'terran', label: 'Terran', why: 'shipyard for Earth\'s Imperial Fleet' },
+  'Delpi': { id: 'delpin', label: 'Delpin', why: 'The Delpi homeworld' },
+  'Andoria': { id: 'andorian', label: 'Andorian', why: 'Andorians' },
+  'Trill': { id: 'people:trill', label: 'Trill', why: 'Trills' },
+  'Tepos': { id: 'people:teposian', label: 'Teposian', why: 'Teposians' },
+  'Blender': { id: 'dominion_remnant', label: 'Blender Remnant', why: 'conquering race called the Dominion' },
+  'Remus': { id: 'people:reman', label: 'Reman', why: 'home to the Remans' },
+  'Romulus': { id: 'romulan', label: 'Romulan', why: 'the Romulan race' },
+  'Vex': { id: 'people:vexxian', label: 'Vexxian', why: 'The Vex homeworld' },
+  'Batos': { id: 'terran', label: 'Terran', why: 'Earth planet' },
+  'Worf': { id: 'klingon', label: 'Klingon', why: 'Klingon planet' },
+  'Qonos': { id: 'klingon', label: 'Klingon', why: 'homeworld of the Klingon race' },
+  'Xonok': { id: 'klingon', label: 'Klingon', why: 'the Klingons stripmine' },
+  'Du\'Qot': { id: 'klingon', label: 'Klingon', why: 'A Klingon world' },
+  'Hof-Maso': { id: 'klingon', label: 'Klingon', why: 'Klingon Empire' },
+  'Hos\'Ichu': { id: 'klingon', label: 'Klingon', why: 'Klingon populations' },
+  'Kah\'Less': { id: 'klingon', label: 'Klingon', why: 'Klingon Warrior' },
+  'Bajora': { id: 'bajoran', label: 'Bajoran', why: 'a peaceful race called the Bajorans' },
+  'Cardassia': { id: 'cardassian', label: 'Cardassian', why: 'gov:3' },
+  'Dyson': { id: 'people:dyson', label: 'Dyson', why: 'The original inhabitants of Dyson' },
+  'Pirates Haven': { id: 'pirate', label: 'Pirate', why: 'we pirates' },
+  'Sonata': { id: 'sona', label: 'Son\'a', why: 'homeworld to the Son\'a' },
+  'Iritum': { id: 'sona', label: 'Son\'a', why: 'Son\'a' },
+  'Terra Nova': { id: 'terran', label: 'Terran', why: 'frontier colony of the Earth Empire' },
+  'Tarellia': { id: 'tarellian', label: 'Tarellian', why: 'Tarellian race' },
+  'Promelus': { id: 'promelli', label: 'Promelli', why: 'Promelli' },
+  'Brea': { id: 'breen', label: 'Breen', why: 'the Breen' },
+  'Dominica': { id: 'dominion', label: 'Dominion', why: 'the dreaded Dominion' },
+  'Andreas': { id: 'terran', label: 'Terran', why: 'Civilians fleeing the Klingon advance' },
+  'New Romulus': { id: 'romulan', label: 'Romulan', why: 'Romulan colony' },
+  'Aldnas': { id: 'romulan', label: 'Romulan', why: 'Romulan colony' },
+  'Vortara': { id: 'dominion', label: 'Dominion', why: 'legendary Vorta' },
+  'New Bajor': { id: 'bajoran', label: 'Bajoran', why: 'bajorans are slaves to the dominion' },
+  'JemHadar Relay': { id: 'dominion', label: 'Dominion', why: 'Jem\'Hadar' },
+  'Karemma Exchange': { id: 'people:karemma', label: 'Karemma', why: 'Karemma' },
+  'Founders Watch': { id: 'dominion', label: 'Dominion', why: 'Founder' },
+  'Dosi Gate': { id: 'people:dosi', label: 'Dosi', why: 'Dosi' },
+  'T-Rogoran Annex': { id: 'people:trogoran', label: 'T-Rogoran', why: 'T-Rogoran' },
+  'Proxima Yard': { id: 'terran', label: 'Terran', why: 'Earth shipyard colony' },
+  'Tellar': { id: 'people:tellarite', label: 'Tellarite', why: 'Tellarite' },
+  'P\'Jem': { id: 'vulcan', label: 'Vulcan', why: 'Vulcan monastery' },
+  'T\'Khut': { id: 'vulcan', label: 'Vulcan', why: 'Vulcan frontier' },
+  'Rator': { id: 'romulan', label: 'Romulan', why: 'Romulan military colony' },
+  'Virinat': { id: 'romulan', label: 'Romulan', why: 'Romulan agricultural colony' },
+  'Chaltok': { id: 'romulan', label: 'Romulan', why: 'Romulan border world' },
+  'Lakarian': { id: 'cardassian', label: 'Cardassian', why: 'Cardassian cultural world' },
+  'Arawath': { id: 'cardassian', label: 'Cardassian', why: 'Cardassian supply system' },
+  'Monac': { id: 'cardassian', label: 'Cardassian', why: 'Cardassian industrial' },
+  'Ty\'Gokor': { id: 'klingon', label: 'Klingon', why: 'Klingon command world' },
+  'Boreth': { id: 'klingon', label: 'Klingon', why: 'Klingon monastery' },
+  'Narendra': { id: 'klingon', label: 'Klingon', why: 'Klingon border colony' },
+  'Lappa': { id: 'ferengi', label: 'Ferengi', why: 'Ferengi finance moon' },
+  'Hupyrian': { id: 'people:hupyrian', label: 'Hupyrian', why: 'Ferengi-aligned protectorate' },
+  'Breen Anchorage': { id: 'breen', label: 'Breen', why: 'Breen fleet anchorage' },
+  'Goralis': { id: 'sona', label: 'Son\'a', why: 'Son\'a refinery' },
+  'Tarellian Reach': { id: 'tarellian', label: 'Tarellian', why: 'Tarellian exploration colony' },
+  'Promelli Drift': { id: 'promelli', label: 'Promelli', why: 'Promelli bio-technology' },
+  'Crystal Loom': { id: 'tholian', label: 'Tholian', why: 'Tholian' },
+  'Webheart': { id: 'tholian', label: 'Tholian', why: 'Tholian' },
+  'Lattice Hold': { id: 'tholian', label: 'Tholian', why: 'Tholian' },
+  'Spindle Reach': { id: 'tholian', label: 'Tholian', why: 'Tholian' },
+  'Facet Gate': { id: 'tholian', label: 'Tholian', why: 'Tholian' },
+  'Hirogen Range': { id: 'hirogen', label: 'Hirogen', why: 'hunting beacons' },
+  'Suliban Helix': { id: 'suliban', label: 'Suliban', why: 'cell docks' },
+  'Lameu': { id: 'terran', label: 'Terran', why: 'used to belong to the Earth Empire' },
+  'Noron': { id: 'cardassian', label: 'Cardassian', why: 'gov:3' },
+  'Anorez': { id: 'cardassian', label: 'Cardassian', why: 'gov:3' },
+  'Erasariel': { id: 'cardassian', label: 'Cardassian', why: 'gov:3' },
+});
+// Worlds whose own description says nobody is there. Without this the government table invents a
+// people for a corpse field and the population figure invents one for a world that says "home to
+// no one".
+const WORLD_UNPEOPLED = Object.freeze({
+  'Paso': 'nothing can live on its surface',
+  'Denmark': 'died out',
+  'Iconia': 'no longer inhabit this planet',
+  'Konael': 'none of the major governments colonized',
+  'Harman': 'frozen wasteland',
+  'Kardon': 'burned away',
+  'Astron': 'home to no one',
+  'Elderea': 'uninhabited',
+  'Xindus': 'every single xindi vessel was then destroyed',
+  'Sato': 'deserted',
+  'Nexus': 'the lysians soon died out',
+  'Nyoabek': 'no one is willing to live here',
+});
+const WORLD_CULTURE_LABELS = Object.freeze(Object.fromEntries(
+  Object.values(WORLD_CULTURES).filter((c) => c.id.startsWith('people:')).map((c) => [c.id, c.label])));
+function formatCulture(id) {
+  const key = String(id || '');
+  if (key.startsWith('people:')) return WORLD_CULTURE_LABELS[key] || key.slice(7);
+  return formatFaction(key);
+}
+function getSystemCulture(index = state.currentPlanet) {
+  const i = Number(index);
+  const name = String(state.planets[i]?.name || '');
+  // Authored first. A world the table names is that people whatever its government id says, which is
+  // the whole point: New Bajor's people are Bajoran while the Dominion holds it.
+  const authored = WORLD_CULTURES[name];
+  if (authored) return { id: authored.id, label: authored.label, source: 'authored', why: authored.why };
+  if (WORLD_UNPEOPLED[name]) return { id: null, label: null, source: 'unpeopled', why: WORLD_UNPEOPLED[name] };
+  const origin = getBaseSystemOrigin(i);
+  if (isRecognizedFactionKey(origin.faction)) return { id: origin.faction, label: formatFaction(origin.faction), source: origin.source };
+  const named = matchSystemFactionByName(i, { nameOnly: true });
+  if (named && isRecognizedFactionKey(named)) return { id: named, label: formatFaction(named), source: 'name' };
+  const planet = state.planets[i] || {};
+  // Three worlds are left to this deliberately — Opusab, Biakisch and Qem-Kis — because each is
+  // described as a mixture with no people to name, and naming them after their world is the honest
+  // answer rather than a fallback covering for a gap.
+  if (finiteNumber(planet.population, 0) > 0 && planet.name) return { id: `world:${i}`, label: String(planet.name), source: 'local' };
+  return { id: null, label: null, source: 'none' };
+}
+
+function getSystemSovereignty(index = state.currentPlanet) {
+  const i = Number(index);
+  const control = getSystemControl(i);
+  const book = campaignBook();
+  const people = getSystemCulture(i);
+  const culture = people.id;
+  const governor = control.playerControlled ? PLAYER_SIDE : (isRecognizedFactionKey(control.controller) ? control.controller : null);
+  // The legal claimant, which is not the same question as who holds it: a world's own people where it
+  // governs itself, its culture's power where one does, and it survives an occupation. [17SEP spec 3.2]
+  const sovereign = isRecognizedFactionKey(culture) ? culture : (culture ? `polity:${i}` : null);
+  const occupation = book.occupations?.[i] || null;
+  const contested = (book.operations || []).some((op) => Number(op.targetSystem) === i && op.status === 'engaged');
+  const integratedDay = governor && governor !== PLAYER_SIDE
+    ? book.polities?.[governor]?.integrations?.[i]?.completedDay || null
+    : null;
+  const settledAfter = Number(book.config?.occupationIntegrationDays) || 0;
+  const heldDays = occupation ? Math.max(0, book.day - occupation.capturedDay) : null;
+  const ownGovernment = !governor || (culture && governor === culture);
+  let level;
+  if (ownGovernment) level = culture ? 'independent' : 'unclaimed';
+  else if (!culture) level = 'colony';
+  else if (integratedDay) level = 'annexed';
+  else if (occupation && heldDays < settledAfter) level = 'occupied';
+  else level = 'administered';
+  const cultureLabel = people.label || (culture ? formatCulture(culture) : null);
+  const governorLabel = governor === PLAYER_SIDE ? 'your flag' : (governor ? formatFaction(governor) : null);
+  // A world whose people are its own is named for itself — "Orilla", not "Orilla world" and not
+  // "Orillan", which would be inventing a demonym the data never gave.
+  const inhabitants = cultureLabel
+    ? (people.source === 'local' ? cultureLabel : `${cultureLabel} world`)
+    : (people.source === 'unpeopled' ? 'Uninhabited world'
+      : level === 'unclaimed' ? 'Unclaimed world' : 'Unsettled world');
+  let rule;
+  if (level === 'independent') rule = 'self-governed';
+  else if (level === 'unclaimed') rule = 'no government';
+  else if (governor === PLAYER_SIDE) rule = 'under your flag';
+  else if (level === 'colony') rule = `${governorLabel} holding`;
+  else if (level === 'annexed') rule = `annexed by the ${governorLabel}`;
+  else if (level === 'occupied') rule = `${governorLabel} occupation${heldDays == null ? '' : ` (day ${heldDays})`}`;
+  else rule = `${governorLabel} administration`;
+  return { index: i, culture, cultureSource: people.source, cultureWhy: people.why || null, sovereign, governor, level, contested, heldDays,
+    cultureLabel, governorLabel, people: inhabitants, rule,
+    label: `${inhabitants} \u00b7 ${rule}${contested ? ' \u00b7 contested' : ''}` };
 }
 
 function isPlayerSideNpc(npc) {
@@ -6796,7 +7162,10 @@ function transferSystemControlToPlayer(systemIndex = state.currentPlanet) {
   const transferred = fromOwner ? transferSystemInstallations(i, fromOwner, PLAYER_SIDE) : [];
   refreshCachedStationOwnership(i);
   if (i === Number(state.currentPlanet)) refreshStationOwnership(i);
-  if (!before.playerControlled) invalidateSecurityAuthority(i, 'taken by the player'); // an actual holder change
+  if (!before.playerControlled) {
+    invalidateSecurityAuthority(i, 'taken by the player'); // an actual holder change
+    campaignRecordControlChange(i, PLAYER_SIDE, campaignPolityIdFor(before.polityId));
+  }
   return transferred;
 }
 function transferSystemControlToFaction(systemIndex, faction) {
@@ -6812,7 +7181,10 @@ function transferSystemControlToFaction(systemIndex, faction) {
   const transferred = (fromOwner && toOwner && fromOwner !== toOwner) ? transferSystemInstallations(i, fromOwner, toOwner) : [];
   refreshCachedStationOwnership(i);
   if (i === Number(state.currentPlanet)) refreshStationOwnership(i);
-  if (fromOwner !== toOwner) invalidateSecurityAuthority(i, `taken by ${formatFaction(key)}`); // an actual holder change
+  if (fromOwner !== toOwner) {
+    invalidateSecurityAuthority(i, `taken by ${formatFaction(key)}`); // an actual holder change
+    campaignRecordControlChange(i, toOwner, campaignPolityIdFor(fromOwner));
+  }
   return transferred;
 }
 // Saves written before station ownership was recorded: installations of held systems were treated
@@ -7222,7 +7594,7 @@ function renderStartInstructionsView() {
       <p>Fly with WASD or arrow keys. Keep holding forward to build into in-system warp. Use M or the Interstellar Map button to open the galactic map.</p>
       <p>Click planets, stations, ships, asteroids, and wormholes to interact. Planet and station services open when you are close enough.</p>
       <p>Weapons fire from slots 1, 2, and 3. Tab cycles targets, and clicking away clears a target.</p>
-      <p>Press H to hail the selected ship. Open the Power tab to distribute energy between reserve, engines, weapons, and shields.</p>
+      <p>Press H to hail the selected ship or station; with nothing selected it opens the system’s station channels. Open the Power tab to distribute energy between reserve, engines, weapons, and shields.</p>
       <p>Shift+1..8 issue fleet orders (follow, attack, seek, planet, launch/recall aux, explore, trade). Q closes windows, C opens cargo, P toggles this panel, +/- selects or clears the closest contact, tilde toggles auto-target, Left Ctrl cycles every contact in the system.</p>
       <p>Antimatter controls warp range. Larger ships can plot longer routes, while fleets and stations determine who controls a system.</p>
     </div>
@@ -8197,6 +8569,8 @@ function applyDebugCommand(raw) {
     message = triggerDebugEvent(args[0]);
   } else if (command === 'mission' && args.length === 1) {
     message = triggerDebugMission(args[0]);
+  } else if (command === 'campaign' && args.length >= 1) {
+    message = triggerCampaignDebug(args);
   } else if (command === 'repair' && !args.length) {
     state.hull = 100;
     state.shields = 100;
@@ -8298,12 +8672,22 @@ function openDebugMenu() {
       <button type="button" data-debug-code="feat bajoranFleetDown on">Bajoran fleet: complete</button><button type="button" data-debug-code="feat bajoranFleetDown off">Bajoran fleet: reset</button></div></section>
     <section><h3>Wars, peace &amp; crises</h3><form data-debug-form="diplomacy"><label>First faction<select name="diplomacy-a">${factionOptions}</select></label><label>Second faction<select name="diplomacy-b">${factionOptions}</select></label><label>Relationship<select name="diplomacy-state"><option value="crisis">Crisis</option><option value="war">War</option><option value="peace">Peace</option></select></label><button type="submit">Set relationship</button></form><div data-diplomacy-bulletin>${renderDiplomacyBulletin()}</div></section>
     <section><h3>Local events &amp; existing missions</h3><p>Combat events deploy real ships against the current system. An eligible enemy must be at war with its governor; use the diplomacy controls above first.</p><div class="debug-actions"><button data-debug-code="event scout">Reconnaissance</button><button data-debug-code="event skirmish">Minor fleet action</button><button data-debug-code="event raid">Raid</button><button data-debug-code="event battle">Major fleet action</button><button data-debug-code="event station-loss">Destroy selected installation</button><button data-debug-code="mission cargo">Cargo contract</button><button data-debug-code="mission transport">Planet away mission</button><button data-galaxy-reports>View reports</button></div><p>Cargo delivery and planetary away missions already exist. Escort, rescue and investigation contracts are future mission ideas.</p></section>
+    <section><h3>Campaign &amp; empire</h3><p>Strategic controls act through the campaign model. Calendar and stock controls use the normal paths; phase, treasury, readiness and discovery are forced overrides and are labelled as such in their results.</p><div class="debug-actions">
+      <button data-debug-code="campaign advance 1">Advance 1 day</button><button data-debug-code="campaign advance 10">Advance 10 days</button><button data-debug-code="campaign advance 30">Advance 30 days</button>
+      <button data-debug-code="campaign phase reconnaissance">Dominion: reconnaissance</button><button data-debug-code="campaign phase staging">Dominion: staging</button><button data-debug-code="campaign phase invasion">Dominion: invasion</button>
+      <button data-debug-code="campaign damage">Damage selected installation 50%</button><button data-debug-code="campaign restore">Restore selected installation</button>
+      <button data-debug-code="campaign stock current deplete">Deplete stock of current hull here</button><button data-debug-code="campaign stock current replenish">Replenish stock of current hull here</button>
+      <button data-debug-code="campaign mission relief">Relief contract</button><button data-debug-code="campaign mission escort">Escort contract</button><button data-debug-code="campaign mission evacuation">Evacuation contract</button><button data-debug-code="campaign mission repair">Repair contract</button><button data-debug-code="campaign mission recon">Reconnaissance contract</button><button data-debug-code="campaign mission blockade">Blockade contract</button>
+      <button data-debug-code="campaign discover gorn">Gorn discovery (override)</button><button data-campaign-open>Open Empire panel</button></div>
+      <form data-debug-form="campaign-polity"><label>Power<select name="campaign-faction">${factionOptions}</select></label><label>Treasury (latinum)<input name="campaign-treasury" type="number" min="0" max="2000000" step="1000" value="250000"></label><label>Ready hulls<input name="campaign-hulls" type="number" min="0" max="120" step="1" value="20"></label><button type="submit" data-campaign-set="treasury">Set treasury (override)</button><button type="submit" data-campaign-set="readiness">Set ready hulls (override)</button></form>
+      <p>Wars still come from the diplomacy controls above. Operations, captures, integration, recovery contracts and relay orders follow the model; nothing here spawns Dominion forces outside the wormhole route.</p></section>
     <section><h3>Cheat codes</h3><form data-debug-form="code"><label>Code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="standing romulan 50" required></label><button type="submit">Run code</button></form>
       <details><summary>Remaster code list</summary><p>Codes are case-insensitive. Faction keys appear in the selector above.</p><ul>
         <li><code>crisis romulan klingon</code>, <code>war romulan klingon</code>, <code>peace romulan klingon</code> — change bilateral relations.</li><li><code>standing romulan 50</code> — set one faction's standing.</li><li><code>latinum 10000</code>, <code>duranium 500</code>, <code>antimatter 6</code> — set resources.</li>
         <li><code>hull 50</code>, <code>shields 0</code> — set ship condition; hull minimum is 1%.</li><li><code>repair</code>, <code>refill</code> — restore condition or fuel.</li>
         <li><code>god on</code>, <code>god off</code> — toggle God Mode.</li><li><code>ship ${state.playership}</code> — switch to a loaded ship ID and enable God Mode.</li>
-        <li><code>feat vexBorgDown on</code>, <code>feat bajoranFleetDown off</code> — set or reset a milestone.</li></ul></details></section>`;
+        <li><code>feat vexBorgDown on</code>, <code>feat bajoranFleetDown off</code> — set or reset a milestone.</li>
+        <li><code>campaign advance 10</code>, <code>campaign phase staging</code>, <code>campaign treasury klingon 500000</code>, <code>campaign readiness romulan 30</code>, <code>campaign damage</code>, <code>campaign restore</code>, <code>campaign stock current deplete</code>, <code>campaign mission relief</code>, <code>campaign discover gorn</code> — campaign and empire controls.</li></ul></details></section>`;
   const faction = debugMenuEl.querySelector('[name="faction"]').value;
   debugMenuEl.querySelector('[name="standing"]').value = getFactionStanding(faction);
   refreshDebugReadout();
@@ -8311,7 +8695,7 @@ function openDebugMenu() {
 }
 
 document.getElementById('btn-cheats-debug')?.addEventListener('click', openDebugMenu);
-debugMenuEl?.addEventListener('close', () => { if (!gameMenuEl?.open && !debugMenuEl?.open) resumeGameClock(); });
+debugMenuEl?.addEventListener('close', () => { resumeGameClockIfNothingModalIsOpen(); });
 debugMenuEl?.addEventListener('change', (event) => {
   if (event.target.name === 'faction') {
     debugMenuEl.querySelector('[name="standing"]').value = getFactionStanding(event.target.value);
@@ -8347,6 +8731,10 @@ debugMenuEl?.addEventListener('submit', (event) => {
   if (form.dataset.debugForm === 'resource') runDebugCommand(`${form.elements.resource.value} ${form.elements.amount.value}`);
   if (form.dataset.debugForm === 'ship') runDebugCommand(`ship ${form.elements.ship.value}`);
   if (form.dataset.debugForm === 'code') runDebugCommand(form.elements.code.value);
+  if (form.dataset.debugForm === 'campaign-polity') {
+    const which = event.submitter?.dataset.campaignSet || 'treasury';
+    runDebugCommand(`campaign ${which} ${form.elements['campaign-faction'].value} ${which === 'treasury' ? form.elements['campaign-treasury'].value : form.elements['campaign-hulls'].value}`);
+  }
 });
 
 // Playtest follow-ups: campaign metadata is saved separately from disposable scenes.
@@ -8424,6 +8812,8 @@ function openGameMenu() {
 }
 function returnToMainMenu() {
   document.getElementById('galaxy-reports')?.close();
+  document.getElementById('campaign-panel')?.close();
+  campaignWorldCache = null;
   state.gameStarted = false;
   state.warp.active = false;
   clearWormholeTransit();
@@ -8468,7 +8858,27 @@ function closeGameMenu() {
   gameMenuEl.close();
 }
 document.addEventListener('click', (e) => {
-  if (e.target.closest('[data-alert-control]')) openGameMenu();
+  const set = e.target.closest('[data-alert-set]');
+  if (set) {
+    const level = set.dataset.alertSet;
+    if (['green', 'yellow', 'red'].includes(level)) { ensurePlaytestState().alertLevel = level; updateStats(); }
+    return;
+  }
+  if (e.target.closest('[data-alert-cycle]')) { cycleAlertLevel(); return; }
+  const showOnMap = e.target.closest?.('[data-contract-show]');
+  if (showOnMap) {
+    const i = Number(showOnMap.dataset.contractShow);
+    if (Number.isInteger(i) && state.planets[i]) {
+      // Order matters: openMap() selects the system the captain is standing in, so selecting the
+      // objective first meant "Show on map" opened the chart on the wrong world. [playtest]
+      if (!state.mapOpen) openMap();
+      state.selectedPlanet = i;
+      focusStarChartOnSystem(i, STAR_CHART_FOCUSED_ZOOM);
+      setLog(`${contractDestinationLabel(i)} marked on the chart.`);
+    }
+    return;
+  }
+  if (e.target.closest?.('[data-contract-ask]')) { negotiateContract(); renderTopLeftPanel(); return; }
 });
 document.addEventListener('change', (e) => {
   if (
@@ -8481,7 +8891,7 @@ document.addEventListener('change', (e) => {
 });
 document.getElementById('btn-game-menu')?.addEventListener('click', openGameMenu);
 gameMenuEl?.addEventListener('close', () => {
-  if (!debugMenuEl?.open && !gameMenuEl?.open) resumeGameClock();
+  resumeGameClockIfNothingModalIsOpen();
 });
 gameMenuEl?.addEventListener('click', (e) => {
   const action = e.target.closest('[data-game-menu]')?.dataset.gameMenu;
@@ -8556,7 +8966,9 @@ function updateRecoveryPanel() {
   const panel = document.getElementById('disabled-recovery');
   const visible =
     state.gameStarted && !state.gameOver && fleetBook().personalCondition === 'disabled';
+  const wasVisible = !panel.classList.contains('hidden');
   panel.classList.toggle('hidden', !visible);
+  if (wasVisible !== visible) layoutSecurityOrderPanel();
   if (!visible) {
     recoveryPanelSignature = '';
     return;
@@ -8729,6 +9141,7 @@ function activityTrafficShip(index, seed, role) {
 }
 function updateSystemActivity(frameScale) {
   recordLocalIntel();
+  maybeMaterializeCampaignOperation();
   const record = getSystemActivity();
   if (
     record.triggered ||
@@ -8762,14 +9175,46 @@ function updateSystemActivity(frameScale) {
     if (!attacker) {
       record.triggered = true;
       record.outcome = 'no war; patrol only';
-    } else if (spawnFleetAttack(state.currentPlanet, attacker)) record.triggered = true;
+    } else if (state.activeFleetAttack) {
+      // A campaign operation already holds the field; the ambient cycle does not add a second force.
+      record.triggered = true;
+      record.outcome = 'campaign operation engaged';
+    } else {
+      // Ambient raids draw on the attacker's real, finite force pool.
+      const launched = launchBudgetedAmbientRaid(attacker, record);
+      if (launched.ok) record.triggered = true;
+      else if (launched.reason === 'no available force') {
+        record.triggered = true;
+        record.outcome = 'no available force';
+      }
+    }
   }
+}
+// A power can only raid with a force it actually has: ready hulls in its campaign pool, and the
+// Dominion never before its invasion phase.
+function campaignRaidForce(faction, systemIndex = state.currentPlanet) {
+  const book = campaign();
+  if (faction === 'dominion' && book.dominion.phase !== 'invasion') return [];
+  const p = book.polities[faction];
+  if (!p) return [];
+  // Within reach means here, or one route away — including through the wormhole, which is the only
+  // way the Dominion is ever near enough to raid this side. A raid is never filled by rewriting a
+  // distant hull's position, which is what let the expedition appear where it had no route.
+  const world = buildCampaignWorld();
+  const here = Number(systemIndex);
+  const adjacent = new Set((world.neighbours(here) || []).map(Number));
+  return p.hulls.filter((h) => h.status === 'ready' && (Number(h.systemIndex) === here || adjacent.has(Number(h.systemIndex))));
+}
+function campaignCanRaid(faction) {
+  if (!state.gameStarted) return true;
+  return campaignRaidForce(faction).length > 0;
 }
 function chooseActivityAttacker(record) {
   const local = getSystemFaction();
   const candidates = Object.keys(factionNames).filter(
     (f) => isRecognizedFactionKey(f) && areFactionsOpposed(f, local)
-      && getNpcShipIdForFaction(f, record.seed, 'fleetAttack') != null,
+      && getNpcShipIdForFaction(f, record.seed, 'fleetAttack') != null
+      && campaignCanRaid(f),
   );
   const total = candidates.reduce((n, f) => n + (World.FACTION_TRAFFIC[f]?.warDeployment || 1), 0);
   let roll = seeded(record.seed + 17) * total;
@@ -8802,7 +9247,7 @@ function queueFactionReconstruction(station) {
   if (!definition) return;
   const cost = getStationBuildCost(getShipStats(station.stationTypeId));
   const materials = Math.max(20, Math.ceil(cost / 500));
-  p.factionBudgets[owner] ||= { latinum: 120000, duranium: 1200, lastDay: state.day };
+  reconstructionFunds(owner); // faction treasuries live in the campaign book; private ledgers are created here
   p.reconstruction[id] = {
     id,
     systemIndex: state.currentPlanet,
@@ -8836,7 +9281,9 @@ function syncFactionReconstruction() {
 function advanceFactionReconstruction(day) {
   const p = ensurePlaytestState();
   let changed = false;
+  if (state.gameStarted) migrateLegacyBudgets(campaign());
   for (const [owner, budget] of Object.entries(p.factionBudgets)) {
+    if (isRecognizedFactionKey(owner)) continue; // faction income is settled once by the campaign economy
     const worlds = state.planets.filter((_, i) => getSystemControl(i).polityId === owner).length;
     const businesses = String(owner).startsWith('private:')
       ? state.stationDefinitions.filter(
@@ -8867,7 +9314,7 @@ function advanceFactionReconstruction(day) {
       continue;
     }
     if (order.status === 'waiting') {
-      const budget = p.factionBudgets[order.owner];
+      const budget = reconstructionFunds(order.owner);
       if (
         day <= order.queuedDay ||
         budget.latinum < order.cost ||
@@ -8943,7 +9390,7 @@ function requireServiceConnection() {
   if (rangeBlock) { setLog(rangeBlock); return false; }
   const st = getCurrentServiceStation();
   const block = getSecurityDockingBlock(st ? getStationOwner(st) : getSystemControl(state.currentPlanet).polityId)
-    || serviceRefusal(st?.faction || getSystemFaction(state.currentPlanet));
+    || vendorRefusal(st, st?.faction || getSystemFaction(state.currentPlanet));
   if (block) { setLog(block); return false; }
   return true;
 }
@@ -8951,10 +9398,11 @@ function openRemoteStationShop(id) {
   if (state.warp.active || isWormholeTransitActive() || !state.gameStarted) return false;
   const station = state.stations.find(s => s.id === id && !s.destroyed && !s.underConstruction);
   if (!station) return false;
-  const block = getSecurityDockingBlock(getStationOwner(station)) || serviceRefusal(station.faction);
+  const block = getSecurityDockingBlock(getStationOwner(station)) || vendorRefusal(station, station.faction);
   if (block) { setLog(block); openStationComms(id); return false; }
   document.getElementById('station-comms').close();
   state.remoteStationId = id;
+  recordOpportunity('contacts', normalizeFactionKey(getStationOwner(station) || station.faction || 'neutral'));
   state.planetMenuOpen = true;
   state.dockMenuTab = 'services';
   renderPlanetMenu();
@@ -8989,6 +9437,9 @@ function addGalaxyReport(report) {
   const factions = (report.factions || []).filter(isRecognizedFactionKey);
   const item = {id, day:report.day ?? state.day, kind:String(report.kind), confidence:String(report.confidence), text:String(report.text), systemIndex:report.systemIndex ?? null,
     factions,category:report.category || (id.startsWith('diplomacy:')?'diplomacy':id.startsWith('intel:')?'intel':'combat'),playerRelated:Boolean(report.playerRelated)};
+  // The power this account blames, carried through delivery. A reader that counts fleets by power has
+  // to read the claim rather than the fleet, and the claim only survives if it is stored. [fifth review]
+  if (isRecognizedFactionKey(report.claimedAttacker)) item.claimedAttacker = report.claimedAttacker;
   item.playerRelated ||= isPersonalGalaxyReport(item);
   book.items.push(item);
   book.items = book.items.slice(-120);
@@ -9014,6 +9465,9 @@ function recordLocalIntel() {
   const previous = ensurePlaytestState().news?.observations?.[state.currentPlanet];
   if (previous?.day === state.day && previous.kind === kind && previous.attacker === (attack?.faction || null)) return;
   galaxyNewsBook().observations[state.currentPlanet] = {day:state.day, kind, attacker:attack?.faction || null};
+  // And the trade/security reading, so the record exists whether or not the captain ever opens the
+  // chart while they are here. systemConditions writes it too; both go through the same recorder.
+  conditionsFor(state.currentPlanet);
 }
 function makeIntelReport(index, observation, id, day) {
   if (!observation || !state.planets[index]) return null;
@@ -9024,11 +9478,11 @@ function makeIntelReport(index, observation, id, day) {
   const place = known ? `near ${state.planets[index].name}` : 'beyond surveyed space';
   const source = ownShips ? 'Fleet observers' : 'Civilian relays';
   const claims = {quiet:'report no major clashes',scout:'report reconnaissance activity',skirmish:'report a minor fleet action',raid:'report a possible raid',battle:'report a major fleet action'};
-  const identity = estimate.attacker ? ` Ships identified as ${formatFaction(estimate.attacker)}; identification may be mistaken.` : '';
+  const identity = estimate.attacker ? ` Ships identified as ${formatFaction(estimate.attacker)}.` : '';
   const kind = {quiet:'Situation report',scout:'Reconnaissance report',skirmish:'Clash report',raid:'Raid report',battle:'Fleet action report'}[estimate.kind];
   return {id,day:day+estimate.delay,systemIndex:known?index:null,kind,category:'intel',factions:[estimate.attacker].filter(Boolean),playerRelated:ownShips || (known && ownsReportLocation(index)),
-    confidence:ownShips?'Fleet assessment — mistakes possible':'Unconfirmed civilian report',
-    text:`${source} ${claims[estimate.kind]} ${place}.${identity} Information dated day ${observation.day}; conditions may have changed.`};
+    confidence:ownShips?'Fleet assessment':'Unconfirmed civilian report',
+    text:`${source} ${claims[estimate.kind]} ${place}.${identity} Dated day ${observation.day}.`};
 }
 function collectRegionalIntel(day) {
   const news = galaxyNewsBook();
@@ -9068,6 +9522,9 @@ function collectGalaxyReports(day = state.day) {
     priorStates.set(pair,e.status);
     if (index < overlap) continue;
     const kind = e.status === 'war' && before && before !== 'war' ? 'War declared' : e.status === 'peace' && before === 'war' ? 'Peace agreement' : e.status === 'crisis' && before && before !== 'crisis' ? 'Border crisis' : 'Diplomatic update';
+    // "Public" means public to powers the captain knows exist. A settlement between two powers, one of
+    // which they have never met and cannot name, is not news they could have read. [playtest]
+    if (![e.a, e.b].every((f) => campaignPowerContact(f))) continue;
     news.nextDiplomacyId = (news.nextDiplomacyId || 0) + 1;
     addGalaxyReport({id:`diplomacy:${news.nextDiplomacyId}`,day:e.day,kind,category:'diplomacy',factions:[e.a,e.b],confidence:'Public diplomatic report',text:`${formatFaction(e.a)} / ${formatFaction(e.b)}: ${e.reason}. Current relations: ${e.status}.`});
   }
@@ -9077,10 +9534,29 @@ function collectGalaxyReports(day = state.day) {
 }
 let reportFolder = 'all';
 let reportPage = 0;
-function ownsReportLocation(index) {
+// Two different questions that had one answer. Owning an installation makes what happens to it the
+// captain's business — a wreck of theirs is still theirs, and its loss, salvage and reconstruction are
+// all their affair. Being able to SEE from it is a different matter: a destroyed installation has no
+// receivers, and one still under construction has none yet. The source map asked the ownership question
+// and got relay-grade intelligence out of a wreck, indefinitely. [ninth review]
+function ownsReportLocation(index) { // the captain's business
   if (index == null || !state.planets[index]) return false;
   if (state.controlledSystems.includes(Number(index))) return true;
   return state.stationDefinitions.some(st=>Number(st.systemIndex)===Number(index) && getStationOwner(st,index)===PLAYER_SIDE);
+}
+// Whether an installation is standing well enough to be a listening post. The same rule the campaign
+// model uses for an installation it will draw on at all (operational, damaged, or merely unstaffed —
+// a skeleton crew still reads the traffic), so the two cannot drift apart.
+const CAMPAIGN_SOURCE_STATUSES = Object.freeze(['operational', 'damaged', 'unstaffed']);
+function stationIsLiveSource(record) {
+  return Boolean(record) && !record.destroyed && CAMPAIGN_SOURCE_STATUSES.includes(record.cap?.status);
+}
+function watchesReportLocation(index) { // the captain's eyes
+  if (index == null || !state.planets[index]) return false;
+  if (state.controlledSystems.includes(Number(index))) return true;
+  return (state.stationDefinitions || []).some((st) => Number(st.systemIndex) === Number(index)
+    && getStationOwner(st, index) === PLAYER_SIDE
+    && stationIsLiveSource(campaignStationRecord(st, Number(index))));
 }
 function isPersonalGalaxyReport(report) {
   if (report.playerRelated) return true;
@@ -9113,7 +9589,7 @@ function renderGalaxyReports() {
   const book = galaxyNewsBook();
   const all = visibleGalaxyReports().slice().reverse();
   const transit = state.warp.active && state.warp.briefingOpen;
-  const folders = [['personal','Your affairs'],['diplomacy','Diplomacy'],['combat','Battles & losses'],['intel','Field reports'],['all','All reports']];
+  const folders = [['personal','Your affairs'],['diplomacy','Diplomacy'],['combat','Battles & losses'],['campaign','Campaign'],['intel','Field reports'],['all','All reports']];
   const inFolder = (r,folder)=>folder==='all' || (folder==='personal'?isPersonalGalaxyReport(r):galaxyReportCategory(r)===folder);
   const cards = rows=>rows.map(r=>`<article class="galaxy-report" data-report-id="${escapeHtml(r.id)}"><div class="meta">Day ${r.day} · ${escapeHtml(r.confidence)}</div><h3>${escapeHtml(r.kind)}</h3><p>${escapeHtml(r.text)}</p></article>`).join('');
   let rows = [],content;
@@ -9128,7 +9604,7 @@ function renderGalaxyReports() {
     content = `<div class="report-list">${cards(rows) || '<p>No reports in this folder.</p>'}</div><div class="report-pages"><button data-report-page="-1" ${reportPage===0?'disabled':''}>Previous</button><span>Page ${reportPage+1} / ${Math.max(1,Math.ceil(filtered.length/6))}</span><button data-report-page="1" ${(reportPage+1)*6>=filtered.length?'disabled':''}>Next</button></div>`;
   }
   const el = document.getElementById('galaxy-reports');
-  el.innerHTML = `<div class="debug-heading"><h2>${transit ? 'Subspace briefing — in transit' : 'Galactic reports'}</h2><button data-report-close>${transit ? 'Continue jump' : 'Close'}</button></div><p>${transit ? `En route to ${escapeHtml(state.planets[state.warp.to]?.name || 'destination')}. ` : ''}Campaign day ${state.day}. ${transit?'Your affairs are uncapped; up to six new wider-galaxy reports per jump. ':''}Reports may be delayed or incomplete.</p><nav class="report-folders" aria-label="Report folders">${transit?`<button data-report-folder="briefing" aria-pressed="${reportFolder==='briefing'}">This jump</button>`:''}${folders.map(([key,label])=>`<button data-report-folder="${key}" aria-pressed="${reportFolder===key}">${label} (${all.filter(r=>inFolder(r,key)).length})</button>`).join('')}</nav>${content}${transit ? '<button data-report-save>Save in transit</button><p data-report-save-status role="status"></p><button data-report-close>Continue jump</button>' : ''}`;
+  el.innerHTML = `<div class="debug-heading"><h2>${transit ? 'Subspace briefing — in transit' : 'Galactic reports'}</h2><button data-report-close>${transit ? 'Continue jump' : 'Close'}</button></div><p>${transit ? `En route to ${escapeHtml(state.planets[state.warp.to]?.name || 'destination')}. ` : ''}Campaign day ${state.day}. ${transit?'Your affairs are uncapped; up to six new wider-galaxy reports per jump. ':''}Reports may be delayed or incomplete.${transit ? '' : ' Reports shown here count as read: they will not be repeated in your next jump briefing.'}</p><nav class="report-folders" aria-label="Report folders">${transit?`<button data-report-folder="briefing" aria-pressed="${reportFolder==='briefing'}">This jump</button>`:''}${folders.map(([key,label])=>`<button data-report-folder="${key}" aria-pressed="${reportFolder===key}">${label} (${all.filter(r=>inFolder(r,key)).length})</button>`).join('')}</nav>${content}${transit ? '<button data-report-save>Save in transit</button><p data-report-save-status role="status"></p><button data-report-close>Continue jump</button>' : ''}`;
   book.readIds = [...new Set([...book.readIds,...rows.map(r=>r.id)])].slice(-120);
 }
 
@@ -9159,18 +9635,51 @@ function closeGalaxyReports() {
   }
   galaxyNewsBook().lastReadDay = state.day;
   document.getElementById('galaxy-reports')?.close();
-  if (!gameMenuEl?.open && !debugMenuEl?.open) resumeGameClock();
+  resumeGameClockIfNothingModalIsOpen();
+}
+// Forced override used only by the debug event controls: relocate a real squadron of a power that is
+// actually at war with the local governor to an adjacent system, so the ordinary ambient-raid path has
+// something within reach. It never creates hulls and never moves anyone who is not a belligerent.
+let debugStagedRaid = null;
+function debugStageRaidForce() {
+  if (!state.gameStarted) return null;
+  const book = campaign();
+  const world = buildCampaignWorld(true);
+  const here = Number(state.currentPlanet);
+  const neighbours = (world.neighbours(here) || []).map(Number);
+  const destination = neighbours.length ? neighbours[0] : here;
+  const local = getSystemFaction();
+  for (const id of Object.keys(book.polities)) {
+    if (id === 'player' || !areFactionsOpposed(id, local)) continue;
+    if (id === 'dominion' && book.dominion.phase !== 'invasion') continue;
+    const ready = book.polities[id].hulls.filter((h) => h.status === 'ready');
+    if (ready.length < 2) continue;
+    for (const h of ready.slice(0, 6)) h.systemIndex = destination;
+    campaignWorldCache = null;
+    return { faction: id, hulls: Math.min(6, ready.length), systemIndex: destination };
+  }
+  return null;
 }
 function triggerDebugEvent(kind) {
   if (kind === 'station-loss') { const target = getSelectedCombatTarget(); if (!target?.stationTypeId || target.destroyed) throw new Error('Select a live installation first.'); target.lastDamageSource = 'debug'; destroyStation(target); return `${target.name} destroyed; report published.`; }
   if (!['scout','skirmish','raid','battle'].includes(kind)) throw new Error('Use event scout, skirmish, raid or battle.');
   if (state.activeFleetAttack) throw new Error('A fleet action is already active here.');
   const record = getSystemActivity();
-  if (kind !== 'scout' && !chooseActivityAttacker(record)) throw new Error('No eligible faction is at war with this governor. Set a war first.');
+  if (kind !== 'scout' && !chooseActivityAttacker(record)) {
+    // Ambient raids now need a force actually within reach, so a debug raid in a quiet corner has
+    // nothing to deploy. Rather than fabricating ships outside the strategic pool, move a real
+    // squadron of an eligible belligerent to a neighbouring system as a labelled forced override and
+    // then run the ordinary path.
+    const staged = debugStageRaidForce();
+    debugStagedRaid = staged;
+    if (!staged) throw new Error('No eligible faction is at war with this governor, or none has a hull left to send. Set a war first.');
+    if (!chooseActivityAttacker(record)) throw new Error(`Staged ${staged.hulls} ${formatFaction(staged.faction)} hulls at ${state.planets[staged.systemIndex]?.name}, but none can deploy here.`);
+  }
   Object.assign(record,{type:kind, triggered:false, combatElapsed:1e9});
   const before = state.npcShips.length;
   updateSystemActivity(0);
   if (!record.triggered || state.npcShips.length === before) throw new Error('No eligible ships can deploy here.');
+  if (debugStagedRaid) { const staged = debugStagedRaid; debugStagedRaid = null; return `${kind}: ${state.npcShips.length - before} real ships deployed. Forced override: ${staged.hulls} ${formatFaction(staged.faction)} hulls were moved to ${state.planets[staged.systemIndex]?.name} first, because none was within reach.`; }
   if (kind === 'scout') addGalaxyReport({id:`scout:${state.currentPlanet}:${record.cycle}:${state.day}`,systemIndex:state.currentPlanet,kind:'Reconnaissance',confidence:'Confirmed local contact',text:`${formatFaction(getSystemFaction())} reconnaissance ship deployed near ${state.planets[state.currentPlanet].name}.`});
   return `${kind}: ${state.npcShips.length-before} real ships deployed in this system.`;
 }
@@ -9267,6 +9776,14 @@ function baseFactionWar(a, b) {
 function worldRelation(a, b) {
   return World.relation(ensurePlaytestState().diplomacy, a, b, baseFactionWar(a, b));
 }
+// A war the campaign arc owns is not a neighbour dispute, and the ordinary roll must not settle it.
+// The Dominion's is the case: its expedition ends by being destroyed or expelled, by its route being
+// cut, by the campaign reaching its own conclusion, or by an authored settlement — never by war
+// exhaustion between two systems that happen to share a travel route. Before this, an expedition that
+// took a near-side world made the Dominion an ordinary neighbour of whoever it bordered, and the roll
+// signed a public peace with a power the captain had never met. [playtest]
+const CAMPAIGN_LOCKED_DIPLOMACY = Object.freeze(['dominion']);
+function campaignOwnsDiplomacy(a, b) { return CAMPAIGN_LOCKED_DIPLOMACY.includes(a) || CAMPAIGN_LOCKED_DIPLOMACY.includes(b); }
 function diplomaticPairs() {
   if (!state.travelRoutes.length) rebuildTravelRoutes();
   const pairs = new Map();
@@ -9275,12 +9792,13 @@ function diplomaticPairs() {
       b = getSystemControl(route.to).controller;
     if (
       a !== b &&
+      !campaignOwnsDiplomacy(a, b) &&
       [a, b].every((f) => isRecognizedFactionKey(f) && !['borg', 'pirate', 'neutral'].includes(f))
     )
       pairs.set(World.pairKey(a, b), [a, b]);
   }
   for (const pair of Object.values(diplomacyBook().pairs))
-    if (pair.a && pair.b) pairs.set(World.pairKey(pair.a, pair.b), [pair.a, pair.b]);
+    if (pair.a && pair.b && !campaignOwnsDiplomacy(pair.a, pair.b)) pairs.set(World.pairKey(pair.a, pair.b), [pair.a, pair.b]);
   return [...pairs.values()].sort((a, b) => World.pairKey(...a).localeCompare(World.pairKey(...b)));
 }
 function reconcileDiplomacy() {
@@ -9305,6 +9823,7 @@ function reconcileDiplomacy() {
     !areFactionsOpposed(state.activeFleetAttack.faction, getSystemFaction())
   ) {
     getSystemActivity().outcome = 'ceasefire';
+    reconcileLocalCampaignBattle('withdrew');
     state.activeFleetAttack = null;
     state.fleetAttackControlSince = 0;
   }
@@ -9371,10 +9890,15 @@ function captureWorldEncounter(nextSystem = state.securityLiveSystemIndex) {
   const p = ensurePlaytestState();
   p.encounters ||= {};
   const now = gameNow();
+  // Leaving the system hands a claimed campaign battle back to the offscreen model with the survivors
+  // as they stand; a same-system snapshot (save, regeneration) keeps the loaded battle as it is.
+  const leaving = Number(nextSystem) !== Number(index);
+  if (leaving) releaseLocalCampaignBattle();
+  const campaignAttack = Boolean(state.activeFleetAttack?.campaignOpId);
   p.encounters[index] = {
     day: state.day,
     cycle: getSystemActivity(index).cycle,
-    attack: Fleet.copy(state.activeFleetAttack),
+    attack: leaving && campaignAttack ? null : Fleet.copy(state.activeFleetAttack),
     controlElapsed: state.fleetAttackControlSince ? now - state.fleetAttackControlSince : null,
     stations: (state.stations || [])
       .filter((s) => s.maxCombatHull > 0)
@@ -9388,7 +9912,8 @@ function captureWorldEncounter(nextSystem = state.securityLiveSystemIndex) {
       ),
     ships: (state.npcShips || [])
       .filter(
-        (n) => !n.fleetId && (Number(nextSystem) === Number(index) || n.condition !== 'disabled'),
+        (n) => !n.fleetId && (Number(nextSystem) === Number(index) || n.condition !== 'disabled')
+          && !(leaving && campaignAttack && n.attackId && n.campaignHullId),
       )
       .map((n) => ({
         actor: Object.fromEntries(
@@ -9411,6 +9936,7 @@ function captureWorldEncounter(nextSystem = state.securityLiveSystemIndex) {
             'hostile',
             'attitude',
             'identityLocked',
+            'campaignHullId',
           ]
             .filter((k) => n[k] !== undefined)
             .map((k) => [k, Fleet.copy(n[k])]),
@@ -9454,6 +9980,7 @@ function restoreWorldEncounter(index) {
     state.activeFleetAttack &&
     !areFactionsOpposed(state.activeFleetAttack.faction, getSystemFaction(index))
   ) {
+    reconcileLocalCampaignBattle('withdrew');
     state.activeFleetAttack = null;
     for (const n of restored) {
       n.attackId = null;
@@ -9599,13 +10126,25 @@ function renderTopLeftPanel() {
   const godStatus = state.godMode
     ? `God Mode active | ${state.latinum}L | ${state.duranium}D | AM ${state.antimatter}/${state.fuelCap}`
     : 'Enable God Mode to max credits, duranium and antimatter, then switch ships instantly.';
-  const powerContent = `<div class="panel-head">Power (OPS)</div>${renderPowerPanel()}`;
-  const panelContent = state.topLeftTab === 'power'
+  // One heading each: the panel's own title row supplies it, so these no longer print a second one.
+  const powerContent = renderPowerPanel();
+  const ewContent = renderEWPanel();
+  const panelContent = state.topLeftTab === 'contracts'
+    ? renderContractsPanel()
+    : state.topLeftTab === 'power'
     ? powerContent
+    : state.topLeftTab === 'ew'
+    ? ewContent
     : state.topLeftTab === 'settings'
     ? `<div class="panel-head">Settings</div>${gameOptions}<div class="panel-head">Save & Debug</div>${settingsActions}<div class="meta">${escapeHtml(godStatus)}</div><div class="panel-head">God Ship Switcher</div><div class="god-ship-switcher">${renderGodModeShipSwitcher()}</div>`
     : `<div class="panel-head">Inventory</div>${resources}${flags}${stationPlans}${weaponLine}${contract}<div class="panel-head">Cargo Pods</div><div class="pods">${pods}</div>`;
-  topLeftPanelEl.innerHTML = `<button class="panel-close top-left-panel-close" data-top-action="close-panel" aria-label="Close ${escapeHtml(state.topLeftTab)} panel">&times;</button><div class="top-left-panel-content">${panelContent}</div>`;
+  const panelTitle = { power: 'Power (OPS)', ew: 'Electronic warfare', settings: 'Settings', contracts: 'Contracts', inventory: 'Inventory' }[state.topLeftTab] || 'Inventory';
+  // A real header row rather than a decorative ::after bar with the content scrolling beneath it: the
+  // title and the close control used to be painted over by whatever the body scrolled up into them,
+  // and the panel remembers its scroll position per tab, so it reopened already overlapping. [playtest]
+  topLeftPanelEl.innerHTML = `<div class="top-left-panel-head"><span>${escapeHtml(panelTitle)}</span>`
+    + `<button class="panel-close top-left-panel-close" data-top-action="close-panel" aria-label="Close ${escapeHtml(state.topLeftTab)} panel">&times;</button></div>`
+    + `<div class="top-left-panel-content">${panelContent}</div>`;
   for(const el of topLeftPanelEl.querySelectorAll('details[data-sensor-details]'))el.open=sensorDetailsOpen.has(el.dataset.sensorDetails);
   const restoredScrollTarget = state.topLeftTab === 'settings'
     ? topLeftPanelEl.querySelector('.god-ship-switcher')
@@ -9862,14 +10401,17 @@ function getWeaponStockForFaction(faction = state.systemFaction) {
 }
 
 function getStationWeaponStock(station = getCurrentServiceStation()) {
-  if (station?.weaponStockIds?.length) {
-    const localStock = station.weaponStockIds
+  if (station && !fleetStationServices(station).weapons) return [];
+  const effectiveWeapons = station ? getStationEffectiveOffers(station).weaponIds : [];
+  if (station && !getStationCapabilities(station).services.weaponSales && !effectiveWeapons.length) return [];
+  if (effectiveWeapons.length) {
+    const localStock = effectiveWeapons
       .map((id) => getWeapon(id))
       .filter(Boolean);
     if (localStock.length) return [...new Map(localStock.map((weapon) => [weapon.id, weapon])).values()];
   }
   const stock=getWeaponStockForFaction(station?.faction || state.systemFaction).slice(0,4);
-  if(station&&/shipyard|research|science|university|starbase|military/i.test(getShipStats(station.stationTypeId).name||''))stock.push(getWeapon(HOJ_WEAPON_ID));
+  if(station&&getStationCapabilities(station).services.advancedWeapons)stock.push(getWeapon(HOJ_WEAPON_ID));
   return stock;
 }
 
@@ -9877,8 +10419,8 @@ function getHojPurchaseDecision(station=getCurrentServiceStation()) {
   const owner=station?getStationOwner(station):null;
   const faction=owner===PLAYER_SIDE?getPlayerFlag():owner?.startsWith('private:')?'neutral':owner;
   const requirement=getConfiguredPurchaseTierThresholds()?.respected??PURCHASE_TIER_STANDING.respected;
-  const standing=faction?getFactionStanding(faction):0;
-  const service=station&&!station.destroyed&&!station.underConstruction&&/shipyard|research|science|university|starbase|military/i.test(getShipStats(station.stationTypeId).name||'');
+  const standing=faction?vendorStanding(station,faction):0;
+  const service=station&&!station.destroyed&&!station.underConstruction&&fleetStationServices(station).weapons&&getStationCapabilities(station).services.advancedWeapons;
   const blocked=owner?getSecurityDockingBlock(owner):null;
   const reason=!hasServiceConnection()?getServiceTransferBlock():!service?'Military or science weapons service required':blocked?String(blocked):standing<requirement?`Requires ${requirement} ${formatFaction(faction)} standing; yours ${standing}`:null;
   return {canBuy:!reason,reason,requirement,standing,faction};
@@ -9999,7 +10541,7 @@ function buyWeapon(weaponId) {
   const weapon = getWeapon(weaponId);
   const wStation = getCurrentServiceStation();
   if(weapon.guidance==='home-on-jam'){const decision=getHojPurchaseDecision(wStation);if(!decision.canBuy){setLog(decision.reason);return;}}
-  const wRefusal = weapon.guidance==='home-on-jam' ? null : serviceRefusal((wStation && wStation.faction) || getSystemFaction(state.currentPlanet));
+  const wRefusal = weapon.guidance==='home-on-jam' ? null : vendorRefusal(wStation, (wStation && wStation.faction) || getSystemFaction(state.currentPlanet));
   if (wRefusal) {
     setLog(wRefusal);
     return;
@@ -10128,7 +10670,12 @@ function getShipyardStock(station = getCurrentServiceStation()) {
   return getUnfilteredShipyardStock(station).filter(ship=>!service.smallOnly||ship.mass<=4);
 }
 function getUnfilteredShipyardStock(station = getCurrentServiceStation()) {
-  const purchaseContext = buildPurchaseContext(getCurrentPurchaseVendor(station));
+  // Standings are supplied only at your own vendor. Everywhere else this context stays exactly as it
+  // was, so nobody else's shelf changes shape.
+  const own = isOwnHoldingVendor(station);
+  const purchaseContext = buildPurchaseContext(own
+    ? { ...getCurrentPurchaseVendor(station), standings: purchaseStandings(station), tierThresholds: getConfiguredPurchaseTierThresholds() }
+    : getCurrentPurchaseVendor(station));
   const stockEligible = (ship) => !state.shipCatalog || state.shipCatalog.eligibleForStock(ship.id, purchaseContext);
   const ships = Object.values(state.shipStatsById)
     .filter((ship) => ship && ship.assetType === 'ship')
@@ -10140,16 +10687,43 @@ function getUnfilteredShipyardStock(station = getCurrentServiceStation()) {
   if (!station && getCurrentSystemName().toLowerCase() === 'blender') {
     return ships.filter(ship => ship.faction === 'dominion').sort((a, b) => getShipPrice(a) - getShipPrice(b));
   }
-  if (station?.stockIds?.length || (!station && state.planets[state.currentPlanet]?.shipStockIds?.length)) {
-    const localStock = (station?.stockIds || state.planets[state.currentPlanet].shipStockIds)
+  const effectiveOffers = station ? getStationEffectiveOffers(station) : null;
+  const stationServices = station ? fleetStationServices(station) : null;
+  if (effectiveOffers?.shipIds?.length || (!station && state.planets[state.currentPlanet]?.shipStockIds?.length)) {
+    const sellable = (station ? effectiveOffers.shipIds : state.planets[state.currentPlanet].shipStockIds)
       .map((id) => state.shipStatsById[resolveShipId(id)])
       .filter((ship) => ship && ship.assetType === 'ship' && getShipPrice(ship) > 0)
       .filter((ship) => ship.rosterState !== 'retired' && ship.rosterState !== 'prototype' && !isUnbalancedPrototype(ship))
-      .filter(stockEligible)
+      .filter(stockEligible);
+    const localStock = sellable
       .filter(ship => purchaseContext.vendor || getTradeStandingFaction(state.currentPlanet,station)==='neutral' || isFactionShipStockEligible(ship.faction,getTradeStandingFaction(state.currentPlanet,station)) || (!station && getCurrentSystemName().toLowerCase()==='blender' && ship.faction==='dominion'));
-    const authored = [...new Map(localStock.map(ship => [ship.id, ship])).values()];
-    return station ? authored.slice(0, SHIPYARD_STOCK_SIZE) : authored;
+    // The faction rule shapes a world's shelf; it was never meant to close the shop. A hand-written
+    // planet lot that is entirely foreign hulls — a Son'a refinery retailing a Neg'Var, a Breen
+    // anchorage retailing a Cardassian Behemoth — is the author saying this is a grey market, and
+    // filtering it to nothing leaves a world with an authored shipyard selling nothing at all. Giving
+    // 31 worlds a government this round turned that from one world into nine. Where the rule would
+    // empty an authored lot, the lot stands as written. [playtest]
+    // A world retailing another power's hulls is a claim about that world, and an authored lot that the
+    // government's own rule filters to nothing is not evidence for it — nor may foreign availability
+    // turn on whether one compatible hull happened to survive the filter. Two worlds say it in their
+    // own text; everywhere else the rule stands, and a lot it empties falls through to the ordinary
+    // price-ranked shelf below, which stocks what that government would actually sell. [playtest]
+    const kept = (!station && WORLD_FOREIGN_STOCK[getCurrentSystemName()]) ? sellable : localStock;
+    const authored = [...new Map(kept.map(ship => [ship.id, ship])).values()].filter(ship => !station || stationCanSellHull(station, ship));
+    if (!station && authored.length) return authored;
+    if (!station) {
+      // Fall through: an authored planet lot with nothing left in it is a gap in the lot, not a shop
+      // that closes.
+    } else {
+      // The eight-entry station display limit never hides a design recovered to this yard.
+      const recovered = new Set((effectiveOffers.shipIds || []).filter((id) => effectiveOffers.provenance?.[`ship:${id}`] === 'recovered-archive').map(Number));
+      const shown = authored.slice(0, SHIPYARD_STOCK_SIZE);
+      for (const ship of authored.slice(SHIPYARD_STOCK_SIZE)) if (recovered.has(Number(ship.id))) shown.push(ship);
+      return shown;
+    }
   }
+  // Licensed lots and attached depots sell only their authored offers; no price-ranked fallback.
+  if (stationServices?.licensedOnly) return [];
   const context = getShipyardStockContext(station);
   let stock = ships
     .filter((ship) => {
@@ -10190,6 +10764,18 @@ function markSystemVisited(systemIndex = state.currentPlanet) {
   const index = Number(systemIndex);
   if (!Number.isFinite(index)) return;
   if (!state.visitedSystems.includes(index)) state.visitedSystems.push(index);
+  // When, not just whether. A captain who flew through a system a hundred days ago knows what its
+  // berths and its flag were then and nothing about what is there now, and the conditions readout
+  // cannot say so without a date. A save written before this arrives without one; that reads as "date
+  // unknown" rather than as today. [playtest]
+  if (!state.visitedDays || typeof state.visitedDays !== 'object') state.visitedDays = {};
+  state.visitedDays[index] = Number(state.day) || 1;
+}
+// The day the captain was last at a system. The conditions record carries its own date, so this is
+// what the rest of the game asks when it wants to know how long ago somebody was somewhere.
+function lastSeenDay(index) {
+  const d = Number(state.visitedDays?.[Number(index)]);
+  return Number.isFinite(d) && d > 0 ? d : null;
 }
 
 function countPlayerBuiltStations(systemIndex = state.currentPlanet) {
@@ -10311,12 +10897,16 @@ function isCommonStationPlan(stationStats) {
     || sizeClass.includes('defense');
 }
 
+// What a site will sell plans for follows its resolved role, not substrings in its name: a station
+// called "Research Outpost" with no research effect is not a research site, and a heavy yard is one
+// with a heavy berth. Names are data an author may change; capabilities are the model.
 function getStationPlanStockContext(station = getCurrentServiceStation()) {
   const shipyardContext = getShipyardStockContext(station);
-  const stationName = shipyardContext.stationName || '';
-  const isResearch = stationName.includes('research') || stationName.includes('university') || stationName.includes('lab');
-  const isIndustrial = stationName.includes('shipyard') || stationName.includes('starbase') || stationName.includes('maintenance') || stationName.includes('ore');
-  const isHeavy = stationName.includes('heavy') || stationName.includes('starbase');
+  const cap = station ? getStationCapabilities(station) : null;
+  const effects = cap?.effects || {};
+  const isResearch = (effects.research || 0) > 0;
+  const isIndustrial = cap ? cap.services.construction !== 'none' || (effects.berths || 0) > 0 || (effects.repairCapacity || 0) >= 50 : false;
+  const isHeavy = cap ? cap.services.construction === 'heavy' || (effects.heavyBerths || 0) > 0 : false;
   return {
     ...shipyardContext,
     maxBuildCost: Math.round(clamp(
@@ -11273,7 +11863,7 @@ function getClaimSystemStatus(systemIndex = state.currentPlanet) {
 
 function getMapSystemInfo(systemIndex = state.selectedPlanet) {
   const index = Math.max(0, Math.min(state.planets.length - 1, Number(systemIndex) || 0));
-  if(!state.visitedSystems.includes(index) && index!==state.currentPlanet)return {faction:'neutral',relation:'Unsurveyed',visited:false,power:'?',stations:'?',patrols:'?',fleet:'?'};
+  if(!state.visitedSystems.includes(index) && index!==state.currentPlanet)return {faction:'neutral',relation:'Unsurveyed',sovereignty:null,visited:false,power:'?',stations:'?',patrols:'?',fleet:'?'};
   const system = ensureSystemState(index);
   const faction = getSystemFaction(index);
   const controlledByPlayer = state.controlledSystems.includes(index);
@@ -11298,14 +11888,16 @@ function getMapSystemInfo(systemIndex = state.selectedPlanet) {
     return sum + durability.hull + durability.shields;
   }, 0);
   const power = Math.round(Math.max(0, (stationPower + patrolPower + fleetPower) / 100));
+  // Culture and government are reported separately: "Bajoran world / Dominion occupation", never a
+  // single flag that hides which of the two it is. [playtest]
+  const sovereignty = getSystemSovereignty(index);
   const relation = controlledByPlayer
-    ? 'Player controlled'
-    : faction === 'neutral'
-      ? 'Independent'
-      : `${formatFaction(faction)} controlled`;
+    ? `${sovereignty.people} | under your flag`
+    : `${sovereignty.people} | ${sovereignty.rule}`;
   return {
     faction,
     relation,
+    sovereignty,
     visited,
     power,
     stations: stations.length,
@@ -11624,6 +12216,10 @@ function buyFactionFlag(faction) {
     return;
   }
   const key = normalizeFactionKey(faction);
+  // Deliberately not ownership-aware: this asks whether that government will issue you its colours,
+  // which is its decision and not the local vendor's. Owning the world you are standing on does not
+  // change whose flag it is. The vendor half of the transaction is already covered by
+  // requireServiceConnection above, which is ownership-aware. [review]
   const flagRefusal = serviceRefusal(key);
   if (flagRefusal) {
     setLog(flagRefusal);
@@ -11687,14 +12283,21 @@ function renderPlanetMenu() {
   const serviceName = station?.name || planet.name;
   const serviceTitle = serviceName;
   const stationStats = station ? getShipStats(station.stationTypeId) : null;
+  const stationCap = station ? getStationCapabilities(station) : null;
   const stationMeta = (state.remoteStationId && !state.docked ? 'Transporter trade channel · ' : '') + (station
-    ? `${escapeHtml(stationStats.name || 'Station')} | Defense ${Math.round(station.defenseRange || 0)} | ${formatFaction(station.faction || state.systemFaction)} station`
-    : `${formatFaction(state.systemFaction)} space | ${state.systemAttitude}${state.systemHasNebula ? ' | Nebula' : ''}`);
-  const planetDescription = String(planet.description || state.systemData[state.currentPlanet]?.[7] || '').trim();
-  const serviceDescription = state.remoteStationId && !state.docked ? '<div class="service-description">Transporter trade channel open. Purchases and cargo transfers are remote; hull repairs require docking.</div>' : !station && planetDescription
-    ? `<div class="service-description">${escapeHtml(planetDescription)}</div>`
+    ? `${escapeHtml(stationStats.name || 'Station')} | ${escapeHtml(stationCap.role)} | Defense ${Math.round(station.defenseRange || 0)} | ${formatFaction(station.faction || state.systemFaction)} station | ${getSystemSovereignty(state.currentPlanet).label}`
+    : `${getSystemSovereignty(state.currentPlanet).label} | ${state.systemAttitude}${state.systemHasNebula ? ' | Nebula' : ''}`);
+  const stationRoleLine = station
+    ? `<div class="service-description" data-station-role>${escapeHtml(stationCap.summary || '')} <b>Services:</b> ${escapeHtml(StationRoles.describeServices(stationCap))}.${stationCap.statusReason ? ` <b>Status:</b> ${escapeHtml(stationCap.statusReason)}` : ''}</div>`
     : '';
-  const market = currentMarketOffers().map(renderMarketOffer).join('');
+  const planetDescription = String(planet.description || state.systemData[state.currentPlanet]?.[7] || '').trim();
+  const serviceDescription = (state.remoteStationId && !state.docked ? '<div class="service-description">Transporter trade channel open. Purchases and cargo transfers are remote; hull repairs require docking.</div>' : !station && planetDescription
+    ? `<div class="service-description">${escapeHtml(planetDescription)}</div>`
+    : '') + stationRoleLine;
+  const marketBlock = commodityTradeBlock();
+  const market = marketBlock
+    ? `<span class="market-offer meta">${escapeHtml(marketBlock)}</span>`
+    : currentMarketOffers().map(renderMarketOffer).join('');
   normalizePlayerFlags();
   const stock = getShipyardStock(station);
   const shipyardContext = getShipyardStockContext(station);
@@ -11704,6 +12307,14 @@ function renderPlanetMenu() {
     const id = Number(ship.id);
     const price = getShipPrice(ship);
     const current = id === Number(state.playership);
+    // Shared per-system stock: quantity, next resupply and the design's registry status are visible
+    // even when a hull is out of stock, and an authored offer can be commissioned instead of vanishing.
+    const ledger = fleetShipStock(id);
+    const quantity = ledger?.quantity || 0;
+    const design = campaignDesignStatus(id);
+    const reserved = fleetReservations().some((r) => r.status === 'waiting' && r.system === Number(state.currentPlanet) && r.hull === id);
+    const stockLine = `<div class="meta ship-stock" data-ship-stock="${id}">${quantity > 0 ? `In stock: ${quantity}` : 'Out of stock'}${ledger ? ` · next resupply about day ${ledger.nextDay}` : ''}${reserved ? ' · commissioned' : ''}${design.state === 'lost' ? ` · ${escapeHtml(design.text)}` : ''}</div>`;
+    const commission = quantity <= 0 && !reserved ? `<button data-ship-commission="${id}" title="Pay now; delivered to your fleet here with the next resupply">Commission</button>` : '';
     return `<div class="ship-card ${current ? 'current' : ''}">
       <div class="ship-card-head">
         <img class="ship-preview ship-preview-${escapeHtml(getShipVisualClass(id))}" src="${escapeHtml(getShipPreviewSrc(id))}" alt="">
@@ -11719,8 +12330,9 @@ function renderPlanetMenu() {
         ${iconStat('hull', Math.round(finiteNumber(ship.hull, 0)), 'Hull')}
         ${iconStat('range', getShipWarpRange(id), 'Warp range')}
       </div>
+      ${stockLine}
       <div class="ship-actions">
-        <button data-ship-buy="${id}">Buy</button>
+        <button data-ship-buy="${id}" ${quantity > 0 ? '' : 'disabled'}>${quantity > 0 ? 'Buy' : 'Out of stock'}</button>${commission}
       </div>
     </div>`;
   }).join('');
@@ -11875,7 +12487,8 @@ function renderPlanetMenu() {
       <button data-planet-action="refuel">Antimatter</button>
       <button data-planet-action="repair" ${!state.docked ? 'disabled title="Dock for hull repairs"' : ''}>Repair${!state.docked ? ' (dock required)' : ''}</button>
       <button data-planet-action="contract">Contract</button>
-      <button data-planet-action="deliver">Deliver</button>
+      <button data-planet-action="deliver" ${hasWorldCargoToDeliver() ? '' : 'disabled title="No contract cargo is due at this world"'}>Deliver contract cargo</button>
+      <button data-planet-action="sell">Sell cargo</button>
       <button data-planet-action="claim">${escapeHtml(claimStatus.label)}</button>
       ${getPlantableFlags().map((flagFaction) => `<button data-planet-dedicate="${escapeHtml(flagFaction)}">Flag: ${escapeHtml(formatFaction(flagFaction))}</button>`).join('')}
       <button data-planet-action="construction">Build Station</button>
@@ -11940,6 +12553,7 @@ function openStationMenu(station) {
   state.docked = true;
   state.dockedPlanetIndex = null;
   state.dockedStationId = station.id;
+  recordOpportunity('contacts', normalizeFactionKey(getStationOwner(station) || station.faction || 'neutral'));
   state.planetMenuOpen = true;
   state.dockMenuTab = 'market';
   state.dockPanelScrollByTab = {};
@@ -11984,8 +12598,25 @@ function updateStats() {
   const message = state.log || (state.docked
     ? getCurrentDockedStation()?.name || state.planets[state.dockedPlanetIndex]?.name || 'Docked'
     : 'In Flight');
+  // Power and alert posture belong where they are needed, which is in a fight: both used to be behind a
+  // modal — the alert button opened the game menu and power lived in a panel that covers the view — so
+  // neither could be touched while engaging. They are controls in the top strip now, between the menu
+  // row and the ship readout, and nothing here opens a dialog. [playtest]
+  const alertNow = getAlertStatus();
+  const alertChoice = ensurePlaytestState().alertLevel || 'green';
+  const alertWhy = alertOverrideReason();
+  const alertTip = `Alert posture. Click to cycle green, yellow, red. Set: ${alertChoice}.`
+    + (alertWhy ? ` Held at ${alertNow} because ${alertWhy}.` : '');
+  const powerChips = [['engines', 'ENG'], ['weapons', 'WPN'], ['shields', 'SHD'], ['sensors', 'SEN']].map(([key, label]) => {
+    const value = getPowerDist(key);
+    return `<span class="power-chip" style="--p:${value * 10}%" title="${label} power ${value} of 10">`
+      + `<button data-power-dist="${key}" data-power-dir="-1" aria-label="Less ${label} power">&minus;</button>`
+      + `<b>${label}</b><u>${value}</u>`
+      + `<button data-power-dist="${key}" data-power-dir="1" aria-label="More ${label} power">+</button></span>`;
+  }).join('');
   statsEl.innerHTML = `<div class="top-strip">
-      <button data-alert-control class="top-slot top-ship alert-${getAlertStatus()}" title="Change alert posture">${escapeHtml(mode)} &middot; ${getAlertStatus().toUpperCase()}</button>
+      <button type="button" class="top-slot top-ship alert-${alertNow}${alertWhy ? ' alert-held' : ''}" data-alert-cycle title="${escapeHtml(alertTip)}" aria-label="${escapeHtml(alertTip)}">${escapeHtml(mode)} &middot; ${alertNow.toUpperCase()}</button>
+      <div class="top-slot top-power" role="group" aria-label="Power distribution">${powerChips}</div>
       <div class="top-slot top-message">${escapeHtml(message)}</div>
       <div class="top-stat"><span>AM</span>${state.antimatter}/${state.fuelCap}</div>
       <div class="top-stat"><span>SHLD</span>${Math.round(clamp(finiteNumber(state.shields, 0), 0, 100))}%</div>
@@ -12057,6 +12688,7 @@ function tryDockAtPlanetIndex(i, marker = state.planets[i]) {
   state.docked = true;
   state.dockedPlanetIndex = i;
   state.dockedStationId = null;
+  recordOpportunity('contacts', normalizeFactionKey(getSystemFaction(i) || 'neutral'));
   state.currentPlanet = i;
   state.myplanet = i + 1;
   setLog(`Docked at ${p.name}. Planet services open.`);
@@ -12082,7 +12714,7 @@ function getCatalogPurchaseDecision(shipId, extra = {}) {
   return state.shipCatalog.getPurchaseDecision(shipId, buildPurchaseContext({
     ...vendorInfo,
     credits: extra.credits ?? state.latinum,
-    standings: Object.fromEntries(Object.keys(factionRelations).map(key => [key, getFactionStanding(key)])),
+    standings: extra.standings ?? purchaseStandings(),
     tierThresholds: extra.tierThresholds ?? getConfiguredPurchaseTierThresholds(),
     vendor: extra.vendor ?? vendorInfo.vendor,
   }));
@@ -12101,7 +12733,8 @@ function getShipSaleStatus(shipId) {
   }
   const station = getCurrentServiceStation();
   const securityBlock = getSecurityDockingBlock(station ? getStationOwner(station) : getSystemControl(state.currentPlanet).polityId);
-  const serviceBlock = securityBlock || serviceRefusal(station?.faction || getSystemFaction(state.currentPlanet));
+  // Your own yard does not refuse you over the attitude of whoever used to own it.
+  const serviceBlock = securityBlock || vendorRefusal(station, station?.faction || getSystemFaction(state.currentPlanet));
   if (serviceBlock) return { ok: false, reason: serviceBlock, ship };
   const catalogDecision = getCatalogPurchaseDecision(shipId);
   const price = catalogDecision?.price ?? getShipPrice(ship);
@@ -12652,6 +13285,8 @@ function saveGame(slot = state.currentSaveSlot || 1) {
     securityZones: ensureSecurityZones(),
     securityEncounters: (captureSecurityParticipants(state.securityLiveSystemIndex), ensureSecurityEncounters()),
     visitedSystems: state.visitedSystems,
+    visitedDays: state.visitedDays || {},
+    conditionLog: state.conditionLog || {},
     factionSystemOverrides: state.factionSystemOverrides,
     destroyedStations: state.destroyedStations,
     depletedAsteroids: state.depletedAsteroids,
@@ -12791,6 +13426,21 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   state.controlledSystems = Array.isArray(s.controlledSystems)
     ? s.controlledSystems.map((index) => Number(index)).filter(Number.isFinite)
     : [];
+  // A save written before visit dates were recorded loads with none. That is "date unknown", not
+  // "seen today": the conditions readout says so rather than dressing an old memory as a reading.
+  state.visitedDays = {};
+  for (const [k, v] of Object.entries(s.visitedDays || {})) {
+    const i = Number(k), d = Number(v);
+    if (Number.isFinite(i) && Number.isFinite(d) && d > 0) state.visitedDays[i] = d;
+  }
+  // The observations themselves, not just their dates. A save written before these existed loads with
+  // none, which reads as never having looked rather than as having looked today.
+  state.conditionLog = {};
+  for (const [k, v] of Object.entries(s.conditionLog || {})) {
+    const i = Number(k);
+    if (Number.isFinite(i) && v && typeof v === 'object' && Number(v.day) > 0) state.conditionLog[i] = v;
+  }
+  state.conditionsRev = (Number(state.conditionsRev) || 0) + 1;
   state.visitedSystems = Array.isArray(s.visitedSystems)
     ? s.visitedSystems.map((index) => Number(index)).filter(Number.isFinite)
     : [state.currentPlanet];
@@ -12845,6 +13495,12 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   if (startMenuEl) startMenuEl.style.display = 'none';
   stopAllGameAudioLoops();
   playGameSound('shipLaunch', { cooldownKey: 'ship:load' });
+  // A save from before the two contracts were withdrawn is handled here, at the moment it is loaded.
+  // Putting it only behind campaign() was not enough: that runs on a fresh start, while the play path
+  // after a load goes through campaignBook(), which does not migrate — so the contracts stayed open,
+  // and an evacuation could even be progressed by advanceStationMissions before anything noticed.
+  // Found by loading a real save rather than calling the migration helper. [review]
+  migrateWithdrawnMissions(campaignBook());
   setLog(`${state.captainName} aboard ${state.shipName}. Game loaded from slot ${saveSlot}.`);
   updateStats();
 }
@@ -13071,8 +13727,28 @@ function getPlanetMarket(planetIndex = state.currentPlanet) {
   return offers;
 }
 
+// Commodity trade is with the world itself, or with a site that does commerce of some kind. The target
+// is the site that does none at all — a relay, a subspace communicator, a defence platform — which was
+// exposing the world's market simply because it could be hailed. A starbase, shipyard, trade station or
+// bar all trade, and the world itself remains tradeable from cargo range, so ordinary trading is
+// unaffected.
+function stationDoesCommerce(station) {
+  const cap = station ? getStationCapabilities(station) : null;
+  if (!cap) return false;
+  const s = cap.services;
+  return Boolean(s.commodities || s.passengers || s.rumors || s.weaponSales || s.refit || (s.shipSales && s.shipSales !== 'none') || cap.depot || cap.weaponDepot);
+}
+function commodityTradeBlock() {
+  if (!state.gameStarted) return '';
+  const station = getCurrentServiceStation();
+  if (station && stationDoesCommerce(station)) return '';
+  if (state.systemPlanet && distanceToPlayer(state.systemPlanet) <= WORLD_CARGO_DROPOFF_RANGE * 2) return '';
+  return station
+    ? `${station.name} is not a trading post. Approach the world to trade with it directly.`
+    : 'No commodity market in range. Close on the world, or dock at a site that trades.';
+}
 function currentMarketOffers() {
-  return getPlanetMarket(state.currentPlanet);
+  return commodityTradeBlock() ? [] : getPlanetMarket(state.currentPlanet);
 }
 
 function getLooseCargoPods() {
@@ -13155,11 +13831,34 @@ function rerenderTargetWindowNow() {
   targetWindowForceRender = false;
 }
 
+// A station is a thing you talk to. Selecting one and pressing hail used to answer "no ship selected",
+// which left a station's channel reachable only from the COMMS list or by docking — so what the captain
+// experienced was that stations cannot be hailed at all unless docked. Hail now means hail: a selected
+// station opens its channel, and with nothing selected the system's channel list opens instead of a
+// refusal. Docking remains what hull repairs need; that has not changed. [playtest]
+function getSelectedStationTarget() {
+  if (state.combatTargetType !== 'station' || !state.combatTargetId) return null;
+  return state.stations.find((s) => s.id === state.combatTargetId && !s.destroyed && !s.underConstruction) || null;
+}
+function hailSelectedStation(station) {
+  if (!station) return false;
+  const opened = openRemoteStationShop(station.id);
+  playGameSound(opened ? 'hail' : 'uiError', { cooldownKey: opened ? `hail:${station.id}` : 'hail:error' });
+  rerenderTargetWindowNow();
+  return opened;
+}
 function hailSelectedShip() {
   if (state.gameOver || !state.gameStarted || state.warp.active || isWormholeTransitActive()) return;
+  const selectedStation = getSelectedStationTarget();
+  if (selectedStation) { hailSelectedStation(selectedStation); return; }
   const npc = getSelectedNpcTarget();
   if (!npc) {
-    setLog('No ship selected to hail.');
+    const channels = state.stations.filter((s) => !s.destroyed && !s.underConstruction);
+    if (channels.length) {
+      openStationComms(channels.slice().sort((a, b) => distanceToPlayer(a) - distanceToPlayer(b))[0].id);
+      return;
+    }
+    setLog('Nothing selected to hail, and no station is answering in this system.');
     return;
   }
   const distance = distanceToPlayer(npc);
@@ -13441,12 +14140,14 @@ function buyMarketGood(slot = 0) {
   if (state.gameOver || !state.gameStarted) return;
   if (!requireServiceConnection()) return;
   updateMenu(1, 3);
-  const buyRefusal = serviceRefusal(getCurrentServiceStation()?.faction || getSystemFaction(state.currentPlanet));
+  const buyRefusal = vendorRefusal(getCurrentServiceStation(), getCurrentServiceStation()?.faction || getSystemFaction(state.currentPlanet));
   if (buyRefusal) {
     setLog(buyRefusal);
     updateStats();
     return;
   }
+  const marketBlock = commodityTradeBlock();
+  if (marketBlock) { setLog(marketBlock); updateStats(); return; }
   const offer = currentMarketOffers()[slot];
   if (!offer) return;
   if (state.latinum < offer.price) {
@@ -13471,12 +14172,14 @@ function sellMarketGood(slot = 0) {
   if (state.gameOver || !state.gameStarted) return;
   if (!requireServiceConnection()) return;
   updateMenu(1, 5);
-  const sellRefusal = serviceRefusal(getCurrentServiceStation()?.faction || getSystemFaction(state.currentPlanet));
+  const sellRefusal = vendorRefusal(getCurrentServiceStation(), getCurrentServiceStation()?.faction || getSystemFaction(state.currentPlanet));
   if (sellRefusal) {
     setLog(sellRefusal);
     updateStats();
     return;
   }
+  const marketBlock = commodityTradeBlock();
+  if (marketBlock) { setLog(marketBlock); updateStats(); return; }
   const offer = currentMarketOffers()[slot];
   if (!offer) return;
   const sold = removeCargoFromPods(offer.goods, 1);
@@ -13589,11 +14292,50 @@ function tryTransportClickedAsteroid(asteroid) {
   return true;
 }
 
+// What the game has put in front of the captain, as opposed to what they made of it. This is what the
+// Dominion opening reads instead of a calendar floor: chances offered, never achievements, so a captain
+// who takes none of them is protected exactly as much as one who takes all of them, and four hundred
+// days spent crossing empty space accumulate almost nothing. [17SEP spec §3.1]
+// Distinct beats, each bounded, never a running total. An earlier version of this counted every press
+// of "request contract" and added that to the systems visited, which meant fifty-nine presses at one
+// station — no travel, no time, one menu — satisfied the whole pacing gate. Every count here is a set
+// or a capped tally of something that costs the captain a journey, a docking or a destination, so
+// cycling a menu in one place moves exactly one of them by exactly one, and never again. [review]
+const OPPORTUNITY_SET_CAP = 64;
+function playerOpportunityLedger() {
+  const p = ensurePlaytestState();
+  const o = (p.opportunities ||= {});
+  o.journeys = Math.max(0, Math.floor(Number(o.journeys) || 0));
+  if (!Array.isArray(o.issuers)) o.issuers = [];
+  if (!Array.isArray(o.contacts)) o.contacts = [];
+  return o;
+}
+function recordOpportunity(kind, key) {
+  if (!key) return;
+  const o = playerOpportunityLedger();
+  const list = o[kind];
+  if (!Array.isArray(list) || list.includes(key) || list.length >= OPPORTUNITY_SET_CAP) return;
+  list.push(key);
+}
+// Only what the player does, and only things a jump cannot change while it is running.
+function campaignPlayerOpportunity() {
+  const o = playerOpportunityLedger();
+  return {
+    systemsVisited: (state.visitedSystems || []).length,
+    journeys: o.journeys,
+    issuers: o.issuers.length,
+    contacts: o.contacts.length,
+  };
+}
 function negotiateContract() {
   if (state.gameOver || !state.gameStarted) return;
   if (!requireServiceConnection()) return;
   updateMenu(1, 3);
   state.pendingContractOffer = createCargoRunOffer();
+  // The issuer, not the offer: rerolling a destination at the same station is the same issuer, and the
+  // captain has to go somewhere else to be offered work by somebody else.
+  if (state.pendingContractOffer) recordOpportunity('issuers',
+    `${state.currentPlanet}:${getCurrentServiceStation()?.id || 'planet'}`);
   if (!state.pendingContractOffer) { renderContractModal(); setLog(state.cargoCap - state.cargo < 1 ? 'Cargo hold full. Free space before requesting a contract.' : 'No reachable cargo destinations available.'); return; }
   renderContractModal();
   setLog(`Contract offer from ${state.pendingContractOffer.employerName}.`);
@@ -13611,11 +14353,16 @@ function tradeOne() {
   buyMarketGood(0);
 }
 
-function tradeAtPlanet() {
+// Review fix: contract delivery and ordinary cargo sales are separate actions everywhere (HUD,
+// planet menu, keyboard). Delivering never sells trade goods; selling never touches contract cargo.
+function deliverContractCargo() {
+  if (state.gameOver || !state.gameStarted) return false;
+  return deliverDestinationCargoAtCurrentPlanet({ manual: true });
+}
+function sellOrdinaryCargo() {
   if (state.gameOver || !state.gameStarted) return;
   if (!requireServiceConnection()) return;
   updateMenu(1, 5);
-  if (deliverDestinationCargoAtCurrentPlanet()) return;
   const p = state.planets[state.currentPlanet];
   const demandBonus = Math.floor(Math.random() * 5);
   const openPod = state.cargoArray.find((pod) => pod.tons > 0 && pod.destination === undefined);
@@ -13632,12 +14379,18 @@ function tradeAtPlanet() {
     state.latinum += payout;
     state.deliveredCargo += sold;
     playGameSound('cargo', { cooldownKey: `trade:${state.currentPlanet}` });
-    setLog(`Traded ${sold} cargo on ${p.name} for ${payout} latinum.`);
+    setLog(`Sold ${sold} tons of cargo on ${p.name} for ${payout} latinum.`);
   } else {
-    setLog(`No cargo to deliver at ${p.name}. Buy cargo first.`);
+    setLog(hasWorldCargoToDeliver() ? `No ordinary cargo to sell at ${p.name}; contract cargo is delivered with Deliver.` : `No cargo to sell at ${p.name}. Buy cargo first.`);
   }
   checkWinLose();
   updateStats();
+}
+// Legacy combined action kept for older callers: deliver what is due here, otherwise sell.
+function tradeAtPlanet() {
+  if (state.gameOver || !state.gameStarted) return;
+  if (hasWorldCargoToDeliver() && deliverContractCargo()) return;
+  sellOrdinaryCargo();
 }
 
 function randomTravelEvent() {
@@ -13917,6 +14670,107 @@ function securityOrderPanelKey(order, notice, zone) {
   if (notice) return `notice:${notice.outcome}:${notice.atMs}`;
   return zone ? `zone:${zone.id}:${zone.epoch}` : 'none';
 }
+// Review fix: the incoming-hail / checkpoint panel shares the right-hand column with the interstellar
+// map thumbnail, whose position depends on the viewport. Stack the panel under or above the thumbnail
+// instead of letting the two overlap, and keep it scrollable when the column is short.
+// The map thumbnail's own visibility is an inline style, so standing it down has to use the same
+// channel and remember what it was told to be.
+let minimapDisplayBeforeCrowding = null;
+function setMinimapCrowdedOut(crowded) {
+  if (!minimapPanelEl) return;
+  if (crowded) {
+    if (minimapDisplayBeforeCrowding == null) minimapDisplayBeforeCrowding = minimapPanelEl.style.display || '';
+    minimapPanelEl.classList.add('crowded-out');
+    minimapPanelEl.style.display = 'none';
+    return;
+  }
+  if (!minimapPanelEl.classList.contains('crowded-out')) return;
+  minimapPanelEl.classList.remove('crowded-out');
+  minimapPanelEl.style.display = minimapDisplayBeforeCrowding || '';
+  minimapDisplayBeforeCrowding = null;
+}
+function layoutSecurityOrderPanel() {
+  const el = securityOrderPanelEl;
+  if (!el || el.classList.contains('hidden')) return;
+  const gap = 12;
+  const visibleRect = (node) => (node && !node.classList.contains('hidden') && node.style.display !== 'none' && getComputedStyle(node).display !== 'none' ? node.getBoundingClientRect() : null);
+  // Measure unconstrained: the floor is what this panel's own head, status and buttons need, plus one
+  // line of message. The panel itself never scrolls — its prose does — so anything below the floor
+  // would be hiding the controls the hail exists to offer.
+  el.style.overflowY = 'hidden';
+  el.style.maxHeight = '';
+  el.style.top = ''; el.style.bottom = '';
+  const body = el.querySelector('.security-order-body');
+  const px = (value) => { const n = parseFloat(value); return Number.isFinite(n) ? n : 0; };
+  const ownStyle = getComputedStyle(el);
+  const oneLine = (node) => { const cs = getComputedStyle(node); return Math.ceil(px(cs.lineHeight) || px(cs.fontSize) * 1.4); };
+  const isProse = (node) => node.tagName === 'P' || node.classList.contains('security-order-text');
+  // The floor is the height at which the panel still shows every control it is offering, with its
+  // prose squeezed to a single line. It used to be arithmetic — a flat 7px between children, 18px of
+  // padding and 34px for everything else — which ignored the margins the prose carries and was three
+  // pixels short of the hail's own last button once the hail offered two. Measure it instead: clamp
+  // the prose, read where the last control actually lands, and put the prose back. [review]
+  let floor = Math.ceil((el.querySelector('.security-order-head')?.getBoundingClientRect().height || 0)
+    + px(ownStyle.borderTopWidth) + px(ownStyle.borderBottomWidth));
+  if (body) {
+    const prose = [...body.children].filter(isProse);
+    const restore = prose.map((node) => node.style.maxHeight);
+    for (const node of prose) node.style.maxHeight = `${oneLine(node)}px`;
+    const top = el.getBoundingClientRect().top;
+    let lowest = 0;
+    for (const child of body.children) {
+      if (isProse(child)) continue;
+      lowest = Math.max(lowest, child.getBoundingClientRect().bottom - top);
+    }
+    // A hail with nothing but prose still shows the line that says who is calling.
+    if (!lowest && prose.length) lowest = prose[prose.length - 1].getBoundingClientRect().bottom - top;
+    prose.forEach((node, i) => { node.style.maxHeight = restore[i]; });
+    if (lowest > 0) floor = Math.ceil(lowest + px(getComputedStyle(body).paddingBottom) + px(ownStyle.borderBottomWidth));
+  }
+  const natural = Math.ceil(el.getBoundingClientRect().height);
+
+  const own = el.getBoundingClientRect();
+  const recovery = visibleRect(document.getElementById('disabled-recovery'));
+  const sharesColumn = (rect) => rect && rect.height > 0 && rect.left < own.right && rect.right > own.left;
+  // The status strip and the top-left menu sit above this panel in the stack, so sliding under them
+  // hides its own heading — the line that says who is hailing. They set the top of the usable column.
+  let ceiling = 8;
+  for (const node of document.querySelectorAll('#stats, #top-left-menu, .top-left-tabs, .top-strip')) {
+    const rect = visibleRect(node);
+    if (!sharesColumn(rect) || rect.top > window.innerHeight / 2) continue;
+    ceiling = Math.max(ceiling, Math.ceil(rect.bottom + gap));
+  }
+  // The disabled-ship panel owns critical controls of its own, so it is a hard limit that is never
+  // crossed. The map thumbnail is a decoration: on a screen too short for both, the thumbnail stands
+  // down for as long as a hail is on screen and comes back when it clears. Nothing here is allowed to
+  // solve the problem by shrinking the panel past its own buttons.
+  setMinimapCrowdedOut(false);
+  const hardBottom = sharesColumn(recovery) ? Math.floor(recovery.top - gap) : window.innerHeight - 8;
+  const slotsFor = (mini) => {
+    const out = [];
+    if (sharesColumn(mini)) {
+      out.push({ top: Math.max(ceiling, Math.round(mini.bottom + gap)), bottom: hardBottom });
+      out.push({ top: ceiling, bottom: Math.min(hardBottom, Math.floor(mini.top - gap)) });
+    }
+    if (!out.length) out.push({ top: ceiling, bottom: hardBottom });
+    return out;
+  };
+  let slots = slotsFor(visibleRect(minimapPanelEl));
+  if (!slots.some((slot) => slot.bottom - slot.top >= floor)) {
+    setMinimapCrowdedOut(true);
+    slots = slotsFor(null);
+  }
+  const wanted = Math.max(floor, Math.min(natural, hardBottom - ceiling));
+  const fits = slots.find((slot) => slot.bottom - slot.top >= wanted) || slots.find((slot) => slot.bottom - slot.top >= floor) || slots[slots.length - 1];
+  const height = Math.max(floor, Math.min(natural, fits.bottom - fits.top));
+  // Sit at the bottom of the chosen slot so the panel stays where the eye expects it, unless that
+  // would push it off the top of the viewport.
+  const top = Math.max(ceiling, Math.min(fits.top, fits.bottom - height));
+  el.style.top = `${Math.round(top)}px`;
+  el.style.bottom = 'auto';
+  el.style.maxHeight = `${Math.round(height)}px`;
+}
+window.addEventListener('resize', () => layoutSecurityOrderPanel());
 function updateSecurityOrderPanel() {
   if (!securityOrderPanelEl) return;
   const visible = state.gameStarted && !state.gameOver && !state.warp.active && !isWormholeTransitActive();
@@ -13933,7 +14787,8 @@ function updateSecurityOrderPanel() {
   const arrival = zone?.foreign && state.arrivalHail?.systemIndex === state.currentPlanet && !state.arrivalHail.acknowledged;
   const show = Boolean(arrival || order || notice || (zone && zone.foreign && (cleared || visitor?.noncompliant)));
   securityOrderPanelEl.classList.toggle('hidden', !show);
-  if (!show) { securityOrderPanelEl.dataset.renderKey = ''; return; }
+  if (!show) { securityOrderPanelEl.dataset.renderKey = ''; setMinimapCrowdedOut(false); return; }
+  layoutSecurityOrderPanel();
   const key = securityOrderPanelKey(order, notice, zone) + (arrival ? ':arrival' : '') + (cleared ? ':cleared' : visitor?.noncompliant ? ':refused' : '');
   if (securityOrderPanelEl.dataset.renderKey === key) return;
   securityOrderPanelEl.dataset.renderKey = key;
@@ -14234,15 +15089,21 @@ document.addEventListener('click', (e) => {
     else if (action === 'map') { if (state.mapOpen) closeMap(); else openMap(); }
     else if (action === 'inventory') openTopLeftTab('inventory');
     else if (action === 'power') openTopLeftTab('power');
-    else if (action === 'contract') negotiateContract();
+    // Fleet and electronic warfare are panels of their own. Fleet used to be a button at the bottom of
+    // a long Sensors panel and EW a collapsed section inside it, which is why neither could be found.
+    else if (action === 'fleet') renderFleetManager(true);
+    else if (action === 'ew') openTopLeftTab('ew');
+    else if (action === 'contract') openContractsPanel();
     else if (action === 'save') saveGame();
     return;
   }
 });
 document.addEventListener('click', (e) => {
   const powerBtn = e.target.closest?.('[data-power-dist]');
-  if (powerBtn && topLeftPanelEl?.contains(powerBtn)) {
+  // The panel and the top strip both carry these, and the strip is the one that works mid-fight.
+  if (powerBtn && (topLeftPanelEl?.contains(powerBtn) || statsEl?.contains(powerBtn))) {
     adjustPowerDist(powerBtn.dataset.powerDist, Number(powerBtn.dataset.powerDir || 1));
+    if (statsEl?.contains(powerBtn)) updateStats();
   }
 });
 topLeftMenuEl?.addEventListener('click', (e) => {
@@ -14277,7 +15138,8 @@ topLeftMenuEl?.addEventListener('click', (e) => {
     if (value === 'transport') transport();
     if (value === 'contract') negotiateContract();
     if (value === 'trade') tradeOne();
-    if (value === 'deliver') deliverDestinationCargoAtCurrentPlanet({manual:true});
+    if (value === 'deliver') deliverContractCargo();
+    if (value === 'sell') sellOrdinaryCargo();
     if (value === 'refuel') refuel();
     if (value === 'repair') repairHull();
     if (value === 'weapons') openWeaponsLocker();
@@ -14333,7 +15195,8 @@ topLeftPanelEl?.addEventListener('click', (e) => {
     if (value === 'transport') transport();
     if (value === 'contract') negotiateContract();
     if (value === 'trade') tradeOne();
-    if (value === 'deliver') tradeAtPlanet();
+    if (value === 'deliver') deliverContractCargo();
+    if (value === 'sell') sellOrdinaryCargo();
     if (value === 'refuel') refuel();
     if (value === 'repair') repairHull();
     if (value === 'weapons') openWeaponsLocker();
@@ -14558,7 +15421,8 @@ planetMenuEl?.addEventListener('click', (e) => {
     if (value === 'refuel') refuel();
     if (value === 'repair') repairHull();
     if (value === 'contract') negotiateContract();
-    if (value === 'deliver') tradeAtPlanet();
+    if (value === 'deliver') deliverContractCargo();
+    if (value === 'sell') sellOrdinaryCargo();
     if (value === 'claim') claimCurrentSystem();
     if (value === 'claim') claimCurrentSystem();
     if (value === 'flags') {
@@ -14586,6 +15450,8 @@ planetMenuEl?.addEventListener('click', (e) => {
     sellMarketGood(Number(sell.dataset.marketSell));
     return;
   }
+  const commission = e.target.closest('[data-ship-commission]');
+  if (commission) { commissionShip(Number(commission.dataset.shipCommission)); renderPlanetMenu(); return; }
   const ship = e.target.closest('[data-ship-buy]');
   if (ship) {
     buyShip(Number(ship.dataset.shipBuy));
@@ -14645,6 +15511,24 @@ planetMenuEl?.addEventListener('wheel', (e) => {
   if (panel.dataset?.dockTab) state.dockPanelScrollByTab[panel.dataset.dockTab] = panel.scrollTop;
 }, { passive: false });
 
+// Every dialog in this game is opened with showModal(), and a modal dialog swallows the pointer for
+// everything behind it — but not the keyboard.
+// Each close path used to name the dialogs it happened to know about — the reports folder did not know
+// about the Empire panel, and none of them knew about the fleet manager — so closing one resumed the
+// clock while another was still up. There is one answer now. [playtest]
+function resumeGameClockIfNothingModalIsOpen() {
+  if (gameMenuEl?.open || debugMenuEl?.open || isModalDialogOpen()) return false;
+  resumeGameClock();
+  return true;
+}
+function isModalDialogOpen() {
+  for (const d of document.querySelectorAll('dialog[open]')) {
+    // :modal is what tells showModal() from show(); a browser that cannot answer is treated as modal,
+    // because guessing "not modal" is what opens a window behind one.
+    try { if (d.matches(':modal')) return true; } catch (err) { return true; }
+  }
+  return false;
+}
 window.addEventListener('keydown', (e) => {
   if (debugMenuEl?.open || gameMenuEl?.open) return;
   if (!state.gameStarted || state.warp.active || isWormholeTransitActive()) return;
@@ -14677,6 +15561,12 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
+  // With Fleet & Shipyard open, M opened the star chart underneath it and C and P opened the top-left
+  // panel underneath it, leaving the captain looking at a chart whose systems they could not click.
+  // Only the debug and game menus were guarded; the fleet manager, the Empire panel, the reports
+  // folder and station comms were not. This sits below the branches above so Escape still closes a
+  // purchase or contract overlay opened from inside a dialog. [playtest]
+  if (isModalDialogOpen()) return;
   if (key === 'm') {
     if (state.mapOpen) closeMap();
     else openMap();
@@ -14695,7 +15585,8 @@ window.addEventListener('keydown', (e) => {
   if (key === 'escape') { if (state.mapOpen) closeMap(); else openGameMenu(); }
   if (key === 't') transport();
   if (key === 'n') negotiateContract();
-  if (key === 'e') tradeAtPlanet();
+  if (key === 'e') deliverContractCargo(); // contract delivery only
+  if (key === 'g') sellOrdinaryCargo(); // ordinary goods
   if (key === 'r') refuel();
   if (key === 'f') repairHull();
   if (key === 'l') openWeaponsLocker();
@@ -14786,6 +15677,7 @@ function handleGameCanvasClick(e) {
   if (isWormholeTransitActive()) return;
   if (state.starChart.suppressClick) return;
   const { x: mx, y: my } = canvasEventPoint(e);
+  if (state.mapOpen && handleMapOverlayLegendClick(mx, my)) return;
   if (state.mapOpen && isPointInStarChartViewport(mx, my)) {
     let closestIndex = -1;
     let closestDistance = Infinity;
@@ -15629,6 +16521,29 @@ function damageCombatTarget(target, damage, source = 'player', color = '#74d6ff'
 }
 
 const FLEET_STANCES = ['follow', 'attack', 'seek', 'planet', 'explore', 'trade'];
+// Why the ship is at a posture the captain did not choose. The readout shows the effective posture and
+// the captain sets the intended one; when combat overrides the choice, saying so is better than
+// appearing to ignore the click. [playtest]
+function alertOverrideReason(now = gameNow()) {
+  const stance = getFleetStance();
+  if (stance === 'attack' || stance === 'seek') return 'the fleet is engaging';
+  if (state.lastShieldHitAt && now - state.lastShieldHitAt < 6000) return 'the ship is under fire';
+  if (stance === 'explore' || stance === 'planet' || stance === 'trade') return `a ${stance} stance holds the ship at yellow`;
+  return null;
+}
+function cycleAlertLevel() {
+  const order = ['green', 'yellow', 'red'];
+  const p = ensurePlaytestState();
+  const from = p.alertLevel || 'green';
+  const to = order[(order.indexOf(from) + 1) % order.length];
+  p.alertLevel = to;
+  const effective = getAlertStatus();
+  const why = alertOverrideReason();
+  if (effective !== to && why) setLog(`Alert set to ${to}, but the ship is at ${effective} because ${why}.`);
+  else setLog(`Alert ${to}.`);
+  updateStats();
+  return to;
+}
 function getAlertStatus(now = gameNow()) {
   const stance = getFleetStance();
   if (stance === 'attack' || stance === 'seek') return 'red';
@@ -16408,6 +17323,12 @@ function destroyStation(station) {
   playGameSound('explosion', { cooldownKey: `destroy:station:${station.id}`, volume: 1.12, rateJitter: 0.12 });
   state.destroyedStations[station.id] = true;
   queueFactionReconstruction(station);
+  if (state.gameStarted) {
+    const fx = [];
+    Campaign.recordStationLoss(campaign(), buildCampaignWorld(true), station.id, Number(state.currentPlanet), state.day, fx);
+    applyCampaignEffects(fx, state.day);
+    campaignWorldCache = null;
+  }
   const systemStation = state.systemStates[state.currentPlanet]?.stations?.find((entry) => entry.id === station.id);
   if (systemStation) {
     systemStation.destroyed = true;
@@ -16871,7 +17792,7 @@ function fleetAttackHerald(faction, systemIndex) {
   return `${formatFaction(key)} raiders inbound on ${system}.`;
 }
 function spawnFleetAttack(systemIndex = state.currentPlanet, attackerFaction = chooseFleetAttackFaction(systemIndex)) {
-  if (Number(systemIndex) !== state.currentPlanet) return false;
+  if (Number(systemIndex) !== Number(state.currentPlanet)) return false; // symmetric coercion: a string index in a hand-edited save cannot block every attack
   if (state.activeFleetAttack || state.gameOver || !state.gameStarted || state.warp.active) return false;
   const localFaction = getSystemFaction(systemIndex);
   if (localFaction === 'neutral' && !state.controlledSystems.includes(Number(systemIndex))) return false;
@@ -16979,8 +17900,10 @@ function updateFleetAttacks(now = gameNow()) {
   if (!attack || Number(attack.systemIndex) !== Number(state.currentPlanet)) return;
   const attackers = state.npcShips.filter((npc) => !npc.destroyed && npc.attackId === attack.id);
   if (!attackers.length) {
+    if (nextCampaignWave()) return;
     getSystemActivity().outcome='repelled';
     setLog(`${formatFaction(attack.faction)} fleet attack repelled.`);
+    reconcileLocalCampaignBattle('destroyed');
     state.activeFleetAttack = null;
     state.fleetAttackControlSince = 0;
     scheduleNextFleetAttack(now);
@@ -16998,7 +17921,7 @@ function updateFleetAttacks(now = gameNow()) {
   }
   if (now - state.fleetAttackControlSince < FLEET_ATTACK_CONTROL_DELAY_MS) return;
   getSystemActivity().outcome='system captured';
-  transferSystemControlToFaction(state.currentPlanet, attack.faction);
+  if (!localCampaignCapture(attack)) transferSystemControlToFaction(state.currentPlanet, attack.faction);
   state.systemFaction = attack.faction;
   state.systemAttitude = getFactionAttitude(attack.faction);
   for (const npc of attackers) {
@@ -17410,6 +18333,8 @@ function tick(frameScale = 1) {
   updateStationDebris(frameScale);
   updateSystemActivity(frameScale);
   updateFleetAttacks();
+  advanceRecoveryMissions();
+  advanceStationMissions();
   updatePowerSystems(frameScale);
   updateSensorSystems(frameScale);
   updateNpcShips(frameScale);
@@ -18193,15 +19118,40 @@ function drawSpinningPlanetSprite(img, p, x, y, size, now = gameNow()) {
   return true;
 }
 
+// Where an unanswered hail's panel begins, in canvas units, or null when none is up. The chart canvas
+// sits at z 74 and is clipped to the chart's own rect, so every pixel of that panel inside the rect is
+// painted over — prose, buttons and all. [playtest]
+function starChartHailEdge() {
+  const el = securityOrderPanelEl;
+  if (!el || el.classList.contains('hidden')) return null;
+  const rect = el.getBoundingClientRect();
+  const view = canvas.getBoundingClientRect();
+  if (!(rect.width > 0 && rect.height > 0 && view.width > 0)) return null;
+  return (rect.left - view.left) * (canvas.width / view.width);
+}
+const STAR_CHART_MIN_PANEL_WIDTH = 380;
 function getStarChartPanelRect() {
   const width = clamp(canvas.width * 0.84, 660, canvas.width - 88);
   const height = clamp(canvas.height * 0.79, 380, canvas.height - 88);
-  const left = (canvas.width - width) / 2;
+  let left = (canvas.width - width) / 2;
+  let right = left + width;
+  // The hail carries the controls that answer it and a clock; the chart is a map that can be smaller.
+  // So the chart gives way rather than being drawn across it, and its close control — positioned from
+  // this rect — moves with it. Below the floor the window is too narrow for both, and the panel's own
+  // stacking order keeps the hail readable instead.
+  const hailEdge = starChartHailEdge();
+  if (hailEdge != null && right > hailEdge - 10) {
+    const wanted = Math.max(STAR_CHART_MIN_PANEL_WIDTH, Math.min(width, hailEdge - 10 - 8));
+    if (hailEdge - 10 - 8 >= STAR_CHART_MIN_PANEL_WIDTH) {
+      right = hailEdge - 10;
+      left = Math.max(8, right - wanted);
+    }
+  }
   const top = Math.max(28, (canvas.height - height) / 2 - canvas.height * 0.02);
   return {
     left,
     top,
-    right: left + width,
+    right,
     bottom: top + height,
     headerH: Math.max(58, Math.min(82, canvas.height * 0.105)),
     railW: Math.max(54, Math.min(74, canvas.width * 0.058)),
@@ -19006,7 +19956,7 @@ function drawMapLegend() {
   const boxX = 54;
   const boxY = 76;
   const boxW = Math.min(740, Math.max(320, canvas.width - 108));
-  const boxH = 88;
+  const boxH = 106;
   ctx.save();
   ctx.fillStyle = 'rgba(4, 10, 20, 0.82)';
   ctx.fillRect(boxX, boxY, boxW, boxH);
@@ -19015,20 +19965,29 @@ function drawMapLegend() {
   ctx.fillStyle = '#dfeaff';
   ctx.font = canvasUiFont(13);
   drawFittedMapText(`Current: ${p?.name || 'Unknown'}    Target: ${chartSystemLabel(state.selectedPlanet)}`, boxX + 14, boxY + 20, boxW - 28);
+  // Whose world it is, then who governs it, then what is standing in it. A single "Dominion controlled"
+  // line used to collapse the first two. [playtest]
   ctx.fillStyle = getMapFactionColor(systemInfo.faction);
   ctx.font = canvasUiFont(12, 'bold');
   drawFittedMapText(
-    `${systemInfo.relation} | Power ${systemInfo.power} | Stations ${systemInfo.stations} | Patrols ${systemInfo.patrols} | Fleet ${systemInfo.fleet} | ${systemInfo.visited ? 'Visited' : 'Unvisited'}`,
+    `${systemInfo.relation}${systemInfo.sovereignty?.contested ? ' | contested' : ''}`,
     boxX + 14,
     boxY + 39,
     boxW - 28,
   );
+  ctx.font = canvasUiFont(12);
+  drawFittedMapText(
+    `Power ${systemInfo.power} | Stations ${systemInfo.stations} | Patrols ${systemInfo.patrols} | Fleet ${systemInfo.fleet} | ${systemInfo.visited ? 'Visited' : 'Unvisited'}`,
+    boxX + 14,
+    boxY + 57,
+    boxW - 28,
+  );
   ctx.fillStyle = plan?.legs?.length ? (rangeStatus?.canTravel ? '#ffd66e' : '#ffb0b0') : '#9fb2d0';
   ctx.font = canvasUiFont(12);
-  drawFittedMapText(`${cost}    First click plots | Second click warps`, boxX + 14, boxY + 57, boxW - 28);
+  drawFittedMapText(`${cost}    First click plots | Second click warps`, boxX + 14, boxY + 75, boxW - 28);
   const days=plan?.legs?.length?Fleet.travelDays(plan.distance):0;
   const daily=state.playerFleet.filter(f=>!f.destroyed).reduce((sum,f)=>sum+upkeepPerDay(f.shipId),0);
-  drawFittedMapText(`${days} travel days | Current fleet upkeep ${daily*days} L (deliveries add upkeep on following days)`,boxX+14,boxY+77,boxW-28);
+  drawFittedMapText(`${days} travel days | Current fleet upkeep ${daily*days} L (deliveries add upkeep on following days)`,boxX+14,boxY+95,boxW-28);
   ctx.restore();
 }
 
@@ -19063,12 +20022,6 @@ function drawMapSystemNode(p, i, size) {
     ctx.stroke();
   }
 
-  const deliveries = getOpenContracts().filter(c => c.showMarker && getContractTargetIndex(c) === i);
-  if (deliveries.length) {
-    ctx.strokeStyle = '#ffe38a'; ctx.lineWidth = 2;
-    ctx.beginPath();ctx.arc(screen.x,screen.y,radius+7,0,Math.PI*2);ctx.stroke();
-    ctx.fillStyle='#ffe38a';ctx.font=canvasUiFont(11);ctx.fillText(`Cargo ×${deliveries.length}`,screen.x+radius+10,screen.y+4);
-  }
   if (system.hasNebula) {
     ctx.fillStyle = 'rgba(216, 196, 255, 0.78)';
     ctx.beginPath();
@@ -20202,7 +21155,10 @@ function drawSystemStar(now = gameNow()) {
 function drawMinimap() {
   if (!minimapCanvas || !minimapCtx) return;
   const visible = state.gameStarted && !state.warp.active && !isWormholeTransitActive();
-  if (minimapPanelEl) minimapPanelEl.style.display = visible ? 'block' : 'none';
+  if (minimapPanelEl) {
+    if (minimapPanelEl.classList.contains('crowded-out')) minimapDisplayBeforeCrowding = visible ? 'block' : 'none';
+    else minimapPanelEl.style.display = visible ? 'block' : 'none';
+  }
   minimapCanvas.style.display = visible ? 'block' : 'none';
   if (!visible) return;
 
@@ -20609,6 +21565,743 @@ function clearInterstellarMapOverlay() {
   interstellarMapCtx.clearRect(0, 0, interstellarMapCanvas.width, interstellarMapCanvas.height);
 }
 
+// ---- trade and security conditions ---------------------------------------------------------------
+// Truth about a system is cheap to compute: the weekly activity roll, the campaign's hulls and
+// operations, the traffic model, the state of its installations. None of it may be drawn without a
+// source that would actually have told the captain — and the absence of a source is its own state.
+// "No report" is drawn and described differently from "reported quiet", because a lane nobody has
+// looked at is not a safe lane. That distinction is the whole point of this layer. [playtest]
+const CONDITION_SOURCES = Object.freeze({
+  local: { label: 'Direct observation', rank: 4 },
+  fleet: { label: 'Fleet report', rank: 3 },
+  relay: { label: 'Relay telemetry', rank: 2 },
+  rumour: { label: 'Traffic reports', rank: 1 },
+  none: { label: 'No current intelligence', rank: 0 },
+});
+const CONDITION_BANDS = ['none', 'light', 'moderate', 'heavy'];
+function conditionBand(score, cuts) {
+  for (let n = cuts.length - 1; n >= 0; n--) if (score >= cuts[n]) return n + 1;
+  return 0;
+}
+// The activity roll for a system, derived rather than recorded: getSystemActivity writes a record for
+// whichever system it is asked about, and a chart sweep must not create one for all 101.
+function peekSystemActivity(index) {
+  const cycle = Math.floor((Math.max(1, state.day) - 1) / 7);
+  const record = ensurePlaytestState().activities[index];
+  if (record && record.cycle === cycle) return record.type;
+  let pick = seeded(hashString(`${fleetBook().campaignId}:${index}:${cycle}:activity`));
+  for (const [name, weight] of SYSTEM_ACTIVITY_WEIGHTS) { pick -= weight; if (pick < 0) return name; }
+  return 'quiet';
+}
+// How much civilian trade a world draws: who is willing to fly there under its flag, against how much
+// there is to come for. This is the same model the traffic spawner uses, asked about a whole galaxy
+// rather than one system.
+function trueTradeTraffic(index) {
+  const control = getSystemControl(index);
+  const host = control.controller || 'neutral';
+  const origins = Object.keys(factionNames).filter((f) => isRecognizedFactionKey(f));
+  const welcome = origins.filter((f) => World.civilianWeight(f, host, areFactionsOpposed(f, host)) > 0);
+  const weight = welcome.reduce((n, f) => n + World.civilianWeight(f, host, areFactionsOpposed(f, host)), 0);
+  const planet = state.planets[index] || {};
+  const market = clamp(finiteNumber(planet.market, 8), 0, 22);
+  const berths = (state.stationDefinitions || [])
+    .filter((d) => Number(d.systemIndex) === index && !state.destroyedStations?.[d.id]).length;
+  const closed = origins.length - welcome.length;
+  const score = weight * (0.5 + market / 16) + berths * 0.7;
+  return { score, band: conditionBand(score, [0.8, 2.4, 4.6]), host, berths, market, closed,
+    why: `${welcome.length}/${origins.length} powers trading · market ${market} · ${berths} berth${berths === 1 ? '' : 's'}${closed ? ` · ${closed} at war` : ''}` };
+}
+// What is standing between that trade and whoever would take it.
+function trueProtection(index) {
+  const book = campaignBook();
+  let hulls = 0;
+  for (const p of Object.values(book.polities || {}))
+    hulls += (p.hulls || []).filter((h) => h.status !== 'lost' && Number(h.systemIndex) === index).length;
+  const stations = (state.stationDefinitions || [])
+    .filter((d) => Number(d.systemIndex) === index && !state.destroyedStations?.[d.id]);
+  const armed = stations.filter((d) => finiteNumber(getStationDefenseProfile(d)?.damage, 0) > 0).length;
+  const authority = hasOrbitalAuthority(index);
+  const score = hulls * 1.1 + armed * 1.4 + (authority ? 1.6 : 0);
+  return { score, band: conditionBand(score, [0.9, 2.6, 4.8]), hulls, armed, authority,
+    why: `${hulls} garrison hull${hulls === 1 ? '' : 's'} · ${armed} armed installation${armed === 1 ? '' : 's'} · ${authority ? 'orbital authority' : 'no orbital authority'}` };
+}
+// Whether a world is patrolled by anyone with the standing to stop a ship. Derived from the authored
+// checkpoints and the border policies rather than getSecurityZone, which only answers about the system
+// the captain is standing in.
+function hasOrbitalAuthority(index) {
+  const control = getSystemControl(index);
+  if (control.playerControlled) return Boolean(getPlayerCheckpointConfig(index)?.enabled);
+  if (SECURITY_AUTHORED_CHECKPOINTS.some((e) => getSystemIndexByName(e.systemName) === Number(index))) return true;
+  return Boolean(FACTION_BORDER_POLICIES[control.controller]);
+}
+// What would go wrong here, and who it would be. Ambient activity and campaign operations are separate
+// things: one is the week's weather, the other is a force with a name and an arrival date.
+function trueThreat(index) {
+  const book = campaignBook();
+  const control = getSystemControl(index);
+  const ops = (book.operations || [])
+    .filter((o) => Number(o.targetSystem) === index && ['moving', 'engaged'].includes(o.status));
+  const engaged = ops.filter((o) => o.status === 'engaged');
+  const activity = peekSystemActivity(index);
+  const ambient = { quiet: 0, patrol: 0, scout: 1, skirmish: 2, raid: 3, battle: 3 }[activity] ?? 0;
+  const protection = trueProtection(index);
+  const trade = trueTradeTraffic(index);
+  // Piracy is not a roll: it is a lane worth robbing that nobody is watching.
+  const lawless = control.controller === 'pirate'
+    || (trade.band >= 2 && protection.band === 0 && !protection.authority);
+  const band = Math.min(3, Math.max(engaged.length ? 3 : ops.length ? 2 : 0, ambient, lawless ? 2 : 0));
+  const parts = [];
+  if (engaged.length) parts.push(`${formatFaction(engaged[0].faction)} engaged`);
+  else if (ops.length) parts.push(`${formatFaction(ops[0].faction)} inbound, day ${ops[0].arriveDay}`);
+  if (ambient) parts.push(`${activity} this week`);
+  if (lawless) parts.push(control.controller === 'pirate' ? 'pirate haven' : 'unpatrolled trade lane');
+  if (!parts.length) parts.push('nothing under way');
+  return { band, activity, ops: ops.length, engaged: engaged.length, lawless, why: parts.join(' · ') };
+}
+// Things that stop a lane working: installations lost or wrecked, a world held by somebody who took it.
+function trueDisruption(index) {
+  const book = campaignBook();
+  const defs = (state.stationDefinitions || []).filter((d) => Number(d.systemIndex) === index);
+  const destroyed = defs.filter((d) => state.destroyedStations?.[d.id]).length;
+  const damaged = defs.filter((d) => !state.destroyedStations?.[d.id] && campaignStationDamage(d.id) > 0).length;
+  const occupation = book.occupations?.[index] || null;
+  const band = Math.min(3, (destroyed ? 2 : 0) + (damaged ? 1 : 0) + (occupation ? 1 : 0));
+  const parts = [];
+  if (destroyed) parts.push(`${destroyed} destroyed`);
+  if (damaged) parts.push(`${damaged} damaged`);
+  if (occupation) parts.push(`occupied since day ${occupation.capturedDay}`);
+  return { band, why: parts.join(' · ') || 'installations intact' };
+}
+// What the captain actually observed, kept. The first cut of this stored only the *day* of a visit and
+// then rendered today's truth under it — so a world whose stations were destroyed, whose government
+// changed or whose garrison moved after the captain left would show the new reality stamped with the
+// old date. That is not a stale reading, it is a leak wearing a stale reading's clothes. A reading
+// taken with a live source is written down here, and a system with no live source is displayed from
+// this record and from nothing else: change the world without telling the captain and the map stays
+// wrong, and dated, until somebody tells them. [review]
+function conditionLog() {
+  if (!state.conditionLog || typeof state.conditionLog !== 'object') state.conditionLog = {};
+  return state.conditionLog;
+}
+function recordConditionObservation(index, reading) {
+  const i = Number(index);
+  if (!Number.isFinite(i) || !reading) return;
+  const log = conditionLog();
+  const keep = (v) => (v ? { band: v.band, why: v.why, capped: Boolean(v.capped) } : null);
+  log[i] = {
+    day: Number(state.day) || 1,
+    source: reading.source,
+    controller: getSystemControl(i).controller || null,
+    market: Math.round(finiteNumber(state.planets[i]?.market, 0)),
+    berths: (state.stationDefinitions || []).filter((d) => Number(d.systemIndex) === i && !state.destroyedStations?.[d.id]).length,
+    traffic: keep(reading.traffic),
+    protection: keep(reading.protection),
+    disruption: keep(reading.disruption),
+    // The week's weather is not carried forward at all: a fight the captain watched a month ago says
+    // nothing about who is there now, and a dated threat comes from a dated *claim*, below.
+    threat: null,
+  };
+  state.conditionsRev = (Number(state.conditionsRev) || 0) + 1;
+}
+// What the captain knows, from what is true and what would have told them. Every indicator is either a
+// reading with a source and an age, or null — and null is drawn as "no report", never as zero.
+function systemConditions(index, ctx = null) {
+  const i = Number(index);
+  if (!Number.isFinite(i) || !state.planets[i]) return null;
+  const source = isChartSystemVisible(i) ? campaignIntelSource(i, ctx) : 'none';
+  const meta = CONDITION_SOURCES[source] || CONDITION_SOURCES.none;
+  const observation = galaxyNewsBook().observations?.[i] || null;
+  const report = [...galaxyNewsBook().items].reverse().find((r) => Number(r.systemIndex) === i) || null;
+  const out = { index: i, source, sourceLabel: meta.label, rank: meta.rank,
+    asOfDay: null, ageDays: null, traffic: null, protection: null, threat: null, disruption: null };
+  if (source === 'none') return out;
+
+  // ---- a live source: read the world, and write down what was read ------------------------------
+  if (source === 'local' || source === 'fleet' || source === 'relay') {
+    const live = source === 'local' || source === 'fleet';
+    out.asOfDay = state.day;
+    out.ageDays = 0;
+    const trade = trueTradeTraffic(i), dis = trueDisruption(i), prot = trueProtection(i), threat = trueThreat(i);
+    // A relay reads transponders: it counts what is there and what has stopped answering, and it is
+    // no judge of how hard a garrison would fight.
+    out.traffic = { band: trade.band, why: trade.why };
+    out.disruption = { band: dis.band, why: dis.why };
+    out.protection = live
+      ? { band: prot.band, why: prot.why }
+      : { band: Math.min(2, prot.band), why: `${prot.hulls + prot.armed} armed presence${prot.hulls + prot.armed === 1 ? '' : 's'} answering`, capped: true };
+    out.threat = live
+      ? { band: threat.band, why: threat.why }
+      : threat.ops
+        ? { band: Math.max(2, Math.min(3, threat.ops + 1)), why: `${threat.ops} force${threat.ops === 1 ? '' : 's'} under way`, capped: true }
+        : { band: 0, why: 'no force under way', capped: true };
+    // A crew watching from their own bridge is better than gossip and is not infallible, which is the
+    // rule this game already uses for reports. The captain standing there sees what is there; a ship
+    // on station files an assessment, run through the same seeded model the galaxy reports use, so its
+    // threat reading can be wrong in either direction and its confidence decays with nothing. [review]
+    if (source === 'fleet') {
+      const truthKind = threat.activity || 'quiet';
+      const guess = assessIntel({ kind: truthKind, attacker: null }, {
+        seed: `${fleetBook().campaignId}:fleet-conditions:${i}:${Math.floor((Math.max(1, state.day) - 1) / 7)}`,
+        ownShips: true, age: 0, candidates: intelIdentityCandidates(),
+      });
+      const band = { quiet: 0, scout: 1, skirmish: 2, raid: 3, battle: 3 }[guess.kind] ?? threat.band;
+      // An operation with a name and an arrival date is a transponder fact, not a judgement call, so a
+      // crew never talks one away; what they can get wrong is the week's weather around it.
+      out.threat = { band: Math.max(band, threat.ops ? Math.max(2, Math.min(3, threat.ops + 1)) : 0),
+        why: guess.correct ? threat.why : `${guess.kind} reported${threat.ops ? ` · ${threat.ops} force${threat.ops === 1 ? '' : 's'} under way` : ''}`,
+        assessed: true };
+      out.protection = { band: prot.band, why: prot.why };
+    }
+    recordConditionObservation(i, out);
+    return out;
+  }
+
+  // ---- no live source: the record, and whatever anybody has said since --------------------------
+  const seen = conditionLog()[i] || null;
+  const datedDay = observation?.day ?? report?.day ?? null;
+  if (!seen && datedDay == null) {
+    return { ...out, source: 'none', sourceLabel: CONDITION_SOURCES.none.label, rank: 0 };
+  }
+  const freshest = Math.max(seen?.day ?? 0, datedDay ?? 0);
+  out.asOfDay = freshest || null;
+  out.ageDays = freshest ? Math.max(0, state.day - freshest) : null;
+  if (seen) {
+    // Every one of these is the value that was written down, not today's. The world may have turned
+    // over twice since; the captain would not know.
+    const ago = Math.max(0, state.day - seen.day);
+    // The date is on its own line in the readout, so the reading itself does not repeat it.
+    const asSeen = (v) => (v ? { band: v.band, why: v.why, dated: true, capped: Boolean(v.capped) } : null);
+    out.traffic = asSeen(seen.traffic);
+    out.disruption = asSeen(seen.disruption);
+    out.protection = seen.protection
+      ? (ago <= 14
+        ? { ...asSeen(seen.protection), capped: Boolean(seen.protection.capped) }
+        : { band: Math.min(1, seen.protection.band), why: seen.protection.why, dated: true, capped: true })
+      : null;
+  }
+  const claimed = observation?.kind || null;
+  const band = { quiet: 0, scout: 1, skirmish: 2, raid: 3, battle: 3 }[claimed] ?? null;
+  if (band != null) {
+    out.threat = { band, why: `${claimed} reported on day ${observation.day}${observation?.attacker ? `, ships called ${formatFaction(observation.attacker)}` : ''}`, dated: true };
+  } else if (report) {
+    out.threat = { band: 1, why: `${report.kind} on day ${report.day}; nothing since`, dated: true };
+  }
+  // Threat stays null when nobody has reported one: a lane the captain flew through eighty days ago
+  // tells them nothing about who is waiting on it now.
+  return out;
+}
+// A lane is only as known as its worse end, and only as busy as its quieter one.
+function laneConditions(a, b, ctx = null) {
+  const A = systemConditions(a, ctx), B = systemConditions(b, ctx);
+  if (!A || !B) return null;
+  const worse = A.rank <= B.rank ? A : B;
+  // A lane is only as known as its worse end. One end reporting quiet says nothing about a lane whose
+  // other end nobody has looked at, so a missing reading makes the lane's reading missing — it never
+  // contributes a zero. [playtest]
+  const traffic = A.traffic && B.traffic ? { band: Math.min(A.traffic.band, B.traffic.band) } : null;
+  const threat = A.threat && B.threat ? { band: Math.max(A.threat.band, B.threat.band) } : null;
+  return { a: Number(a), b: Number(b), traffic, threat, source: worse.source, ageDays: worse.ageDays, ends: [A, B] };
+}
+// Recomputing every system's conditions per frame means re-walking every polity's hulls and every
+// station record 101 times a frame, so the answer is cached — but a cache keyed on *counts* is a stale
+// map with a straight face. A station can be damaged without changing how many are destroyed; an
+// operation can go from moving to engaged without changing how many there are; a fleet can move
+// without changing how many ships it has. This is a revision of the state the readings actually read,
+// not a tally of it. A counter bumped by hand at every mutation site would be cheaper and would go
+// wrong the first time one of the thirty sites forgot; this cannot. [review]
+function conditionsRevision() {
+  const book = campaignBook();
+  const parts = [state.day, state.currentPlanet, Number(state.warp?.active), state.conditionsRev || 0];
+  // Forces: where every hull is and whether it is still flying.
+  for (const [id, p] of Object.entries(book.polities || {})) {
+    let n = 0;
+    for (const h of p.hulls || []) n += Number(h.systemIndex) + (h.status === 'lost' ? 9973 : h.status === 'repairing' ? 31 : 0);
+    parts.push(`${id}${(p.hulls || []).length}.${n}`);
+  }
+  // Operations: which system, whose, and what stage — the stage is the part a count cannot see.
+  for (const o of book.operations || []) if (o.status !== 'resolved') parts.push(`${o.targetSystem}${o.status[0]}${o.faction || ''}`);
+  // Installations: lost, and wrecked without being lost.
+  parts.push(Object.keys(state.destroyedStations || {}).sort().join(','));
+  for (const [id, d] of Object.entries(book.stationDamage || {})) if (d > 0) parts.push(`${id}~${Math.round(d * 100)}`);
+  parts.push(Object.keys(book.occupations || {}).sort().join(','));
+  // The captain's own eyes, and the ground under them.
+  for (const f of state.playerFleet || []) if (!f.destroyed) parts.push(`f${f.id}@${f.systemIndex}${f.assignment || ''}`);
+  parts.push((state.controlledSystems || []).join(','), Object.keys(state.factionSystemOverrides || {}).sort().join(','));
+  parts.push((state.visitedSystems || []).length, Object.keys(state.conditionLog || {}).length);
+  // Who is at war with whom, which decides who will trade here at all.
+  const dip = ensurePlaytestState().diplomacy;
+  parts.push(dip?.lastDay ?? 0, (dip?.pairs || dip?.relations) ? Object.keys(dip.pairs || dip.relations).length : 0);
+  return parts.join('|');
+}
+let conditionsMemo = { key: '', ctx: null, value: new Map() };
+function conditionsFor(index) {
+  const key = conditionsRevision();
+  if (conditionsMemo.key !== key) conditionsMemo = { key, ctx: campaignIntelContext(), value: new Map() };
+  const i = Number(index);
+  if (!conditionsMemo.value.has(i)) conditionsMemo.value.set(i, systemConditions(i, conditionsMemo.ctx));
+  return conditionsMemo.value.get(i);
+}
+const CONDITION_COLORS = Object.freeze({
+  traffic: ['#3c4a60', '#6f8fb8', '#8fc6ff', '#bfe4ff'],
+  threat: ['#4a6a54', '#e0c979', '#f0975a', '#ff6b6b'],
+  protection: ['#4a5568', '#6fb8a0', '#7fe0c0', '#a8ffe0'],
+  unknown: '#8a7fa8',
+});
+// Lanes first, under everything: how much trade a route carries, how dangerous its ends are, and
+// whether the captain has any business claiming to know either.
+function drawMapLaneOverlay() {
+  if (!mapOverlayState().lanes) return;
+  const drawn = new Set();
+  for (const route of state.travelRoutes || []) {
+    const a = Number(route.from), b = Number(route.to);
+    if (!isChartSystemVisible(a) || !isChartSystemVisible(b)) continue;
+    const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+    if (drawn.has(key)) continue;
+    drawn.add(key);
+    const lane = laneConditions(a, b, conditionsMemo.ctx);
+    const pa = getStarChartSystemScreen(a), pb = getStarChartSystemScreen(b);
+    ctx.save();
+    ctx.lineCap = 'round';
+    if (!lane || !lane.traffic) {
+      // Nobody has told the captain anything about this lane. It is drawn, faintly and in its own
+      // colour, precisely so that it does not read as an empty quiet one.
+      ctx.strokeStyle = colorToRgba(CONDITION_COLORS.unknown, 0.5);
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([2, 5]);
+    } else {
+      const threat = lane.threat?.band ?? 0;
+      ctx.strokeStyle = colorToRgba(threat >= 2 ? CONDITION_COLORS.threat[threat] : CONDITION_COLORS.traffic[lane.traffic.band],
+        0.3 + lane.traffic.band * 0.2);
+      ctx.lineWidth = 1 + lane.traffic.band * 1.6;
+      ctx.setLineDash(lane.ageDays > 14 ? [10, 5] : []);
+    }
+    ctx.beginPath();
+    ctx.moveTo(pa.x, pa.y);
+    ctx.lineTo(pb.x, pb.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+// Then the systems themselves: two short arcs on the node, protection below-left and threat
+// above-right, and a dashed ring with a query for a system nothing has reported on.
+function drawMapSecurityOverlay() {
+  if (!mapOverlayState().security) return;
+  const r = MAP_PLANET_DRAW_SIZE * 0.25 + 5;
+  for (let i = 0; i < state.planets.length; i++) {
+    if (!isChartSystemVisible(i)) continue;
+    const c = conditionsFor(i);
+    if (!c) continue;
+    const screen = getStarChartSystemScreen(i);
+    ctx.save();
+    ctx.lineWidth = 2.4;
+    if (c.source === 'none') {
+      ctx.strokeStyle = colorToRgba(CONDITION_COLORS.unknown, 0.85);
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = CONDITION_COLORS.unknown;
+      ctx.font = canvasUiFont(10, 700);
+      ctx.textAlign = 'center';
+      ctx.fillText('?', screen.x, screen.y - r - 3);
+      ctx.textAlign = 'left';
+      ctx.restore();
+      continue;
+    }
+    if (c.threat) {
+      ctx.strokeStyle = CONDITION_COLORS.threat[c.threat.band];
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r, -Math.PI * 0.45, -Math.PI * 0.45 + Math.PI * 0.18 * (1 + c.threat.band));
+      ctx.stroke();
+    }
+    if (c.protection) {
+      ctx.strokeStyle = CONDITION_COLORS.protection[c.protection.band];
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r, Math.PI * 0.55, Math.PI * 0.55 + Math.PI * 0.18 * (1 + c.protection.band));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+// Bottom-right of the chart, opposite the overlay legend: what the arcs on the selected system mean,
+// where the claim came from and how old it is. A coloured arc that explains itself nowhere is
+// decoration, so this is drawn whenever either conditions layer is on. [playtest]
+function drawConditionsPanel() {
+  const layers = mapOverlayState();
+  if (!layers.lanes && !layers.security) return;
+  const lines = conditionsReadout(state.selectedPlanet);
+  if (!lines.length) return;
+  const rect = getStarChartPanelRect();
+  const w = Math.min(520, Math.max(300, (rect.right - rect.left) * 0.52));
+  const rowH = 15;
+  const h = lines.length * rowH + 26;
+  const x = rect.right - rect.pad - w;
+  const y = rect.bottom - rect.pad - h;
+  ctx.save();
+  ctx.fillStyle = 'rgba(4, 8, 16, 0.86)';
+  ctx.strokeStyle = 'rgba(140, 170, 210, 0.45)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.fill();
+  ctx.stroke();
+  ctx.textAlign = 'left';
+  ctx.font = canvasUiFont(10, 700);
+  ctx.fillStyle = '#9fb2d0';
+  ctx.fillText('CONDITIONS — SELECTED SYSTEM', x + 10, y + 14);
+  lines.forEach((line, n) => {
+    ctx.fillStyle = n === 0 ? '#dfeaff' : n === 1 ? '#9fb2d0' : '#c9d6ea';
+    ctx.font = canvasUiFont(n === 0 ? 11 : 10);
+    drawFittedMapText(line, x + 10, y + 30 + n * rowH, w - 20);
+  });
+  ctx.restore();
+}
+// The readout: the reading, where it came from, how old it is, and what it is made of. A `?`, a source
+// and a date already say everything there is to say about how much to trust it, so nothing here
+// restates that in prose — an instrument does not explain what its own dial means. [review]
+function conditionsReadout(index) {
+  const c = conditionsFor(index);
+  if (!c) return [];
+  const name = chartSystemLabel(index);
+  if (c.source === 'none') {
+    return [`${name} — Trade: ? · Patrols: ? · Threat: ? · Disruption: ?`, 'No current intelligence'];
+  }
+  const band = (v) => (v ? CONDITION_BANDS[v.band] + (v.capped || v.assessed ? ' (est.)' : '') : 'none reported');
+  const age = c.ageDays == null ? '' : c.ageDays === 0 ? '' : ` · ${c.ageDays} day${c.ageDays === 1 ? '' : 's'} old`;
+  const when = c.asOfDay == null ? '' : ` · ${c.ageDays === 0 ? 'day' : 'observed day'} ${c.asOfDay}`;
+  const lines = [
+    `${name} — Trade: ${band(c.traffic)} · Patrols: ${band(c.protection)} · Threat: ${band(c.threat)} · Disruption: ${band(c.disruption)}`,
+    `${c.sourceLabel}${when}${age}`,
+  ];
+  if (c.threat?.why) lines.push(`Threat: ${c.threat.why}`);
+  if (c.traffic?.why) lines.push(`Trade: ${c.traffic.why}`);
+  return lines;
+}
+// What the captain has committed to, drawn on the chart. Three layers, each selectable, each reading
+// live state so a contract accepted anywhere marks its world at once and stops marking it the moment it
+// completes or expires. Nothing is drawn for a system the captain has not charted: an overlay that
+// reveals where an undiscovered world is would be an intelligence leak dressed as a convenience.
+// [playtest]
+const MAP_OVERLAY_LAYERS = Object.freeze([
+  { key: 'contracts', label: 'Contract objectives', color: '#7ce8c0' },
+  { key: 'cargo', label: 'Cargo destinations', color: '#ffe38a' },
+  { key: 'lanes', label: 'Trade lanes', color: '#8fc6ff', kind: 'conditions' },
+  { key: 'security', label: 'Patrols & threats', color: '#f0975a', kind: 'conditions' },
+  // Deliberately not the blue the chart already uses for travel routes: an objective line drawn in the
+  // engine's own route colour is invisible, because it lands on top of a line that is already there.
+  { key: 'routes', label: 'Route to objective', color: '#d3a6ff' },
+]);
+function mapOverlayState() {
+  const p = ensurePlaytestState();
+  if (!p.mapOverlays) p.mapOverlays = { contracts: true, cargo: true, routes: true };
+  // Layers added after a save was written arrive missing; default them on rather than leaving the
+  // captain with a legend row that does nothing.
+  for (const l of MAP_OVERLAY_LAYERS) if (p.mapOverlays[l.key] === undefined) p.mapOverlays[l.key] = true;
+  return p.mapOverlays;
+}
+function toggleMapOverlay(key) {
+  const o = mapOverlayState();
+  if (!MAP_OVERLAY_LAYERS.some((l) => l.key === key)) return;
+  o[key] = !o[key];
+  setLog(`${MAP_OVERLAY_LAYERS.find((l) => l.key === key).label}: ${o[key] ? 'shown' : 'hidden'}.`);
+}
+// A yard that could take a recovered design, judged from the yard's own record rather than from
+// standing at its front door: status, construction class, the hull's mass, and whether that yard's
+// trade culture may carry the design at all. Standing, clearance and docking are decided when the
+// captain arrives, so these are candidates, and the contracts list says so rather than promising one.
+let recoveryYardMemo = { key: '', value: [] };
+function recoveryYardSystems(shipId) {
+  const ship = state.shipStatsById[shipId];
+  if (!ship) return [];
+  const key = [shipId, state.day, state.currentPlanet, (state.controlledSystems || []).length,
+    (state.visitedSystems || []).length, Object.keys(state.destroyedStations || {}).length].join(':');
+  if (recoveryYardMemo.key === key) return recoveryYardMemo.value;
+  const heavy = finiteNumber(ship.mass, 1) >= campaignBook().config.heavyMass;
+  const out = [];
+  const seen = new Set();
+  for (const d of (state.stationDefinitions || [])) {
+    const i = Number(d.systemIndex);
+    if (!Number.isInteger(i) || !state.planets[i] || seen.has(i)) continue;
+    if (!isChartSystemVisible(i) || state.destroyedStations?.[d.id]) continue;
+    const cap = getStationCapabilities(d, i);
+    if (!cap || !['operational', 'damaged', 'unstaffed'].includes(cap.status)) continue;
+    if (cap.services.construction === 'none') continue;
+    if (heavy && cap.services.construction !== 'heavy') continue;
+    const trade = getTradeStandingFaction(i, d);
+    if (!(trade === 'neutral' || isFactionShipStockEligible(ship.faction, trade))) continue;
+    seen.add(i);
+    out.push(i);
+  }
+  // Nearest first, worked out once here rather than per frame: the chart marks the closest few and the
+  // contracts row says how many there are altogether.
+  const here = Number(state.currentPlanet);
+  const hops = new Map(out.map((i) => [i, i === here ? 0 : (getPlottedRoute(here, i)?.systems?.length ?? Infinity)]));
+  out.sort((a, b) => hops.get(a) - hops.get(b));
+  recoveryYardMemo = { key, value: out };
+  return out;
+}
+// What a mission is asking of the captain right now, and where. A recovery contract moves through
+// three different places — a lead to pay for at any station that deals in rumours or goods, a wreck to
+// reach, then a yard that can build the design — so a marker pinned to its systemIndex was right for
+// one step of three and wrong for the others. [playtest]
+function missionObjective(m) {
+  const shipName = state.shipStatsById[m.shipId]?.name;
+  if (m.kind !== 'archive') {
+    return { title: `${m.kind} contract`, mapLabel: `${m.kind} contract`, targets: [Number(m.systemIndex)],
+      objective: `reach ${contractDestinationLabel(m.systemIndex)}` };
+  }
+  if (m.step === 'lead') {
+    return { title: `${shipName || 'design'} archive — lead`, mapLabel: `${shipName || 'design'} lead`, targets: [],
+      objective: `pay the ${m.fee || 0}L finder's fee at any bar or trade station`,
+      note: `the archive is at ${contractDestinationLabel(m.systemIndex)}` };
+  }
+  if (m.step === 'deliver') {
+    const all = recoveryYardSystems(m.shipId);
+    // Eleven rings for one contract is not a map, it is a rash. The three nearest are marked and the
+    // row says how many there are.
+    const targets = all.slice(0, 3);
+    return { title: `${shipName || 'design'} archive — aboard`, mapLabel: 'deliver archive', targets, candidates: all.length,
+      objective: all.length
+        ? `deliver to a compatible yard — ${all.length} charted, nearest ${contractDestinationLabel(all[0])}`
+        : 'deliver to a compatible yard — none charted yet',
+      note: all.length > targets.length
+        ? `the ${targets.length} nearest are marked; standing and clearance are decided on arrival`
+        : 'candidates by yard record; standing and clearance are decided on arrival' };
+  }
+  return { title: `${shipName || 'design'} archive — recover`, mapLabel: `recover ${shipName || 'archive'}`,
+    targets: [Number(m.systemIndex)], objective: `recover it at ${contractDestinationLabel(m.systemIndex)}` };
+}
+// Every objective the captain is carrying, as {index, label, detail, kind}. Campaign contracts and
+// trade contracts and loose destination cargo all answer the same question — where am I meant to be —
+// so they are one list.
+function mapObjectives() {
+  const out = [];
+  const seen = new Set();
+  const push = (index, kind, label, detail) => {
+    const i = Number(index);
+    if (!Number.isInteger(i) || i < 0 || !state.planets[i]) return;
+    if (!isChartSystemVisible(i)) return;
+    const key = `${kind}:${i}:${label}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ index: i, kind, label, detail });
+  };
+  for (const m of (campaignBook().missions || [])) {
+    if (m.status !== 'active') continue; // only what the captain has taken on
+    const o = missionObjective(m);
+    for (const t of o.targets) {
+      push(t, 'contracts', o.mapLabel || o.title,
+        `${chartSystemLabel(t)}${m.deadlineDay ? ` · day ${m.deadlineDay}` : ''}`);
+    }
+  }
+  for (const c of getOpenContracts()) {
+    if (c.showMarker === false) continue;
+    push(getContractTargetIndex(c), 'cargo', `${c.tons}t ${c.goods || 'cargo'}`,
+      `${chartSystemLabel(getContractTargetIndex(c))} · ${c.payPerTon ? `${c.payPerTon}L/t` : 'delivery'}`);
+  }
+  for (const pod of (state.cargoArray || [])) {
+    if (!(pod.tons > 0) || pod.destination === undefined) continue;
+    push(getCargoDestinationIndex(pod), 'cargo', `${pod.tons}t ${pod.item || 'cargo'}`,
+      `${getCargoDestinationName(pod) || 'destination'}${pod.payout ? ` · ${pod.payout}L` : ''}`);
+  }
+  return out;
+}
+function drawMapObjectiveOverlay() {
+  const layers = mapOverlayState();
+  const objectives = mapObjectives().filter((o) => layers[o.kind]);
+  if (!objectives.length) return;
+  const here = Number(state.currentPlanet);
+  const routeColor = MAP_OVERLAY_LAYERS.find((l) => l.key === 'routes').color;
+  // Routes first, so the markers sit on top of their own lines. Each is laid down twice: a dark casing
+  // wide enough to separate it from the chart's own route lines, then the dashed line itself.
+  if (layers.routes) {
+    for (const target of [...new Set(objectives.map((o) => o.index))]) {
+      if (target === here) continue;
+      const plan = getPlottedRoute(here, target);
+      if (!plan || !plan.systems || plan.systems.length < 2) continue;
+      const path = () => {
+        ctx.beginPath();
+        plan.systems.forEach((sys, n) => {
+          const pt = getStarChartSystemScreen(sys);
+          if (n === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
+        });
+      };
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(6, 8, 18, 0.85)';
+      ctx.lineWidth = 6;
+      ctx.setLineDash([]);
+      path();
+      ctx.stroke();
+      ctx.strokeStyle = routeColor;
+      ctx.lineWidth = 2.6;
+      ctx.setLineDash([9, 6]);
+      path();
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+  // A world can be several things at once — a contract objective and a delivery — so it gets one ring
+  // per kind at its own radius, and its labels stack beneath it rather than beside it, where the chart
+  // already writes the system's own name.
+  const byIndex = new Map();
+  for (const o of objectives) {
+    if (!byIndex.has(o.index)) byIndex.set(o.index, []);
+    byIndex.get(o.index).push(o);
+  }
+  for (const [index, list] of byIndex) {
+    const screen = getStarChartSystemScreen(index);
+    const base = MAP_PLANET_DRAW_SIZE * 0.25;
+    const kinds = MAP_OVERLAY_LAYERS.map((l) => l.key).filter((k) => list.some((o) => o.kind === k));
+    ctx.save();
+    ctx.setLineDash([]);
+    kinds.forEach((kind, n) => {
+      ctx.strokeStyle = MAP_OVERLAY_LAYERS.find((l) => l.key === kind).color;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, base + 9 + n * 4, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+    ctx.font = canvasUiFont(11);
+    ctx.textAlign = 'center';
+    const shown = list.slice(0, 2);
+    shown.forEach((o, n) => {
+      const ly = screen.y + base + 20 + n * 13;
+      const text = n === 1 && list.length > 2 ? `${o.label} +${list.length - 2} more` : o.label;
+      ctx.fillStyle = 'rgba(6, 8, 18, 0.8)';
+      const w = ctx.measureText(text).width + 8;
+      ctx.fillRect(screen.x - w / 2, ly - 10, w, 13);
+      ctx.fillStyle = MAP_OVERLAY_LAYERS.find((l) => l.key === o.kind).color;
+      ctx.fillText(text, screen.x, ly);
+    });
+    ctx.textAlign = 'left';
+    ctx.restore();
+  }
+}
+// The legend doubles as the layer picker: it says what each colour means and which layers are on, and
+// the numbers beside each are how many objectives that layer is currently showing.
+function drawMapOverlayLegend() {
+  const layers = mapOverlayState();
+  const objectives = mapObjectives();
+  const counts = Object.fromEntries(MAP_OVERLAY_LAYERS.map((l) => [l.key, objectives.filter((o) => o.kind === l.key).length]));
+  counts.routes = new Set(objectives.filter((o) => layers[o.kind]).map((o) => o.index)).size;
+  // The conditions layers count what the captain can actually say something about, and — the number
+  // that matters — how many charted systems nothing has reported on.
+  let known = 0, unknown = 0;
+  for (let i = 0; i < state.planets.length; i++) {
+    if (!isChartSystemVisible(i)) continue;
+    if (conditionsFor(i)?.source === 'none') unknown++; else known++;
+  }
+  counts.lanes = known;
+  counts.security = known;
+  const rect = getStarChartPanelRect();
+  const x = rect.left + 14;
+  const y = rect.bottom - 18 - MAP_OVERLAY_LAYERS.length * 18;
+  ctx.save();
+  ctx.fillStyle = 'rgba(4, 8, 16, 0.82)';
+  ctx.strokeStyle = 'rgba(140, 170, 210, 0.45)';
+  ctx.lineWidth = 1;
+  const extra = (layers.lanes || layers.security) && unknown ? 15 : 0;
+  const w = 268, h = MAP_OVERLAY_LAYERS.length * 18 + 26 + extra;
+  ctx.beginPath();
+  ctx.rect(x - 8, y - 20, w, h);
+  ctx.fill();
+  ctx.stroke();
+  ctx.font = canvasUiFont(10, 700);
+  ctx.fillStyle = '#9fb2d0';
+  ctx.textAlign = 'left';
+  ctx.fillText('OVERLAYS — CLICK TO TOGGLE', x, y - 7);
+  if ((layers.lanes || layers.security) && unknown) {
+    ctx.font = canvasUiFont(10);
+    ctx.fillStyle = CONDITION_COLORS.unknown;
+    ctx.fillText(`${unknown} unreported system${unknown === 1 ? '' : 's'}`, x, y + MAP_OVERLAY_LAYERS.length * 18 + 5);
+  }
+  MAP_OVERLAY_LAYERS.forEach((layer, n) => {
+    const ly = y + 9 + n * 18;
+    const on = Boolean(layers[layer.key]);
+    ctx.strokeStyle = layer.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x + 6, ly - 4, 5, 0, Math.PI * 2);
+    ctx.stroke();
+    if (on) { ctx.fillStyle = layer.color; ctx.beginPath(); ctx.arc(x + 6, ly - 4, 2.4, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = on ? '#dfeaff' : '#6f7f96';
+    ctx.font = canvasUiFont(11);
+    ctx.fillText(`${layer.label} (${counts[layer.key] || 0})`, x + 18, ly);
+  });
+  ctx.restore();
+  return { x: x - 8, y: y - 20, w, h, rowY: y + 9, rowH: 18 };
+}
+let mapOverlayLegendRect = null;
+function handleMapOverlayLegendClick(mx, my) {
+  const r = mapOverlayLegendRect;
+  if (!r) return false;
+  if (mx < r.x || mx > r.x + r.w || my < r.y || my > r.y + r.h) return false;
+  const n = Math.floor((my - (r.rowY - 12)) / r.rowH);
+  const layer = MAP_OVERLAY_LAYERS[n];
+  if (layer) toggleMapOverlay(layer.key);
+  return true;
+}
+// One door for taking a contract, whichever screen offered it. Accepting has to do three things the
+// callers kept forgetting: flip the mission live, say on screen which world was just marked, and
+// refresh a contracts panel that is already open so the row stops reading "offered". [playtest]
+function acceptCampaignMission(id, { announce = true } = {}) {
+  const book = campaignBook();
+  const m = (book.missions || []).find((x) => x.id === id);
+  if (!Campaign.acceptMission(book, id, state.day)) return false;
+  if (announce) {
+    const where = contractDestinationLabel(m?.systemIndex);
+    setLog(`Contract accepted. ${where === 'unknown' ? 'No destination is set for it.' : `${where} is marked on the interstellar map.`}`);
+  }
+  if (state.topLeftTab === 'contracts' && state.topLeftPanelOpen) renderTopLeftPanel();
+  return true;
+}
+function contractDestinationLabel(index) {
+  const i = Number(index);
+  if (!Number.isInteger(i) || !state.planets[i]) return 'unknown';
+  return isChartSystemVisible(i) ? chartSystemLabel(i) : 'uncharted system';
+}
+function openContractsPanel() {
+  state.topLeftTab = 'contracts';
+  state.topLeftPanelOpen = true;
+  topLeftPanelEl?.classList.remove('hidden');
+  renderTopLeftPanel();
+}
+function renderContractsPanel() {
+  const book = campaignBook();
+  // Recovery contracts belong here as much as any other: they were excluded, so the engineer-rescue job
+  // was marked on the chart and listed nowhere. They are the one kind whose destination moves, so each
+  // row prints the step it is on rather than a fixed system. [playtest]
+  const live = (book.missions || []).filter((m) => ['offered', 'active'].includes(m.status));
+  const cargo = getOpenContracts();
+  const row = (title, where, when, actions, note) =>
+    `<div class="contract-row"><div><b>${escapeHtml(title)}</b><div class="meta">${escapeHtml(where)}${when ? ` · ${escapeHtml(when)}` : ''}${note ? ` · ${escapeHtml(note)}` : ''}</div></div><div class="contract-row-actions">${actions}</div></div>`;
+  const missionRows = live.map((m) => {
+    const o = missionObjective(m);
+    const when = m.deadlineDay ? `due day ${m.deadlineDay}` : '';
+    const show = o.targets.length
+      ? `<button data-contract-show="${escapeHtml(String(o.targets[0]))}">Show on map</button>`
+      : '';
+    const accept = m.status === 'offered' ? `<button data-campaign-accept="${escapeHtml(m.id)}">Accept</button>` : '';
+    return row(o.title, o.objective, when, accept + show,
+      m.status === 'offered' ? 'offered' : (o.note || 'accepted'));
+  }).join('');
+  const cargoRows = cargo.map((c) => {
+    const i = getContractTargetIndex(c);
+    return row(`${c.tons}t ${c.goods || 'cargo'}`, contractDestinationLabel(i),
+      c.payPerTon ? `${c.payPerTon} L/t` : '',
+      `<button data-contract-marker="${escapeHtml(c.id)}">${c.showMarker === false ? 'Show' : 'Hide'} marker</button>`
+      + `<button data-contract-show="${escapeHtml(String(i))}">Show on map</button>`, c.employerName || '');
+  }).join('');
+  const accepted = live.filter((m) => m.status === 'active').length;
+  return `<div class="panel-head panel-subhead">Station contracts (${accepted} accepted)</div>`
+    + (missionRows || '<div class="meta">No station contracts open. Dock or hail a station to ask for work.</div>')
+    + `<div class="panel-head panel-subhead">Cargo deliveries (${cargo.length})</div>`
+    + (cargoRows || '<div class="meta">No delivery cargo aboard.</div>')
+    + `<div class="meta">Accepted contracts and delivery cargo are marked on the interstellar map. Toggle the layers from the legend at the foot of the chart.</div>`
+    + `<div class="ship-actions"><button data-contract-ask>Ask for a contract here</button><button data-top-action="close-panel">Close</button></div>`;
+}
 function drawInterstellarMapOverlay() {
   if (!interstellarMapCtx || !interstellarMapCanvas) return false;
   clearInterstellarMapOverlay();
@@ -20621,11 +22314,16 @@ function drawInterstellarMapOverlay() {
     drawStarChartNebulaRegions();
     drawMapFactionTerritories();
     drawTravelRoutes();
+    drawMapLaneOverlay();
+    drawMapObjectiveOverlay();
+    drawMapSecurityOverlay();
     for (let i = 0; i < state.planets.length; i++) {
       drawPlanetMarker(state.planets[i], i);
     }
     ctx.restore();
     drawWorldPops();
+    mapOverlayLegendRect = drawMapOverlayLegend();
+    drawConditionsPanel();
   } finally {
     ctx = previousCtx;
   }
@@ -20879,6 +22577,8 @@ function resetRunState() {
   state.securityPolicies = { default: null, systems: {} };
   resetSecurityRecords();
   state.visitedSystems = [];
+  state.visitedDays = {};
+  state.conditionLog = {};
   state.factionSystemOverrides = {};
   state.destroyedStations = {};
   state.depletedAsteroids = {};
@@ -21491,9 +23191,14 @@ function canFleetDepart() {
 function upkeepPerDay(shipId) {
   return Math.max(0, finiteNumber(getShipStats(shipId).mass, 1));
 }
+// Set for the duration of one journey so every campaign day settled inside it knows they share a
+// briefing. Null whenever the campaign is advanced outside a journey (a debug step, a single tick).
+let campaignJourneyId = null;
 function advanceFleetCalendar(days, id) {
   captureShipPowerState();
-  return Fleet.advanceCalendar(fleetBook(), state, days, id, {
+  campaignJourneyId = id == null ? null : String(id);
+  try {
+  const advanced = Fleet.advanceCalendar(fleetBook(), state, days, id, {
     settle(day) {
       for (const ship of state.playerFleet)
         if (!ship.destroyed)
@@ -21508,6 +23213,8 @@ function advanceFleetCalendar(days, id) {
     },
     complete(day) {
       advanceWorldDiplomacy(day);
+      advanceCampaign(day);
+      acknowledgeCampaignOrders();
       advanceFactionReconstruction(day);
       collectGalaxyReports(day);
       completeFleetJourneys();
@@ -21517,8 +23224,20 @@ function advanceFleetCalendar(days, id) {
     },
     market(day) {
       updatePlanetMarketVariance();
+      advanceCommissions(day);
     },
   });
+  // A completed journey is a beat the captain paid for in fuel and days, and it is counted once the
+  // ledger has accepted it — not before. One ordinary warp calls this twice with the same persisted
+  // id: once when the mid-jump briefing opens and once on arrival. The ledger refuses the second call
+  // and advances nothing, so counting before asking it made every warp worth two journeys and halved
+  // the travel the pacing gate was meant to require. A zero-day call is not a journey either. [review]
+  if (advanced && id != null && days > 0) {
+    const o = playerOpportunityLedger();
+    o.journeys = Math.min(400, o.journeys + 1);
+  }
+  return advanced;
+  } finally { campaignJourneyId = null; }
 }
 function capturePolicy(shipId) {
   const ship = getShipStats(shipId),
@@ -21683,7 +23402,9 @@ function fleetServiceAllowed(npc, physical = false) {
       (!st.destroyed &&
         !st.underConstruction &&
         /shipyard|starbase|maintenance/i.test(getShipStats(st.stationTypeId).name || ''))) &&
-    !serviceRefusal(st?.faction || getSystemFaction(state.currentPlanet)) &&
+    // Fleet repair, refit, sale and equipment transfer all hang off this one test. A yard the captain
+    // built does not ask a foreign government whether it will service their own ships. [review]
+    !vendorRefusal(st, st?.faction || getSystemFaction(state.currentPlanet)) &&
     !getSecurityDockingBlock(st ? getStationOwner(st) : getSystemControl(state.currentPlanet).polityId)
   );
 }
@@ -21748,28 +23469,1493 @@ function sellFleetVessel(id, confirm = true) {
   updateStats();
   return true;
 }
-function fleetStationServices(station = getCurrentServiceStation()) {
-  if (!station) return { sell: true, refit: true, build: false, training: false };
-  const stats = getShipStats(station.stationTypeId),
-    name = String(stats.name || '').toLowerCase();
-  const authored = station.services || stats.services;
-  if (authored)
-    return {
-      sell: !!authored.shipSales,
-      refit: !!authored.refit,
-      build: !!authored.shipConstruction,
-      training: !!authored.training,
-      smallOnly: !!authored.smallShipsOnly,
+// ---- Campaign: strategic accounts, operations, captured industry, Dominion, recovery, relays ----
+// The pure model lives in campaign-strategy.mjs; everything here is the adapter between it and the
+// engine (world snapshot in, effects out) plus the player-facing panel and debug controls.
+const CAMPAIGN_REPORT_KIND = 'campaign';
+function campaignBook() {
+  const p = ensurePlaytestState();
+  if (!p.campaign || p.campaign.version !== Campaign.CAMPAIGN_VERSION || !p.campaign.polities) {
+    const legacy = p.campaign || {};
+    p.campaign = Campaign.createCampaignBook(fleetBook().campaignId, state.day || 1);
+    // Keep the discovery flags and station status maps an earlier build may have written.
+    if (legacy.discoveries) p.campaign.discoveries = { ...p.campaign.discoveries, ...legacy.discoveries };
+    for (const k of ['restoredStations', 'activatedStations', 'unstaffedStations']) if (legacy[k]) p.campaign[k] = { ...legacy[k] };
+  }
+  const book = p.campaign;
+  // A save written by an earlier build carries that build's rule set inline, and the version is only
+  // bumped when the book has to be rebuilt. Backfill anything the current rules add, so bounds and
+  // repairs introduced since are not silently absent on an old save.
+  Campaign.upgradeCampaignBook(book);
+  book.stationDamage ||= {}; book.relocatedOffers ||= {}; book.assessments ||= {}; book.observations ||= {}; book.engineCounter ||= 0;
+  return book;
+}
+// The initialised book: opening forces and treasuries exist and any legacy reconstruction budget has
+// been folded into the single polity account, so no faction is funded twice.
+function campaign() {
+  const book = campaignBook();
+  if (!book.initialized && state.gameStarted && state.planets?.length && state.stationDefinitions) {
+    Campaign.initializeCampaign(book, buildCampaignWorld(true));
+    migrateLegacyBudgets(book);
+    campaignWorldCache = null;
+  }
+  // Outside the initialise branch: a loaded save arrives with its book already initialised, which is
+  // exactly the save that can be carrying a withdrawn contract. Self-guarded, so this is one boolean
+  // read per call after the first.
+  if (book.initialized) migrateWithdrawnMissions(book);
+  return book;
+}
+// A save made before these were withdrawn can be carrying one. An offered contract is simply taken off
+// the board — nothing was promised. An accepted one is released, without a penalty and with the reason
+// said out loud, because a blockade contract can never complete (its own completion test is written
+// `() => false`) and leaving it to run to its deadline would fail the captain for the game's omission.
+// Contracts of these kinds that are already complete are left exactly as they are. [review]
+function migrateWithdrawnMissions(book) {
+  if (book.migratedWithdrawnMissions) return { removed: 0, released: 0 };
+  book.migratedWithdrawnMissions = true;
+  const withdrawn = (book.missions || []).filter((m) => WITHDRAWN_MISSION_KINDS.includes(m.kind));
+  let removed = 0, released = 0;
+  for (const m of withdrawn) {
+    if (m.status === 'offered') { m.status = 'withdrawn'; m.reason = 'withdrawn: this contract had no objective to pursue'; removed++; }
+    else if (m.status === 'active') { m.status = 'released'; m.reason = 'released without penalty: this contract had no objective to pursue'; released++; }
+  }
+  if (removed || released) {
+    const parts = [];
+    if (released) parts.push(`${released} accepted ${released === 1 ? 'contract' : 'contracts'} released without penalty`);
+    if (removed) parts.push(`${removed} offered ${removed === 1 ? 'contract' : 'contracts'} withdrawn`);
+    setLog(`Evacuation and blockade contracts are unfinished and no longer issued: ${parts.join(', ')}.`);
+  }
+  return { removed, released };
+}
+function migrateLegacyBudgets(book) {
+  if (book.migratedBudgets) return;
+  book.migratedBudgets = true;
+  const p = ensurePlaytestState();
+  for (const [owner, budget] of Object.entries(p.factionBudgets || {})) {
+    if (!isRecognizedFactionKey(owner)) continue; // private businesses keep their own ledgers
+    const record = Campaign.ensurePolity(book, owner);
+    record.treasury = Math.max(record.treasury, finiteNumber(budget.latinum, 0));
+    record.materials = Math.max(record.materials, finiteNumber(budget.duranium, 0));
+    delete p.factionBudgets[owner];
+  }
+}
+// One account per faction: reconstruction spends the same treasury the campaign economy fills.
+// Private businesses (private:*) are not strategic actors and keep the legacy per-owner ledger.
+function reconstructionFunds(owner) {
+  if (isRecognizedFactionKey(owner)) {
+    const record = Campaign.ensurePolity(campaign(), owner);
+    return { get latinum() { return record.treasury; }, set latinum(v) { record.treasury = v; }, get duranium() { return record.materials; }, set duranium(v) { record.materials = v; } };
+  }
+  const budgets = ensurePlaytestState().factionBudgets;
+  return (budgets[owner] ||= { latinum: 120000, duranium: 1200, lastDay: state.day });
+}
+function campaignPolityIdFor(controlId) {
+  if (controlId === PLAYER_SIDE) return 'player';
+  if (isRecognizedFactionKey(controlId)) return controlId;
+  return null; // independent worlds are not strategic actors
+}
+function campaignFactionKeyFor(polityId) {
+  return polityId === 'player' ? getPlayerFlag() : polityId;
+}
+function campaignStationRecord(definition, systemIndex, damageOverride = null) {
+  const id = definition.id;
+  const destroyed = Boolean(state.destroyedStations?.[id]) || Boolean(definition.destroyed);
+  const damage = damageOverride == null ? (campaignBook().stationDamage[id] || 0) : damageOverride;
+  const cap = StationRoles.resolveStationCapabilities(
+    { ...definition, destroyed, underConstruction: Boolean(definition.underConstruction), name: definition.name },
+    getShipStats(definition.stationTypeId),
+    { discovered: getCampaignDiscoveries(), restored: campaignBook().restoredStations, activated: campaignBook().activatedStations,
+      conditionFraction: 1 - clamp(damage, 0, 1), staffed: !campaignBook().unstaffedStations?.[id], destroyed },
+  );
+  const owner = campaignPolityIdFor(getStationOwner(definition, systemIndex)) || (String(getStationOwner(definition, systemIndex) || '').startsWith('private:') ? getStationOwner(definition, systemIndex) : null);
+  return { id, typeId: Number(definition.stationTypeId), owner, name: definition.name, destroyed, cap, offers: getStationEffectiveOffers(definition) };
+}
+// The campaign rules name the designs no one may build: the Tactical Cube, and Gorn material until the
+// authored discovery event. Everything else a culture builds is its industry, and capturing that
+// industry is meant to give it to you.
+function isNamedDesignException(ship) {
+  if (!ship) return true;
+  if (/tactical cube/i.test(ship.name || '')) return true;
+  const record = state.shipCatalog?.getShip?.(Number(ship.id)) || ship;
+  const region = String(record.availabilityRegion || ship.availabilityRegion || '');
+  if (region === 'borg-core' || getShipFaction(Number(ship.id)) === 'borg') return true; // Borg content is deferred
+  const gorn = getShipFaction(Number(ship.id)) === 'gorn' || region === 'reserved-gorn';
+  return gorn && !getCampaignDiscoveries().gorn;
+}
+// Regional restriction and secrecy are not the same thing. A hull a culture builds throughout its own
+// space — the Dominion patterns, which no general yard stocks — is ordinary industry, and taking that
+// culture's major world is supposed to give it to you. A hull that exists at one authored place, under
+// one named vendor, is not: Paso's Project X, the Remus secret yard, the independent endgame vendor.
+// Those gates are per design and survive relocation, so capturing a world in the culture's space does
+// not open them.
+const RECOVERABLE_REGIONS = Object.freeze(['general', 'dominion-core', 'dominion-all']);
+// The Gorn reserve is regional restriction rather than secrecy, so taking Gorn industry is meant to
+// give you what that industry builds — but only on the far side of the authored discovery that has
+// always gated Gorn services and recovery. Before that event the region is not recoverable at all, and
+// isNamedDesignException refuses every Gorn hull anyway; after it, a captured Gorn yard is an ordinary
+// captured yard. [fourth review]
+function recoverableDesignRegions() {
+  return getCampaignDiscoveries().gorn ? [...RECOVERABLE_REGIONS, 'reserved-gorn'] : RECOVERABLE_REGIONS;
+}
+function isRecoverableIndustrialDesign(shipId) {
+  const ship = state.shipStatsById[Number(shipId)];
+  if (!ship || ship.assetType !== 'ship') return false;
+  if (ship.rosterState !== 'active' || ship.balanceStatus === 'pending') return false;
+  if (getShipPrice(ship) <= 0) return false;
+  if (isNamedDesignException(ship)) return false;
+  const record = state.shipCatalog?.getShip?.(Number(shipId)) || ship;
+  if (record.specialVendor) return false;
+  return recoverableDesignRegions().includes(String(record.availabilityRegion || 'general'));
+}
+// And separately: may a general yard stock and lay this down with no licence behind it? That keeps the
+// market's own rule, so restricted and special-vendor hulls stay out of ordinary production.
+function isGeneralProductionDesign(shipId, factionKey = null) {
+  const ship = state.shipStatsById[Number(shipId)];
+  if (!ship || ship.assetType !== 'ship') return false;
+  if (ship.rosterState === 'retired' || ship.rosterState === 'prototype') return false;
+  if (getShipPrice(ship) <= 0) return false;
+  if (isNamedDesignException(ship)) return false;
+  if (!state.shipCatalog) return true;
+  const context = { role: 'purchase', controller: factionKey || undefined, region: factionKey === 'dominion' ? 'dominion-core' : undefined };
+  return Boolean(state.shipCatalog.eligibleForStock(Number(shipId), context));
+}
+let campaignWorldCache = null;
+function buildCampaignWorld(force = false) {
+  const key = `${state.day}:${state.currentPlanet}:${state.warp.active ? 'w' : 'l'}:${(state.stationDefinitions || []).length}:${Object.keys(state.destroyedStations || {}).length}:${(state.controlledSystems || []).join(',')}:${JSON.stringify(state.factionSystemOverrides || {})}`;
+  if (!force && campaignWorldCache && campaignWorldCache.key === key) return campaignWorldCache.world;
+  if (!state.travelRoutes.length) rebuildTravelRoutes();
+  const systems = state.planets.map((planet, index) => {
+    const control = getSystemControl(index);
+    return { index, name: planet.name, controller: campaignPolityIdFor(control.polityId), origin: isRecognizedFactionKey(control.origin) ? control.origin : null, population: finiteNumber(planet.population, 0), visited: (state.visitedSystems || []).includes(index) };
+  });
+  const stationsBySystem = new Map();
+  for (const def of state.stationDefinitions || []) {
+    const i = Number(def.systemIndex);
+    if (!stationsBySystem.has(i)) stationsBySystem.set(i, []);
+    stationsBySystem.get(i).push(campaignStationRecord(def, i));
+  }
+  const neighbourMap = new Map();
+  const addEdge = (a, b) => { if (!neighbourMap.has(a)) neighbourMap.set(a, new Set()); neighbourMap.get(a).add(b); };
+  for (const r of state.travelRoutes) { addEdge(r.from, r.to); addEdge(r.to, r.from); }
+  const wormholes = getAllWormholeLinks().map((w) => ({ id: w.id, from: w.from, to: w.to, name: w.name }));
+  for (const w of wormholes) { addEdge(w.from, w.to); addEdge(w.to, w.from); }
+  const factionHullCache = new Map();
+  const world = {
+    day: state.day, playerFaction: getPlayerFlag(), localSystem: state.warp.active || isWormholeTransitActive() ? null : Number(state.currentPlanet),
+    systems, wormholes,
+    // The player-facing beat this settlement belongs to. One journey can settle sixty campaign days, so
+    // the campaign needs to know which of those days share a briefing: strategic stages that must reach
+    // the captain one at a time commit once per beat, not once per day. Null outside a journey.
+    journeyId: campaignJourneyId,
+    // Chances the game has put in front of the captain, which is what the Dominion opening reads in
+    // place of a calendar floor. Offers and sights, never achievements.
+    playerOpportunity: campaignPlayerOpportunity(),
+    isFaction: (id) => isRecognizedFactionKey(id) && id !== 'pirate' && (id !== 'gorn' || getCampaignDiscoveries().gorn),
+    factionName: (id) => (id === 'player' ? `${state.captainName || 'Captain'}'s empire` : formatFaction(id)),
+    shipStats: (id) => { const s = state.shipStatsById[Number(id)]; if (!s) return null; return { price: getShipPrice(s), mass: finiteNumber(s.mass, 1), combatHull: getNpcCombatDurability(Number(id)).hull, faction: getShipFaction(Number(id)) }; },
+    pickHull: (polityId, u) => { if (polityId === 'player') return null; const key = campaignFactionKeyFor(polityId); const seed = Math.floor(u * 100000) + 1; for (const role of ['fleetAttack', 'patrol', 'traffic']) { const id = getNpcShipIdForFaction(key, seed, role); if (id != null) return Number(id); } return null; },
+    // A culture's catalogue for the purposes of captured industry: everything it actually builds, less
+    // the named exceptions. Filtering this by the retail rule is what made capturing a Dominion major
+    // world grant nothing, because every Dominion hull is region-tagged.
+    nativeDesigns: (faction) => { if (!factionHullCache.has(faction)) factionHullCache.set(faction, Object.values(state.shipStatsById).filter((s) => s && s.assetType === 'ship' && getShipFaction(s.id) === faction && isRecoverableIndustrialDesign(s.id)).map((s) => Number(s.id))); return factionHullCache.get(faction); },
+    // Whether a polity's yards may lay down this design with no licence behind it.
+    designEligible: (shipId, polityId) => isGeneralProductionDesign(shipId, campaignFactionKeyFor(polityId)),
+    // Whether a licence — a captured yard and its drawings — covers this design.
+    designIndustrial: (shipId) => isRecoverableIndustrialDesign(shipId),
+    relation: (a, b) => { if (a === b) return 'allied'; if (!isRecognizedFactionKey(a) || !isRecognizedFactionKey(b)) return 'peace'; if (areFactionsAligned(a, b)) return 'allied'; return worldRelation(a, b).status; },
+    stationsBySystem: (i) => stationsBySystem.get(Number(i)) || [],
+    neighbours: (i) => [...(neighbourMap.get(Number(i)) || [])],
+    // The hidden Dominion region stays hidden: only the Dominion routes through the wormhole until the
+    // far side has been charted, so no other power "discovers" it by strategic accident.
+    routeHops(from, to, polityId = null) {
+      const wormholeOpen = polityId === 'dominion' || (wormholes.length > 0 && isChartSystemVisible(wormholes[0].to) && isChartSystemVisible(wormholes[0].from));
+      const seen = new Map(from.map((f) => [Number(f), 0])); const q = [...from.map(Number)];
+      while (q.length) {
+        const cur = q.shift();
+        if (cur === Number(to)) return seen.get(cur);
+        for (const n of neighbourMap.get(cur) || []) {
+          if (!wormholeOpen && wormholes.some((w) => (w.from === cur && w.to === n) || (w.to === cur && w.from === n)) && !state.travelRoutes.some((r) => (r.from === cur && r.to === n) || (r.from === n && r.to === cur))) continue;
+          if (!seen.has(n)) { seen.set(n, seen.get(cur) + 1); q.push(n); }
+        }
+      }
+      return null;
+    },
+    doctrine: (id) => ({ aggression: clamp(finiteNumber(World.FACTION_TRAFFIC[id]?.warDeployment, 1), 0.5, 1.5) }),
+    // Called by the model once per internal day, after that day is settled, with the day's effects and
+    // the view it stepped against. Only the engine knows what a damaged installation's capabilities
+    // become, how much of that damage the owner's yards heal overnight, or what a settlement does to a
+    // relation — and all three have to advance at the same rate per day whether the caller stepped one
+    // day or jumped two hundred.
+    settleDay: (view, day, dayEffects) => settleCampaignEngineDay(view, day, dayEffects),
+    // There is deliberately no second "extra defence" term here. The captain's vessels are the player
+    // polity's hulls, synchronised from the real fleet by syncPlayerPolity, so they are counted exactly
+    // once and — because they are ordinary hulls to the model — they can be damaged and lost like any
+    // other defender instead of adding strength nothing can ever take away. Which hosts they defend is
+    // decided by Campaign.defendingPolityIds, which keeps the old rule: any holder the captain is not
+    // at war with, including neutral hosts such as Bajora against the Dominion.
+  };
+  campaignWorldCache = { key, world };
+  return world;
+}
+// ---- what the captain has actually seen ----
+// A dated record of who held each world the last time the captain could see it — standing there, a
+// ship on station, or their own relay and installations reading its traffic. Nothing else writes it:
+// a system flown through once years ago is a memory, not a live feed, and reading today's controller
+// for it let an unobserved conquest on the far side of the galaxy quietly correct the captain's books
+// on the next weekly refresh. Written once per internal day from the same hook that settles damage and
+// repair, so a jump and a walk record the same observations on the same days. [fourth review]
+function recordCampaignObservations(book, view, day) {
+  const obs = (book.observations ||= {});
+  // Where the captain is, what they own and what their relays reach cannot change while the model is
+  // settling days, so the context is built once per advancement call rather than once per internal day.
+  const ctx = campaignAdvanceIntelContext || campaignIntelContext();
+  for (const sys of view.systems || []) {
+    const src = campaignIntelSource(sys.index, ctx);
+    if (src !== 'local' && src !== 'fleet' && src !== 'relay') continue;
+    const controller = sys.controller ?? null;
+    const prior = obs[sys.index];
+    if (prior && prior.controller === controller) { prior.day = day; prior.source = src; continue; }
+    obs[sys.index] = { controller, day, source: src };
+  }
+}
+// The panel may be opened on a day the strategic model has not settled — at a fresh start, or after a
+// scene resolved something locally. Stamping the current day's observations is idempotent and keeps
+// the reader honest without inventing a source.
+let campaignObservationStamp = '';
+function ensureCampaignObservations() {
+  const stamp = `${fleetBook().campaignId}:${state.day}:${state.currentPlanet}:${state.warp.active ? 'w' : 'l'}`;
+  if (campaignObservationStamp === stamp) return;
+  campaignObservationStamp = stamp;
+  recordCampaignObservations(campaignBook(), buildCampaignWorld(), state.day);
+}
+// The player's readiness is derived from the real persistent fleet, never a second copy.
+function syncPlayerPolity(book) {
+  const p = book.polities.player || (book.polities.player = { id: 'player', kind: 'player', active: true, treasury: 0, materials: 0, revenueLastDay: 0, expenseLastDay: 0, supply: 1, hulls: [], queue: [], integrations: {}, licenses: {}, readinessBaseline: 0, lastPlanDay: 0, lostHulls: 0, builtHulls: 0 });
+  // A vessel that is instantiated in the loaded scene is the scene's to resolve: the strategic model
+  // must not count it as a defender, because the losses it would assign are dropped on the way back
+  // (the live actor owns that hull) and syncPlayerPolity would restore it to full strength the next
+  // day, booking a fresh kill every day. 'assigned' keeps it out of both the defence total and the
+  // attrition pass, exactly as a hull committed to an operation is.
+  const sceneOwned = (f) => Boolean(fleetLocalActor(f.id));
+  p.hulls = (state.playerFleet || []).filter((f) => !f.destroyed && f.vessel?.condition !== 'destroyed').map((f) => ({ id: `pf:${f.id}`, shipId: Number(f.shipId), hull: finiteNumber(f.vessel?.hull, finiteNumber(f.vessel?.maxHull, 100)), maxHull: finiteNumber(f.vessel?.maxHull, 100), crew: 1, systemIndex: Number(f.assignment === 'escort' ? state.currentPlanet : f.systemIndex), status: f.assignment === 'transit' || sceneOwned(f) ? 'assigned' : 'ready', opId: null }));
+  p.treasury = state.latinum; p.materials = state.duranium;
+  p.queue = fleetBook().orders.filter((o) => !['delivered', 'lost'].includes(o.status)).map((o) => ({ id: o.id, shipId: o.shipId, systemIndex: o.system, stationId: o.stationId, remainingDays: o.remainingDays, status: o.status }));
+  return p;
+}
+// Damage and repair are two halves of one ledger, so the strategic day has to advance both. This is
+// the model's per-internal-day hook: repair first — a day's healing applies to the damage standing at
+// the start of that day, which is the order daily stepping always had — then the day's fresh damage
+// lands in the book. Because the book itself is written here rather than after the call returns, a
+// jump and a walk see the same damage on the same day, and the day after a battle opens with the same
+// capabilities either way.
+function settleCampaignEngineDay(view, day, dayEffects) {
+  const book = campaignBook();
+  // 1. the ledger: a day's healing applies to the damage standing at the start of it, then the day's
+  //    fresh damage lands.
+  const touched = new Set([...repairCampaignStations(book, view), ...applyCampaignStationDamage(book, dayEffects)]);
+  // 2. the day's observations, taken with the sources the captain had while the day happened.
+  recordCampaignObservations(book, view, day);
+  // 3. the world the next day will be settled against catches up: what an installation whose condition
+  //    changed can now do, what a conquest did to ownership, what a settlement did to a relation.
+  refreshCampaignShadow(view, touched, dayEffects);
+  // 4. and only then the source map, because what a damaged or repaired relay reaches is read off the
+  //    record written in step 3. Reducing before refreshing read the station at its old strength, so a
+  //    hub whose reach the fighting cut went on covering its neighbours for the rest of the call — and
+  //    a hub repaired back above the sector threshold never started covering them again. [sixth review]
+  reduceCampaignIntelContext(book, view, dayEffects);
+  // 5. The captain's account is the engine's, not the model's: the model emits the day's income as an
+  // effect and leaves the polity's copy of it alone, because a caller stepping day by day refreshes
+  // that copy from the captain's real latinum on the next call's syncPlayerPolity. A jump has no next
+  // call, so the copy is advanced here — the model's copy, and only it. The captain's real money is
+  // still credited exactly once, by applyCampaignEffects, after the call returns. [fifth review]
+  const p = book.polities.player;
+  if (p) for (const e of dayEffects || []) {
+    if (e.type !== 'playerIncome') continue;
+    p.treasury = finiteNumber(p.treasury, 0) + finiteNumber(e.latinum, 0);
+    p.materials = finiteNumber(p.materials, 0) + finiteNumber(e.materials, 0);
+  }
+}
+// Everything the next internal day must see about the world, written into the private shadow.
+function refreshCampaignShadow(view, touched, dayEffects) {
+  const shadow = view?.shadow;
+  if (!shadow) return; // an engine may be handed a plain world; there is then nothing to carry forward
+  for (const id of touched) {
+    const def = (state.stationDefinitions || []).find((d) => d.id === id);
+    if (def) shadow.stationRecords.set(id, campaignStationRecord(def, Number(def.systemIndex), campaignBook().stationDamage[id] || 0));
+  }
+  for (const e of dayEffects || []) {
+    if (e.type === 'warResolved') shadow.relations.set(`${e.a}:${e.b}`, 'peace');
+    else if (e.type === 'captureSystem') {
+      // Conquest also makes the taken world's installations answer to the new holder for the purposes
+      // of what they may sell and staff; the model has already moved their ownership.
+      for (const d of (state.stationDefinitions || []).filter((x) => Number(x.systemIndex) === Number(e.systemIndex)))
+        if (!shadow.stationRecords.has(d.id)) shadow.stationRecords.set(d.id, campaignStationRecord(d, Number(e.systemIndex)));
+    }
+  }
+}
+// One internal day of repair. Returns the installations whose damage changed.
+function repairCampaignStations(book, view) {
+  const changed = [];
+  for (const [id, damage] of Object.entries(book.stationDamage)) {
+    const def = (state.stationDefinitions || []).find((d) => d.id === id);
+    if (!def || !(damage > 0)) { delete book.stationDamage[id]; changed.push(id); continue; }
+    const index = Number(def.systemIndex);
+    // Repair capacity follows ownership like everything else: a foreign or private slip in the same
+    // system does not quietly rebuild a rival's installation. Unowned infrastructure still helps. In a
+    // bulk call the owner is read from the shadow, so a yard taken in the jump repairs for its new
+    // holder from the day it changed hands.
+    const seized = view?.shadow?.stationOwners.get(id);
+    const owner = seized != null ? seized
+      : (campaignPolityIdFor(getStationOwner(def, index)) || getStationOwner(def, index) || null);
+    const fx = view.stationsBySystem(index)
+      .filter((s) => s.id !== id && s.cap && ['operational', 'damaged'].includes(s.cap.status) && (s.owner == null || s.owner === owner))
+      .reduce((n, s) => n + (s.cap.effects.repairCapacity || 0), 0);
+    if (fx <= 0) continue;
+    const next = Math.max(0, damage - 0.05);
+    if (next <= 0) delete book.stationDamage[id]; else book.stationDamage[id] = next;
+    changed.push(id);
+  }
+  return changed;
+}
+// The damage ledger. Effects settled by the per-day hook carry a mark, so the report pass that runs
+// after a bulk call reports them without debiting the same fraction twice; damage raised outside the
+// strategic day — a local battle, the debug menu — is settled here on its way through.
+function applyCampaignStationDamage(book, effects) {
+  const changed = [];
+  for (const e of effects || []) {
+    if (e.type !== 'stationDamaged' || e.damageSettled) continue;
+    book.stationDamage[e.stationId] = clamp((book.stationDamage[e.stationId] || 0) + e.fraction, 0, 0.9);
+    e.damageSettled = true;
+    changed.push(e.stationId);
+  }
+  return changed;
+}
+let campaignAdvanceIntelContext = null;
+function advanceCampaign(day) {
+  const book = campaign();
+  syncPlayerPolity(book);
+  const world = buildCampaignWorld(true);
+  campaignAdvanceIntelContext = campaignIntelContext();
+  let effects;
+  try { effects = Campaign.advanceCampaignDay(book, world, day); } finally { campaignAdvanceIntelContext = null; }
+  applyCampaignEffects(effects, day);
+  campaignWorldCache = null;
+  return effects;
+}
+function campaignReport(report) {
+  return addGalaxyReport({ category: CAMPAIGN_REPORT_KIND, ...report });
+}
+// How the captain could have heard about something that happened at a system. Four different things,
+// which the first version of this collapsed into one:
+//   local  — the captain is there, watching it. A local encounter is a fact.
+//   fleet  — one of their ships is on station. Much better than hearsay, but a crew reporting by
+//            subspace can still be wrong; the settled rule is that ships make reports more accurate,
+//            not certain.
+//   relay  — their own relay network, or an installation they own, covers the system. That reads
+//            transponders, so identity and place are dependable; strength is not.
+//   rumour — anything else, including a system flown through once. Late, no numbers, and it can name
+//            the wrong power.
+function campaignIntelSource(systemIndex, ctx = null) {
+  const index = Number(systemIndex);
+  if (!Number.isFinite(index) || !state.planets[index]) return 'none';
+  if (!isReportSystemKnown(index)) return 'none';
+  const c = ctx || campaignIntelContext();
+  if (c.here === index) return 'local';
+  if (c.ships ? c.ships.has(index) : hasIntelShips(index)) return 'fleet';
+  if ((c.watched ? c.watched.has(index) : watchesReportLocation(index)) || c.relay.has(index)) return 'relay';
+  return 'rumour';
+}
+// The same question asked about every system at once — a sweep over the chart, once a day, must not
+// recompute relay connectivity and re-scan every installation for each system in turn. Every source
+// the captain has is enumerated here rather than probed per system, so the set can also be *reduced*
+// as the sources are lost; see reduceCampaignIntelContext.
+function campaignIntelContext() {
+  const here = !state.warp.active && !isWormholeTransitActive() && !state.gameOver ? Number(state.currentPlanet) : null;
+  // Systems the captain can see from: ground they hold, and installations of theirs that are still
+  // standing. A wreck is not a listening post. [ninth review]
+  const watched = new Set((state.controlledSystems || []).map(Number));
+  for (const st of state.stationDefinitions || []) {
+    if (getStationOwner(st, st.systemIndex) !== PLAYER_SIDE) continue;
+    if (stationIsLiveSource(campaignStationRecord(st, Number(st.systemIndex)))) watched.add(Number(st.systemIndex));
+  }
+  // Not "is there a ship there" but "which crews are watching there". Naming them is what lets a loss
+  // be taken off the map by the same rule that put it on: a vessel this builder excluded — one already
+  // outbound, one the loaded scene owns — was never a source, so it can never keep one alive after the
+  // crew that was actually watching is killed. [eighth review]
+  const ships = new Map();
+  const watching = (index, id) => {
+    const key = Number(index);
+    if (!Number.isFinite(key)) return;
+    if (!ships.has(key)) ships.set(key, new Set());
+    ships.get(key).add(String(id));
+  };
+  if (here != null) watching(here, 'captain'); // the captain's own hull is a ship on station like any other
+  for (const f of state.playerFleet || []) {
+    if (f.destroyed || f.transit || f.assignment === 'transit') continue;
+    if (f.vessel?.condition === 'destroyed' || (f.vessel && !(f.vessel.hull > 0))) continue;
+    if (f.assignment === 'escort') { if (here != null) watching(here, f.id); continue; }
+    watching(Number(f.systemIndex), f.id);
+  }
+  return { here, watched, ships, relay: campaignRelayCoverage() };
+}
+// A jump is not an instant. Worlds change hands inside one, installations are wrecked inside one, and
+// the crews of ships defending them are killed inside one — and when that happens the captain stops
+// having a source there. Freezing the source map for the length of the call meant a world taken on
+// internal day three went on reporting its new owner to its old owner for the rest of the interval,
+// and the book a jump produced differed from the book stepping produced.
+//
+// The reduction runs AFTER the day's observations are recorded, and that order is the point: a source
+// destroyed in the fighting was there while the fighting happened, so it files that day's account and
+// nothing after it. That is also exactly what a caller stepping one day at a time sees, because the
+// engine rebuilds this context between calls. [fifth review]
+function reduceCampaignIntelContext(book, view, dayEffects) {
+  const ctx = campaignAdvanceIntelContext;
+  if (!ctx) return;
+  // Crews the strategic resolver killed defending a world. This is the one part that reads the day's
+  // effects, because a crew is only ever lost through one — and it strikes off the named vessels it
+  // reports, so a system stops being a source exactly when the last crew that was watching it dies.
+  // Asking instead whether any hull of the captain's was still at that index counted vessels the map
+  // had already excluded: an outbound hull keeps its departure system in the book until it arrives and
+  // is never a defender, so it survived every battle and masked the loss of the real source for the
+  // rest of the call. [eighth review]
+  for (const e of dayEffects || []) {
+    if (e.type !== 'defenderLosses') continue;
+    const crews = ctx.ships.get(Number(e.systemIndex));
+    if (!crews) continue;
+    for (const rec of e.hulls || []) {
+      if (!rec?.destroyed) continue; // a damaged crew still reports
+      const raw = String(rec.hullId || '');
+      if (raw.startsWith('pf:')) crews.delete(raw.slice(3));
+    }
+    if (!crews.size) ctx.ships.delete(Number(e.systemIndex));
+  }
+  // Where the captain has standing and what their relays reach is re-derived from the day's world,
+  // every day, rather than on a list of effects thought to be able to change it. That list was wrong
+  // three times running — it missed the repair tick, which is not an effect at all, and it missed a
+  // settlement, which changes whether a foreign hub in one of their worlds answers to them. What this
+  // reads is exactly what relayConnectivity reads: controllers, installation ownership, each
+  // installation's condition, and the relation between the captain's colours and each owner. Deriving
+  // it costs one sweep of the chart per internal day and cannot be forgotten. [seventh review]
+  ctx.watched = new Set();
+  for (const sys of view.systems || []) {
+    const index = Number(sys.index);
+    if (sys.controller === 'player' || view.stationsBySystem(index).some((st) => st.owner === 'player' && stationIsLiveSource(st))) ctx.watched.add(index);
+  }
+  ctx.relay = Campaign.relayConnectivity(view, 'player');
+}
+// Publishes one campaign event at whatever quality the captain's sources justify.
+//
+// Two rules hold across every tier. First, the account and the record agree: where the claim comes
+// from a fallible assessment, both the text the player reads and the factions stored on the report come
+// from that same assessment — never a fallible label over a truthful sentence, which is what the first
+// version did (a relay report printed the real attacker while filing a different one). Second, being
+// wrong about who did something does not make the event stop involving the people it involved: the
+// harmed party and the player's own stake are carried separately from the claimed attacker, so a report
+// about the captain's faction or a world they held stays personal and never falls into the six
+// background slots.
+function reportCampaignEvent(spec) {
+  const index = Number(spec.systemIndex);
+  const source = spec.source || campaignIntelSource(index);
+  if (source === 'none') return false;
+  const involved = (spec.involved || spec.factions || []).filter(isRecognizedFactionKey);
+  const personal = spec.playerRelated ?? false;
+  // Seen or read off the captain's own infrastructure: the account is authoritative about who, and for
+  // a local encounter about how many as well.
+  if (source === 'local' || source === 'relay') {
+    const text = source === 'local' ? spec.direct : (spec.relay?.(null) || spec.direct);
+    if (!text) return false;
+    const report = { id: spec.id, systemIndex: index, kind: spec.kind, category: CAMPAIGN_REPORT_KIND,
+      confidence: source === 'local' ? 'Confirmed local observation' : 'Relay dispatch — identity confirmed, strength unverified',
+      factions: [...new Set([...(spec.factions || []), ...involved])].filter(isRecognizedFactionKey),
+      // Who this account blames, kept apart from everyone it merely involves. A reader that wants to
+      // know which power a fleet belongs to reads this and nothing else; being there and reading a
+      // transponder are the two tiers entitled to be right about it. [fifth review]
+      claimedAttacker: isRecognizedFactionKey(spec.attacker) ? spec.attacker : null,
+      playerRelated: personal, text };
+    if (source === 'local') return campaignReport({ ...report, day: spec.day });
+    const news = galaxyNewsBook();
+    news.pending.push({ ...report, day: spec.day + CAMPAIGN_RELAY_REPORT_DELAY_DAYS });
+    news.pending = news.pending.slice(-120);
+    return true;
+  }
+  // Reported by a crew on station, or heard second-hand. Both go through the seeded assessor; the crew
+  // is much more likely to be right, and neither is guaranteed to be.
+  const estimate = assessIntel(
+    { kind: spec.observationKind || 'raid', attacker: spec.attacker || null, day: spec.day },
+    { seed: `${fleetBook().campaignId}:campaign:${spec.id}`, ownShips: source === 'fleet', age: 0, candidates: intelIdentityCandidates() },
+  );
+  const text = source === 'fleet' ? (spec.fleet?.(estimate) || spec.rumour?.(estimate)) : spec.rumour?.(estimate);
+  if (!text) return false;
+  const news = galaxyNewsBook();
+  const report = { id: spec.id, systemIndex: index, day: spec.day + estimate.delay, kind: spec.kind, category: CAMPAIGN_REPORT_KIND,
+    confidence: source === 'fleet' ? 'Fleet assessment' : 'Unconfirmed civilian report',
+    factions: [...new Set([estimate.attacker, ...involved])].filter(isRecognizedFactionKey),
+    // The blame this account carries is the assessor's guess, and a reader that counts fleets by power
+    // must count this one — not the fleet's real owner. [fifth review]
+    claimedAttacker: isRecognizedFactionKey(estimate.attacker) ? estimate.attacker : null,
+    playerRelated: personal, text };
+  news.pending.push(report);
+  news.pending = news.pending.slice(-120);
+  return true;
+}
+const CAMPAIGN_RELAY_REPORT_DELAY_DAYS = 2;
+// Who a campaign event happens *to*, read at the moment it happens. Control can change before a
+// delayed account is classified, so the stake has to be captured with the event and not looked up
+// again later — that is how a report about a world the captain has just lost stopped counting as theirs.
+function campaignEventStake(systemIndex, extra = []) {
+  const control = getSystemControl(systemIndex) || {};
+  const holder = campaignFactionKeyFor(control.polityId);
+  const involved = [holder, ...extra].filter(isRecognizedFactionKey);
+  const personal = Boolean(control.playerControlled) || involved.includes(getPlayerFlag())
+    || (state.stationDefinitions || []).some((d) => Number(d.systemIndex) === Number(systemIndex) && getStationOwner(d, systemIndex) === PLAYER_SIDE)
+    || hasIntelShips(Number(systemIndex));
+  return { involved, personal };
+}
+// A mistaken account still has to name somebody. This keeps the wording identical in both directions.
+function intelAttribution(estimate) {
+  return estimate.attacker ? ` Ships identified as ${formatFaction(estimate.attacker)}.` : '';
+}
+// A design is the captain's business when they fly one, own a hull of one, or hold its plan.
+function playerHoldsDesign(shipId) {
+  const id = Number(shipId);
+  if (Number(state.playership) === id) return true;
+  if ((state.playerFleet || []).some((f) => !f.destroyed && Number(f.shipId) === id)) return true;
+  return (fleetBook().shipPlans || []).some((pl) => Number(pl?.shipId ?? pl) === id);
+}
+// Losses the strategic resolver assigned to the captain's stationed vessels, applied to the real fleet
+// record. Only ships that are not currently instantiated in the loaded scene are touched: the scene
+// owns any battle the captain is present for.
+function applyPlayerDefenderLosses(effect, day) {
+  const lost = [], hurt = [];
+  for (const rec of effect.hulls || []) {
+    const raw = String(rec.hullId || '');
+    if (!raw.startsWith('pf:')) continue;
+    const fleetId = raw.slice(3);
+    const record = (state.playerFleet || []).find((f) => String(f.id) === fleetId && !f.destroyed);
+    if (!record || fleetLocalActor(record.id)) continue;
+    record.vessel ||= { hull: finiteNumber(rec.maxHull, 100), maxHull: finiteNumber(rec.maxHull, 100) };
+    record.vessel.hull = clamp(finiteNumber(rec.hull, 0), 0, finiteNumber(record.vessel.maxHull, finiteNumber(rec.maxHull, 100)));
+    if (!rec.destroyed) { hurt.push(record.name || 'a vessel'); continue; }
+    record.destroyed = true;
+    record.vessel.condition = 'destroyed';
+    record.vessel.hull = 0;
+    Fleet.removeVessel(fleetBook(), record.id);
+    lost.push(record.name || 'a vessel');
+  }
+  if (!lost.length && !hurt.length) return;
+  const where = state.planets[effect.systemIndex]?.name || 'a world you hold';
+  const attacker = formatFaction(campaignFactionKeyFor(effect.attacker));
+  campaignReport({ id: `fleet-losses:${effect.opId}:${effect.day ?? day}`, systemIndex: effect.systemIndex, day, kind: lost.length ? 'Fleet losses' : 'Fleet damaged', confidence: 'Campaign record', factions: [campaignFactionKeyFor(effect.attacker)].filter(isRecognizedFactionKey), playerRelated: true,
+    text: `${attacker} forces engaged your vessels at ${where}. ${lost.length ? `Lost: ${lost.join(', ')}. ` : ''}${hurt.length ? `Damaged: ${hurt.join(', ')}.` : ''}`.trim() });
+  syncLegacyState();
+}
+function applyCampaignEffects(effects, day = state.day) {
+  const book = campaignBook();
+  for (const e of effects) {
+    switch (e.type) {
+      case 'playerIncome': {
+        state.latinum += e.latinum; state.mylatinum = state.latinum; state.duranium += e.materials; state.myduranium = state.duranium;
+        break;
+      }
+      case 'captureSystem': {
+        const i = Number(e.systemIndex);
+        const control = getSystemControl(i);
+        if (campaignPolityIdFor(control.polityId) === e.by) break; // already applied (e.g. resolved locally)
+        // A world changing hands is public, but who took it can still be got wrong at a distance.
+        const by = campaignFactionKeyFor(e.by), from = e.from ? campaignFactionKeyFor(e.from) : null;
+        // The stake is read BEFORE control transfers, and the order matters: a world the captain has
+        // just lost is still theirs as far as this report is concerned, however late the account
+        // arrives. Read it after the transfer and the loss of a home world reads as somebody else's
+        // news. [fourth review]
+        const stake = campaignEventStake(i, [from].filter(Boolean));
+        book.suppressCaptureHook = true;
+        try { if (e.by === 'player') transferSystemControlToPlayer(i); else transferSystemControlToFaction(i, e.by); } finally { book.suppressCaptureHook = false; }
+        if (i === Number(state.currentPlanet) && !state.warp.active) { state.systemFaction = campaignFactionKeyFor(e.by); state.systemAttitude = getFactionAttitude(state.systemFaction); }
+        reportCampaignEvent({
+          id: `capture:${e.opId || i}:${e.day ?? day}`, systemIndex: i, day: e.day ?? day, kind: 'World captured',
+          factions: [by, from].filter(isRecognizedFactionKey), involved: stake.involved, attacker: by, observationKind: 'battle',
+          playerRelated: stake.personal || e.by === 'player' || e.from === 'player',
+          direct: `${formatFaction(by)} forces took control of ${state.planets[i]?.name}${from ? ` from ${formatFaction(from)}` : ''} after defeating its defenders.`,
+          relay: () => `Relay traffic reports ${state.planets[i]?.name} has fallen to ${formatFaction(by)}${from ? `, taken from ${formatFaction(from)}` : ''}.`,
+          fleet: (est) => `Our ships off ${state.planets[i]?.name} report the world has changed hands.${intelAttribution(est)}`,
+          rumour: (est) => `Travellers report ${state.planets[i]?.name} has changed hands.${intelAttribution(est)}`,
+        });
+        break;
+      }
+      case 'stationDamaged': {
+        applyCampaignStationDamage(book, [e]); // a no-op for damage the strategic day already settled
+        const def = (state.stationDefinitions || []).find((d) => d.id === e.stationId);
+        if (def && getStationOwner(def, e.systemIndex) === PLAYER_SIDE) offerStationMission('repair', e.systemIndex); // a real loss opens a real contract
+        if (def) reportCampaignEvent({
+          id: `stationdmg:${e.stationId}:${e.day ?? day}`, systemIndex: e.systemIndex, day: e.day ?? day, kind: 'Installation damaged',
+          factions: [], involved: campaignEventStake(e.systemIndex).involved, attacker: null, observationKind: 'battle',
+          playerRelated: getStationOwner(def, e.systemIndex) === PLAYER_SIDE || campaignEventStake(e.systemIndex).personal,
+          direct: `${def.name} at ${state.planets[e.systemIndex]?.name} took heavy damage in the fighting; output reduced until repaired.`,
+          relay: () => `Relay traffic reports an installation at ${state.planets[e.systemIndex]?.name} badly damaged in the fighting.`,
+          fleet: () => `Our ships off ${state.planets[e.systemIndex]?.name} report an installation badly damaged in the fighting.`,
+          rumour: () => `Travellers report damage to the installations at ${state.planets[e.systemIndex]?.name}.`,
+        });
+        break;
+      }
+      case 'operationLaunched': {
+        const attacker = campaignFactionKeyFor(e.faction);
+        const place = state.planets[e.targetSystem]?.name;
+        const stake = campaignEventStake(e.targetSystem);
+        reportCampaignEvent({
+          id: `op-launch:${e.opId}`, systemIndex: e.targetSystem, day: e.day ?? day, kind: 'Fleet movement',
+          factions: [attacker], involved: stake.involved, attacker, observationKind: e.hulls >= 7 ? 'battle' : e.hulls >= 4 ? 'raid' : 'skirmish',
+          playerRelated: stake.personal,
+          direct: `${formatFaction(attacker)} forces, about ${e.hulls} hulls, are moving on ${place} (${e.kind}).`,
+          relay: () => `Relay traffic reports a ${formatFaction(attacker)} force moving on ${place}. Strength not established.`,
+          fleet: (est) => `Our ships off ${place} report warships moving in.${intelAttribution(est)} Strength not established.`,
+          rumour: (est) => `Traders report warships gathering near ${place}.${intelAttribution(est)} Numbers unknown.`,
+        });
+        break;
+      }
+      case 'operationArrived': {
+        // Contracts follow real events: a hostile force engaging a world you hold or a partner holds
+        // opens escort and blockade work there.
+        if (getSystemControl(e.targetSystem).playerControlled || areFactionsAligned(getPlayerFlag(), campaignFactionKeyFor(getSystemControl(e.targetSystem).polityId))) offerStationMission('escort', e.targetSystem);
+        const attacker = campaignFactionKeyFor(e.faction);
+        const place = state.planets[e.targetSystem]?.name;
+        const stake = campaignEventStake(e.targetSystem);
+        reportCampaignEvent({
+          id: `op-arrive:${e.opId}`, systemIndex: e.targetSystem, day: e.day ?? day, kind: 'Fleet engagement',
+          factions: [attacker], involved: stake.involved, attacker, observationKind: e.hulls >= 7 ? 'battle' : 'raid',
+          playerRelated: stake.personal,
+          direct: `${formatFaction(attacker)} forces engaged the defences of ${place}.`,
+          relay: () => `Relay traffic reports fighting at ${place}; a ${formatFaction(attacker)} force is engaged there.`,
+          fleet: (est) => `Our ships off ${place} report an attack in progress.${intelAttribution(est)}`,
+          rumour: (est) => `Civilian traffic reports fighting near ${place}.${intelAttribution(est)}`,
+        });
+        break;
+      }
+      case 'operationResolved': {
+        const attacker = campaignFactionKeyFor(e.faction);
+        const place = state.planets[e.targetSystem]?.name;
+        const outcome = { captured: 'seized the world', destroyed: 'were destroyed', withdrew: 'withdrew after losses', 'stood-down': 'broke off the operation' }[e.outcome] || e.outcome;
+        const kind = e.outcome === 'captured' ? 'Fleet victory' : e.outcome === 'stood-down' ? 'Operation broken off' : 'Fleet defeat';
+        // A settlement can arrive after the shooting has started. Saying the force withdrew "without a
+        // fight" when the operation is already engaged and has losses on the record contradicts the
+        // history entry beside it.
+        const fought = e.outcome === 'stood-down' && (e.losses > 0 || e.defenderLosses > 0);
+        const settled = e.outcome !== 'stood-down' ? null
+          : fought ? `${formatFaction(attacker)} forces broke off the action at ${place} under the settlement.`
+            : `${formatFaction(attacker)} forces withdrew from ${place} without a fight.`;
+        const stake = campaignEventStake(e.targetSystem);
+        reportCampaignEvent({
+          id: `op-done:${e.opId}`, systemIndex: e.targetSystem, day: e.day ?? day, kind,
+          factions: [attacker], involved: stake.involved, attacker, observationKind: e.outcome === 'stood-down' ? 'quiet' : 'battle',
+          playerRelated: stake.personal,
+          direct: settled || `${formatFaction(attacker)} forces at ${place} ${outcome} (${e.losses} attacking hulls lost, ${e.defenderLosses} defending hulls lost).`,
+          relay: () => settled || `Relay traffic reports the fighting at ${place} is over: the ${formatFaction(attacker)} force ${outcome}. Losses not established.`,
+          fleet: (est) => (settled ? `Our ships off ${place} report the attacking force standing down.` : `Our ships off ${place} report the action there is over.${intelAttribution(est)} Losses not established.`),
+          rumour: (est) => (settled ? `Traders report the force that was gathering near ${place} has dispersed.` : `Traders report the fighting near ${place} has ended.${intelAttribution(est)} Outcome unconfirmed.`),
+        });
+        break;
+      }
+      case 'dominionWarning': {
+        if (e.id === 'missing-patrols' && e.systemIndex != null) offerStationMission('recon', e.systemIndex);
+        // Warnings are galaxy-wide rumours: they name the (charted) Bajoran entry but are not tied to
+        // having visited it, so every captain gets the two warnings before the expedition moves.
+        // A galaxy-wide warning is background news and competes for the background slots like any
+        // other. It is personal only when it names a power the captain belongs to or a place they hold.
+        campaignReport({ id: `dominion:${e.id}`, systemIndex: null, day, kind: 'Strategic warning', confidence: e.id === 'invasion' ? 'Campaign record' : 'Unconfirmed civilian report', factions: e.id === 'invasion' ? ['dominion'] : [], text: campaignMaskText(e.text) });
+        break;
+      }
+      case 'dominionConvoy': {
+        // This one still went out exact and on sight, which is the defect the rest of this pipeline
+        // exists to remove: having flown through the wormhole system once should not make every later
+        // convoy visible and countable.
+        const place = state.planets[e.systemIndex]?.name;
+        reportCampaignEvent({
+          id: `convoy:${e.systemIndex}:${e.day ?? day}`, systemIndex: e.systemIndex, day: e.day ?? day, kind: 'Reinforcement convoy',
+          factions: ['dominion'], involved: campaignEventStake(e.systemIndex).involved, attacker: 'dominion', observationKind: 'raid',
+          playerRelated: campaignEventStake(e.systemIndex).personal,
+          direct: `A Dominion reinforcement convoy of about ${e.hulls} hulls arrived at ${place} through the wormhole.`,
+          relay: () => `Relay traffic reports a Dominion reinforcement convoy transiting the wormhole into ${place}. Numbers not established.`,
+          fleet: (est) => `Our ships off ${place} report a reinforcement convoy coming through the wormhole.${intelAttribution(est)}`,
+          rumour: (est) => `Traders report further warship movements through the wormhole near ${place}.${intelAttribution(est)} Numbers unknown.`,
+        });
+        break;
+      }
+      case 'integrationComplete': {
+        const who = campaignFactionKeyFor(e.polityId);
+        reportCampaignEvent({
+          id: `integration:${e.polityId}:${e.systemIndex}`, systemIndex: e.systemIndex, day: e.day ?? day, kind: 'Industry integrated',
+          factions: [who], involved: [who].filter(isRecognizedFactionKey), attacker: null, observationKind: 'quiet',
+          source: e.polityId === 'player' ? 'local' : undefined,
+          playerRelated: e.polityId === 'player',
+          direct: `${formatFaction(who)} completed integration of the shipyards at ${state.planets[e.systemIndex]?.name}: ${e.designs.length} native designs now producible there.`,
+          relay: () => `Relay traffic reports the yards at ${state.planets[e.systemIndex]?.name} have been retooled under ${formatFaction(who)} control.`,
+          rumour: () => '',
+        });
+        break;
+      }
+      case 'recoveryOffered': {
+        const ship = state.shipStatsById[e.shipId];
+        campaignReport({ id: `recovery:${e.recoveryId}`, systemIndex: e.systemIndex, day, kind: 'Design at risk', confidence: 'Campaign record', factions: [],
+          playerRelated: playerHoldsDesign(e.shipId) || Boolean(getSystemControl(e.systemIndex)?.playerControlled),
+          text: `The only yard offering the ${ship?.name || `design ${e.shipId}`} is gone. A ${e.kind} recovery contract is available in the Empire panel.` });
+        break;
+      }
+      case 'warResolved': {
+        // Strategic settlement through the ordinary diplomacy record (the same path the debug
+        // controls use); a calendar roll never ends this war.
+        World.setDiplomacy(diplomacyBook(), e.a, e.b, 'peace', day, baseFactionWar(e.a, e.b), `Strategic settlement: ${e.reason}`);
+        reconcileDiplomacy();
+        // A settlement between two other powers is news, not the captain's business; the faction list
+        // already makes it personal when one of the belligerents is theirs.
+        campaignReport({ id: `war-resolved:${e.a}:${e.b}:${e.day ?? day}`, systemIndex: null, day: e.day ?? day, kind: 'War resolved', confidence: 'Campaign record', factions: [e.a, e.b], text: `The ${formatFaction(e.a)}–${formatFaction(e.b)} war has ended: ${e.reason}. ${formatFaction(e.winner)} dictated the settlement.` });
+        setLog(`${formatFaction(e.a)} / ${formatFaction(e.b)}: peace. ${e.reason}.`);
+        break;
+      }
+      case 'defenderLosses': {
+        if (e.polityId !== 'player') break;
+        applyPlayerDefenderLosses(e, day);
+        break;
+      }
+      // 'operationStoodDown' no longer exists: a stand-down is an ordinary terminal outcome on
+       // 'operationResolved', so there is one effect, one history entry and one report for every way
+       // an operation can end.
+      case 'recoveryReleased': {
+        const ship = state.shipStatsById[e.shipId];
+        campaignReport({ id: `recovery-reopen:${e.recoveryId}:${day}`, systemIndex: e.systemIndex, day, kind: 'Design at risk', confidence: 'Campaign record', factions: [],
+          playerRelated: playerHoldsDesign(e.shipId) || Boolean(getSystemControl(e.systemIndex)?.playerControlled),
+          text: `The recovery attempt for the ${ship?.name || `design ${e.shipId}`} lapsed. The contract is open again in the Empire panel.` });
+        break;
+      }
+      case 'missionExpired': break;
+      case 'hullBuilt': case 'playerHullDelivered': break;
+      default: break;
+    }
+  }
+}
+// Ownership hook: every real control change becomes a campaign capture record (occupation output,
+// integration clock), whether it came from the campaign, the local scene or the claim button.
+function campaignRecordControlChange(systemIndex, toControlId, fromPolityId) {
+  if (!state.gameStarted) return;
+  const book = campaign();
+  if (book.suppressCaptureHook) return;
+  const to = campaignPolityIdFor(toControlId);
+  if (!to) return;
+  Campaign.recordCapture(book, buildCampaignWorld(true), Number(systemIndex), to, fromPolityId || null, state.day);
+  campaignWorldCache = null;
+}
+// ---- local materialisation of campaign operations ----
+function activeCampaignOperationHere() {
+  const book = campaignBook();
+  return book.operations.find((o) => o.status === 'engaged' && Number(o.targetSystem) === Number(state.currentPlanet) && (o.resolvedBy === 'local' || !o.resolvedBy)) || null;
+}
+const CAMPAIGN_WAVE_SIZE = 6; // hulls materialised at once; the rest of an operation arrives as follow-on waves
+// Materialises the next wave of an operation the scene has claimed. Every hull is a persistent
+// campaign record: which ones have been spawned is tracked on the operation, so nothing is spawned
+// twice and unspawned hulls are still alive when the battle is reconciled.
+function spawnCampaignOperation(op, hulls, wave = 0) {
+  if (state.activeFleetAttack || state.gameOver || !state.gameStarted || state.warp.active) return false;
+  op.spawnedHullIds ||= [];
+  const pending = hulls.filter((h) => !op.spawnedHullIds.includes(h.id) && h.status !== 'lost');
+  const batch = pending.slice(0, CAMPAIGN_WAVE_SIZE);
+  if (!batch.length) return false;
+  const attackerFaction = campaignFactionKeyFor(op.faction);
+  const systemIndex = Number(state.currentPlanet);
+  const localFaction = getSystemFaction(systemIndex);
+  if (wave === 0) setLog(fleetAttackHerald(attackerFaction, systemIndex));
+  const attackId = `campaign-${op.id.replace(/[^a-z0-9]/gi, '')}-w${wave}`;
+  const baseSeed = hashString(attackId);
+  const originAngle = seeded(baseSeed + 13) * Math.PI * 2;
+  const originDistance = 1150 + seeded(baseSeed + 17) * 420;
+  const origin = { x: state.systemStar.x + Math.cos(originAngle) * originDistance, y: state.systemStar.y + Math.sin(originAngle) * originDistance };
+  const primaryTarget = state.stations.find((station) => !station.destroyed && station.faction !== attackerFaction) || state.systemPlanet;
+  const ships = batch.map((h, index) => {
+    const seed = hashString(`${attackId}-${index}`);
+    const spread = (index - (batch.length - 1) / 2) * 56;
+    const sideAngle = originAngle + Math.PI / 2;
+    const npc = createNpcShip({ id: `${attackId}-${index}`, shipId: h.shipId, faction: attackerFaction, attitude: 'hostile', hostile: true, seed,
+      from: { x: origin.x + Math.cos(sideAngle) * spread, y: origin.y + Math.sin(sideAngle) * spread },
+      destination: { x: primaryTarget.x + (seeded(seed + 3) - 0.5) * 240, y: primaryTarget.y + (seeded(seed + 4) - 0.5) * 240 },
+      destinationName: `campaign: ${primaryTarget.name || 'system defense'}`, role: 'fleetAttack', attackId });
+    ensureNpcCombatStats(npc);
+    if (Number.isFinite(npc.maxCombatHull) && npc.maxCombatHull > 0 && h.maxHull > 0) npc.combatHull = Math.max(1, Math.round(npc.maxCombatHull * clamp(h.hull / h.maxHull, 0.05, 1)));
+    npc.campaignHullId = h.id;
+    return npc;
+  });
+  if (!ships.length) return false;
+  for (const h of batch) op.spawnedHullIds.push(h.id);
+  state.npcShips.push(...ships);
+  state.activeFleetAttack = { id: attackId, systemIndex, faction: attackerFaction, startedAt: gameNow(), size: ships.length, campaignOpId: op.id, wave, remaining: pending.length - batch.length };
+  state.fleetAttackControlSince = 0;
+  recordLocalIntel();
+  addGalaxyReport({ id: attackId, systemIndex, day: state.day, category: 'combat', factions: [attackerFaction, localFaction], playerRelated: true, kind: 'Local fleet attack', confidence: 'Local encounter record',
+    text: `${ships.length} ${formatFaction(attackerFaction)} attacking vessels entered ${state.planets[systemIndex].name} as part of a campaign operation${pending.length > batch.length ? `; ${pending.length - batch.length} more are following` : ''}. Their wider objectives are unconfirmed.` });
+  setLog(`${formatFaction(attackerFaction)} campaign force ${wave > 0 ? 'reinforcements ' : ''}entering ${state.planets[systemIndex]?.name || 'this system'}: ${ships.length} ships inbound${pending.length > batch.length ? `, ${pending.length - batch.length} following` : ''}.`);
+  return true;
+}
+function maybeMaterializeCampaignOperation() {
+  if (state.activeFleetAttack || state.warp.active || !state.gameStarted || state.gameOver) return;
+  const book = campaignBook();
+  const op = book.operations.find((o) => o.status === 'engaged' && Number(o.targetSystem) === Number(state.currentPlanet) && !o.resolvedBy);
+  if (!op) return;
+  if (campaignPolityIdFor(getSystemControl(state.currentPlanet).polityId) === op.faction) return; // already held: the model absorbs it
+  const claim = Campaign.claimOperationForScene(book, op.id);
+  if (!claim) return;
+  op.spawnedHullIds = []; // a fresh claim: every surviving hull of the operation is present again
+  if (!spawnCampaignOperation(op, claim.hulls, 0)) { op.resolvedBy = null; }
+}
+// When a wave is wiped out but the operation still has unspawned hulls, the next wave arrives
+// instead of the attack being declared repelled.
+function nextCampaignWave() {
+  const attack = state.activeFleetAttack;
+  if (!attack?.campaignOpId) return false;
+  const book = campaignBook();
+  const op = book.operations.find((o) => o.id === attack.campaignOpId);
+  if (!op || op.status !== 'engaged') return false;
+  const hulls = Campaign.operationHulls(book, op).filter((h) => !(op.spawnedHullIds || []).includes(h.id));
+  if (!hulls.length) return false;
+  const wave = (attack.wave || 0) + 1;
+  state.activeFleetAttack = null;
+  if (spawnCampaignOperation(op, hulls, wave)) return true;
+  state.activeFleetAttack = attack; // nothing could deploy: the caller resolves the battle normally
+  return false;
+}
+// Survivor report for every hull of the operation: spawned hulls are read from the scene, unspawned
+// hulls are untouched.
+function campaignSurvivorReport(op) {
+  const book = campaignBook();
+  const record = book.polities[op.faction]?.hulls || [];
+  return op.hullIds.map((id) => {
+    const h = record.find((x) => x.id === id);
+    if (!h || h.status === 'lost') return null;
+    if (!(op.spawnedHullIds || []).includes(id)) return { hullId: id, destroyed: false, hull: h.hull };
+    const npc = (state.npcShips || []).find((n) => n.campaignHullId === id);
+    if (!npc || npc.destroyed) return { hullId: id, destroyed: true, hull: 0 };
+    const fraction = npc.maxCombatHull > 0 ? clamp(npc.combatHull / npc.maxCombatHull, 0, 1) : 1;
+    return { hullId: id, destroyed: false, hull: fraction * h.maxHull };
+  }).filter(Boolean);
+}
+function reconcileLocalCampaignBattle(outcome) {
+  const attack = state.activeFleetAttack;
+  if (!attack?.campaignOpId) return;
+  const book = campaignBook();
+  const op = book.operations.find((o) => o.id === attack.campaignOpId);
+  if (!op || op.status === 'resolved') return;
+  const effects = [];
+  Campaign.reconcileLocalOutcome(book, buildCampaignWorld(true), op.id, campaignSurvivorReport(op), outcome, state.day, effects);
+  applyCampaignEffects(effects.filter((e) => e.type !== 'captureSystem'), state.day); // control is changed by the scene itself
+  campaignWorldCache = null;
+}
+// A campaign operation that wins the loaded scene: the model records the capture first (with the
+// defender still on record), then the engine transfers control with the ownership hook suppressed.
+function localCampaignCapture(attack) {
+  if (!attack?.campaignOpId) return false;
+  reconcileLocalCampaignBattle('captured');
+  const book = campaignBook();
+  book.suppressCaptureHook = true;
+  try { transferSystemControlToFaction(state.currentPlanet, attack.faction); } finally { book.suppressCaptureHook = false; }
+  campaignWorldCache = null;
+  return true;
+}
+function releaseLocalCampaignBattle() {
+  const attack = state.activeFleetAttack;
+  if (!attack?.campaignOpId) return;
+  const book = campaignBook();
+  const op = book.operations.find((o) => o.id === attack.campaignOpId);
+  if (!op) return;
+  Campaign.releaseOperationFromScene(book, op.id, campaignSurvivorReport(op));
+  op.spawnedHullIds = [];
+}
+function launchBudgetedAmbientRaid(attackerFaction, record) {
+  const book = campaign();
+  const world = buildCampaignWorld(true);
+  const p = book.polities[attackerFaction];
+  const want = { skirmish: 2, raid: 4, battle: 7 }[record.type] || 3;
+  const ready = campaignRaidForce(attackerFaction, state.currentPlanet);
+  if (!p || !ready.length) return { ok: false, reason: 'no available force' };
+  const hulls = ready.slice(0, Math.min(want, ready.length));
+  const effects = [];
+  const op = Campaign.launchOperation(book, world, attackerFaction, hulls, Number(state.currentPlanet), state.day, 0, record.type, effects);
+  op.status = 'engaged'; op.engagedDay = state.day; op.arriveDay = state.day;
+  // These hulls were already here or one route away; closing that single hop is the move, and
+  // survivors return to where the raid set out from through finishOperation.
+  for (const h of hulls) h.systemIndex = Number(state.currentPlanet);
+  const claim = Campaign.claimOperationForScene(book, op.id);
+  op.spawnedHullIds = [];
+  if (!claim || !spawnCampaignOperation(op, claim.hulls, 0)) { if (claim) op.resolvedBy = null; return { ok: false, reason: 'scene refused' }; }
+  return { ok: true, op };
+}
+// ---- design recovery missions ----
+function startDesignRecovery(recoveryId) {
+  const book = campaignBook();
+  const r = book.recoveries.find((x) => x.id === recoveryId);
+  if (!r || r.status !== 'available') { setLog('That recovery contract is no longer available.'); return false; }
+  const ship = state.shipStatsById[r.shipId];
+  const key = `recovery:${r.id}`;
+  const text = { engineers: `Rescue the surviving ${ship?.name || 'design'} engineers at ${state.planets[r.systemIndex]?.name} and escort them to a compatible yard you control or that cooperates.`, archive: `Recover the ${ship?.name || 'design'} engineering archive from the wreck at ${state.planets[r.systemIndex]?.name}, then deliver it to a compatible yard.`, broker: `A broker offers a lead on a surviving ${ship?.name || 'design'} archive; pay the finder's fee at any trade station or bar, then recover and deliver it.` }[r.kind];
+  const m = Campaign.offerMission(book, { id: campaignEngineId(book, 'mission'), key, kind: 'archive', recoveryId: r.id, shipId: r.shipId, systemIndex: r.systemIndex, step: r.kind === 'broker' ? 'lead' : 'recover', deadlineDay: state.day + 120, text, fee: r.kind === 'broker' ? Math.round(getShipPrice(ship) * 0.1) : 0 }, state.day);
+  if (!m) { setLog(Campaign.liveMissions(book).length >= book.config.maxLiveMissions ? 'Too many contracts are already open; finish or abandon one first.' : 'Recovery already under way.'); return false; }
+  acceptCampaignMission(m.id, { announce: false }); r.status = 'active'; r.missionId = m.id;
+  setLog(`Recovery contract accepted: ${text}`);
+  return true;
+}
+function compatibleRecoveryYard(station, shipId) {
+  if (!station) return false;
+  const cap = getStationCapabilities(station);
+  if (!cap || !['operational', 'damaged', 'unstaffed'].includes(cap.status)) return false;
+  const heavy = finiteNumber(state.shipStatsById[shipId]?.mass, 1) >= campaignBook().config.heavyMass;
+  if (cap.services.construction === 'none') return false;
+  if (heavy && cap.services.construction !== 'heavy') return false;
+  const systemIndex = Number(station.systemIndex ?? state.currentPlanet);
+  const owner = getStationOwner(station, systemIndex);
+  // Source eligibility survives relocation: the yard's trade culture must be allowed to sell this design.
+  const ship = state.shipStatsById[shipId];
+  const trade = getTradeStandingFaction(systemIndex, station);
+  if (!ship || !(trade === 'neutral' || isFactionShipStockEligible(ship.faction, trade))) return false;
+  if (state.shipCatalog && !state.shipCatalog.eligibleForStock(ship.id, buildPurchaseContext(getCurrentPurchaseVendor(station)))) return false;
+  return !vendorRefusal(station, station.faction) && !getSecurityDockingBlock(owner);
+}
+function advanceRecoveryMissions() {
+  if (!state.gameStarted || state.warp.active) return;
+  const book = campaignBook();
+  for (const m of book.missions.filter((x) => x.kind === 'archive' && x.status === 'active')) {
+    if (m.step === 'lead') {
+      const st = getCurrentServiceStation();
+      if (st && hasServiceConnection() && (getStationCapabilities(st)?.services.rumors || getStationCapabilities(st)?.services.commodities) && state.latinum >= m.fee) {
+        state.latinum -= m.fee; m.step = 'recover'; setLog(`Finder's fee paid (${m.fee} L). The archive is at ${state.planets[m.systemIndex]?.name}.`);
+      }
+      continue;
+    }
+    if (m.step === 'recover') {
+      if (Number(state.currentPlanet) === Number(m.systemIndex) && distanceToPlayer(state.systemPlanet) <= WORLD_CARGO_DROPOFF_RANGE * 2) { m.step = 'deliver'; m.carrying = true; setLog(`Engineering archive and surviving engineers aboard. Deliver them to a compatible yard.`); }
+      continue;
+    }
+    if (m.step === 'deliver') {
+      const st = getCurrentServiceStation();
+      if (st && state.docked && compatibleRecoveryYard(st, m.shipId)) {
+        const effects = [];
+        const result = Campaign.completeRecovery(book, buildCampaignWorld(true), m.recoveryId, st.id, state.day, effects);
+        if (result.ok) {
+          (book.relocatedOffers[st.id] ||= []).push(Number(m.shipId));
+          Campaign.completeMission(book, m.id, state.day, `access restored at ${st.name}`);
+          campaignReport({ id: `recovered:${m.recoveryId}`, systemIndex: state.currentPlanet, day: state.day, kind: 'Design recovered', confidence: 'Campaign record', factions: [], playerRelated: true, text: `${state.shipStatsById[m.shipId]?.name || 'The design'} can again be commissioned at ${st.name}. Plans and hulls still cost their normal price.` });
+          setLog(`Recovery complete: ${st.name} can now offer the design. Plan price and standing rules still apply.`);
+          renderPlanetMenu();
+        }
+      }
+    }
+  }
+}
+// ---- relays and distant orders ----
+function campaignRelayCoverage() { return Campaign.relayConnectivity(buildCampaignWorld(), 'player'); }
+function isSystemRelayConnected(systemIndex) { return campaignRelayCoverage().has(Number(systemIndex)) || Number(systemIndex) === Number(state.currentPlanet); }
+function acknowledgeCampaignOrders() {
+  const book = campaignBook();
+  const acked = Campaign.acknowledgeQueuedOrders(book, state.day, campaignRelayCoverage());
+  for (const o of acked) { if (o.order === 'dispatch') dispatchFleetFormation(o.formationId, { fromRelay: true }); }
+  return acked;
+}
+// ---- Empire panel ----
+let campaignPanelTab = 'empire';
+function campaignAssessment(id) {
+  const book = campaign();
+  const world = buildCampaignWorld();
+  ensureCampaignObservations();
+  const summary = Campaign.politySummary(book, world, id);
+  if (id === 'player') return { ...summary, exact: true, sourceDay: state.day };
+  const partner = areFactionsAligned(getPlayerFlag(), campaignFactionKeyFor(id));
+  const key = `${id}`;
+  const prior = book.assessments[key];
+  // Estimates are dated and uncertain: ±25% band for strangers, ±10% for partners, refreshed at most weekly.
+  if (!prior || state.day - prior.day >= (partner ? 1 : 7)) {
+    const u = Campaign.seededUnit(book.seed, 'assess', id, Math.floor(state.day / 7));
+    // A power the captain has only met by looking at it — everything it holds is off the chart — is
+    // estimated from the forces actually seen at the worlds they have seen it hold, with a wide band
+    // and a floor rather than a total. Reading its true readiness told the captain, on day one, how
+    // strong a power was whose name they had no way of knowing. [playtest]
+    const seen = campaignObservedWorlds(id);
+    // A power that holds nothing but hidden ground is estimated from what has been seen of it, and it
+    // stays that way once the region is charted: visiting one world of it puts the region on the map,
+    // which is not the same as counting what is in it. Every other power keeps the dated band model,
+    // which is a named follow-up rather than something this candidate redesigns. [playtest]
+    const held = world.systems.filter((sys) => sys.controller === id);
+    const bySightOnly = held.length > 0 && held.every((sys) => isDominionCoreSystem(state.planets[sys.index]?.name));
+    const charted = !bySightOnly;
+    const band = charted ? (partner ? 0.1 : 0.25) : 0.4;
+    const bias = (u - 0.5) * 2 * band;
+    // Holdings are counted from what the captain has actually observed, and the count is dated. Copying
+    // the live total meant an unobserved conquest on the far side of the galaxy silently corrected the
+    // captain's books on the next refresh; reading today's controller for every system they had ever
+    // visited did the same thing for a world they flew through once. [fourth review]
+    const known = seen.size;
+    const readiness = charted ? summary.readiness.strength : Campaign.observedReadiness(book, world, id, seen).strength;
+    book.assessments[key] = { day: state.day, strength: Math.round(readiness * (1 + bias)), band, worlds: known,
+      charted: true, atLeast: !charted, confidence: charted ? 'normal' : 'low',
+      source: charted ? (partner ? 'shared partner data' : 'civilian and fleet estimates') : 'forces seen at the worlds you have charted' };
+  }
+  return { ...summary, exact: false, estimate: book.assessments[key] };
+}
+// Has the captain met this power at all? Charted ground of theirs, a world seen in their hands, or an
+// account that names them. A power whose whole territory is off the chart and which nothing has
+// reported is not on the captain's board: not its name, not its holdings, not its strength, not its
+// wars. The Dominion beyond the wormhole is that power at a fresh start, and the Empire panel was
+// listing it, with a strength band read straight off its true readiness, on day one. [playtest]
+function campaignPowerContact(id) {
+  const world = buildCampaignWorld();
+  if (world.systems.some((sys) => sys.controller === id && isChartSystemVisible(sys.index))) return true;
+  // A power can exist without ruling anything. An installation of theirs standing in a system the
+  // captain has been to is contact just as much as a border is: they have seen the flag over it.
+  if ((state.stationDefinitions || []).some((def) => getStationOwner(def, def.systemIndex) === id
+    && isReportSystemKnown(Number(def.systemIndex)))) return true;
+  if (Object.values(campaignBook().observations || {}).some((o) => o.controller === id)) return true;
+  const key = campaignFactionKeyFor(id);
+  return galaxyNewsBook().items.some((r) => (r.factions || []).includes(key));
+}
+// Which of a power's worlds the captain has actually seen in its hands.
+function campaignObservedWorlds(id) {
+  return new Set(Object.entries(campaignBook().observations || {})
+    .filter(([, o]) => o.controller === id).map(([index]) => Number(index)));
+}
+// The hidden Dominion region stays hidden in the panel: uncharted systems are named as such and any
+// campaign text mentioning one is masked until the region has been visited.
+function campaignSystemName(i) {
+  return isChartSystemVisible(Number(i)) ? (state.planets[i]?.name || `system ${i}`) : 'an uncharted region';
+}
+function campaignMaskText(text) {
+  let out = String(text || '');
+  for (let i = 0; i < state.planets.length; i++) {
+    if (isChartSystemVisible(i)) continue;
+    const name = state.planets[i]?.name;
+    if (name) out = out.split(name).join('an uncharted region');
+  }
+  return out;
+}
+// What the captain may know about a strategic operation, and how. Presence in the system (their own
+// space, a station they own, a ship on station, or standing there right now) is direct knowledge and
+// gets the campaign record. Everything else is only as good as the reports that actually arrived —
+// which carry their own confidence and date, and can be wrong. Operations with neither are not shown
+// at all, because a panel that lists them has told the player they exist.
+// Everything a reader is allowed to know about one operation. The record is the whole interface: a
+// caller that reaches past it to the operation is reading strategic truth again, which is how the last
+// round's repair leaked a fleet's real owner into a table while the sentence beside it guessed. So the
+// claimant and the phase are read off the accounts that were delivered, and only presence overrides
+// them. [fifth review]
+const CAMPAIGN_OP_PHASE_RANK = Object.freeze({ launched: 0, arrived: 1, resolved: 2 });
+function campaignReportPhase(report) {
+  const id = String(report?.id || '');
+  if (id.startsWith('op-done:')) return 'resolved';
+  if (id.startsWith('op-arrive:')) return 'arrived';
+  return 'launched';
+}
+function campaignOperationKnowledge(op, ctx = null) {
+  const index = Number(op.targetSystem);
+  if (!isReportSystemKnown(index)) return { level: 'none' };
+  const ids = new Set([`op-launch:${op.id}`, `op-arrive:${op.id}`, `op-done:${op.id}`]);
+  // Newest account last: by the day it was written, then by how far along it says the operation is, so
+  // a completion that overtakes an arrival account still reads as the later word.
+  const reports = galaxyNewsBook().items.filter((r) => ids.has(r.id)).sort((a, b) =>
+    (finiteNumber(a.day, 0) - finiteNumber(b.day, 0))
+    || (CAMPAIGN_OP_PHASE_RANK[campaignReportPhase(a)] - CAMPAIGN_OP_PHASE_RANK[campaignReportPhase(b)]));
+  const latest = reports[reports.length - 1] || null;
+  // Direct is being there, watching it. A crew on station and an installation of your own are sources,
+  // not eyes: what they know is what they have sent, and what they have sent is a delivered report.
+  // Nor does standing on a world show you a fleet still in transit towards it — that is a dispatch too.
+  // An operation nobody has reported does not appear at all. [fourth review]
+  if (campaignIntelSource(index, ctx) === 'local' && op.status === 'engaged') {
+    return { level: 'direct', reports, latest, phase: op.status, claimant: campaignFactionKeyFor(op.faction) };
+  }
+  if (!latest) return { level: 'none' };
+  return { level: 'reported', reports, latest, phase: campaignReportPhase(latest), claimant: latest.claimedAttacker ?? null };
+}
+// The filter runs on the knowledge record, never on the operation: filtering the operations first is
+// what let an unreported resolution move a fleet between two lists in the panel. [fifth review]
+function campaignKnownOperations(filter = () => true) {
+  const ctx = campaignIntelContext(); // one source map for the whole sweep, not one per operation
+  return campaign().operations
+    .map((op) => ({ op, known: campaignOperationKnowledge(op, ctx) }))
+    .filter((x) => x.known.level !== 'none' && filter(x.known, x.op));
+}
+function renderCampaignPanel() {
+  const el = document.getElementById('campaign-panel');
+  if (!el) return;
+  const book = campaign();
+  syncPlayerPolity(book);
+  const world = buildCampaignWorld();
+  const me = Campaign.politySummary(book, world, 'player');
+  const tabs = [['empire', 'Your empire'], ['powers', 'Other powers'], ['operations', 'Fleets & battles'], ['missions', 'Contracts & recovery'], ['history', 'Campaign log']];
+  let body = '';
+  if (campaignPanelTab === 'empire') {
+    const prod = me.production, econ = me.economy, ready = me.readiness;
+    const integrations = Object.entries(book.polities.player?.integrations || {}).map(([s, i]) => `<li>${escapeHtml(state.planets[s]?.name || s)}: ${i.completedDay ? `integrated day ${i.completedDay} (${i.designs.length} designs)` : i.qualification?.qualifies ? `retooling ${Math.round(i.progress)}/${book.config.integrationDays} days` : `not major — ${escapeHtml(i.qualification?.reason || '')}`}</li>`).join('') || '<li>No captured industry.</li>';
+    const queue = (book.polities.player?.queue || []).map((q) => `<li>${escapeHtml(state.shipStatsById[q.shipId]?.name || q.shipId)} at ${escapeHtml(state.planets[q.systemIndex]?.name || '')}: ${q.status}, ${Math.ceil(q.remainingDays)} days</li>`).join('') || '<li>No builds queued.</li>';
+    const worlds = world.systems.filter((s) => s.controller === 'player').map((s) => { const q = Campaign.majorWorldQualification(book, world, s.index); const occ = book.occupations[s.index]; return `<li>${escapeHtml(s.name)} — ${q.qualifies ? 'major world' : 'minor world'} (${escapeHtml(q.reason)})${occ ? `, occupied since day ${occ.capturedDay}` : ''}</li>`; }).join('') || '<li>No controlled worlds. Claim or capture a system to found an empire.</li>';
+    const orders = book.orders.filter((o) => o.status === 'queued').map((o) => `<li>Order for ${escapeHtml(o.label || o.formationId)} to ${escapeHtml(state.planets[o.systemIndex]?.name || '')} queued — no relay link (queued day ${o.queuedDay}).</li>`).join('');
+    body = `<section><h3>Economy</h3><p>Treasury ${Math.round(state.latinum).toLocaleString()} L · duranium ${Math.round(state.duranium)} · income ${econ.revenue} L/day from ${econ.worlds} world${econ.worlds === 1 ? '' : 's'} · fleet upkeep ${econ.expense} L/day · supply ${Math.round(econ.supply * 100)}%</p></section>
+      <section><h3>Production</h3><p>${prod.yards} operational yards · ${prod.berths} standard berths · ${prod.heavyBerths} heavy berths · workforce ${prod.workforce} · repair ${prod.repairCapacity} hull points/day</p><ul>${queue}</ul></section>
+      <section><h3>Military readiness</h3><p>${ready.hulls} fleet hulls (${ready.ready} ready, ${ready.repairing} repairing) · strength ${ready.strength} · ${(state.playerFleet || []).filter((f) => f.assignment === 'transit').length} in transit</p><p class="meta">Readiness is derived from your real fleet records; damaged, disabled or unsupplied ships count for less.</p></section>
+      <section><h3>Worlds and integration</h3><ul>${worlds}</ul><ul>${integrations}</ul><p class="meta">Major world: population ≥ ${book.config.majorWorldPopulation} or ≥ ${book.config.majorWorldStations} operational stations. Qualification opens a route to native designs; hulls still need plans, a yard, resources and time.</p></section>
+      <section><h3>Relay orders</h3><p>Connected systems: ${[...campaignRelayCoverage()].map((i) => escapeHtml(state.planets[i]?.name || '')).filter(Boolean).join(', ') || 'none beyond your current system'}.</p><ul>${orders || '<li>No queued orders.</li>'}</ul></section>`;
+  } else if (campaignPanelTab === 'powers') {
+    // Read once, not once per power: the knowledge record is the only thing this table may count.
+    const afoot = campaignKnownOperations((k) => k.phase !== 'resolved');
+    const rows = Object.keys(book.polities).filter((id) => id !== 'player' && world.isFaction(id) && campaignPowerContact(id)).map((id) => { const a = campaignAssessment(id); const est = a.estimate; const seen = afoot.filter((x) => x.known.claimant === campaignFactionKeyFor(id)).length; const worlds = est.atLeast ? `at least ${est.worlds}` : `${est.worlds}${est.charted ? '+' : ''}`; const strength = est.strength > 0 ? `${Math.round(est.strength * (1 - est.band)).toLocaleString()}–${Math.round(est.strength * (1 + est.band)).toLocaleString()}${est.confidence === 'low' ? ' (low confidence)' : ''}` : 'none seen'; return `<tr><td>${escapeHtml(formatFaction(id))}</td><td>${worlds}</td><td>${strength}</td><td>${seen}</td><td>day ${est.day} · ${escapeHtml(est.source)}</td></tr>`; }).join('') || '<tr><td colspan="5">No other power has come to your attention yet.</td></tr>';
+    const d = book.dominion;
+    // The phase is read from the warnings that reached the captain, not from the expedition's own
+    // state; the interdiction line needs someone at the entry to see it.
+    const heard = new Set(d.warnings.map((w) => w.id));
+    const posture = heard.has('invasion') ? 'an expedition is transiting the wormhole'
+      : heard.has('unfamiliar-signatures') ? 'unfamiliar warships and supply movements beyond the wormhole'
+      : heard.has('missing-patrols') ? 'patrols near the wormhole have stopped reporting'
+      : 'no indications';
+    const atEntry = d.entrySystem != null && (watchesReportLocation(d.entrySystem) || hasIntelShips(Number(d.entrySystem)));
+    // The section is headed with the power's name only once the captain has met it. Before that the
+    // warnings are what they are — unfamiliar signatures, patrols that stopped reporting — and there is
+    // no section at all until one of them arrives. [playtest]
+    const dominionKnown = campaignPowerContact('dominion');
+    body = `<section><h3>Known and estimated strength</h3><table class="campaign-table"><thead><tr><th>Power</th><th>Worlds</th><th>Ready strength (estimate)</th><th>Active operations</th><th>Source / date</th></tr></thead><tbody>${rows}</tbody></table><p class="meta">Estimates carry an error band and a date; partner data is tighter. Holdings are the worlds you have seen in that power's hands, each as of the day something of yours last watched it — a power may hold more than you have seen, which is what the <b>+</b> means. A world you passed through once is not a listening post; until you look again, it reads as you left it. Any active power can rise.</p></section>
+      ${dominionKnown ? `<section><h3>Dominion</h3>` : d.warnings.length ? `<section><h3>Unexplained reports</h3>` : '<section class="hidden">'}<p>What you have heard: <b>${escapeHtml(posture)}</b>.${atEntry ? ` ${d.reinforcementCut ? 'Your forces at the entry are interdicting the reinforcement convoys.' : d.phase === 'invasion' ? 'Reinforcement convoys are getting through.' : ''}` : ''}</p><ul>${d.warnings.map((w) => `<li>Day ${w.day}: ${escapeHtml(campaignMaskText(w.text))}</li>`).join('') || '<li>No warnings received.</li>'}</ul><p class="meta">This section reports what reached you. The expedition's own timetable is not visible from here.</p></section>`;
+  } else if (campaignPanelTab === 'operations') {
+    const line = ({ op, known }) => {
+      if (known.level === 'direct') {
+        return `<li>${escapeHtml(formatFaction(campaignFactionKeyFor(op.faction)))} → ${escapeHtml(campaignSystemName(op.targetSystem))}: ${op.status}${op.status === 'moving' ? `, arriving day ${op.arriveDay}` : ''} · ${Campaign.operationHulls(book, op).length} hulls present, ${op.losses} lost <span class="meta">(observed in your space)</span></li>`;
+      }
+      const latest = known.latest;
+      return `<li>${escapeHtml(campaignMaskText(latest.text))} <span class="meta">(day ${latest.day} · ${escapeHtml(latest.confidence)})</span></li>`;
     };
-  const defense = /defen[sc]e|weapons platform/.test(name),
-    maintenance = /maintenance/.test(name),
-    yard = /shipyard|starbase/.test(name);
+    const ops = campaignKnownOperations((k) => k.phase !== 'resolved').map(line).join('') || '<li>No fleets on the move that you know of.</li>';
+    const recent = campaignKnownOperations((k) => k.phase === 'resolved').slice(-8).reverse().map(({ known }) => {
+      // A finished battle is always read from the account of it, even one fought in front of you: the
+      // local account is the campaign record, and one written for a battle elsewhere is what it is.
+      const latest = known.latest;
+      return `<li>Day ${latest.day}: ${escapeHtml(campaignMaskText(latest.text))} <span class="meta">(${escapeHtml(latest.confidence)})</span></li>`;
+    }).join('') || '<li>No battles recorded.</li>';
+    body = `<section><h3>Fleets in motion</h3><ul>${ops}</ul></section><section><h3>Recent battles</h3><ul>${recent}</ul><p class="meta">This panel shows what you have observed or been told, with the date and confidence of the account. Fleets you have had no word of do not appear here, and a report can be wrong. A battle is still resolved exactly once: in the loaded scene when you are present, otherwise offscreen with the same persistent hulls.</p></section>`;
+  } else if (campaignPanelTab === 'missions') {
+    const recoveries = book.recoveries.filter((r) => r.status !== 'failed').map((r) => `<li>${escapeHtml(state.shipStatsById[r.shipId]?.name || r.shipId)} — original yard ${escapeHtml((state.stationDefinitions || []).find((d) => d.id === r.lostStationId)?.name || r.lostStationId)} lost at ${escapeHtml(campaignSystemName(r.systemIndex))}; ${r.status === 'available' ? `<button data-campaign-recover="${escapeHtml(r.id)}">Start ${escapeHtml(r.kind)} recovery</button>` : r.status === 'completed' ? `recovered (${escapeHtml(r.relocatedTo || '')})` : 'in progress'}</li>`).join('') || '<li>No designs at risk.</li>';
+    const missions = book.missions.filter((m) => ['offered', 'active'].includes(m.status)).map((m) => `<li><b>${escapeHtml(m.kind)}</b>: ${escapeHtml(m.text || m.key)} — ${m.status}${m.step ? ` (${escapeHtml(m.step)})` : ''}${m.deadlineDay ? `, deadline day ${m.deadlineDay}` : ''}${m.status === 'offered' ? ` <button data-campaign-accept="${escapeHtml(m.id)}">Accept</button>` : ''}</li>`).join('') || '<li>No open contracts.</li>';
+    const done = book.missions.filter((m) => !['offered', 'active'].includes(m.status)).slice(-6).reverse().map((m) => `<li>${escapeHtml(m.kind)}: ${m.status}${m.reason ? ` — ${escapeHtml(m.reason)}` : ''}</li>`).join('');
+    body = `<section><h3>Design recovery</h3><ul>${recoveries}</ul><p class="meta">Recovery restores lawful access once. Plans still cost 4× the hull price and need the next standing tier; an already owned licence is never charged again.</p></section><section><h3>Contracts</h3><ul>${missions}</ul>${done ? `<h4>Recent</h4><ul>${done}</ul>` : ''}</section>`;
+  } else {
+    body = `<section><h3>Campaign log</h3><ul>${book.history.slice(-30).reverse().map((h) => `<li>Day ${h.day} · ${escapeHtml(h.kind)}: ${escapeHtml(campaignMaskText(h.text))}</li>`).join('') || '<li>Nothing recorded yet.</li>'}</ul></section>`;
+  }
+  el.innerHTML = `<div class="debug-heading"><h2>Empire &amp; campaign</h2><button data-campaign-close>Close</button></div><p>Campaign day ${state.day}. Flag: ${escapeHtml(formatFaction(getPlayerFlag()))} — your holdings are counted once under your own empire, never merged into a faction's books.</p><nav class="report-folders" aria-label="Campaign sections">${tabs.map(([k, l]) => `<button data-campaign-tab="${k}" aria-pressed="${campaignPanelTab === k}">${l}</button>`).join('')}</nav><div class="campaign-body">${body}</div>`;
+}
+function openCampaignPanel(tab = campaignPanelTab) {
+  if (!state.gameStarted) return;
+  campaignPanelTab = tab;
+  pauseGameClock();
+  keys.clear(); heldWeaponInputs.clear();
+  renderCampaignPanel();
+  const el = document.getElementById('campaign-panel');
+  if (el && !el.open) el.showModal();
+}
+function closeCampaignPanel() {
+  document.getElementById('campaign-panel')?.close();
+  resumeGameClockIfNothingModalIsOpen();
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-campaign-open]')) { openCampaignPanel(); return; }
+  if (e.target.closest('[data-campaign-close]')) { closeCampaignPanel(); return; }
+  const tab = e.target.closest('[data-campaign-tab]');
+  if (tab) { campaignPanelTab = tab.dataset.campaignTab; renderCampaignPanel(); return; }
+  const rec = e.target.closest('[data-campaign-recover]');
+  if (rec) { startDesignRecovery(rec.dataset.campaignRecover); renderCampaignPanel(); return; }
+  const acc = e.target.closest('[data-campaign-accept]');
+  if (acc) { acceptCampaignMission(acc.dataset.campaignAccept); renderCampaignPanel(); return; }
+});
+document.getElementById('campaign-panel')?.addEventListener('cancel', (e) => { e.preventDefault(); closeCampaignPanel(); });
+// ---- debug controls (normal transitions where possible; forced overrides are labelled) ----
+// An installation for the damage/restore controls: the tracked combat target, or a station id given
+// explicitly (codes are lower-cased, so ids compare case-insensitively).
+function debugStationTarget(id) {
+  const st = id ? (state.stations || []).find((x) => String(x.id).toLowerCase() === String(id).toLowerCase() && !x.destroyed) : getSelectedCombatTarget();
+  if (!st?.stationTypeId) throw new Error(id ? 'No live installation with that id in this system.' : 'Select (and track) an installation first, or give its id.');
+  return st;
+}
+function triggerCampaignDebug(args) {
+  const [kind, a, b] = args;
+  const book = campaign();
+  const world = buildCampaignWorld(true);
+  switch (kind) {
+    case 'phase': { // forced override
+      if (!['dormant', 'reconnaissance', 'staging', 'invasion'].includes(a)) throw new Error('phase: dormant|reconnaissance|staging|invasion');
+      const c = book.config, d = book.dominion;
+      if (a === 'dormant') {
+        // Put the expedition back to sleep and push the whole timetable out of reach. Live operations
+        // are stood down through the ordinary path so their hulls are released; deleting the records
+        // instead left those hulls assigned to an operation that no longer existed.
+        const recalled = Campaign.terminateOperations(book, world, 'dominion', state.day, [], 'The Dominion expedition was recalled.');
+        Object.assign(d, { phase: 'dormant', phaseDay: null, warnings: [], expeditionOpId: null, reinforcementCut: false, convoys: 0, lastConvoyDay: null });
+        Object.assign(d, { openedDay: null, standDownDay: null });
+        // There is no timetable to push any more: what holds the expedition back is the opening, so the
+        // override puts the floor out of reach and leaves the opening unsatisfiable.
+        // Nothing here is a date any more, so "push it out of reach" means making the strategic case
+        // unsatisfiable rather than moving a day.
+        book.config = { ...c, dominionMinCentralEngagements: Number.MAX_SAFE_INTEGER };
+        Object.assign(d, { openWindow: '', lastPhaseBeat: null });
+        campaignWorldCache = null;
+        return `Forced override: Dominion expedition reset to dormant; ${recalled.length} operation(s) recalled and their hulls released; the opening is pushed beyond reach. Phase is now ${d.phase}.`;
+      }
+      // Force the opening rather than a date: relax every condition dominionOpportunity() reads so the
+      // strategic case is trivially satisfied, and set the dwell of the transition we want to stop at
+      // beyond reach. Then advance one day through the ordinary calendar, so the phase is entered by
+      // exactly the code that enters it in play rather than by assignment.
+      const FAR = 100000;
+      const forced = { dominionMinCentralEngagements: 0, dominionDefenderWeakness: 1.1,
+        dominionStalemateBand: 1, dominionFrontStallRatio: FAR, dominionChallengeRatio: FAR,
+        dominionCorridorCloseRatio: FAR, dominionOpportunityRatio: 0,
+        dominionEconomicStrain: 1.1, dominionMinPlayerCategories: 0,
+        dominionOpeningWindowDays: 1, dominionOpeningSustainDays: 1,
+        // A forced override is one command, not a voyage: the beat rule that keeps stages a journey
+        // apart in play would otherwise stop this reaching the phase the operator asked for.
+        dominionPhaseBeatsApart: false };
+      const dwell = { reconnaissance: { recon: FAR, staging: FAR },
+        staging: { recon: 0, staging: FAR },
+        invasion: { recon: 0, staging: 0 } }[a];
+      book.config = { ...c, ...forced, dominionReconDwellDays: dwell.recon, dominionStagingDwellDays: dwell.staging };
+      const order = ['dormant', 'reconnaissance', 'staging', 'invasion'];
+      let recalled = [];
+      if (order.indexOf(d.phase) >= order.indexOf(a)) {
+        // Winding the phase back must also wind back what that phase started, or the reported phase and
+        // the war actually being fought disagree.
+        recalled = Campaign.terminateOperations(book, world, 'dominion', state.day, [], 'The Dominion expedition was recalled.');
+        d.expeditionOpId = null;
+        d.phase = order[Math.max(0, order.indexOf(a) - 1)]; d.phaseDay = null;
+        campaignWorldCache = null;
+      }
+      advanceFleetCalendar(1, Fleet.nextId(fleetBook(), 'journey'));
+      return `Forced override: the Dominion opening is forced${recalled.length ? `, ${recalled.length} operation(s) recalled` : ''} and one day advanced through the normal calendar. Phase is now ${campaign().dominion.phase} (campaign day ${state.day}).`;
+    }
+    case 'treasury': { const p = book.polities[a]; if (!p) throw new Error('unknown polity'); const v = Math.round(finiteNumber(b, NaN)); if (!Number.isFinite(v)) throw new Error('treasury <polity> <finite number>'); p.treasury = clamp(v, -book.config.treasuryCap, book.config.treasuryCap); return `${formatFaction(a)} treasury set to ${p.treasury} (forced override; clamped to the campaign treasury cap).`; }
+    case 'readiness': {
+      const p = book.polities[a]; if (!p) throw new Error('unknown polity');
+      // Every numeric control is bounded and integral. A non-finite or absurd argument is rejected,
+      // never trusted: `1e999` used to become Infinity and append hulls until the tab died.
+      const raw = finiteNumber(b, NaN);
+      if (!Number.isFinite(raw) || raw < 0) throw new Error(`readiness <polity> <0..${book.config.maxHullsPerPolity}>`);
+      const n = clamp(Math.floor(raw), 0, book.config.maxHullsPerPolity);
+      const id = world.pickHull(a, 0.5);
+      const living = () => p.hulls.filter((h) => h.status !== 'lost');
+      let guard = book.config.maxHullsPerPolity + 1;
+      while (living().length < n && id != null && guard-- > 0) p.hulls.push({ id: `${book.seed}:debughull:${++book.counter}`, shipId: id, hull: world.shipStats(id).combatHull, maxHull: world.shipStats(id).combatHull, crew: 1, systemIndex: world.systems.find((s) => s.controller === a)?.index ?? 0, status: 'ready', opId: null });
+      while (living().length > n) living()[0].status = 'lost';
+      return `${formatFaction(a)} ready hulls forced to ${living().length}${n !== Math.floor(raw) ? ` (requested ${Math.floor(raw)}, clamped to the fleet cap)` : ''} (forced override).`;
+    }
+    case 'damage': { const st = debugStationTarget(a); applyCampaignEffects([{ type: 'stationDamaged', stationId: st.id, systemIndex: state.currentPlanet, fraction: 0.5, day: state.day }]); return `${st.name} damaged 50% through the normal campaign effect path.`; }
+    case 'restore': { const st = debugStationTarget(a); delete book.stationDamage[st.id]; book.restoredStations[st.id] = true; state.systemStates = {}; applySystemState(state.currentPlanet); return `${st.name} restored and staffed.`; }
+    case 'stock': { const shipId = a === 'current' ? resolveShipId(state.playership) : resolveShipId(Number(a)); if (!state.shipStatsById[shipId]) throw new Error('stock <ship id|current> deplete|replenish'); const item = fleetShipStock(shipId); if (!item) throw new Error(`${state.shipStatsById[shipId]?.name || 'That hull'} is not stocked in this system; use a hull offered here.`); item.quantity = b === 'deplete' ? 0 : item.capacity; return `Stock for ${state.shipStatsById[shipId]?.name} ${b === 'deplete' ? 'depleted' : 'replenished'} (normal ledger record).`; }
+    case 'mission': { const kinds = ['relief', 'escort', 'repair', 'recon']; if (!kinds.includes(a)) throw new Error(WITHDRAWN_MISSION_KINDS.includes(a) ? `${a} contracts are withdrawn until they have a real objective` : `mission: ${kinds.join('|')}`); const m = offerStationMission(a, state.currentPlanet, true); return m ? `${a} contract offered at ${state.planets[state.currentPlanet]?.name}.` : 'That contract is already open here.'; }
+    case 'discover': { if (a !== 'gorn') throw new Error('discover gorn'); getCampaignDiscoveries().gorn = true; state.systemStates = {}; if (!state.warp.active) applySystemState(state.currentPlanet); return 'Forced override: Gorn discovery event marked complete; dormant Gorn installations wake.'; }
+    case 'advance': { const raw = Number(a); if (!Number.isFinite(raw) || raw < 1) throw new Error('advance <1..60>'); const n = clamp(Math.floor(raw), 1, 60); const id = Fleet.nextId(fleetBook(), 'journey'); advanceFleetCalendar(n, id); return `Advanced ${n} campaign day(s) through the normal calendar path.`; }
+    default: throw new Error('campaign: phase|treasury|readiness|damage|restore|stock|mission|discover|advance');
+  }
+}
+// ---- station missions (reusable flows tied to real state) ----
+// Ids for things the ENGINE creates in the strategic book. They come from a counter of their own, so
+// the model's counter advances only as the model settles days: a contract offered between day three
+// and day four must not shift the id of every hull and operation created after it, because a jump
+// offers that same contract after sixteen days of model allocations instead of after one. Ids seed
+// rolls, so that shift was a real divergence and not a cosmetic one. [fifth review]
+function campaignEngineId(book, kind) {
+  book.engineCounter = Math.max(0, Math.floor(finiteNumber(book.engineCounter, 0))) + 1;
+  return `${book.seed}:engine-${kind}:${book.engineCounter}`;
+}
+// Contracts the game offers but cannot give the captain anything to do are worse than no contract at
+// all. Evacuation completed by holding position near a world for twenty seconds with nothing attacking,
+// and blockade only completed if a hostile operation happened to engage there while the captain stood
+// by — neither is an objective, and both were reported twice as work with nothing to pursue. They are
+// withdrawn rather than dressed up, and go back in when they have real objectives: evacuees carried to
+// a named refuge, contacts turned back and counted. The completion code below stays so an accepted
+// contract from an older save can still finish. [playtest]
+const WITHDRAWN_MISSION_KINDS = Object.freeze(['evacuation', 'blockade']);
+function offerStationMission(kind, systemIndex = state.currentPlanet, force = false) {
+  if (WITHDRAWN_MISSION_KINDS.includes(kind)) return null;
+  const book = campaignBook();
+  const sys = state.planets[systemIndex];
+  const key = `${kind}:${systemIndex}`;
+  const stations = (state.stationDefinitions || []).filter((d) => Number(d.systemIndex) === Number(systemIndex) && !state.destroyedStations?.[d.id]);
+  const spec = {
+    relief: { text: `Deliver relief cargo to ${sys?.name}: bring any contract cargo or 5 tons of trade goods within 600 units of the world.`, check: () => Number(state.currentPlanet) === Number(systemIndex) && distanceToPlayer(state.systemPlanet) <= WORLD_CARGO_DROPOFF_RANGE && (state.cargoArray || []).some((p) => p.tons >= 5 || p.destination), reward: 4000 },
+    escort: { text: `Escort duty at ${sys?.name}: be present when the next hostile operation engages, and see it repelled.`, check: () => false, reward: 6000 },
+    evacuation: { text: `Evacuate civilians from ${sys?.name}: hold within 600 units of the world for a transporter cycle while no hostile fleet is engaged.`, check: () => Number(state.currentPlanet) === Number(systemIndex) && distanceToPlayer(state.systemPlanet) <= WORLD_CARGO_DROPOFF_RANGE && !state.activeFleetAttack, reward: 3500 },
+    repair: { text: `Restore a damaged or abandoned installation at ${sys?.name}: dock at it with 40 duranium aboard.`, check: () => { const st = getCurrentDockedStation(); return Boolean(st) && Number(state.currentPlanet) === Number(systemIndex) && state.duranium >= 40 && (campaignBook().stationDamage[st.id] > 0 || StationRoles.isAbandonedName(st.name)); }, reward: 5000 },
+    recon: { text: `Reconnaissance of ${sys?.name}: enter the system and survey it (arrive and remain 30 seconds uncloaked within sensor range of its installations).`, check: () => Number(state.currentPlanet) === Number(systemIndex) && !isPlayerCloaked() && (state.stations || []).some((s) => !s.destroyed && distanceToPlayer(s) <= 2400), reward: 2500 },
+    blockade: { text: `Blockade ${sys?.name}: while a hostile operation is engaged there, keep at least one fleet ship or your own vessel present until it is repelled.`, check: () => false, reward: 7000 },
+  }[kind];
+  if (!spec) return null;
+  return Campaign.offerMission(book, { id: campaignEngineId(book, 'mission'), key, kind, systemIndex: Number(systemIndex), text: spec.text, reward: spec.reward, deadlineDay: state.day + 40, offeredBy: stations[0]?.id || null, controllerAtOffer: getSystemControl(systemIndex).polityId }, state.day);
+}
+function advanceStationMissions(now = gameNow()) {
+  if (!state.gameStarted || state.warp.active) return;
+  const book = campaignBook();
+  for (const m of book.missions.filter((x) => x.status === 'active' && x.kind !== 'archive')) {
+    let done = false, reason = '';
+    if (m.kind === 'relief') { if (Number(state.currentPlanet) === Number(m.systemIndex) && distanceToPlayer(state.systemPlanet) <= WORLD_CARGO_DROPOFF_RANGE) { const pod = (state.cargoArray || []).find((p) => p.tons >= 5 && !p.destination); if (pod) { pod.tons -= 5; if (pod.tons <= 0) clearCargoPod(pod); recalcCargoFromPods(); done = true; reason = 'relief cargo delivered'; } } }
+    else if (m.kind === 'evacuation') { if (Number(state.currentPlanet) === Number(m.systemIndex) && distanceToPlayer(state.systemPlanet) <= WORLD_CARGO_DROPOFF_RANGE && !state.activeFleetAttack) { m.progressMs = (m.progressMs || 0) + 16.7; if (m.progressMs >= 20000) { done = true; reason = 'civilians evacuated'; } } }
+    else if (m.kind === 'repair') { const st = getCurrentDockedStation(); if (st && Number(state.currentPlanet) === Number(m.systemIndex) && state.duranium >= 40 && (book.stationDamage[st.id] > 0 || StationRoles.isAbandonedName(st.name))) { state.duranium -= 40; state.myduranium = state.duranium; delete book.stationDamage[st.id]; book.restoredStations[st.id] = true; done = true; reason = `${st.name} restored`; state.systemStates = {}; } }
+    else if (m.kind === 'recon') { if (Number(state.currentPlanet) === Number(m.systemIndex) && !isPlayerCloaked() && (state.stations || []).some((s) => !s.destroyed && distanceToPlayer(s) <= 2400)) { m.progressMs = (m.progressMs || 0) + 16.7; if (m.progressMs >= 30000) { done = true; reason = 'survey complete'; } } }
+    else if (m.kind === 'escort' || m.kind === 'blockade') { if (Number(state.currentPlanet) === Number(m.systemIndex) && state.activeFleetAttack) m.sawAttack = true; if (m.sawAttack && !state.activeFleetAttack && Number(state.currentPlanet) === Number(m.systemIndex) && getSystemControl(m.systemIndex).polityId === m.controllerAtOffer) { done = true; reason = 'hostile operation repelled while present'; } }
+    if (done) { Campaign.completeMission(book, m.id, state.day, reason); state.latinum += m.reward || 0; state.mylatinum = state.latinum; setLog(`Contract complete (${m.kind}): ${reason}. +${m.reward} latinum.`); campaignReport({ id: `mission-done:${m.id}`, systemIndex: m.systemIndex, day: state.day, kind: 'Contract completed', confidence: 'Campaign record', factions: [], playerRelated: true, text: `${m.kind} contract at ${state.planets[m.systemIndex]?.name} completed: ${reason}.` }); }
+  }
+}
+// ---- captured industry at the shipyard: integrated designs, design status, commissions ----
+// Native designs of a captured major world become licensable and buildable at the player's own
+// operational yards there once integration completes. They are not shelf stock: plans, a berth,
+// resources and work days still apply, and the vendor's standing rules are unchanged.
+function campaignIntegrationOffers(station = getCurrentServiceStation()) {
+  if (!station || !state.gameStarted) return [];
+  const systemIndex = Number(station.systemIndex ?? state.currentPlanet);
+  if (getStationOwner(station, systemIndex) !== PLAYER_SIDE) return [];
+  const services = fleetStationServices(station);
+  if (!services.build) return [];
+  const integ = campaign().polities.player?.integrations?.[systemIndex];
+  if (!integ?.completedDay) return [];
+  const stats = getShipStats(station.stationTypeId);
+  return integ.designs.filter((id) => { const ship = state.shipStatsById[id]; if (!ship || /tactical cube/i.test(ship.name || '')) return false; return finiteNumber(ship.mass, 1) < campaign().config.heavyMass || services.heavy || !stats; });
+}
+function campaignDesignStatus(shipId) {
+  if (!state.gameStarted) return { state: 'unknown', text: '' };
+  return Campaign.designStatus(campaignBook(), Number(shipId));
+}
+// A commission reserves the next unit of an authored, out-of-stock offer at this vendor: the full
+// price is paid once now and the hull is delivered to the fleet at that system when the shared stock
+// record replenishes (the same randomized 3–7 day schedule every other outlet sees).
+function fleetReservations() { const b = fleetBook(); b.reservations ||= []; return b.reservations; }
+function commissionStatus(shipId) {
+  shipId = resolveShipId(shipId);
+  const ship = state.shipStatsById[Number(shipId)];
+  const st = getCurrentServiceStation();
+  if (!ship || ship.assetType !== 'ship') return { ok: false, reason: 'That ship is not available.' };
+  if (!hasServiceConnection()) return { ok: false, reason: getServiceTransferBlock() };
+  if (!getShipyardStock(st).some((s) => Number(s.id) === Number(shipId))) return { ok: false, reason: `${ship.name} is not offered here.` };
+  if (fleetStockAvailable(shipId)) return { ok: false, reason: 'In stock — buy it directly.' };
+  if (fleetBook().debt > 0) return { ok: false, reason: 'Settle arrears' };
+  const decision = getCatalogPurchaseDecision(shipId);
+  if (decision && !decision.allowed && decision.reason !== 'funds') return { ok: false, reason: describePurchaseDecision(decision, ship) };
+  const price = decision?.price ?? getShipPrice(ship);
+  const owner = st ? getStationOwner(st) : getSystemControl(state.currentPlanet).polityId;
+  // The catalog tier test below is already ownership-aware; this half was not, so commissioning at
+  // your own yard still asked what a foreign government thought of you. [review]
+  const block = getSecurityDockingBlock(owner) || vendorRefusal(st, st?.faction || getSystemFaction(state.currentPlanet));
+  if (block) return { ok: false, reason: block };
+  if (fleetReservations().some((r) => r.status === 'waiting' && r.system === Number(state.currentPlanet) && r.hull === Number(shipId))) return { ok: false, reason: 'Already commissioned here' };
+  if (state.latinum < price) return { ok: false, reason: 'Need latinum', price };
+  return { ok: true, reason: null, price, stationId: st?.id || null };
+}
+function commissionShip(shipId) {
+  const status = commissionStatus(shipId);
+  if (!status.ok) { setLog(status.reason); return false; }
+  shipId = resolveShipId(shipId);
+  const stock = fleetShipStock(shipId);
+  state.latinum -= status.price;
+  const r = { id: Fleet.nextId(fleetBook(), 'commission'), system: Number(state.currentPlanet), hull: Number(shipId), stationId: status.stationId, price: status.price, day: state.day, status: 'waiting' };
+  fleetReservations().push(r);
+  syncLegacyState();
+  setLog(`${state.shipStatsById[shipId]?.name} commissioned for ${status.price} latinum; expected with the next resupply${stock ? ` (about day ${stock.nextDay})` : ''}. It joins your fleet at ${state.planets[r.system]?.name}.`);
+  updateStats();
+  return true;
+}
+function advanceCommissions(day) {
+  const b = fleetBook();
+  for (const r of fleetReservations()) {
+    if (r.status !== 'waiting') continue;
+    if (r.stationId && (state.destroyedStations?.[r.stationId] || (state.stationDefinitions || []).find((d) => d.id === r.stationId)?.destroyed)) { r.status = 'lost'; r.lostDay = day; setLog(`Commission for ${state.shipStatsById[r.hull]?.name} lost with the vendor's destruction.`); continue; }
+    if (!Fleet.consumeStock(b, r.system, r.hull)) continue;
+    r.status = 'delivered'; r.deliveredDay = day;
+    deliverFleetBuild({ id: r.id, shipId: r.hull, system: r.system, stationId: r.stationId });
+    setLog(`Commissioned ${state.shipStatsById[r.hull]?.name} delivered at ${state.planets[r.system]?.name}.`);
+  }
+  if (b.reservations.length > 60) b.reservations = b.reservations.filter((r) => r.status === 'waiting').concat(b.reservations.filter((r) => r.status !== 'waiting').slice(-20));
+}
+// ---- Station roles: explicit capabilities, per-instance exceptions, runtime status ----
+function getCampaignDiscoveries() {
+  const p = ensurePlaytestState();
+  p.campaign ||= {};
+  p.campaign.discoveries ||= { gorn: false };
+  return p.campaign.discoveries;
+}
+function getStationDefinitionRecord(station) {
+  if (!station) return null;
+  return (state.stationDefinitions || []).find((d) => d.id === station.id) || station;
+}
+// A facility wrecked in a strategic battle is wrecked when the captain arrives. The live resolver and
+// the campaign read the same damage, so services, production and relay behaviour degrade together
+// instead of the strategic record and the docking port disagreeing about the same station.
+function campaignStationDamage(stationId) {
+  if (stationId == null) return 0;
+  return clamp(finiteNumber((ensurePlaytestState().campaign?.stationDamage || {})[stationId], 0), 0, 0.9);
+}
+function stationConditionFraction(station) {
+  if (!station) return 1;
+  const strategic = 1 - campaignStationDamage(station.id);
+  const local = Number.isFinite(station.combatHull) && Number.isFinite(station.maxCombatHull) && station.maxCombatHull > 0
+    ? clamp(station.combatHull / station.maxCombatHull, 0, 1)
+    : clamp(finiteNumber(station.condition, 100), 0, 100) / 100;
+  return clamp(Math.min(local, strategic), 0, 1);
+}
+function getStationCapabilities(station, systemIndex = station?.systemIndex ?? state.currentPlanet) {
+  if (!station) return null;
+  const definition = getStationDefinitionRecord(station);
+  const stats = getShipStats(station.stationTypeId);
+  const p = ensurePlaytestState();
+  const campaign = p.campaign || {};
+  return StationRoles.resolveStationCapabilities(
+    { ...definition, destroyed: Boolean(station.destroyed || state.destroyedStations?.[station.id]), underConstruction: Boolean(station.underConstruction || definition.underConstruction), name: station.name || definition.name },
+    stats,
+    {
+      discovered: getCampaignDiscoveries(),
+      restored: campaign.restoredStations || {},
+      activated: campaign.activatedStations || {},
+      conditionFraction: stationConditionFraction(station),
+      staffed: campaign.unstaffedStations?.[station.id] ? false : true,
+      destroyed: Boolean(state.destroyedStations?.[station.id]),
+    },
+  );
+}
+// Authored offers after the reviewed migrations (bars/habitats/relays lose general retail; their live
+// offers move to named licensed outlets in the same system or stay as a documented attached lot).
+function getStationEffectiveOffers(station) {
+  const record = getStationDefinitionRecord(station);
+  if (!record) return { shipIds: [], weaponIds: [], provenance: {} };
+  // A live station object carries its own offer lists (fixtures and runtime edits included); the
+  // definition supplies everything else.
+  const definition = { ...record, ...(Array.isArray(station?.stockIds) ? { stockIds: station.stockIds } : {}), ...(Array.isArray(station?.weaponStockIds) ? { weaponStockIds: station.weaponStockIds } : {}) };
+  const offers = StationRoles.migratedOffers(definition);
+  const relocated = state.playtest?.campaign?.relocatedOffers?.[definition.id] || [];
+  for (const h of relocated) if (!offers.shipIds.includes(Number(h))) { offers.shipIds.push(Number(h)); offers.provenance[`ship:${h}`] = 'recovered-archive'; }
+  const cap = getStationCapabilities(station);
+  // Defence platforms and other no-commerce roles never sell hulls, whatever raw data says.
+  if (cap && cap.services.shipSales === 'none' && !cap.depot) offers.shipIds = [];
+  if (cap && !cap.services.weaponSales) offers.weaponIds = cap.weaponDepot ? offers.weaponIds.filter((w) => cap.weaponDepot.weapons.includes(Number(w))) : [];
+  if (cap?.depot) for (const h of cap.depot.hulls) if (!offers.shipIds.includes(h)) offers.shipIds.push(h);
+  return offers;
+}
+function stationCanSellHull(station, ship) {
+  const cap = getStationCapabilities(station);
+  if (!cap) return false;
+  const offers = getStationEffectiveOffers(station);
+  return StationRoles.stationSellsHull(cap, { hullId: ship.id, mass: Math.max(1, finiteNumber(ship.mass, 1)), authoredHere: offers.shipIds.includes(Number(ship.id)) });
+}
+function fleetStationServices(station = getCurrentServiceStation()) {
+  // Docked at a world rather than an installation. Every key is stated: a missing key reads as false
+  // and silently removes a service, which is how plans and boarding-crew recruitment were lost at a
+  // planet dock. Worlds sell, refit, issue plans, recruit and repair; they are not shipyards.
+  if (!station) return { sell: true, refit: true, build: false, heavy: false, training: false, smallOnly: false, licensedOnly: false, plans: true, weapons: true, repair: true, relay: false, recruit: true, status: 'operational', cap: null };
+  const cap = getStationCapabilities(station);
+  const s = cap.services;
   return {
-    sell: !defense && (yard || maintenance || !!station.stockIds?.length),
-    refit: !defense && (yard || maintenance),
-    build: yard,
-    smallOnly: maintenance,
-    training: /university|academy|research/.test(name),
+    sell: s.shipSales !== 'none' || Boolean(cap.depot),
+    refit: s.refit,
+    build: s.construction !== 'none',
+    heavy: s.construction === 'heavy',
+    training: s.training,
+    smallOnly: s.shipSales === 'small',
+    licensedOnly: s.shipSales === 'licensed' || (s.shipSales === 'none' && Boolean(cap.depot)),
+    plans: s.plans,
+    weapons: s.weaponSales || Boolean(cap.weaponDepot),
+    repair: s.repair,
+    relay: s.relay,
+    recruit: s.recruit,
+    status: cap.status,
+    cap,
   };
 }
 function fleetShipStock(shipId, system = state.currentPlanet) {
@@ -21786,12 +24972,14 @@ function fleetShipStock(shipId, system = state.currentPlanet) {
   for (const id of planet?.shipStockIds || []) add(id, 'planet');
   for (const st of state.stationDefinitions.filter((st) => st.systemIndex === system))
     if (fleetStationServices(st).sell)
-      for (const id of st.stockIds || [])
-        if (!fleetStationServices(st).smallOnly || getShipStats(id).mass <= 4) add(id, st.id);
+      for (const id of getStationEffectiveOffers(st).shipIds)
+        if (stationCanSellHull(st, getShipStats(id))) add(id, st.id);
   // A current vendor's permitted fallback is also a real offer; it cannot replace an authored list.
   if (system === state.currentPlanet)
     for (const ship of getShipyardStock()) add(ship.id, getCurrentServiceStation()?.id || 'planet-fallback');
-  for (const [id, provenance] of sources) Fleet.ensureStock(b, system, id, state.day, 2, provenance);
+  // Availability varies by design and system: a seeded capacity of 1–3 units per hull (mean 2, the
+  // reviewed default). Records that already exist keep their capacity and schedule.
+  for (const [id, provenance] of sources) Fleet.ensureStock(b, system, id, state.day, 1 + (Math.abs(hashString(`${b.campaignId}:${system}:${id}:capacity`)) % 3), provenance);
   return b.stock[`${system}:${resolveShipId(shipId)}`] || null;
 }
 function fleetStockAvailable(shipId) {
@@ -21802,29 +24990,33 @@ function fleetPlanStatus(shipId) {
     services = fleetStationServices(),
     st = getCurrentServiceStation();
   const base = ship.purchaseRequirements?.factionStanding ?? PURCHASE_TIER_STANDING[ship.purchaseTier] ?? 0;
-  const faction = getCurrentPurchaseVendor(st).standingFaction,
-    required = Fleet.planStanding(base),
-    price = 4 * getShipPrice(ship);
+  const faction = getCurrentPurchaseVendor(st).standingFaction;
   const known = fleetBook().shipPlans.includes(Number(shipId));
-  const offered = getShipyardStock(st).some((s) => s.id === Number(shipId));
+  const quote = Campaign.planQuote(getShipPrice(ship), base, known),
+    required = quote.standing,
+    price = known ? 4 * getShipPrice(ship) : quote.price; // display keeps the list price; an owned licence is never charged
+  const integrated = campaignIntegrationOffers(st).includes(Number(shipId));
+  const offered = getShipyardStock(st).some((s) => s.id === Number(shipId)) || integrated;
   const reason = known
     ? 'Already licensed'
     : !hasServiceConnection()
       ? getServiceTransferBlock()
-      : !services.sell
+      : !services.plans
         ? 'No ship plans here'
-        : !offered
+        : !services.sell
+          ? 'No ship sales here'
+          : !offered
           ? 'Not offered by this vendor'
           : /tactical cube/i.test(ship.name)
             ? 'Deferred content'
-            : getFactionStanding(faction) < required
+            : (!isOwnHoldingVendor(st) && getFactionStanding(faction) < required)
               ? `Requires ${required} ${faction} standing`
               : fleetBook().debt > 0
                 ? 'Settle arrears'
                 : state.latinum < price
                   ? 'Need latinum'
                   : null;
-  return { ok: !reason, reason, price, required, faction };
+  return { ok: !reason, reason, price, required, faction, integrated };
 }
 function buyFleetPlan(shipId) {
   const status = fleetPlanStatus(shipId);
@@ -21837,13 +25029,26 @@ function buyFleetPlan(shipId) {
   syncLegacyState();
   return true;
 }
+// Ownership is not a shipyard. A site may only hold a keel if its role actually builds hulls and it is
+// in a state to work: an unstaffed, wrecked or non-construction installation is not a berth because the
+// captain happens to own it.
 function fleetBuildStationStatus(stationId, system) {
   const station =
     state.playerBuiltStations.find((s) => s.id === stationId) ||
     state.stationDefinitions.find((s) => s.id === stationId);
   if (!station || state.destroyedStations[stationId] || station.destroyed) return 'destroyed';
   if (station.underConstruction || getStationOwner(station, system) !== PLAYER_SIDE) return 'paused';
+  const cap = getStationCapabilities(station, system);
+  if (!cap || cap.services.construction === 'none') return 'unsuitable';
+  if (!['operational', 'damaged'].includes(cap.status)) return 'paused';
   return 'owned';
+}
+// Heavy hulls need a heavy berth. The strategic model has always enforced this for AI production; the
+// player's own yard is held to the same rule.
+function fleetBuildMassBlock(station, ship) {
+  const heavyMass = campaignBook().config.heavyMass;
+  if (finiteNumber(ship?.mass, 1) < heavyMass) return '';
+  return fleetStationServices(station).heavy ? '' : `${ship.name} needs a heavy berth (mass ${finiteNumber(ship.mass, 1)} ≥ ${heavyMass}); this yard has only standard slips.`;
 }
 function orderFleetBuild(shipId, confirm = true) {
   const st = getCurrentServiceStation(),
@@ -21859,6 +25064,8 @@ function orderFleetBuild(shipId, confirm = true) {
     /tactical cube/i.test(ship.name)
   )
     return false;
+  const massBlock = fleetBuildMassBlock(st, ship);
+  if (massBlock) { setLog(massBlock); return false; }
   const recipe = Fleet.buildRecipe(getShipPrice(ship), ship.mass);
   if (state.latinum < recipe.latinum || state.duranium < recipe.duranium) {
     setLog(`Build requires ${recipe.latinum} latinum and ${recipe.duranium} duranium.`);
@@ -21938,7 +25145,7 @@ function refitFleetWeapon(id, slot, weaponId, buy = false) {
       )
         return false;
       if (weapon.guidance === 'home-on-jam' && !getHojPurchaseDecision().canBuy) return false;
-      if (serviceRefusal(getCurrentServiceStation()?.faction || getSystemFaction(state.currentPlanet)))
+      if (vendorRefusal(getCurrentServiceStation(), getCurrentServiceStation()?.faction || getSystemFaction(state.currentPlanet)))
         return false;
       state.latinum -= getWeaponPrice(weapon);
       npc.weaponInventory.push(weaponId);
@@ -22008,9 +25215,18 @@ function renderFleetManager(open = false) {
   if (!fleetManagerEl) {
     fleetManagerEl = document.createElement('dialog');
     fleetManagerEl.className = 'fleet-manager';
+    fleetManagerEl.addEventListener('close', () => { resumeGameClockIfNothingModalIsOpen(); });
     document.body.appendChild(fleetManagerEl);
   }
-  if (open && !fleetManagerEl.open) fleetManagerEl.showModal();
+  if (open && !fleetManagerEl.open) {
+    // What the Empire panel and the reports folder already do on open, and this did not: stop the
+    // clock and drop whatever was being held down, so the ship is not flying and firing behind a
+    // dialog the captain cannot see past, and no key is left stuck when it closes. [playtest]
+    pauseGameClock();
+    keys.clear();
+    heldWeaponInputs.clear();
+    fleetManagerEl.showModal();
+  }
   if (!fleetManagerEl.open) return;
   captureShipPowerState();
   const b = fleetBook();
@@ -22109,19 +25325,26 @@ function renderFleetManager(open = false) {
     )
     .join('');
   const ships = hasServiceChannel() ? getShipyardStock() : [];
-  const plans = ships
+  // Captured major worlds: native designs of the source culture become licensable and buildable at
+  // the player's own yards there once integration completes (commission only, never shelf stock).
+  const integrationOnly = hasServiceChannel() ? campaignIntegrationOffers().filter((id) => !ships.some((s) => Number(s.id) === id)).map((id) => getShipStats(id)).filter((s) => s && s.assetType === 'ship') : [];
+  const plans = [...ships, ...integrationOnly]
     .map((s) => {
       const p = fleetPlanStatus(s.id),
-        stock = fleetShipStock(s.id);
-      return `<div>${escapeHtml(s.name)} · Stock ${stock?.quantity || 0} · Plan ${p.price} L / ${p.required} standing ${btn('plan', p.reason || 'Buy plans', String(s.id))}${b.shipPlans.includes(s.id) ? btn('build', 'Build equipped ship', String(s.id)) : ''}</div>`;
+        stock = fleetShipStock(s.id),
+        design = campaignDesignStatus(s.id),
+        integrated = integrationOnly.includes(s);
+      return `<div>${escapeHtml(s.name)} · ${integrated ? 'Integrated design (commission only)' : `Stock ${stock?.quantity || 0}${stock ? ` · resupply ~day ${stock.nextDay}` : ''}`}${design.state === 'lost' ? ` · ${escapeHtml(design.text)}` : ''} · Plan ${p.price} L / ${p.required} ${escapeHtml(p.faction)} standing ${btn('plan', p.reason || 'Buy plans', String(s.id))}${b.shipPlans.includes(Number(s.id)) ? btn('build', 'Build equipped ship', String(s.id)) : ''}</div>`;
     })
     .join('');
-  fleetManagerEl.innerHTML = `<h2>Fleet & shipyard</h2>${btn('close', 'Close')}<p>Calendar day ${state.day} · Fleet upkeep ${state.playerFleet.filter((f) => !f.destroyed).reduce((n, f) => n + upkeepPerDay(f.shipId), 0)} L/day. Personal vessel exempt.</p>
+  // The title bar carries the close control, and everything else scrolls beneath it, so the heading and
+  // the close never end up underneath the body the way the OPS panel's did. [playtest]
+  fleetManagerEl.innerHTML = `<h2>Fleet &amp; shipyard${btn('close', '\u00d7')}</h2><div class="fleet-manager-body"><p>Calendar day ${state.day} · Fleet upkeep ${state.playerFleet.filter((f) => !f.destroyed).reduce((n, f) => n + upkeepPerDay(f.shipId), 0)} L/day. Personal vessel exempt.</p>
     <p>Arrears ${b.debt.toFixed(2)} L ${btn('pay', 'Settle arrears')}</p><p>Team: ${b.boarding ? b.boarding.phase : b.team.available ? 'Available' : 'Lost'} · XP ${b.team.xp}. ${btn('board', 'Board selected disabled ship')}${btn('cancel', 'Cancel deployment')}${btn('recruit', 'Recruit (2000 L)')}${btn('train', 'Train +5 XP (1000 L)')}</p>
     <p>${btn('repair', 'Repair personal hull', 'player')}${btn('rescue', 'Request recovery')}</p><h3>Formations</h3>${groups}${btn('group', 'New formation')}<h3>Owned vessels (${state.playerFleet.filter((f) => !f.destroyed).length})</h3>${roster || '<p>No fleet vessels.</p>'}<h3>Plans & construction</h3>${plans || '<p>Dock at a suitable vendor.</p>'}${b.orders.map((o) => `<p>${escapeHtml(getShipStats(o.shipId).name)}: ${o.status}, ${Math.max(0, o.remainingDays)} work days remaining</p>`).join('')}<h3>Financial book</h3><p>Older history: ${b.ledgerArchive.entries} entries summarized below; recent entries remain itemized.</p>${Object.entries(b.ledgerArchive.byKind).map(([kind, total]) => `<p>${escapeHtml(kind)}: ${total.amount.toFixed(2)} L total, ${total.paid.toFixed(2)} L paid.</p>`).join('')}${b.ledger
       .slice(-20)
       .map((e) => `<p>Day ${e.day}: ${e.kind} ${e.amount.toFixed(2)} L</p>`)
-      .join('')}`;
+      .join('')}</div>`;
 }
 document.addEventListener('click', (event) => {
   const el = event.target.closest('[data-fleet-action]');
@@ -22140,7 +25363,7 @@ document.addEventListener('click', (event) => {
   if (action === 'board') startBoardingTarget();
   if (action === 'cancel') Fleet.cancelBoarding(b);
   if (action === 'pay') Fleet.payDebt(b, state, state.day);
-  if (action === 'recruit' && requireServiceConnection()) Fleet.recruitTeam(b, state);
+  if (action === 'recruit' && requireServiceConnection()) { if (fleetStationServices().recruit) Fleet.recruitTeam(b, state); else setLog('No one here recruits boarding crews. Try a bar, an outpost or a starbase.'); }
   if (action === 'train' && requireServiceConnection() && fleetStationServices().training) Fleet.trainTeam(b, state);
   if (action === 'group') Fleet.addFormation(b, `Fleet ${b.formations.length + 1}`);
   if (action === 'repair') repairFleetVessel(id);
@@ -22426,7 +25649,7 @@ function recoverDisabledPlayer() {
   setLog('Recovery crew stabilizing propulsion. Unpaid costs are recorded as debt.');
   return true;
 }
-function dispatchFleetFormation(id) {
+function dispatchFleetFormation(id, { fromRelay = false } = {}) {
   const b = fleetBook(),
     g = b.formations.find((g) => g.id === id);
   if (!g || g.destination === null || !state.planets[g.destination]) return false;
@@ -22435,6 +25658,17 @@ function dispatchFleetFormation(id) {
     members.some((f) => fleetLocalActor(f.id)?.condition === 'disabled' || f.vessel?.condition === 'disabled')
   ) {
     setLog('Repair disabled members before dispatch.');
+    return false;
+  }
+  // Relays are command links: an order to ships in another system needs a relay link to reach them.
+  // Without one the order is queued and acknowledged when a link exists; local orders always work.
+  const distant = [...new Set(members.map((f) => (f.assignment === 'escort' ? Number(state.currentPlanet) : Number(f.systemIndex))))].filter((i) => i !== Number(state.currentPlanet) && !isSystemRelayConnected(i));
+  if (distant.length && !fromRelay) {
+    const book = campaign();
+    if (!book.orders.some((o) => o.status === 'queued' && o.formationId === id)) {
+      Campaign.queueDistantOrder(book, { order: 'dispatch', formationId: id, systemIndex: distant[0], destination: g.destination, label: g.name }, state.day, false);
+      setLog(`No relay link to ${state.planets[distant[0]]?.name}: the dispatch order for ${g.name} is queued and will be acknowledged when a link exists.`);
+    } else setLog(`${g.name}: dispatch order already queued, awaiting a relay link.`);
     return false;
   }
   captureShipPowerState();

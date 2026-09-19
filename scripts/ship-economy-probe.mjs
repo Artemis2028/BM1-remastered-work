@@ -6,9 +6,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// BM1_TEST_ROOT selects the tree this gate serves, so it can be pointed at the built dist; without
+// it the repository root is served, which is what this gate used to do unconditionally.
+const ROOT = path.resolve(process.env.BM1_TEST_ROOT || path.join(path.dirname(fileURLToPath(import.meta.url)), '..'));
 const shim = `
-window.__economy = {state, startWithFaction, getShipStats, getShipyardStock,
+window.__economy = {state, startWithFaction, fleetBook, getShipStats, getShipyardStock,
   getCatalogPurchaseDecision, getShipPurchaseStatus, canBuyEscortShip, canBuyFleetShip,
   completeShipPurchase, getSystemIndexByName, applySystemState, transferSystemControlToPlayer,
   applyShipDefaultWeapons, normalizeWeaponLoadout, applyCurrentShipStats, buyWeapon,
@@ -17,6 +19,7 @@ window.__economy = {state, startWithFaction, getShipStats, getShipyardStock,
   acceptPendingContract, deliverDestinationCargoAtCurrentPlanet, buyMarketGood, sellMarketGood,
   getNpcSideId, getStationOwner, render, openShipPurchaseModal, getShipVisualProfile,
   tick, getDefaultWeaponId, getOriginalShipWeaponSlots, getTradeStandingFaction, createCargoRunOffer,
+  setCamera,
   freeze: () => new Promise(resolve => {
     const timer = setTimeout(() => resolve(false), 3000);
     requestAnimationFrame = cb => { if (cb.name === 'loop') { clearTimeout(timer); resolve(true); } return 0; };
@@ -44,7 +47,16 @@ try {
     const B=window.__economy,s=B.state,checks=[];
     const check=(name,ok,detail=null)=>checks.push({name,ok:!!ok,...(ok?{}:{detail})});
     const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+    // Per-system shelves are finite, so buying the last unit of a hull makes every later check about
+    // that hull fail with 'Out of stock' instead of testing what it is named for. restock puts the
+    // shelf back to its capacity; the purchase gates under test are untouched by it.
+    const restock=(id,system=s.currentPlanet)=>{const rec=B.fleetBook().stock[`${system}:${id}`];if(rec)rec.quantity=rec.capacity;return rec;};
     B.startWithFaction('terran');
+    // Per-system stock capacity is seeded from the campaign id, which is a random UUID at a fresh
+    // start, so an unpinned run randomly gives a hull a shelf of 1 and the purchase checks below fail
+    // about a third of the time. The gate pins it: a validation gate that is a coin toss is not
+    // evidence, and a real intermittent failure would be indistinguishable from the noise.
+    B.fleetBook().campaignId = 'economy-gate-seed';
     check('freeze acknowledges the final game loop',await B.freeze());
     const earth=B.getSystemIndexByName('Earth'),alpha=B.getSystemIndexByName('Alpha Centauri');
     const home=s.currentPlanet;
@@ -79,7 +91,8 @@ try {
     check('X-Base stocks distinct Galaxy Dreadnaught and Excalibur',same(B.getShipyardStock().map(x=>x.id),[49,347]));
     const price=s.latinum;B.completeShipPurchase(347);
     check('real purchase installs Excalibur at the approved cost and stats',s.playership===347&&price-s.latinum===1500000&&s.tothull===9000&&s.totshields===12000);
-    check('personal purchase gate also protects fleet paths',B.canBuyEscortShip(347).ok);
+    restock(347,paso);
+    check('personal purchase gate also protects fleet paths',B.canBuyEscortShip(347).ok,B.canBuyEscortShip(347));
     s.cargo=0;s.cargoArray=s.cargoArray.map(x=>({...x,tons:0,item:'Nothing',destination:undefined}));
     enter('New Switzerland','Free Swiss Reserve Exchange');s.factionStanding.neutral=99;
     check('Concord uses independent trade standing',!B.getShipPurchaseStatus(60).ok);
@@ -115,10 +128,17 @@ try {
     check('intentionally empty loadout survives save/reload',s.weaponInventory.length===0&&same(s.weaponSlots,[null,null,null]));
     // An actual accepted/delivered contract, not a direct standing mutation.
     enter('New Switzerland');s.factionStanding.neutral=20;s.factionStanding.terran=20;
-    s.pendingContractOffer={id:'economy-contract',goods:'Medical Supplies',targetIndex:earth,targetName:'Earth',tons:2,payPerTon:10,originIndex:sameRegion,originName:'New Switzerland',employerName:'Contract Office',employerType:'planet'};
+    // The issuer is named rather than inferred, so the check measures the two standings it is about.
+    s.pendingContractOffer={id:'economy-contract',goods:'Medical Supplies',targetIndex:earth,targetName:'Earth',tons:2,payPerTon:10,originIndex:sameRegion,originName:'New Switzerland',employerName:'Contract Office',employerType:'planet',employerFaction:'neutral'};
     B.acceptPendingContract();check('delivery fixture is accepted with cargo',s.openContracts.some(x=>x.id==='economy-contract'));
-    enter(earth);const delivered=B.deliverDestinationCargoAtCurrentPlanet();
-    check('completed delivery earns destination trust and issuer trust',delivered&&B.getFactionStanding('terran')===25&&B.getFactionStanding('neutral')===22,s.factionStanding);
+    // Cargo has to reach the world, not merely the system: the 600-unit drop-off rule from 5461f55 is
+    // the mechanic under test everywhere else, so the fixture flies to the world instead of docking and
+    // assuming. Undocked, inside the rule, and then delivered.
+    enter(earth);
+    s.docked=false;s.dockedPlanetIndex=null;s.dockedStationId=null;
+    B.setCamera(s.systemPlanet.x+599,s.systemPlanet.y);
+    const delivered=B.deliverDestinationCargoAtCurrentPlanet();
+    check('completed delivery earns destination trust and issuer trust',delivered&&B.getFactionStanding('terran')===25&&B.getFactionStanding('neutral')===22,{delivered,standing:s.factionStanding});
     const once=JSON.stringify(s.factionStanding);B.deliverDestinationCargoAtCurrentPlanet();
     check('repeating delivery cannot claim the same standing twice',JSON.stringify(s.factionStanding)===once);
     s.factionStanding.terran=15;s.latinum=1e6;
@@ -134,7 +154,7 @@ try {
     // Per-hull scale is unchanged for all existing reviewed hulls; stock data never changes identity.
     const earlyKlingons=[330,351,332].map(id=>B.getShipStats(id));
     check('new Bird of Prey is between Brel and Kvort in durability and price',earlyKlingons.every((ship,i)=>i===0||(earlyKlingons[i-1].hull<ship.hull&&earlyKlingons[i-1].hull+earlyKlingons[i-1].shields<ship.hull+ship.shields&&earlyKlingons[i-1].cost<ship.cost)));
-    enter('Paso','X-Base');s.factionStanding.terran=99;s.playership=7;B.applyCurrentShipStats(true);s.cargo=0;s.latinum=2e6;
+    const paso2=enter('Paso','X-Base');restock(347,paso2);s.factionStanding.terran=99;s.playership=7;B.applyCurrentShipStats(true);s.cargo=0;s.latinum=2e6;
     s.planetMenuOpen=false;B.openShipPurchaseModal(347);B.render();
     check('purchase UI shows required and current faction standing',document.getElementById('ship-purchase-modal').textContent.includes('Required standing')&&document.getElementById('ship-purchase-modal').textContent.includes('99'));
     return checks;

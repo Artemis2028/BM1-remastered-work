@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'bm1-pwa-20260915-briefing-cargo-v1';
+const CACHE_VERSION = 'bm1-pwa-20260915-campaign-stations-v1';
 const APP_CACHE = `${CACHE_VERSION}-app`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_ASSET_MANIFEST = './offline-assets.json';
@@ -17,6 +17,9 @@ const APP_SHELL = [
   './src/ship-ew.mjs',
   './src/ship-hoj.mjs',
   './src/ship-fleet.mjs',
+  './src/galaxy-intelligence.mjs',
+  './src/station-roles.mjs',
+  './src/campaign-strategy.mjs',
   './data/game_items.json',
   './bm-ships/catalog.mjs',
   './bm-ships/ships.json',

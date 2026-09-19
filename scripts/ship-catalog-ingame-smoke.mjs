@@ -8,7 +8,12 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// BM1_TEST_ROOT selects the tree this gate serves, so it can be pointed at the built dist; without
+// it the repository root is served, which is what this gate used to do unconditionally.
+const ROOT = path.resolve(process.env.BM1_TEST_ROOT || path.join(path.dirname(fileURLToPath(import.meta.url)), '..'));
+// Screenshots go beside the repo, never into the tree being served: writing them into dist made the
+// built output differ from source for a file the build never produced.
+const SHOT_DIR = path.resolve(process.env.BM1_TEST_OUTPUT || path.join(path.dirname(fileURLToPath(import.meta.url)), '..'));
 const SHIM = `
 window.__bm1 = {
   state, startWithFaction, getShipStats, getShipVisualProfile, getShipPreviewSrc,
@@ -155,12 +160,12 @@ async function run() {
     });
     note(godCount > 66, `God Mode ship list includes catalog hulls (${godCount})`);
     await page.waitForTimeout(200);
-    const screenshot = path.join(ROOT, 'tmp-ship-catalog-ingame.png');
+    const screenshot = path.join(SHOT_DIR, 'tmp-ship-catalog-ingame.png');
     await page.screenshot({ path: screenshot, fullPage: true });
     const switcher = page.locator('.god-ship-switcher');
     if (await switcher.count()) {
       await switcher.evaluate((el) => { el.scrollTop = 0; });
-      const switcherShot = path.join(ROOT, 'tmp-ship-catalog-god-switcher.png');
+      const switcherShot = path.join(SHOT_DIR, 'tmp-ship-catalog-god-switcher.png');
       await switcher.screenshot({ path: switcherShot });
       console.log(`screenshot ${switcherShot}`);
     }

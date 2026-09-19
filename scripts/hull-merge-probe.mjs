@@ -98,16 +98,25 @@ try{
   // permitted by the new local-market rules. The Ferengi start itself owns nothing.
   s.currentPlanet=B.getSystemIndexByName('Paso');s.myplanet=s.currentPlanet+1;
   B.applySystemState(s.currentPlanet);
-  B.transferSystemControlToPlayer(s.currentPlanet);
-  const station=s.stations.find(st=>!st.destroyed&&st.shipVendor==='paso-project-x'&&B.getStationOwner(st)==='player');
-  if(!station)throw Error('Missing player-owned station fixture');
+  const station=s.stations.find(st=>!st.destroyed&&st.shipVendor==='paso-project-x');
+  if(!station)throw Error('Missing designated vendor fixture');
   s.docked=true;s.dockedStationId=station.id;s.dockedPlanetIndex=null;s.npcShips=[];s.projectiles=[];
   s.latinum=1e7;s.cargo=0;s.playerFleet=[];s.spawnProtectionUntil=0;
   station.stockIds=[34,326,304,2,337,47];
   const ids=B.getShipyardStock().map(x=>x.id);
   test('a yard listing both old and new IDs offers each hull once',ids.length===3&&new Set(ids).size===3&&[326,2,47].every(id=>ids.includes(id)),ids);
+  // The standing gate is asked at somebody else's vendor, which is where standing is a question. The
+  // claim under test is that an old alias and its canonical hull are treated identically by it.
   s.factionStanding.terran=14;
   test('old and canonical IDs share faction-standing gates in all three purchase paths',[34,326].every(id=>!B.getShipPurchaseStatus(id).ok&&!B.canBuyEscortShip(id).ok&&!B.canBuyFleetShip(id).ok));
+  // And once the world and the yard are the captain's own, that same standing stops being asked —
+  // of the alias and the canonical hull alike. [playtest]
+  B.transferSystemControlToPlayer(s.currentPlanet);
+  if(B.getStationOwner(station)!=='player')throw Error('Missing player-owned station fixture');
+  s.docked=true;s.dockedStationId=station.id;
+  test('a captain\'s own yard asks neither the alias nor the canonical hull for standing',
+    [34,326].every(id=>!/refuse|standing/i.test(String(B.getShipPurchaseStatus(id).reason||''))),
+    {alias:B.getShipPurchaseStatus(34).reason,canonical:B.getShipPurchaseStatus(326).reason});
   s.factionStanding.terran=100;
   const before=s.latinum;B.completeShipPurchase(34);
   test('buying the old Defiant reference charges 62500 and stores hull #326',s.playership===326&&before-s.latinum===62500,{ship:s.playership,paid:before-s.latinum});

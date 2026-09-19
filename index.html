@@ -12,7 +12,7 @@
     <link rel="manifest" href="app.webmanifest" />
     <link rel="icon" type="image/png" sizes="192x192" href="assets/app-icons/icon-192.png" />
     <link rel="apple-touch-icon" href="assets/app-icons/icon-192.png" />
-    <link rel="stylesheet" href="styles.css?v=20260915-briefing-cargo-v1" />
+    <link rel="stylesheet" href="styles.css?v=20260916-campaign-blocker-fixes-v1" />
   </head>
   <body>
     <div id="intro-story" class="intro-story hidden" aria-label="Opening story">
@@ -39,15 +39,17 @@
     <div id="stats"></div>
     <div id="top-left-menu" class="top-left-menu hidden">
       <div class="top-left-tabs">
-        <button data-top-left-tab="inventory">Inventory</button>
-        <button data-top-left-tab="power">Power</button>
+        <!-- Inventory and Power are not here: CARGO and POWER on the quick-action bar open the same
+             panels. What stays is what the bar has no equivalent for. [playtest] -->
         <button data-galaxy-reports type="button">Reports</button>
+        <button data-campaign-open type="button">Empire</button>
         <button id="btn-game-menu" type="button">Menu</button>
         <button id="btn-cheats-debug" type="button">Cheats &amp; Debug</button>
       </div>
     </div>
     <div id="top-left-panel" class="top-left-panel hidden"></div>
     <dialog id="galaxy-reports" aria-label="Galactic reports"></dialog>
+    <dialog id="campaign-panel" aria-label="Empire and campaign"></dialog>
     <dialog id="station-comms" aria-label="System communications"></dialog>
     <dialog id="game-menu" aria-labelledby="game-menu-title"></dialog>
     <aside id="disabled-recovery" class="hidden" aria-label="Disabled ship recovery"></aside>
@@ -55,12 +57,14 @@
     <div id="target-window" class="target-window hidden"></div>
     <div id="security-order-panel" class="security-order-panel hidden" aria-live="polite" aria-label="Checkpoint order"></div>
     <div id="bottom-dock" class="bottom-dock hidden" aria-label="Quick actions">
-      <button data-comms="open" title="System communications"><b>COMMS</b><span>Stations</span></button>
+      <button data-comms="open" title="System communications"><b>COM</b><span>Stations</span></button>
       <button data-dock-action="target" title="Cycle target (Tab)"><b>TGT</b><span>Target</span></button>
-      <button data-dock-action="hail" title="Hail selected ship"><b>HAIL</b><span>Hail</span></button>
+      <button data-dock-action="hail" title="Hail selected ship or station"><b>HAIL</b><span>Hail</span></button>
       <button data-dock-action="map" title="Interstellar map (M)"><b>MAP</b><span>Map</span></button>
-      <button data-dock-action="inventory" title="Cargo and inventory"><b>CAR</b><span>Cargo</span></button>
+      <button data-dock-action="inventory" title="Cargo and inventory (C)"><b>CAR</b><span>Cargo</span></button>
       <button data-dock-action="power" title="Power distribution (OPS)"><b>PWR</b><span>Power</span></button>
+      <button data-dock-action="fleet" title="Fleet manager"><b>FLT</b><span>Fleet</span></button>
+      <button data-dock-action="ew" title="Electronic warfare"><b>EW</b><span>EW</span></button>
       <button data-dock-action="contract" title="Ask for contract (station channel or docked)"><b>CON</b><span>Contract</span></button>
       <button data-dock-action="save" title="Save game"><b>SAV</b><span>Save</span></button>
     </div>
@@ -80,7 +84,7 @@
       <button id="btn-close-map" class="panel-close interstellar-map-close" type="button" aria-label="Close interstellar map">&times;</button>
     </div>
     <canvas id="game" width="960" height="540"></canvas>
-    <script type="module" src="src/main.js?v=20260915-briefing-cargo-v1"></script>
+    <script type="module" src="src/main.js?v=20260916-campaign-blocker-fixes-v1"></script>
     <script src="src/pwa-register.js"></script>
   </body>
   </html>

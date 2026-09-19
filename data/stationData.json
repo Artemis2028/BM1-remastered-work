@@ -6580,6 +6580,26 @@
       "name": "T19 Trade Ring"
     },
     {
+      "id": "28-901",
+      "systemNumber": 29,
+      "systemIndex": 28,
+      "stationTypeId": 200,
+      "condition": 100,
+      "offset": {
+        "x": 640,
+        "y": -420
+      },
+      "legacyValue5": 0,
+      "rotation": 0,
+      "stock": {
+        "rawIds": [],
+        "shipIds": [],
+        "weaponIds": []
+      },
+      "name": "Blender Garrison",
+      "faction": "dominion_remnant"
+    },
+    {
       "id": "import-205-62",
       "systemNumber": 63,
       "systemIndex": 62,

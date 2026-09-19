@@ -297,6 +297,7 @@ button:focus-visible {
   background: var(--lcars-red);
   color: #000;
 }
+body[class*="ui-theme-"] .fleet-manager,
 body[class*="ui-theme-"] .top-left-panel,
 body[class*="ui-theme-"] .planet-menu,
 body[class*="ui-theme-"] .minimap-panel,
@@ -602,6 +603,9 @@ body.ui-theme-cardassian .planet-menu::before {
   left: 392px;
   right: 18px;
   top: 8px;
+  /* At narrow widths the menu block is three rows tall and the strip, pinned beside it, ran underneath
+     it — which is the overlap the playtest reported. Below that width the strip takes its own line
+     under the menu instead of sharing one with it. [playtest] */
   z-index: 30;
   width: auto;
   min-height: 42px;
@@ -618,7 +622,12 @@ body.ui-theme-cardassian .planet-menu::before {
   margin-left: auto;
   min-height: 42px;
   display: grid;
-  grid-template-columns: 92px minmax(260px, 1fr) repeat(6, minmax(74px, 88px));
+  /* ship, alert posture, power, message, six stats. The alert and power groups are columns of their own:
+     when they were added without one, ten children were laid into eight tracks and the strip clipped
+     its own message and wrapped the stats onto a second row. The first three tracks size to their
+     contents — they hold short fixed strings and controls, and a fixed width cut into both. The
+     message is the slot that gives up room, because it is the one that can ellipsis. [playtest] */
+  grid-template-columns: max-content max-content minmax(140px, 1fr) repeat(6, minmax(66px, 86px));
   gap: 6px;
   padding: 0 2px;
   background: transparent;
@@ -660,6 +669,14 @@ body.ui-theme-cardassian .planet-menu::before {
 .top-message {
   justify-content: flex-start;
   padding-inline: 14px;
+  /* The message slot is deliberately allowed to run out of room — it carries a whole sentence next to
+     six fixed readouts — but it was clipping mid-word with no sign that anything had been cut. */
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  display: block;
+  line-height: 44px;
 }
 .top-stat:nth-child(3) {
   background: var(--lcars-cream);
@@ -680,6 +697,65 @@ body.ui-theme-cardassian .planet-menu::before {
   background: var(--lcars-amber);
   border-radius: 6px 20px 20px 6px;
 }
+/* Alert posture and power, in the top strip where they can be reached while engaging. Both were behind
+   a modal before: the alert readout opened the game menu and power lived in a panel that covers the
+   view. Nothing here opens a dialog. [playtest] */
+/* These two carry controls rather than text: they size to their content and never clip it, which is
+   what the shared .top-slot ellipsis rule would otherwise do to them. */
+/* The posture readout is the alert control: one click cycles green, yellow, red. #stats is
+   pointer-events:none, so like the power group it has to opt back in, or it renders, reports as
+   visible, and takes nothing. [playtest] */
+.top-ship[data-alert-cycle] {
+  pointer-events: auto;
+  cursor: pointer;
+  border: 0;
+  font: inherit;
+  text-align: center;
+}
+.top-ship[data-alert-cycle]:hover { filter: brightness(1.12); }
+.top-ship[data-alert-cycle]:focus-visible { outline: 2px solid var(--lcars-cream); outline-offset: 2px; }
+/* Held above the chosen posture by combat: the tooltip says why, and the readout says it is not a
+   setting the captain is free to lower right now. */
+.top-ship.alert-held { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.55); }
+.top-alert, .top-power {
+  display: flex; align-items: center; gap: 4px;
+  overflow: visible; padding: 0 6px; width: max-content;
+  background: rgba(8, 11, 20, 0.92); color: #dfeaff;
+  /* #stats is pointer-events:none because the strip has always been a readout the captain looks past.
+     These two groups are the first controls ever put in it, and without this they render, report as
+     visible, and take no input at all: a click dispatched in code reaches them, a finger does not.
+     [playtest] */
+  pointer-events: auto;
+}
+.alert-chip {
+  min-width: 26px; min-height: 26px; padding: 0 6px;
+  font-size: 11px; font-weight: 700; line-height: 1;
+  border: 2px solid rgba(0, 0, 0, 0.55); border-radius: 5px;
+  background: rgba(10, 14, 24, 0.9); color: #cfe0ff; cursor: pointer;
+}
+.alert-chip.alert-green.active { background: #2f8f4f; color: #04120a; }
+.alert-chip.alert-yellow.active { background: var(--lcars-amber, #f3c05a); color: #1a1204; }
+.alert-chip.alert-red.active { background: #c2423a; color: #1a0605; }
+.alert-chip:hover { border-color: var(--lcars-orange); }
+.power-chip {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 1px 3px; border-radius: 5px;
+  background: rgba(10, 14, 24, 0.9);
+  border: 1px solid rgba(120, 150, 200, 0.35);
+  /* the level is the underline, so the chip carries its bar without spending a column on one */
+  border-bottom: 3px solid rgba(255, 255, 255, 0.14);
+  background-image: linear-gradient(to right, var(--lcars-amber, #f3c05a) var(--p, 0%), transparent var(--p, 0%));
+  background-size: 100% 3px; background-position: bottom; background-repeat: no-repeat;
+}
+.power-chip b { font-size: 9px; letter-spacing: 0.04em; color: #9fb2d0; font-weight: 700; }
+.power-chip u { font-size: 11px; text-decoration: none; color: #dfeaff; min-width: 9px; text-align: right; }
+.power-chip button {
+  min-width: 18px; min-height: 22px; padding: 0;
+  font-size: 12px; line-height: 1; color: #04121f;
+  background: var(--lcars-amber, #f3c05a); border: 0; border-radius: 4px; cursor: pointer;
+}
+.power-chip button:hover { background: var(--lcars-orange); }
+
 .top-stat span {
   color: rgba(0, 0, 0, 0.76);
   font-size: 9px;
@@ -950,7 +1026,11 @@ body.ui-theme-cardassian .target-meter-track {
   top: 8px;
   z-index: 32;
   width: min(230px, calc(100vw - 36px));
-  max-height: 52px;
+  /* The box used to be capped at 52px while its six buttons overflowed it visibly down to about 152px,
+     so anything positioned below "the menu" was positioned below a box that was not where the menu
+     ended — which is how the strip came to sit across its bottom row. The box now measures what is
+     actually on screen. [playtest] */
+  max-height: none;
   padding: 0;
   overflow: visible;
   background: transparent;
@@ -1008,37 +1088,65 @@ body.ui-theme-cardassian .target-meter-track {
 .top-left-panel::before {
   content: none;
 }
-.top-left-panel::after {
-  content: "";
-  position: absolute;
-  pointer-events: none;
-  left: 14px;
-  right: 14px;
-  top: 12px;
-  height: 30px;
+/* The header used to be a decorative ::after bar pinned to the panel while the content scrolled
+   underneath it with 54px of padding as the only thing holding it clear. The panel remembers its
+   scroll position per tab and restores it on every re-render, so it reopened already scrolled and
+   printed its own title and the Energy line over the bar — and the panel's overflow:hidden and
+   rounded corners then clipped the heading to "OWER (OPS)". The header is a real row now: the panel
+   is a flex column, the row does not scroll, and the body scrolls beneath it. [playtest] */
+.top-left-panel {
+  display: flex;
+  flex-direction: column;
+}
+.top-left-panel-head {
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 14px 8px;
+  padding: 0 8px 0 18px;
+  min-height: 34px;
   border-radius: 17px;
   background: var(--lcars-orange);
+  color: var(--lcars-black);
+  font-family: var(--bm2-display-font);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
-.top-left-panel > * {
-  position: relative;
-  z-index: 1;
+.top-left-panel-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .top-left-panel-close {
-  position: absolute;
+  position: static;
+  flex: 0 0 auto;
   z-index: 3;
-  top: 14px;
-  right: 20px;
 }
 .top-left-panel-content {
   position: relative;
   z-index: 1;
-  max-height: min(680px, calc(100vh - 132px));
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 54px 14px 14px;
+  padding: 0 14px 14px;
   overscroll-behavior: contain;
   scrollbar-color: var(--lcars-orange) rgba(0, 0, 0, 0.45);
   scrollbar-gutter: stable;
+}
+/* A heading inside the body, for a section rather than the panel. */
+.panel-subhead {
+  margin-top: 10px;
+}
+.ew-panel {
+  display: block;
 }
 .top-left-panel.hidden {
   display: none;
@@ -1764,6 +1872,22 @@ button:disabled {
   font-weight: 700;
   margin-bottom: 4px;
   text-transform: uppercase;
+}
+/* The contracts list the CONTRACT button opens: what was taken on, where it is, when it is due. */
+.contract-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--lcars-line);
+}
+.contract-row b { color: var(--lcars-cream); }
+.contract-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 0 0 auto;
 }
 .contract {
   color: var(--lcars-amber);
@@ -3603,7 +3727,97 @@ button:disabled {
   flex: 0 0 auto;
 }
 
+/* Power and alert are the two things a captain reaches for in a fight, so neither ever leaves the
+   strip and neither ever loses its controls. What gives way instead is the row: when the readouts and
+   the four power chips no longer share one line, power takes a line of its own inside the strip and
+   keeps its steppers at full size. The earlier arrangement dropped the steppers at 1400 and the whole
+   group at 1200, which on a tablet meant the controls were simply not there. [playtest]
+   These blocks sit above the 1320/980/640 blocks because a later block of the same specificity wins,
+   and the narrower rules have to be the ones that hold. */
+/* The one-row band. Between 1400 and 1600 the base grid's own minimums — a 140px message and six
+   66px readouts beside four power chips — add up to more than the strip has, so at 1440 the standing
+   readout ran 70px past the right edge and three others were cut by a few pixels each. These are the
+   widths a laptop browser actually is (1920/125% = 1536, 1920/150% = 1280, and 1366 and 1440 panels),
+   so they are the ones that have to fit. Power is untouched here: it still takes its own row below
+   1400 and stays inline above it. [review] */
+@media (max-width: 1600px) {
+  .top-strip {
+    grid-template-columns: max-content max-content minmax(80px, 1fr) repeat(6, minmax(54px, 80px));
+  }
+  .top-slot,
+  .top-stat { padding: 0 7px; }
+  .top-stat { gap: 4px; }
+}
+
+@media (max-width: 1400px) {
+  .top-strip {
+    grid-template-columns: max-content max-content minmax(60px, 1fr) repeat(6, minmax(54px, 74px));
+  }
+  .power-chip b { font-size: 8px; }
+  .power-chip { gap: 3px; padding: 1px 5px; }
+  /* A few pixels of side padding is the difference between "SHLD 100%" and "SHLD 100…". */
+  .top-slot,
+  .top-stat { padding: 0 6px; }
+  .top-stat { gap: 4px; }
+}
+
+@media (max-width: 1400px) {
+  .top-strip {
+    grid-template-columns: max-content minmax(60px, 1fr) repeat(6, minmax(50px, 74px));
+  }
+  /* Its own line, the full width of the strip, rather than off the screen. The order matters: without
+     it the group is auto-placed where it sits in the markup, between the alert chips and the message,
+     and pushes the readouts down onto a third row. */
+  .top-power {
+    grid-column: 1 / -1;
+    order: 9;
+    /* The base rule sizes this group to its content so its chips are never clipped in a one-row
+       strip. On its own row it has to take the row's width instead, or it lays four chips out at
+       their natural size and runs off the end. */
+    width: auto;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 2px;
+  }
+  /* Four across, or two and two. A flex basis packed as many as would fit and stranded the fourth on
+     a line of its own with three-quarters of the row empty beside it. */
+  .top-power {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .power-chip {
+    justify-content: center;
+    gap: 5px;
+    padding: 2px 6px;
+    min-height: 40px;
+  }
+  .power-chip b { font-size: 10px; }
+  .power-chip u { font-size: 13px; min-width: 14px; }
+  .power-chip button { min-width: 34px; min-height: 34px; font-size: 15px; }
+}
+
+@media (max-width: 1080px) {
+  #stats {
+    /* The strip stops sharing a line with the menu block here and takes its own, below it, ending
+       clear of the minimap: 260px of panel, 18px of margin and a gap. */
+    left: 18px;
+    right: 290px;
+    top: 168px;
+  }
+}
+
 @media (max-width: 1320px) {
+  #stats {
+    /* The minimap moves to the top right here and the strip is two rows tall from 1400 down, so the
+       strip stops sharing the menu's line and takes its own beneath it, ending before the minimap:
+       260px of panel, its 18px margin and a gap. Pinned beside the menu at this width it had barely
+       400px to lay nine readouts into and clipped most of them. [playtest] */
+    left: 18px;
+    right: 290px;
+    top: 168px;
+    width: auto;
+  }
   .minimap-panel {
     top: 64px;
     right: 18px;
@@ -3618,9 +3832,12 @@ button:disabled {
 
 @media (max-width: 980px) {
   #stats {
+    /* Below the three-row menu block and clear of the minimap, which moves up to the top-right at this
+       width. Pinned beside the menu, the strip ran underneath it; ending at 18px it ran under the
+       minimap. [playtest] */
     left: 18px;
-    right: 18px;
-    top: 52px;
+    right: 290px;
+    top: 168px;
     width: auto;
   }
   .top-left-menu {
@@ -3629,9 +3846,14 @@ button:disabled {
   }
   .top-strip {
     margin-left: 0;
-    grid-template-columns: 64px minmax(170px, 1fr) repeat(5, minmax(46px, 1fr));
+    grid-template-columns: max-content minmax(80px, 1fr) repeat(3, minmax(44px, 1fr));
     font-size: 11px;
   }
+  .top-power { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* Antimatter, shields and hull are what a fight needs; duranium, latinum and standing are in the
+     inventory panel and on the planet card. Counted from the end: every slot in the strip is a div, so
+     counting from the front hid all six stats rather than the last three. */
+  .top-strip .top-stat:nth-last-of-type(-n+3) { display: none; }
   .top-stat::after,
   .top-ship::before {
     display: none;
@@ -3756,12 +3978,34 @@ button:disabled {
   .market {
     grid-template-columns: minmax(0, 1fr);
   }
+  /* A phone's right-hand column has to hold the menu, the strip, an incoming hail and the
+     disabled-ship panel at once, and it cannot. Measured at 390x844 with all four up: the menu ends at
+     136 and the disabled-ship panel begins at 372, which leaves 162px, and the hail needs 150 of it
+     for its own two actions. So at this width the strip is one row and gives up the power group and
+     the rolling message: alert posture stays, and power stays on the PWR button and in its own panel.
+     A phone is not a size this game is played at; the tablet, which is, keeps both. Putting the power
+     row here instead would push the hail's buttons underneath the disabled-ship panel, and those
+     buttons are how a captain answers the thing threatening them. [playtest] */
   .top-strip {
-    grid-template-columns: 58px minmax(120px, 1fr) repeat(5, minmax(38px, 1fr));
+    grid-template-columns: max-content repeat(3, minmax(46px, 1fr));
     font-size: 10px;
+    gap: 4px;
   }
+  .top-power,
+  .top-message { display: none; }
+  .top-stat {
+    padding: 0 6px;
+    gap: 3px;
+  }
+  .top-alert {
+    padding: 0 4px;
+    gap: 3px;
+  }
+  /* The label is what makes the number mean anything: "5/220" on its own is not a fuel readout. It
+     shrinks here rather than disappearing. */
   .top-stat span {
-    display: none;
+    font-size: 8px;
+    margin-right: 1px;
   }
   #hud {
     display: none;
@@ -3802,12 +4046,14 @@ button:disabled {
     left: 12px;
     top: 8px;
     width: min(230px, calc(100vw - 24px));
-    max-height: 52px;
+    max-height: none;
   }
   #stats {
+    /* Its own line under the menu block, full width, and no lower than it has to be: every pixel here
+       comes out of the incoming hail's slot. [playtest] */
     left: 12px;
     right: 12px;
-    top: 52px;
+    top: 144px;
   }
   .target-window {
     left: 12px;
@@ -3872,7 +4118,7 @@ button:disabled {
   }
   .dock-panel {
     left: 70px;
-    top: 140px;
+    top: 168px;
   }
   .planet-menu.station-menu .dock-panel {
     top: 92px;
@@ -3993,10 +4239,13 @@ button:disabled {
     left: 64px;
   }
   .minimap-panel {
-    width: 160px;
+    /* Out of the top right, which the strip needs for its own line, and into the corner above the
+       dock. At the top it sat across the strip's last stats. [playtest] */
+    width: 180px;
     min-height: 146px;
-    top: 58px;
-    bottom: auto;
+    top: auto;
+    bottom: 132px;
+    right: 12px;
   }
   #minimap {
     height: 88px;
@@ -4021,13 +4270,19 @@ button:disabled {
 }
 
 /* Bottom-center quick-action dock (BM1 control panel) */
+/* Ten quick actions, in the order the specification names them: COMMS, TARGET, HAIL, MAP, CARGO,
+   POWER, FLEET, EW, CONTRACT, SAVE. Two labels live in each button and exactly one of them is ever
+   visible — the hover-expansion this replaced showed both at once, which is where "COMMS Stations"
+   and "TGT Target" came from. Width decides which: wide shows the word, compact shows the code, and
+   small stacks two rows of five without either shrinking below a usable touch target. [playtest] */
 .bottom-dock {
   position: fixed;
   left: 50%;
   bottom: 14px;
   transform: translateX(-50%);
   z-index: 30;
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
   gap: 6px;
   padding: 8px 10px;
   background: rgba(5, 7, 14, 0.92);
@@ -4035,43 +4290,50 @@ button:disabled {
   border-top-color: var(--lcars-purple);
   border-radius: 16px;
   box-shadow: inset 0 0 0 2px #000, 0 0 18px rgba(0, 0, 0, 0.72);
-  max-width: calc(100vw - 720px);
+  max-width: calc(100vw - 28px);
 }
 .bottom-dock.hidden { display: none; }
 .bottom-dock button {
   display: flex;
   align-items: center;
-  min-height: 34px;
-  min-width: 46px;
-  max-width: 46px;
-  overflow: hidden;
-  white-space: nowrap;
+  justify-content: center;
+  min-width: 0;
+  min-height: 44px;
   padding: 0 8px;
   font-size: 12px;
   font-weight: 700;
+  line-height: 1.1;
+  text-align: center;
+  overflow: hidden;
   background: var(--lcars-amber);
   color: var(--lcars-black);
   border: 0;
   border-radius: 6px;
   cursor: pointer;
-  transition: max-width 0.15s ease-out, background 0.15s;
+  transition: background 0.15s;
 }
-.bottom-dock button b { flex: 0 0 auto; }
-.bottom-dock button span {
-  flex: 0 0 auto;
-  max-width: 0;
-  overflow: hidden;
-  opacity: 0;
-  transition: max-width 0.15s ease-out, opacity 0.15s, margin 0.15s;
-}
-.bottom-dock:hover button span, .bottom-dock button:focus-visible span {
-  max-width: 90px;
-  opacity: 1;
-  margin-left: 6px;
-}
-.bottom-dock:hover button, .bottom-dock button:focus-visible { max-width: 150px; }
 .bottom-dock button:hover { background: var(--lcars-orange); }
-@media (max-width: 900px) { .bottom-dock { max-width: calc(100vw - 40px); } }
+.bottom-dock button:focus-visible { outline: 2px solid var(--lcars-purple); outline-offset: 2px; }
+/* Wide: the word. */
+.bottom-dock button b { display: none; }
+.bottom-dock button span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Compact: the code, and only the code. */
+/* The long labels go at 1500, not 1100: between those widths a ten-button bar gives each button about
+   80px, and "STATIONS" and "CONTRACT" do not fit in it — a tablet held across read "STATI...",
+   "TARG..." and "CONT...". Found by measuring the bar on a real tablet viewport, and the threshold is
+   where the measurement says it stops fitting rather than where it looked about right. [playtest] */
+@media (max-width: 1500px) {
+  .bottom-dock button b { display: block; }
+  .bottom-dock button span { display: none; }
+}
+/* Small: two rows of five, still 44px tall. */
+@media (max-width: 680px) {
+  .bottom-dock {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    bottom: 8px;
+    max-width: calc(100vw - 16px);
+  }
+}
 
 .power-bar {
   height: 10px;
@@ -4151,7 +4413,12 @@ button:disabled {
   position: fixed;
   right: 18px;
   bottom: 274px;
-  z-index: 28;
+  /* Above the star chart (74), its frame (75) and its close control (76). The chart yields horizontally
+     so the two do not overlap at the widths this is played at; this is what keeps an unanswered hail's
+     prose and its two buttons readable and clickable on a window too narrow for the chart to give way. */
+  z-index: 78;
+  display: flex;
+  flex-direction: column;
   width: 300px;
   max-width: calc(100vw - 36px);
   color: var(--lcars-text);
@@ -4167,6 +4434,11 @@ button:disabled {
 .security-order-panel.hidden {
   display: none;
 }
+/* Set while an incoming hail needs the whole right-hand column on a short screen: the map thumbnail
+   is decoration and stands down rather than squeezing the hail's own controls out of reach. */
+#minimap-panel.crowded-out {
+  display: none;
+}
 .security-order-head {
   display: flex;
   justify-content: space-between;
@@ -4179,15 +4451,38 @@ button:disabled {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+/* The panel may be squeezed between the map thumbnail and the dock on a short screen. When that
+   happens the message is what gives way — it scrolls — and the actions stay where they are. An
+   incoming hail whose Accept and Refuse buttons have scrolled out of reach is worse than an
+   overlapping one. */
 .security-order-body {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 7px;
+  min-height: 0;
+  overflow: hidden;
   padding: 8px 10px 10px;
 }
+/* Controls and status never give way; only the prose does. The panel renders several shapes (a
+   checkpoint order, an arrival hail, an outcome notice) and some put bare buttons straight in the
+   body, so the rule is written on the children rather than on one class. */
+.security-order-body > * {
+  flex: 0 0 auto;
+}
+.security-order-body > p,
 .security-order-text {
+  flex: 0 1 auto;
+  min-height: 0;
+  /* The body spaces its children with gap; a paragraph's default margins were spacing them a second
+     time, and they are what the panel's own height floor could not see. [playtest] */
+  margin: 0;
+  overflow-y: auto;
   color: var(--lcars-cream);
   font-size: 11px;
   line-height: 1.3;
+}
+.security-order-head {
+  flex: 0 0 auto;
 }
 .security-order-status {
   color: var(--lcars-cyan);
@@ -4276,14 +4571,83 @@ button:disabled {
 .sensor-contact-list { max-height: 220px; overflow-y: auto; }
 .sensor-contact-list .meta { border-bottom: 1px solid #ffffff28; padding: 5px 0; }
 
-.fleet-manager {color:#d9eaff;background:#101b2a;border:1px solid #6384a2;width:min(900px,94vw);max-height:86vh;overflow:auto;padding:20px;z-index:10000;}
-.fleet-manager::backdrop {background:#0009;}
-.fleet-manager details {padding:10px;border-bottom:1px solid #456;}
-.fleet-manager button,.fleet-manager select {margin:5px;padding:6px;color:#e5f2ff;background:#253d56;border:1px solid #66829c;}
-.fleet-manager label {display:inline-block;margin:6px;}
+/* The fleet manager was slate blue with grey pill buttons in an amber-on-black game, and ignored every
+   faction theme because nothing themed targeted it. It uses the same tokens, faces and control shapes
+   as the other panels now, including a real LCARS title bar and the shared close control. [playtest] */
+.fleet-manager {
+  color: var(--lcars-text);
+  background: var(--lcars-panel);
+  border: 2px solid var(--lcars-line);
+  border-radius: 10px;
+  width: min(900px, 94vw);
+  max-height: 86vh;
+  overflow: hidden;
+  padding: 0;
+  z-index: 10000;
+  font-family: var(--bm2-ui-font);
+}
+/* Scoped to [open]: a plain "display: flex" on a <dialog> overrides the user-agent rule that hides a
+   closed one, so the fleet manager stayed on screen after it was closed and covered the HUD. */
+.fleet-manager[open] {
+  display: flex;
+  flex-direction: column;
+}
+.fleet-manager::backdrop { background: rgba(0, 0, 0, 0.72); }
+.fleet-manager h2 {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 14px 8px;
+  padding: 0 8px 0 18px;
+  min-height: 34px;
+  border-radius: 17px;
+  background: var(--lcars-orange);
+  color: var(--lcars-black);
+  font-family: var(--bm2-display-font);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.fleet-manager > *:not(h2) { padding-inline: 14px; }
+.fleet-manager .fleet-manager-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 14px 14px;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--lcars-orange) rgba(0, 0, 0, 0.45);
+}
+.fleet-manager h3 {
+  margin: 12px 0 6px;
+  font-family: var(--bm2-display-font);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lcars-cream);
+}
+.fleet-manager details {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--lcars-line);
+}
+.fleet-manager select {
+  margin: 5px;
+  padding: 6px 10px;
+  color: var(--lcars-black);
+  background: var(--lcars-cream);
+  border: 0;
+  border-radius: 999px;
+  font-family: var(--bm2-ui-font);
+  font-weight: 600;
+}
+.fleet-manager label { display: inline-block; margin: 6px; color: var(--lcars-text); }
+.fleet-manager p, .fleet-manager .meta { color: var(--lcars-muted); }
 
 /* Public Cheats & Debug dialog: independent of the frequently redrawn HUD. */
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) {
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) {
   box-sizing: border-box;
   width: min(760px, calc(100vw - 24px));
   max-height: calc(100dvh - 32px);
@@ -4295,24 +4659,26 @@ button:disabled {
   color: #f1edf7;
   font: 16px/1.5 system-ui, sans-serif;
 }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports)::backdrop { background: rgba(0, 0, 0, .72); }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) .debug-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) h2 { margin: 0; font-size: 23px; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) h3 { margin: 0 0 10px; font-size: 18px; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) section { border-top: 1px solid #565064; padding-top: 16px; margin-top: 16px; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) p { overflow-wrap: anywhere; margin: 10px 0; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 12px 0; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) label { display: grid; gap: 5px; flex: 1 1 190px; min-width: 0; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) input, :is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) select { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px; background: #222638; color: #fff; border: 1px solid #9b90ae; border-radius: 4px; font: inherit; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) button { min-height: 40px; max-width: 100%; padding: 8px 12px; white-space: normal; font: inherit; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) .debug-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) [data-debug-status] { padding: 10px; background: #252a3d; border-radius: 4px; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) .debug-error { color: #ffb8ad; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) summary { cursor: pointer; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) code { overflow-wrap: anywhere; }
-:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports) :focus-visible { outline: 2px solid #ffd18c; outline-offset: 3px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel)::backdrop { background: rgba(0, 0, 0, .72); }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) .debug-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) h2 { margin: 0; font-size: 23px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) h3 { margin: 0 0 10px; font-size: 18px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) section { border-top: 1px solid #565064; padding-top: 16px; margin-top: 16px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) p { overflow-wrap: anywhere; margin: 10px 0; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 12px 0; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) label { display: grid; gap: 5px; flex: 1 1 190px; min-width: 0; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) input, :is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) select { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px; background: #222638; color: #fff; border: 1px solid #9b90ae; border-radius: 4px; font: inherit; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) button { min-height: 40px; max-width: 100%; padding: 8px 12px; white-space: normal; font: inherit; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) .debug-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) [data-debug-status] { padding: 10px; background: #252a3d; border-radius: 4px; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) .debug-error { color: #ffb8ad; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) summary { cursor: pointer; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) code { overflow-wrap: anywhere; }
+:is(#cheats-debug, #game-menu, #station-comms, #galaxy-reports, #campaign-panel) :focus-visible { outline: 2px solid #ffd18c; outline-offset: 3px; }
 
-#disabled-recovery { position:fixed; right:16px; bottom:92px; z-index:80; width:min(380px,calc(100vw - 32px)); max-height:45vh; overflow:auto; box-sizing:border-box; background:#241b16; border:2px solid #ffd18c; padding:14px; color:#fff; font:15px/1.4 system-ui,sans-serif; }
+/* Review fix: the recovery panel sits centred above the quick-action dock, out of the right-hand column
+   shared by the map thumbnail and the incoming-hail panel. */
+#disabled-recovery { position:fixed; left:50%; transform:translateX(-50%); bottom:92px; z-index:80; width:min(380px,calc(100vw - 32px)); max-height:45vh; overflow:auto; box-sizing:border-box; background:#241b16; border:2px solid #ffd18c; padding:14px; color:#fff; font:15px/1.4 system-ui,sans-serif; }
 #disabled-recovery.hidden { display:none; }
 #disabled-recovery h2 { font-size:20px; margin:0; }
 #disabled-recovery button { white-space:normal; margin:4px; min-height:40px; }
@@ -4326,3 +4692,66 @@ button:disabled {
 #galaxy-reports .report-section {margin:14px 0;}
 #galaxy-reports .report-section summary {padding:10px 0;font-weight:bold;}
 #galaxy-reports .report-pages {display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:12px;}
+
+/* Empire & campaign panel: same dialog family as the reports; tables collapse on narrow screens. */
+#campaign-panel .report-folders {display:flex;flex-wrap:wrap;gap:6px;margin:12px 0;}
+#campaign-panel .report-folders [aria-pressed="true"] {outline:2px solid #ffd18c;outline-offset:1px;}
+#campaign-panel .campaign-body ul {margin:8px 0;padding-left:20px;}
+#campaign-panel .campaign-body li {margin:4px 0;overflow-wrap:anywhere;}
+#campaign-panel .campaign-body .meta {color:#c8c0d8;font-size:14px;}
+#campaign-panel .campaign-table {width:100%;border-collapse:collapse;font-size:15px;}
+#campaign-panel .campaign-table th,#campaign-panel .campaign-table td {text-align:left;padding:6px 8px;border-bottom:1px solid #3a3550;vertical-align:top;}
+#campaign-panel .campaign-body button {min-height:34px;padding:4px 10px;margin:2px 0;}
+@media (max-width: 640px) {
+  #campaign-panel .campaign-table thead {display:none;}
+  #campaign-panel .campaign-table tr {display:block;border-bottom:1px solid #565064;padding:6px 0;}
+  #campaign-panel .campaign-table td {display:block;border:0;padding:2px 0;}
+  #campaign-panel .campaign-table td:first-child {font-weight:bold;}
+}
+
+/* The strip's own narrow-width rules live with the rest of the width cascade further up this file, in
+   descending order, so that the 980px and 640px blocks still have the last word on it. */
+
+/* The right-hand column at phone widths carries the status strip, the incoming hail and the
+   disabled-ship panel at once, and stacking the hail's two actions one above the other asks for more
+   height than the column has: the second button ends up under the disabled-ship panel. Side by side
+   they fit. This sits at the end of the sheet because the hail panel's own base rules are written
+   below the width cascade, and a later rule of the same weight is the one that holds. [playtest] */
+@media (max-width: 640px) {
+  .security-order-body {
+    flex-flow: row wrap;
+    align-items: flex-start;
+  }
+  .security-order-body > p,
+  .security-order-body > .security-order-text {
+    flex: 1 1 100%;
+  }
+  .security-order-body > button {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+  }
+}
+
+/* A finger is not a mouse pointer. Where the browser reports a coarse primary input, every control the
+   HUD offers meets the 44pt floor at any width — the alert chips were 26x26 and the bar's buttons 33pt
+   wide on a tablet, which is a control you can see and cannot reliably hit. This block is last in the
+   sheet on purpose: it has to win over every width block above it. [playtest] */
+@media (pointer: coarse) and (min-width: 641px) {
+  .alert-chip { min-width: 44px; min-height: 44px; padding: 0 8px; font-size: 14px; }
+  .top-alert { gap: 6px; padding: 0 6px; }
+  .power-chip { min-height: 48px; gap: 6px; }
+  .power-chip button { min-width: 44px; min-height: 44px; font-size: 17px; }
+  .power-chip u { font-size: 14px; min-width: 16px; }
+  .bottom-dock { min-height: 52px; }
+  .bottom-dock button { min-height: 48px; }
+  .top-left-tabs button { min-height: 44px; }
+  .security-order-body > button { min-height: 44px; }
+  .minimap-panel > button { min-height: 44px; }
+}
+
+/* The bar and the menu are reachable on a phone even where the strip's own controls cannot all be. */
+@media (pointer: coarse) and (max-width: 640px) {
+  .bottom-dock button { min-height: 44px; }
+  .top-left-tabs button { min-height: 40px; }
+  .security-order-body > button { min-height: 44px; }
+}

@@ -37,6 +37,12 @@ export const FACTION_TRAFFIC = Object.freeze({
     warDeployment: 1.6,
     description: 'Core worlds remain isolated; foreign fleets require an authorized invasion.',
   },
+  // Cut off from the wormhole: no civilian commerce at all, and what it does send out is a sortie.
+  dominion_remnant: {
+    foreignTrade: 0.02,
+    warDeployment: 1.5,
+    description: 'Isolated Jem\'Hadar garrison; raiding sorties against Terran and Romulan shipping, no civilian traffic.',
+  },
   breen: {
     foreignTrade: 0.03,
     warDeployment: 1.1,
