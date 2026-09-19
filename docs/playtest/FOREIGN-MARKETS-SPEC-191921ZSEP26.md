@@ -1,19 +1,22 @@
 # Foreign hull markets — approved specification
 
-DTG 191746ZSEP26 · supersedes `FOREIGN-MARKETS-SPEC-191624ZSEP26.md` and the proposal before it · **nothing here is implemented**
+DTG 191921ZSEP26 · supersedes `FOREIGN-MARKETS-SPEC-191746ZSEP26.md` and the drafts before it · **nothing here is implemented**
 
 Base: `8b7d9b0` (`191546ZSEP26`), closed as the overlay/intelligence round. **Foreign markets remain
 unimplemented**; this is the document the round that implements them works from.
 
-**Two amendments in this revision, both from review, and the second is load-bearing:**
+**Amendments from review. Every approval in the table above stands; these are additions.**
 
 | # | Amendment | Where |
 | --- | --- | --- |
-| 9 | The prize producer requires **disabled *and* taken**, not disabled | §2 |
+| 9 | The prize producer requires **disabled *and* taken/captured**, never disabled alone | §2 |
 | 10 | **Persistent strategic vessel identity is a prerequisite** before any offscreen campaign operation may produce a prize | §0, §6 |
+| 11 | That prerequisite is **its own round**, scoped separately and scheduled before this one | §0, §6 |
 
-Amendment 10 changes the order of work and empties two of the three shelves until it is done. §0 says
-why.
+Amendment 11 means the prerequisite in §0 is no longer a step inside the foreign-market round. It is
+`STRATEGIC-VESSEL-IDENTITY-191921ZSEP26.md`, a round of its own, and foreign markets wait behind it.
+Until it lands, an offscreen campaign operation **must not invent a fully equipped prize ship that
+never existed** — it must produce nothing.
 
 This is no longer a proposal. The eight decisions below were made by the reviewer and are recorded here
 as requirements, not options.
@@ -51,26 +54,28 @@ nothing to make a prize *out of*. Any prize it produced would have to have its i
 the moment of sale**, which is the "the Hirogen may now sell Romulan Scouts" licence wearing a name
 badge. Worse than the licence, in fact: the licence was honest about being a licence.
 
-**Therefore.** Before any offscreen producer exists, strategic hulls must carry persistent identity:
+**Therefore.** Before any offscreen producer exists, strategic hulls must carry persistent identity —
+a name and a seed assigned at `addHull` and stable for the hull's life, a vessel snapshot maintained
+across strategic engagements, and both surviving the hull's normal lifecycle including
+`pruneLostHulls`. The full list, the invariants and the migration are in
+`STRATEGIC-VESSEL-IDENTITY-191921ZSEP26.md`, which is a round of its own.
 
-- **P0.1** — a `name` and a `seed`, assigned at `addHull` and stable for the hull's life, so the same
-  vessel is the same vessel across engagements, reports and sales.
-- **P0.2** — a `vessel` snapshot maintained across strategic engagements, so "the condition the fight
-  left it in" is a real recorded state rather than the `hull`/`maxHull` pair rounded into a word.
-- **P0.3** — that identity surviving the hull's normal lifecycle, including `pruneLostHulls`
-  (`campaign-strategy.mjs`), which today clears destroyed hulls once no operation names them.
-
-Until P0 exists, **the only producer is a boarding capture by the captain**, which does have identity
+Until that round exists, **the only producer is a boarding capture by the captain**, which does have identity
 (`main.js:23341`). That has two consequences, and neither should be discovered after the fact:
 
 1. **Hirogen Range's shelf is empty.** Its prizes come from Hirogen hunts, which are campaign
-   operations. Shipping §3.2 before P0 ships a shop with nothing in it, or a shop with invented
+   operations. Shipping §3.2 before that round ships a shop with nothing in it, or a shop with invented
    merchandise.
 2. **Pirates Haven's shelf is one generic hull.** Its prize tier needs pirate-held prizes (campaign
    operations, same problem) or `takenFrom: 'player'` records, which §1.2 already says cannot occur.
 
-So §6's order changes: P0 first, or those two markets wait. Suliban Helix is unaffected — it sells from
-the catalogue and never touches a prize record.
+So §6's order changes: the identity round first, or those two markets wait. Suliban Helix is
+unaffected — it sells from the catalogue and never touches a prize record.
+
+The prerequisite is scoped in full in `STRATEGIC-VESSEL-IDENTITY-191921ZSEP26.md`: what must persist
+(name, seed, vessel snapshot, hull and shield condition, weapons and equipment, cargo, sensors and EW,
+crew state, damage and repair state), the three invariants, and deterministic migration for legacy
+saves. It is not a step in this specification any more.
 
 ---
 
@@ -404,23 +409,23 @@ deleted.
    captain's own boarding captures are the only things that can become prizes, which is correct.
 4. `applyForeignMarketStanding` and the confirmation prompt. `STANDING-ONCE`.
 5. Suliban Helix: the `WORLD_FOREIGN_STOCK` descriptor and the gate. `GATE-SULIBAN`, `HOLD` update.
-   **This market is shippable without P0** — it sells from the catalogue and never touches a prize.
-6. **P0: persistent strategic vessel identity** (§0). `name` and `seed` at `addHull`, a `vessel`
-   snapshot maintained across strategic engagements, and both surviving `pruneLostHulls`.
-   `PRIZE-INVENTED` is the check that keeps this honest: until P0 lands, an offscreen producer must
-   produce **nothing**, not a record with a generated name on it.
-7. Hirogen Range: the prize shelf and the hunt-evidence gate. **Requires P0.**
+   **This market is shippable without the identity round** — it sells from the catalogue and never
+   touches a prize record.
+6. **The persistent strategic vessel identity round**, which is not part of this specification:
+   `STRATEGIC-VESSEL-IDENTITY-191921ZSEP26.md`. `PRIZE-INVENTED` is what keeps the boundary honest —
+   until that round lands, an offscreen producer must produce **nothing**, not a record with a
+   generated name on it.
+7. Hirogen Range: the prize shelf and the hunt-evidence gate. **Requires the identity round.**
 8. Pirates Haven: the ordered shelf, the fallback, the contact rule, the shelf-only refusal exemption.
-   `CONTACT-PIRATE`. **Requires P0** for anything but the single generic fallback hull.
+   `CONTACT-PIRATE`. **Requires the identity round** for anything but the single generic fallback hull.
 
 Steps 1–4 are the engine, 5 is a market that needs nothing else, and 6 is the gate on the other two.
 If the round is cut short it should be cut after 5: one market working, the engine in place, and the
 two prize markets unshipped rather than shipped empty or shipped inventing their merchandise.
 
-**P0 is not small.** It touches hull creation, strategic engagement resolution and hull pruning, and it
-changes what a campaign save contains. It is worth scoping on its own before it is folded into a
-foreign-market round — it is arguably a strategic-layer feature that foreign markets happen to need,
-not a foreign-market feature.
+**That round is not small**, and it is scoped separately for that reason: hull creation, strategic
+engagement resolution, hull pruning, and what a campaign save contains. It is a strategic-layer feature
+that foreign markets happen to need, not a foreign-market feature.
 
 ## 7. Unchanged constraints
 

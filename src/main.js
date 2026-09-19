@@ -25847,6 +25847,13 @@ function ensureFleetTradeState(f, risk) {
   t.cumulative = Math.round(finiteNumber(t.cumulative, 0));
   t.note = typeof t.note === 'string' ? t.note : '';
   t.path = Array.isArray(t.path) ? t.path.map(Number).filter((i) => Number.isFinite(i) && state.planets[i]) : [];
+  t.legDays = Array.isArray(t.legDays) ? t.legDays.map((n) => Math.max(1, Math.round(finiteNumber(n, 1)))) : [];
+  t.legIndex = Math.max(0, Math.round(finiteNumber(t.legIndex, 0)));
+  // The systems this trip actually crossed and was rolled at. A ship stopped on the second leg has two
+  // entries and never acquires a third, which is the whole of what "the later legs never happened"
+  // means and the only way to see it from outside. [playtest]
+  t.crossed = Array.isArray(t.crossed) ? t.crossed.map(Number).filter((i) => Number.isFinite(i)) : [];
+  t.tripId = typeof t.tripId === 'string' ? t.tripId : null;
   return t;
 }
 function fleetTradeCapacity(f) {
@@ -25930,6 +25937,11 @@ function fleetTradeCandidates(f, t) {
   }
   return out;
 }
+// How long each hop of a plotted route takes, in the order the ship flies them. `route.legs[i]` joins
+// `route.systems[i]` to `route.systems[i + 1]`, so this lines up one-for-one with the path.
+function routeLegDays(route) {
+  return (route?.legs || []).map((leg) => Math.max(1, Fleet.travelDays(getRouteWarpDistance(leg))));
+}
 function planFleetTradeRun(f, t) {
   const from = fleetShipSystem(f);
   // Access first, then knowledge. A ship told to leave does not come away with the week's prices, so
@@ -25958,7 +25970,8 @@ function planFleetTradeRun(f, t) {
       if (net <= 0) continue;
       const score = net / days;
       if (!best || score > best.score)
-        best = { to, goods: offer.goods, tons, unit: offer.price, sell, days, net, score, path: risk.path };
+        best = { to, goods: offer.goods, tons, unit: offer.price, sell, days, net, score,
+          path: risk.path, legDays: routeLegDays(route) };
     }
   }
   if (!best) return { ok: false, note: 'No profitable run from here on current information.' };
@@ -25982,20 +25995,41 @@ function beginFleetTradeLeg(f, t, plan, day = state.day) {
   // The systems the ship will pass through, kept so the run is rolled against the route it flew even
   // if the chart changes while it is out there.
   t.path = Array.isArray(plan.path) && plan.path.length ? plan.path.slice() : [plan.to];
+  t.legDays = Array.isArray(plan.legDays) && plan.legDays.length === t.path.length
+    ? plan.legDays.slice()
+    : t.path.map(() => Math.max(1, Math.round(plan.days / Math.max(1, t.path.length))));
+  t.legIndex = 0;
+  t.crossed = [];
+  t.tripId = `${from}:${plan.to}:${Number(day)}`;
   // The last completed trip's realised profit stays on screen until this one produces its own. Zeroing
   // it here put a 0 in the panel the instant a run paid out, which read as "that trip made nothing".
   t.expectedProfit = Math.round(finiteNumber(plan.net, 0));
   t.stage = 'outbound';
   t.note = '';
-  f.assignment = 'transit';
-  f.transit = { from, to: plan.to, arrivalDay: Number(day) + plan.days };
-  t.etaDay = f.transit.arrivalDay;
+  // One hop is scheduled, not the whole run. The ship is somewhere in particular on every day of the
+  // journey, so a system it is crossing can be rolled on the day it crosses it, and a ship stopped on
+  // the second leg never flies the third. [playtest]
+  scheduleFleetTradeLeg(f, t, from, Number(day));
   state.npcShips = state.npcShips.filter((n) => n.fleetId !== f.id);
+  return true;
+}
+// Set the ship in transit to the next system on its path, and project the arrival at the far end from
+// the legs it still has to fly.
+function scheduleFleetTradeLeg(f, t, from, day) {
+  const next = t.path[t.legIndex];
+  if (next === undefined) return false;
+  const legDays = Math.max(1, Math.round(finiteNumber(t.legDays[t.legIndex], 1)));
+  f.assignment = 'transit';
+  f.transit = { from: Number(from), to: Number(next), arrivalDay: Number(day) + legDays };
+  let eta = f.transit.arrivalDay;
+  for (let i = t.legIndex + 1; i < t.path.length; i++) eta += Math.max(1, Math.round(finiteNumber(t.legDays[i], 1)));
+  t.etaDay = eta;
+  t.legEtaDay = f.transit.arrivalDay;
   return true;
 }
 // The leg is rolled against the destination as it is, not as the record said. A route planned from a
 // month-old reading of a heavily patrolled world is rolled against whoever is there now.
-function resolveFleetTradeLegRisk(f, t, at) {
+function resolveFleetTradeLegRisk(f, t, at, day = state.day) {
   const threat = trueThreat(at);
   const protection = trueProtection(at);
   const chance = Math.max(
@@ -26003,8 +26037,12 @@ function resolveFleetTradeLegRisk(f, t, at) {
     (TRADE_ENCOUNTER_BASE[threat.band] || 0) - (TRADE_ENCOUNTER_RELIEF[protection.band] || 0),
   );
   if (chance <= 0) return null;
-  if (tradeSeed(`trade-encounter:${f.id}:${t.origin}:${at}:${t.etaDay}`) >= chance) return null;
-  const severity = tradeSeed(`trade-harm:${f.id}:${at}:${t.etaDay}`);
+  // Seeded on the trip and the day the ship is actually there, not on a projected arrival at the far
+  // end. The far end's date moved every time a leg was flown, which would have reshuffled the odds of
+  // systems the ship had already passed.
+  const trip = t.tripId || `${t.origin}:${t.destination}`;
+  if (tradeSeed(`trade-encounter:${f.id}:${trip}:${at}:${day}`) >= chance) return null;
+  const severity = tradeSeed(`trade-harm:${f.id}:${trip}:${at}:${day}`);
   const v = ensureFleetVesselSnapshot(f);
   v.shields = 0;
   // How hard the hit lands follows how bad the place is. A quiet lane's opportunist scratches the
@@ -26050,23 +26088,25 @@ function resolveFleetTradeLegRisk(f, t, at) {
   setLog(`${f.name} was attacked at ${where}; hull ${Math.round((v.hull / v.maxHull) * 100)}%, cargo intact.`);
   return 'damaged';
 }
-// The run is flown, not teleported. Every system on the route gets its own roll against its own truth,
-// in the order the ship passes through them, and the first one that cripples her ends the run where it
-// happened rather than at a destination she never reached. [playtest]
-function resolveFleetTradeRouteRisk(f, t) {
-  const path = (Array.isArray(t.path) && t.path.length ? t.path : [t.destination])
-    .map(Number).filter((i) => Number.isFinite(i) && state.planets[i]);
-  let worst = null;
-  for (const at of path) {
-    const outcome = resolveFleetTradeLegRisk(f, t, at);
-    if (outcome) worst = outcome;
-    if (outcome === 'destroyed' || outcome === 'disabled') {
-      // She did not arrive. Where she stopped is where she is.
-      if (outcome === 'disabled') { f.systemIndex = at; f.assignment = 'defense'; delete f.transit; }
-      return outcome;
-    }
+// One system, on the day the ship reaches it. The run is flown rather than teleported: the ship is
+// somewhere in particular on every day of the journey, this is called when it arrives at each of those
+// somewheres, and a crossing that cripples her means the systems beyond it are never reached at all.
+// [playtest]
+function crossFleetTradeSystem(f, t, day = state.day) {
+  const at = Number(t.path[t.legIndex]);
+  if (!Number.isFinite(at) || !state.planets[at]) return null;
+  if (!t.crossed.includes(at)) t.crossed.push(at);
+  const outcome = resolveFleetTradeLegRisk(f, t, at, day);
+  if (outcome === 'destroyed' || outcome === 'disabled') {
+    // She did not go on. Where she stopped is where she is, and the rest of the journey is cancelled.
+    f.systemIndex = at;
+    f.assignment = 'defense';
+    delete f.transit;
+    t.etaDay = null;
+    t.legEtaDay = null;
+    return outcome;
   }
-  return worst;
+  return outcome;
 }
 function completeFleetTradeSale(f, t) {
   const at = fleetShipSystem(f);
@@ -26110,6 +26150,11 @@ function completeFleetTradeSale(f, t) {
   t.expectedUnit = null;
   t.destination = null;
   t.etaDay = null;
+  t.legEtaDay = null;
+  t.path = [];
+  t.legDays = [];
+  t.legIndex = 0;
+  t.tripId = null;
   t.stage = t.active ? 'idle' : 'holding';
   t.note = t.active ? '' : 'Stopped; holding position.';
   return true;
@@ -26120,11 +26165,17 @@ function advanceFleetTrading(day = state.day) {
     if (!t) continue;
     if (f.destroyed) { t.active = false; continue; }
     ensureFleetTradeState(f);
-    if (f.transit) continue; // still on the leg; the calendar moves it
+    if (f.transit) continue; // still on this leg; the calendar moves it
     if (t.stage === 'outbound') {
-      const outcome = resolveFleetTradeRouteRisk(f, t);
+      const outcome = crossFleetTradeSystem(f, t, day);
       if (outcome === 'destroyed') continue;
       if (outcome === 'disabled') continue; // stopped short; the cargo is still aboard where she lies
+      const reached = Number(t.path[t.legIndex]);
+      if (Number.isFinite(reached) && reached !== Number(t.destination) && t.legIndex + 1 < t.path.length) {
+        t.legIndex += 1;
+        scheduleFleetTradeLeg(f, t, reached, day);
+        continue;
+      }
       completeFleetTradeSale(f, t);
       if (!t.active || t.stage === 'holding') continue;
     }
@@ -26158,8 +26209,12 @@ function selectedFleetTradeRisk(id) {
 function fleetTradeStatusLine(f) {
   const t = fleetTradeState(f);
   if (!t) return '';
-  if (f.transit && t.stage === 'outbound')
-    return `Trading (${TRADE_RISK_LABELS[t.risk]}) · ${t.tons} t ${t.goods} → ${state.planets[t.destination]?.name || '?'} · ETA day ${t.etaDay}`;
+  if (f.transit && t.stage === 'outbound') {
+    const next = state.planets[f.transit.to]?.name || '?';
+    const end = state.planets[t.destination]?.name || '?';
+    const hop = next === end ? '' : ` · next ${next} day ${t.legEtaDay}`;
+    return `Trading (${TRADE_RISK_LABELS[t.risk]}) · ${t.tons} t ${t.goods} → ${end} · ETA day ${t.etaDay}${hop}`;
+  }
   if (t.active) return `Trading (${TRADE_RISK_LABELS[t.risk]}) · ${t.note || 'seeking a run'}`;
   return `Not trading${t.note ? ` · ${t.note}` : ''}`;
 }

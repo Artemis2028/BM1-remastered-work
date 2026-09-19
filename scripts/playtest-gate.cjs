@@ -2565,12 +2565,14 @@ const { startProbe } = require('./probe-harness.cjs');
       let touched = 0, flown = 0;
       for (let k = 0; k < 60; k++) {
         const probe = { id: `gate-route-p${k}`, shipId: f.shipId, name: `Probe ${k}`, faction: s.playerFaction,
-          assignment: 'defense', systemIndex: pair.dest, seed: k };
+          assignment: 'defense', systemIndex: pair.via, seed: k };
         const pt = t.ensureFleetTradeState(probe, 'any');
         pt.origin = home; pt.destination = pair.dest; pt.path = [pair.via, pair.dest];
+        pt.legDays = [1, 1]; pt.legIndex = 0; pt.crossed = []; pt.tripId = `route-${k}`;
         pt.etaDay = 600 + k; pt.goods = t.knownMarket(pair.dest).offers[0].goods;
         pt.tons = 1; pt.paid = 1; pt.unitPaid = 1; pt.expectedUnit = 1; pt.active = true; pt.stage = 'outbound';
         s.playerFleet.push(probe);
+        s.day += 1;
         t.advanceFleetTrading(s.day);
         flown++;
         const v = probe.vessel;
@@ -2645,6 +2647,99 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.equal(r.afterPlanning.ok, false, 'a trader planned a run out of a port that will not deal with her');
     assert.equal(r.afterPlanning.known, false,
       `a trader standing at a port that refuses her read its board anyway`);
+  });
+
+
+  // TRADE-10 — the route was persisted and every system was checked, but only after the ship had flown
+  // the whole travel timer: it was never anywhere in particular on the way, so an encounter on the
+  // first leg resolved on the arrival day at the far end, and the legs beyond it were rolled anyway.
+  await check('TRADE a trader crosses its route leg by leg, and stops where it is stopped', async () => {
+    await fresh('play-trade-route-time');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({});
+      window.__tradeShip('gate-time-seed', { big: true });
+      if (typeof t.knownMarket !== 'function' || typeof t.ensureFleetVesselSnapshot !== 'function')
+        return { built: false, reason: 'fleet ships do not trade at all, so no route is ever flown' };
+      const seedShip = s.playerFleet.find((x) => x.id === 'gate-time-seed');
+      const home = Number(s.currentPlanet);
+      // a destination at least two systems away, so there is a later leg to not fly
+      let dest = null, path = null, route = null;
+      for (let d = 0; d < s.planets.length && !dest; d++) {
+        if (d === home || !t.knownMarket(d)) continue;
+        if (t.trueThreat(d).band !== 0) continue; // the far end must be quiet, or this proves nothing
+        const rt = t.getPlottedRoute(home, d);
+        if (!rt) continue;
+        const p = (rt.systems || []).map(Number).slice(1);
+        if (p.length >= 2 && t.trueThreat(p[0]).band === 0) { dest = d; path = p; route = rt; }
+      }
+      if (dest == null) return { built: true, found: false };
+      // make the first system on the way somewhere a freighter can be stopped
+      t.transferSystemControlToFaction(path[0], 'pirate');
+      const legDays = typeof t.routeLegDays === 'function'
+        ? t.routeLegDays(route)
+        : path.map(() => Math.max(1, t.Fleet.travelDays(route.distance / path.length)));
+      const totalDays = legDays.reduce((n, d) => n + d, 0);
+      const goods = t.knownMarket(dest).offers[0].goods;
+      // fly the same trip with a series of ships until one of them is stopped on the first leg
+      let stopped = null;
+      for (let k = 0; k < 40 && !stopped; k++) {
+        const probe = { id: `gate-time-p${k}`, shipId: seedShip.shipId, name: `Runner ${k}`,
+          faction: s.playerFaction, assignment: 'defense', systemIndex: home, seed: k };
+        const pt = t.ensureFleetTradeState(probe, 'any');
+        pt.origin = home; pt.destination = dest; pt.goods = goods;
+        pt.tons = 10; pt.paid = 50; pt.unitPaid = 5; pt.expectedUnit = 9;
+        pt.active = true; pt.stage = 'outbound';
+        pt.path = path.slice(); pt.legDays = legDays.slice(); pt.legIndex = 0;
+        pt.tripId = `time-${k}`;
+        s.playerFleet.push(probe);
+        // A freighter that has already been knocked about: one more hit stops her. Any hit at all is
+        // catastrophic from here, so what is being measured is when the encounter resolves and how far
+        // she got, not whether the dice were kind.
+        const snap = t.ensureFleetVesselSnapshot(probe);
+        snap.hull = Math.max(1, Math.round(snap.maxHull * 0.14));
+        snap.condition = 'operational';
+        const departed = s.day;
+        if (typeof t.scheduleFleetTradeLeg === 'function') t.scheduleFleetTradeLeg(probe, pt, home, departed);
+        else { probe.assignment = 'transit'; probe.transit = { from: home, to: dest, arrivalDay: departed + totalDays }; pt.etaDay = departed + totalDays; }
+        // One trip, then hold: a trader that sells and immediately departs again never leaves the
+        // outbound stage, and what is being measured here is where and when this trip ended.
+        pt.active = false;
+        for (let n = 0; n < totalDays + 4 && pt.stage === 'outbound'; n++) window.__tradeDays(1);
+        const v = probe.vessel;
+        // Stopped, not scratched: a ship that took a hit and carried on is a completed trip.
+        const halted = Boolean(v && v.condition !== 'operational');
+        if (halted) {
+          stopped = { k, departed, stoppedDay: s.day, at: Number(probe.systemIndex),
+            crossed: Array.isArray(pt.crossed) ? pt.crossed.slice() : null,
+            transit: Boolean(probe.transit), stage: pt.stage, active: pt.active,
+            condition: v.condition, legIndex: pt.legIndex };
+        }
+        s.playerFleet = s.playerFleet.filter((x) => x.id !== probe.id);
+        if (!stopped) { s.day = departed; }
+      }
+      return { built: true, found: true, home, dest, path, legDays, totalDays, stopped };
+    });
+    assert.ok(r.built, `the trade-timing reproduction could not be set up: ${r.reason}`);
+    assert.ok(r.found, 'precondition: no destination was two systems or more away');
+    assert.ok(r.legDays.length >= 2 && r.totalDays > r.legDays[0],
+      `precondition: the route is one hop (legs ${JSON.stringify(r.legDays)}), so there is no later leg to skip`);
+    assert.ok(r.stopped,
+      `40 freighters were flown through pirate-held system ${r.path[0]} on their way to system ${r.dest}, and not one of them was touched: nothing on that route is rolled as the ship crosses it`);
+    assert.equal(r.stopped.stoppedDay, r.stopped.departed + r.legDays[0],
+      `she was stopped on a ${r.legDays[0]}-day first leg, but it took until day ${r.stopped.stoppedDay - r.stopped.departed} of a ${r.totalDays}-day journey to find out`);
+    assert.ok(r.stopped.stoppedDay < r.stopped.departed + r.totalDays,
+      `the whole ${r.totalDays}-day travel timer ran before the encounter on the first leg resolved`);
+    assert.equal(r.stopped.at, r.path[0],
+      `the ship was stopped but is at system ${r.stopped.at}, not at system ${r.path[0]} where it happened`);
+    assert.equal(r.stopped.transit, false,
+      'the ship was stopped and is still booked to arrive somewhere: the remaining travel was not cancelled');
+    assert.ok(Array.isArray(r.stopped.crossed),
+      'the run keeps no record of the systems it crossed, because it never crossed them one at a time');
+    assert.deepEqual(r.stopped.crossed, [r.path[0]],
+      `the ship was stopped on the first leg and the run crossed ${JSON.stringify(r.stopped.crossed)}`);
+    assert.equal(r.stopped.legIndex, 0,
+      `the ship was stopped on the first leg and the run advanced to leg ${r.stopped.legIndex}`);
   });
 
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);

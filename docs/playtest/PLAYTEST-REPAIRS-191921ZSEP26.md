@@ -1,13 +1,17 @@
 # BM1 playtest repairs on top of `ae4ae4d`
 
-DTG 191746ZSEP26
+DTG 191921ZSEP26
 
 Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Nothing pushed, merged or deployed.
 The commit count is in `CANDIDATE.json`, computed by the pack script rather than typed here.
 
 ## Read this first
 
-**This round is fleet-trading repairs**, on top of `5d32b7c`. **§4 is not closed.** It is the first
+**This round is the leg-by-leg traversal fix, plus the economy papers**, on top of `75389f7`. **§4 is
+not closed.** The only code change is the traversal fix; everything else is documents, because review
+asked for the numbers before the data changes.
+
+The round before it, fleet-trading repairs, is on top of `5d32b7c`. It is the first
 section below; "Fleet trading" beneath it is the round that built it, and everything under that is the
 record of the rounds before, newest first, unchanged.
 
@@ -16,7 +20,7 @@ records call dangerous**, because only the destination was examined — fixed, w
 turned away at a port came home with its prices** — fixed, with a gate. **The pack's cover sheets
 shipped describing the previous round**; the duplicated narrative is gone and the pack now refuses to
 build when its stamps disagree with what is being packed. And the economy question is **costed rather
-than tuned**: `CARGO-ECONOMY-PROPOSAL-191746ZSEP26.md`, nothing implemented.
+than tuned**: `ECONOMY-DESIGN-191921ZSEP26.md`, nothing implemented.
 
 The foreign-market specification is amended twice, and one of those amendments reorders the work:
 **persistent strategic vessel identity is now a prerequisite** before any offscreen operation may
@@ -49,6 +53,102 @@ little haven" — which made it neutral and stopped it being hostile. Rigel's te
 independent planet" and "The Andorians however lay claim to this world and are quite willing to protect
 it", and the engine has no protectorate level to express that, so nothing was authored and the shipped
 table's `andorian` stands. That second one is **a gap, not a decision**.
+
+## Leg-by-leg traversal, and the economy papers
+
+Raised against `75389f7`. **The only code change is the traversal fix.** Everything else in this round
+is documents: the cargo-capacity proposal, the finite-economy design, the seeded measurements, the
+strategic-identity round scope, and an amended foreign-market specification. §4 stays open.
+
+### 1. A trader crosses its route leg by leg
+
+The route was persisted and every system on it was checked, but the ship flew the **whole** travel
+timer before any of those checks resolved. It was never anywhere in particular on the way, so an
+encounter on the first leg was decided on the arrival day at the far end, and the legs beyond it were
+rolled anyway.
+
+Now one hop is scheduled at a time. At departure the planner records the path **and each leg's
+duration**; the ship is put in transit to the first system only. The calendar moves it there, and on
+the day it arrives that system is rolled against **the truth on that day**. If it survives, the next
+hop is scheduled from where it now is. If it does not:
+
+- it stops **at that system**, and `systemIndex` says so, which is what repair, recovery and — when
+  §5 arrives — recall will read;
+- the remaining travel is cancelled, because no further hop was ever booked;
+- the systems beyond it are never crossed and never rolled.
+
+`t.crossed` records the systems a trip actually crossed. A ship stopped on the second leg has two
+entries and never acquires a third, which is the only way to see from outside that the later legs did
+not happen.
+
+The encounter seed moved with it. It used to include the projected arrival at the far end, which
+changed every time a leg was flown — that would have reshuffled the odds of systems the ship had
+already passed. It is now the trip and the day the ship is actually there.
+
+**`TRADE a trader crosses its route leg by leg, and stops where it is stopped`** flies already-damaged
+freighters through a pirate-held first leg until one is stopped, then asserts where it stopped, that
+nothing is still booked, which systems it crossed, and — the assertion that names the defect — the day
+it stopped. On `75389f7`: *"she was stopped on a 11-day first leg, but it took until day 22 of a
+22-day journey to find out"*. The playtest gate goes 43 → 44.
+
+### 2. Cargo capacity, proposed across the whole roster
+
+`CARGO-CAPACITY-PROPOSAL-191921ZSEP26.md`, and `scripts/cargo-capacity-proposal.cjs` which derives it.
+**No ship data is changed.**
+
+A hull's hold comes from two things the catalogue already records and neither is its name: `shipClass`
+for the size band, and the authored `role` for whether it is a cargo hull and whether it is a heavy
+one. Within a class-and-tier bucket the ordering the roster already expresses is preserved, so a bucket
+does not collapse to one number.
+
+The 10,000-ton **mass-6** Concord-class becomes **308 t** — a warship with a hold. The 3,500-ton bulk
+freighter becomes **840 t** and stays the largest hold in the game. Roster total falls from 112,955 t
+to 25,616 t. Two corrections found while deriving it: a **liner carries passengers, not freight**, and
+the heavy multiplier has to outweigh class or a capital-class cargo hull beats a dedicated freighter.
+
+### 3. The economy design, rewritten to what was asked for
+
+`ECONOMY-DESIGN-191921ZSEP26.md`, superseding the price-slippage proposal, which is deleted. Simple
+visible scarcity instead: a world's board carries a **quantity** — `Medical supplies — 82 t available
+@ 7 L/t` — consumed by buying and replenished over campaign time; finite demand in the other direction;
+cargo jobs with explicit tonnage and a limited number open at once, so standing at one system cannot
+reroll a full hold; and **one economy**, with the captain and every fleet trader drawing on the same
+numbers. Uninhabited worlds are derived from population and installations, not named, which closes
+§3.5.
+
+### 4. The measurements, and the finding in them
+
+`ECONOMY-MEASUREMENTS-191921ZSEP26.md`, from `scripts/economy-measure.cjs`, run against the real map.
+
+Small worlds carry about 50 tons of a commodity and keep two jobs open; major worlds 110–220 and four
+to six. Nine worlds have no economy at all. Four heavy freighters working the same map make 11,298
+latinum each over 300 days against 16,772 for one alone — finite supply and demand doing their job.
+
+**And a finding that needs a decision before the economy round starts: under this model a heavy
+freighter is worse than an ordinary one.** It costs twice as much, earns less, and its hold sits 11%
+full, because no single destination absorbs eight hundred tons. Making worlds bigger does not fix it.
+Letting a trader work **several worlds in one circuit** does — −40% becomes +21%, and +40% with both.
+So multi-stop circuits are not a nicety; without them the heavy freighter tier has no reason to exist
+and the capacity proposal's top end is decoration.
+
+The first calibration attempt is worth recording: reading the authored population figures at face
+value — they run to 50,000 — swamped market strength and installations and put every world on the
+ceiling, producing exactly the "2 contracts everywhere" outcome the measurements were asked to avoid.
+They are read per thousand.
+
+### 5. Strategic vessel identity, scoped as its own round
+
+`STRATEGIC-VESSEL-IDENTITY-191921ZSEP26.md`. Nine fields that must persist, three invariants — two
+ships of a class stay distinguishable, a strategic → tactical → strategic round trip does not
+regenerate the vessel, legacy saves migrate deterministically — the five places it touches, and six
+gates. It is a strategic-layer feature that foreign markets happen to need.
+
+### 6. The foreign-market specification, amended again
+
+Every approval stands. Three amendments now: the producer requires **disabled and taken/captured**,
+never disabled alone; persistent strategic identity is a prerequisite; and that prerequisite is **its
+own round**, scheduled before this one rather than being a step inside it. Until it lands an offscreen
+operation must produce **nothing**, not a plausible-looking record.
 
 ## Fleet-trading repairs
 
@@ -120,7 +220,7 @@ Both reproduce behaviourally on `5d32b7c` with no `TypeError`. The playtest gate
 
 ### 5. The economy, costed rather than tuned
 
-`CARGO-ECONOMY-PROPOSAL-191746ZSEP26.md`. **Nothing implemented.** The short version: the fleet trader
+`ECONOMY-DESIGN-191921ZSEP26.md`. **Nothing implemented.** The short version: the fleet trader
 did not break the economy, it was the first thing able to execute at a scale the market model never
 priced. A world's board has no depth — 10,000 tons of one good clears at the same unit price as one
 ton. Upkeep is charged on mass while profit is earned on cargo capacity, and the largest hold in the
@@ -396,7 +496,7 @@ numbers, which is the evidence.
 ### The foreign-market proposal, second draft
 
 `FOREIGN-STOCK-PROPOSAL-191545ZSEP26.md` replaced the first, three of whose four sections were wrong.
-It is itself superseded by `FOREIGN-MARKETS-SPEC-191746ZSEP26.md`, below.
+It is itself superseded by `FOREIGN-MARKETS-SPEC-191921ZSEP26.md`, below.
 
 - **Suliban Helix was called ungoverned.** This candidate's own world-identity evidence makes it a
   self-governed Suliban world, exactly as Hirogen Range is self-governed Hirogen. The fence is a
@@ -485,7 +585,7 @@ those phrases was the same mistake as reading a grey market out of an emptied sh
 back. The table is empty and **the gate holds it empty**: every world sells its own government's
 designs and neutral ones, and no world anywhere sells a hull its government would not carry.
 
-`FOREIGN-MARKETS-SPEC-191746ZSEP26.md` names three worlds chosen for what they are in the campaign
+`FOREIGN-MARKETS-SPEC-191921ZSEP26.md` names three worlds chosen for what they are in the campaign
 rather than for their prose — the Suliban Helix as a fence limited to small hulls at a premium and a
 standing cost, Hirogen Range selling only designs the Hirogen have actually destroyed a hull of in this
 campaign, Pirates Haven selling stolen hulls at a discount in poor condition and visibly — with the
@@ -748,7 +848,7 @@ Measured and named rather than left for the next playtest.
 ## Still NOT DONE, and named
 
 - **Foreign hull stock** is withdrawn, not designed. The third-draft proposal is
-  `FOREIGN-MARKETS-SPEC-191746ZSEP26.md`, now approved rather than asking;
+  `FOREIGN-MARKETS-SPEC-191921ZSEP26.md`, now approved rather than asking;
   until they are taken, every world sells its own government's designs.
 - **A captured hull does not record who it was taken from.** The Pirates Haven section of that proposal
   degrades gracefully without it, but the field does not exist.
