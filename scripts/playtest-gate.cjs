@@ -3305,6 +3305,84 @@ const { startProbe } = require('./probe-harness.cjs');
       `she was sent to system ${r.stops[0]}, which is buying ${r.wanted} tons of the ${r.goods} filling her hold`);
   });
 
+  // FAILED-CARGO-OWNER — freight from a failed contract was carried as unaddressed stock and sold at
+  // the next port that was buying, so a failed delivery turned the shipper's goods into the captain's
+  // free merchandise. It is the shipper's: it goes home, for nothing, and is never sold.
+  await check('FAILED-CARGO-OWNER undelivered freight goes back to its shipper for nothing, and is never sold', async () => {
+    await fresh('play-failed-cargo-owner');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.completeFleetTradeCircuit !== 'function') return { owned: false, reason: 'a circuit never completes with cargo aboard' };
+      window.__tradeSetup({});
+      window.__tradeShip('gate-owner-1', { big: true });
+      const f = s.playerFleet.find((x) => x.id === 'gate-owner-1');
+      const trade = t.ensureFleetTradeState(f, 'any');
+      trade.active = true;
+      const origin = Number(s.currentPlanet);
+      // A governed destination the captain can be refused at.
+      let target = null, faction = null;
+      for (let i = 0; i < s.planets.length; i++) {
+        if (i === origin) continue;
+        const key = t.getSystemFaction(i);
+        if (!key || key === 'neutral' || key === s.playerFaction || !t.worldTrades(i)) continue;
+        target = i; faction = key; break;
+      }
+      if (target == null) return { owned: true, found: false };
+      t.adjustFactionStanding(faction, -100, { silent: true });
+      if (!t.serviceRefusal(faction)) return { owned: true, found: true, refused: false, faction };
+      const goods = t.getPlanetMarket(origin)[0].goods;
+      trade.manifest = [{ kind: 'job', jobId: `job-${origin}-7`, goods, tons: 30, to: target, from: origin,
+        owner: s.planets[origin]?.name, fee: 500, payPerTon: 20, paid: 0 }];
+      trade.stops = [target]; trade.path = [target]; trade.legDays = [1]; trade.legIndex = 0;
+      trade.paid = 0; trade.revenue = 0; trade.stage = 'outbound'; trade.destination = target;
+      // The circuit ends at the refusing port with the shipment undelivered...
+      f.systemIndex = target; delete f.transit;
+      t.completeFleetTradeCircuit(f, trade);
+      const afterCircuit = { load: t.fleetTradeLoad(trade), purse: s.latinum,
+        entry: (trade.manifest || []).map((m) => ({ kind: m.kind, to: m.to, tons: m.tons })) };
+      // ...then she calls at a third world that is buying exactly this good, and is not the shipper's.
+      let buyer = null;
+      for (let i = 0; i < s.planets.length; i++) {
+        if (i === origin || i === target || !t.worldTrades(i)) continue;
+        if (t.serviceRefusal(t.getSystemFaction(i))) continue;
+        if (t.marketDemand(i, goods) >= 30) { buyer = i; break; }
+      }
+      if (buyer == null) return { owned: true, found: true, refused: true, buyerFound: false, goods };
+      trade.active = true; trade.stage = 'outbound'; trade.stops = [buyer]; trade.path = [buyer]; trade.legIndex = 0;
+      f.systemIndex = buyer; delete f.transit;
+      const purseBefore = s.latinum;
+      t.fleetTradeCall(f, trade, buyer, s.day);
+      const atBuyer = { load: t.fleetTradeLoad(trade), purse: s.latinum, gained: s.latinum - purseBefore };
+      // ...and then plans afresh from there: the shipper's world has to be on the route.
+      trade.stops = []; trade.path = []; trade.stage = 'idle';
+      const plan = t.planFleetTradeCircuit(f, trade, s.day);
+      const routed = plan.ok ? plan.plan.stops.map(Number) : [];
+      // ...and at the shipper's world the freight is handed back for nothing.
+      const purseHome = s.latinum;
+      trade.active = true; trade.stage = 'outbound'; trade.stops = [origin]; trade.path = [origin]; trade.legIndex = 0;
+      f.systemIndex = origin; delete f.transit;
+      t.fleetTradeCall(f, trade, origin, s.day);
+      const atHome = { load: t.fleetTradeLoad(trade), gained: s.latinum - purseHome, log: String(s.log || '') };
+      return { owned: true, found: true, refused: true, buyerFound: true, goods, origin, target, buyer,
+        originName: s.planets[origin]?.name, buyerName: s.planets[buyer]?.name,
+        afterCircuit, atBuyer, planOk: Boolean(plan.ok), planNote: String(plan.note || ''), routed, atHome };
+    });
+    assert.ok(r.owned, `${r.reason}`);
+    assert.ok(r.found, 'precondition: no governed destination was available to refuse the captain');
+    assert.ok(r.refused, `precondition: dropping ${r.faction} standing to the floor did not make them refuse the captain`);
+    assert.ok(r.buyerFound, `precondition: no third world is buying thirty tons of ${r.goods}`);
+    assert.equal(r.afterCircuit.load, 30, `${30 - r.afterCircuit.load} of 30 tons of the shipper's freight were destroyed at the end of the circuit`);
+    assert.equal(r.atBuyer.gained, 0,
+      `${r.buyerName} is buying ${r.goods}, and the trader sold the shipper's ${30 - r.atBuyer.load} tons of it there for ${r.atBuyer.gained} latinum: a failed delivery became the captain's free merchandise`);
+    assert.equal(r.atBuyer.load, 30, `${30 - r.atBuyer.load} tons of the shipper's freight left the hold at ${r.buyerName}, which is not where it came from`);
+    assert.ok(r.planOk, `with the shipper's freight aboard, the trader could not plan at all: ${r.planNote}`);
+    assert.ok(r.routed.includes(r.origin),
+      `the next circuit calls at ${JSON.stringify(r.routed)} and not at ${r.originName}, where the freight belongs`);
+    assert.equal(r.atHome.load, 0, `${r.atHome.load} tons of the shipper's freight are still aboard after calling at ${r.originName}`);
+    assert.equal(r.atHome.gained, 0, `returning the shipper's freight paid the captain ${r.atHome.gained} latinum`);
+    assert.ok(/returned .* nothing owed/i.test(r.atHome.log), `the return was not reported: "${r.atHome.log}"`);
+  });
+
   // JOB-4 — a shipment's price was its tonnage times a rate, so the whole cost of the voyage was
   // charged again on every ton and one full hold was worth more than a warship.
   await check('JOB the voyage is paid for once, and the tonnage by the ton', async () => {
@@ -3370,8 +3448,9 @@ const { startProbe } = require('./probe-harness.cjs');
       // One shipment addressed there, and one ordinary lot with nowhere in particular to go, so the
       // check reads the whole hold rather than one entry.
       const goods = t.getPlanetMarket(Number(s.currentPlanet))[0].goods;
+      const origin = Number(s.currentPlanet);
       trade.manifest = [
-        { kind: 'job', jobId: 'gate-conserve-job', goods, tons: 40, to: target, fee: 500, payPerTon: 20, paid: 0 },
+        { kind: 'job', jobId: `job-${origin}-1`, goods, tons: 40, to: target, from: origin, owner: s.planets[origin]?.name, fee: 500, payPerTon: 20, paid: 0 },
         { kind: 'goods', goods, tons: 9, to: target, unit: 5, paid: 45 },
       ];
       trade.stops = [target]; trade.path = [target]; trade.legDays = [1]; trade.legIndex = 0;
@@ -3379,7 +3458,7 @@ const { startProbe } = require('./probe-harness.cjs');
       const before = { load: t.fleetTradeLoad(trade), purse: s.latinum, circuits: trade.circuits };
       t.completeFleetTradeCircuit(f, trade);
       const after = { load: t.fleetTradeLoad(trade), purse: s.latinum, circuits: trade.circuits };
-      return { conserves: true, found: true, refused: true, faction, target, before, after,
+      return { conserves: true, found: true, refused: true, faction, target, origin, before, after,
         kinds: trade.manifest.map((m) => ({ kind: m.kind, tons: m.tons, to: m.to, paid: m.paid })),
         note: trade.note };
     });
@@ -3390,12 +3469,14 @@ const { startProbe } = require('./probe-harness.cjs');
       `${r.before.load} tons went into the circuit and ${r.after.load} came out: ${r.before.load - r.after.load} tons of undeliverable freight were destroyed by the end of the circuit`);
     assert.equal(r.after.purse, r.before.purse,
       `a failed delivery paid the captain ${r.after.purse - r.before.purse} latinum`);
-    assert.ok(r.kinds.every((m) => m.kind === 'goods'),
+    assert.ok(r.kinds.every((m) => m.kind !== 'job'),
       `the failed contract is still on the books as a contract: ${JSON.stringify(r.kinds)}`);
-    assert.ok(r.kinds.every((m) => m.to === null),
-      `cargo came out of the circuit still addressed somewhere: ${JSON.stringify(r.kinds)}`);
-    assert.equal(r.kinds.find((m) => m.tons === 40)?.paid, 0,
+    const failed = r.kinds.find((m) => m.tons === 40);
+    assert.ok(failed, `the forty tons of undeliverable freight are not aboard as one entry: ${JSON.stringify(r.kinds)}`);
+    assert.equal(failed.paid, 0,
       'the goods from a failed contract came out of the circuit carrying a cost the captain never paid');
+    assert.ok(r.kinds.find((m) => m.tons === 9)?.to === null,
+      `the captain's own unsold lot came out of the circuit still addressed somewhere: ${JSON.stringify(r.kinds)}`);
   });
 
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);

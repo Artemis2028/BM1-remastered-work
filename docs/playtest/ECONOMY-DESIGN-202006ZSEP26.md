@@ -1,18 +1,18 @@
 # Finite commodity and cargo economy — design
 
-DTG 201805ZSEP26 · supersedes `ECONOMY-DESIGN-201428ZSEP26.md` · **built**
+DTG 202006ZSEP26 · supersedes `ECONOMY-DESIGN-201805ZSEP26.md` · **built**
 
-Reconciled against `CARGO-CAPACITY-201805ZSEP26.md` in this round. The previous revision of this document said
-in one place that the largest hold in the game was 840 tons and in another that the Tholian Isaac
-Freighter kept 3,500; the capacity table said 3,500. **The Isaac is 3,500 tons**, as an authored
-bulk-freighter exception, and it is the largest hold in the game. Nothing in this document says 840 any
-more.
+Changed in this revision: **freight from a failed contract is the shipper's property** — it goes back
+to the world it came from, for nothing, and is never the captain's to sell (§E, replacing the open
+question the previous revision left there); the **Concord is 1,320 tons** as an authored
+civilian/commercial exception (§A); and the books of work are **instrumented** by danger setting rather
+than changed (`ECONOMY-MEASUREMENTS-202006ZSEP26.md`). The payout is as it was: a route and hazard fee paid
+once plus twenty latinum a ton, not tuned.
 
-Also changed in this round: the contract payout is a **route and hazard fee paid once plus a flat rate
-per ton** rather than a per-ton bounty that carried the whole voyage's price on every ton; only an
-installation that does **economic, commercial or logistics** work gives a world an economy; and an
-undeliverable shipment now **fails its contract without destroying the cargo**. Each is written up in
-its own section below and measured in `ECONOMY-MEASUREMENTS-201805ZSEP26.md`.
+Unchanged from the previous revision and still in force: the contract payout's shape; only an
+installation that does **economic, commercial or logistics** work gives a world an economy; the Isaac
+is 3,500 tons as an authored bulk-freighter exception and the largest hold in the game; every dead end
+in the trade planner is a move rather than a stop.
 
 The previous proposal recommended price slippage — a world absorbing `market × 25` tons at its posted
 price and moving a latinum against you per further block. **Review rejected it** as more complicated
@@ -34,14 +34,16 @@ honestly while repairs are free (see §6).
 
 ## A. Cargo capacity — the fourteen reductions, applied
 
-`CARGO-CAPACITY-201805ZSEP26.md`. Derived from the catalogue's own `shipClass` and `role`, never from a hull's
+`CARGO-CAPACITY-202006ZSEP26.md`. Derived from the catalogue's own `shipClass` and `role`, never from a hull's
 name. Fighters and scouts tiny, escorts small, cruisers moderate, large combat ships larger but below
 freighter capacity, freighters substantially larger, and the heavy dedicated freighters largest of all.
 
-Review approved the fourteen challenged holds and rejected the nine raises. So: **fourteen oversized
-warship holds are cut** — the 10,000-ton mass-6 warship to 308 — and **every authored freight exception
-stands untouched**. The Tholian Isaac Freighter keeps **3,500 tons** and remains the largest hold in the
-game; the Delpin Luxury Liner keeps 1,600; the Tarellian and Ferengi hulls keep 1,500; the Dominion
+Review approved the fourteen challenged holds and rejected the nine raises, then on a second reading
+ruled the Concord an authored civilian/commercial exception. So: **thirteen oversized warship holds are
+cut to the derived default**, the **Concord is 1,320 tons** — the heavy-cargo tier for a battleship-class
+hull, not the 10,000 it shipped with — and **every authored freight exception stands untouched**. The
+Tholian Isaac Freighter keeps **3,500 tons** and remains the largest hold in the game; the Concord is
+second; the Delpin Luxury Liner keeps 1,600; the Tarellian and Ferengi hulls keep 1,500; the Dominion
 Freighter keeps 1,350. The nine small holds keep the capacities they shipped with. They are not shut out
 of the *work*: every third shipment on a world's book is a courier lot of one to five tons, so the work
 comes down to the small hull rather than the hull being enlarged to meet it. It does not follow that a
@@ -115,7 +117,7 @@ only past 1,533 units. What a shipment is worth is now `fee + 20 x tons`, in one
 the shipment occupies (`jobPayPerHoldTon`), which is the question a hauler actually asks.
 
 **This is a first measurement pass, not a locked number.** The five constants are named in
-`TRADE_ECONOMY` and the resulting tables are in `ECONOMY-MEASUREMENTS-201805ZSEP26.md`.
+`TRADE_ECONOMY` and the resulting tables are in `ECONOMY-MEASUREMENTS-202006ZSEP26.md`.
 
 ## D. Uninhabited worlds trade only where something there does economic work
 
@@ -159,19 +161,34 @@ nearest port. Two of those dead ends also unwind what the planning steps had alr
 claimed shipments go back on the world's book, bought cargo is refunded and put back on its shelf —
 because a planner that decides not to go must not destroy the work and the tons on its way out.
 
-## E. A failed delivery loses the contract, not the cargo
+## E. A failed delivery loses the contract; the cargo stays the shipper's
 
 A shipment addressed to a port that will not deal with the ship used to be struck off the manifest when
-the circuit ended, and its tons ceased to exist — a full hold could empty itself by failing. The
-contract is lost, and that is all: the goods are in the hold and nothing in the game has taken them out
-of it. They become ordinary unaddressed cargo, carried at no cost to the captain, and are sold wherever
-somebody is buying, exactly like any other leftover lot.
+the circuit ended, and its tons ceased to exist — a full hold could empty itself by failing. The first
+repair kept the tons and carried them as the captain's own unaddressed stock, to be sold wherever
+somebody was buying, and left the question of whose they were open. Review closed it: **the freight is
+the shipper's.**
 
-**Open question for review.** Selling undelivered freight is a disposal mechanic arrived at by default
-rather than by design — the goods belong to a shipper who was never paid. The alternative is that the
-tons stay aboard and unsellable until an explicit mechanic (a claim, a fine, a salvage sale at a
-discount) says what becomes of them, which costs a trader hold until it is built. This candidate takes
-the first, because the second silently fills a hold with dead weight and stops the ship.
+So a failed shipment becomes a **return** entry on the manifest: the same tonnage, addressed back to
+the world it came from, carrying the shipper's name, worth nothing to the captain. Three rules follow
+from that and each is what the trader actually does:
+
+- **It goes home first.** Return cargo aboard decides the first calls of the next circuit, ahead of new
+  work, and if the trader has nothing else to do the reposition prefers the shipper's world over one
+  that is buying or one that has work.
+- **It is handed back for nothing.** At the shipper's world the tons come off, the purse does not move,
+  and the log says *"returned N tons of undelivered freight to <shipper>; nothing owed."* Standing at
+  that world at planning time — after a reload, say — hands it back before anything is planned.
+- **It is never sold.** At any other world, however much that world is paying for the good, the entry
+  stays in the hold. The captain has no stock to sell.
+
+The shipment id names its origin (`job-<origin>-<n>`), so a manifest saved before the origin was
+recorded on it still goes home.
+
+**What is still not built, on purpose:** any claim, fine, penalty to standing, or deadline on the
+return. A failed contract costs the captain the fee and the trip, and nothing more, until review says
+otherwise. And if the shipper's own world will not deal with the ship either, the freight stays aboard;
+that is a hold the captain has to solve by repairing standing, and it is reported on the panel as such.
 
 ## What this replaces, and what it leaves alone
 
@@ -208,11 +225,12 @@ against the same world twice, not once after the other.
 | `JOB-COMBINE` | a freighter unable to carry two shipments its hold has room for |
 | `DEAD-WORLD` | a world with no people and nothing that trades offering goods, demand or jobs — and, now, a defence platform or a relay on a bare rock creating an economy |
 | `CIRCUIT-CONSERVE` | tons of undeliverable freight destroyed at the end of a circuit |
+| `FAILED-CARGO-OWNER` | the shipper's freight sold at the next port that is buying, or not routed home, or paid for on return |
 | `CIRCUIT-IDLE` | a trader left standing at a world that will deal with her and has nothing for her to do |
 | `CIRCUIT-FULL-HOLD` | a trader stopped for good by a hold full of cargo nobody nearby is buying |
 | `JOB-FEE` | a shipment costing twice as much for twice the load, so the voyage is charged again on every ton |
 
-Fourteen checks are in the suite, covering those eight plus the circuit behaviour review asked for: two
+Fifteen checks are in the suite, covering those eight plus the circuit behaviour review asked for: two
 traders cannot take the same tons or the same shipment; cargo stays addressed and comes off only at its
 own call; freed hold goes back to work later in the circuit; and a reload resumes the route, the leg,
 the manifest, the shelves and the books of work exactly. Intermediate danger and a stopped trader never
@@ -227,6 +245,12 @@ alive with a shelf and a book of work.
 captain and nine tons of ordinary cargo, completes the circuit, and requires forty-nine tons still
 aboard, the captain's purse unchanged, and the failed contract carried as goods with no address and no
 cost basis.
+
+`FAILED-CARGO-OWNER` ends a circuit at a refusing port with thirty tons of a shipper's freight aboard,
+calls at a third world that is buying exactly that good, and requires the tons still aboard and the
+purse unchanged; then requires the next plan to call at the shipper's world; then calls there and
+requires an empty hold, an unchanged purse, and the return in the log. On `8ce4c4d` it reports the
+freight sold at the third world for latinum.
 
 `CIRCUIT-IDLE` empties a world's book and leaves the captain knowing no other world's prices, so there
 is nothing to plan; the world itself still trades and still deals with the ship. It requires a plan

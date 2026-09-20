@@ -2604,14 +2604,14 @@
     {
       "id": 60,
       "name": "Concord-class Grand Cruiser",
-      "description": "The Concord-class Grand Cruiser is an independent endgame flagship. Its long reach and endurance outweigh its slower response; Excalibur has greater combat durability.",
+      "description": "The Concord-class Grand Cruiser is an independent endgame flagship. Its large commercial hold and long reach outweigh its slower response; Excalibur has greater combat durability.",
       "shipClass": "battleship",
       "drawWidth": 74,
       "drawHeight": 74,
       "drawScale": 4,
       "mass": 6,
       "antimatterUse": 10,
-      "cargoCapacity": 308,
+      "cargoCapacity": 1320,
       "hull": 6500,
       "shields": 8000,
       "topSpeed": 50,
@@ -2715,10 +2715,11 @@
         "resistance": "hardened"
       },
       "cargoReview": {
-        "revision": "finite-economy-cargo-v1",
+        "revision": "finite-economy-cargo-v2",
         "date": "2026-09-20",
-        "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
-        "previousCargoCapacity": 10000
+        "previousCargoCapacity": 10000,
+        "reducedTo": 308,
+        "rationale": "Authored civilian/commercial exception, approved on review: the hull's marketRole is civilian, its art note names a separate civilian megaship identity, and the previous balance review preserved its commercial role. Held at the heavy-cargo tier for a battleship-class hull (220 x 6) rather than the 10,000 it shipped with, which nothing authored explains."
       }
     },
     {

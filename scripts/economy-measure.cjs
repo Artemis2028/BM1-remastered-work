@@ -63,6 +63,53 @@ const money = (n) => Number(n).toLocaleString('en-US');
               hold: Number(x.cargoCapacity), price: t.getShipPrice(x), mass: Number(x.mass) || 0 };
           });
       },
+      // The books of work as they stand, read without touching them: a world nobody has looked at is
+      // reported as unseeded rather than seeded by the act of measuring it. Every open shipment on a
+      // seeded world is judged from that world, as the trader would judge it standing there, and the
+      // first reason it would be passed over is recorded.
+      books(f) {
+        const t = testBM1, s = t.state;
+        const tr = f.trade;
+        const day = Number(s.day) || 1;
+        const hold = t.fleetTradeCapacity(f);
+        const load = t.fleetTradeLoad(tr);
+        const room = hold - load;
+        const rule = t.TRADE_RISK_RULES[tr.risk] || t.TRADE_RISK_RULES.cautious;
+        const out = { day, seeded: 0, unseeded: 0, capacity: 0, open: 0, ages: [], reasons: {},
+          full: 0, empty: 0, worlds: 0, hold, load };
+        for (let i = 0; i < s.planets.length; i++) {
+          if (!t.worldTrades(i)) continue;
+          out.worlds += 1;
+          const record = s.worldJobs && s.worldJobs[i];
+          if (!record || !Array.isArray(record.jobs)) { out.unseeded += 1; continue; }
+          const cap = t.worldTradeCapability(i);
+          out.seeded += 1;
+          out.capacity += cap.jobs;
+          out.open += record.jobs.length;
+          if (record.jobs.length >= cap.jobs) out.full += 1;
+          if (record.jobs.length === 0) out.empty += 1;
+          for (const j of record.jobs) {
+            out.ages.push(Math.max(0, day - (Number(j.createdDay) || day)));
+            let reason = 'ok';
+            const to = Number(j.targetIndex);
+            const recorded = t.conditionLog()[to] && t.conditionLog()[to].controller;
+            const risk = t.plannedRouteRisk(i, to);
+            if (!risk) reason = 'no-route';
+            else if (recorded != null && t.serviceRefusal(recorded)) reason = 'refusal';
+            else if (risk.unreported.length && !rule.acceptUnreported) reason = 'unreported';
+            else if (risk.worst && risk.worst.band > rule.maxBand) reason = 'danger';
+            else if (j.tons > hold) reason = 'too-big';
+            else if (j.tons > room) reason = 'no-room';
+            out.reasons[reason] = (out.reasons[reason] || 0) + 1;
+          }
+        }
+        out.ages.sort((a, b) => a - b);
+        const q = (p) => out.ages.length ? out.ages[Math.floor((out.ages.length - 1) * p)] : 0;
+        out.age = { median: q(0.5), p90: q(0.9), max: q(1) };
+        delete out.ages;
+        out.occupancy = out.capacity ? out.open / out.capacity : 0;
+        return out;
+      },
       // One run, snapshotted at each horizon, so a five-thousand-day answer costs one pass.
       run({ shipId, count, risk, days, marks, repair, learn, seed }) {
         const t = testBM1, s = t.state;
@@ -81,7 +128,8 @@ const money = (n) => Number(n).toLocaleString('en-US');
         }
         const purse0 = s.latinum;
         const upkeepPerDay = ships.reduce((n, f) => n + t.upkeepPerDay(f.shipId), 0);
-        const stats = ships.map(() => ({ idle: 0, stoppedDay: null, loadSum: 0, loadSamples: 0 }));
+        const stats = ships.map(() => ({ idle: 0, stoppedDay: null, loadSum: 0, loadSamples: 0,
+          contractSeen: 0, deliveries: 0, lastDeliveryDay: null }));
         const snapshots = {};
         for (let d = 1; d <= days; d++) {
           s.day += 1;
@@ -91,6 +139,11 @@ const money = (n) => Number(n).toLocaleString('en-US');
             const f = ships[k], tr = f.trade;
             if (!tr) continue;
             if (tr.stage !== 'outbound') stats[k].idle++;
+            if ((tr.contractIncome || 0) > stats[k].contractSeen) {
+              stats[k].contractSeen = tr.contractIncome || 0;
+              stats[k].deliveries += 1;
+              stats[k].lastDeliveryDay = d;
+            }
             if (stats[k].stoppedDay === null && !tr.active && tr.stage === 'holding') stats[k].stoppedDay = d;
             if (tr.stage === 'outbound') {
               const hold = t.fleetTradeCapacity(f);
@@ -139,8 +192,11 @@ const money = (n) => Number(n).toLocaleString('en-US');
                 fill: stats[k].loadSamples ? stats[k].loadSum / stats[k].loadSamples : 0,
                 hull: f.vessel ? f.vessel.hull / f.vessel.maxHull : 1,
                 destroyed: Boolean(f.destroyed),
+                deliveries: stats[k].deliveries,
+                lastDeliveryDay: stats[k].lastDeliveryDay,
               };
             });
+            const books = window.__econ.books(ships[0]);
             snapshots[d] = {
               day: d,
               purse: s.latinum,
@@ -153,6 +209,7 @@ const money = (n) => Number(n).toLocaleString('en-US');
               commodity: per.reduce((n, x) => n + x.commodity, 0),
               idle: per.reduce((n, x) => n + x.idle, 0),
               destroyed: per.filter((x) => x.destroyed).length,
+              books,
             };
           }
         }
@@ -187,13 +244,20 @@ const money = (n) => Number(n).toLocaleString('en-US');
     shipId: cast[cast.length - 1].hull.id, count: 1, risk: 'cautious', days: MAX_DAYS, marks: HORIZONS,
     repair: false, learn: LEARN, seed: 'econ-unmaintained',
   });
-  // risk settings, maintained, at the long horizon
+  // risk settings, maintained, at the long horizon — the heavy freighter, and the five-ton starter
+  // hull, which is the one the courier lots exist for
   const byRisk = {};
+  const byRiskSmall = {};
   for (const risk of ['safe', 'cautious', 'risky', 'any']) {
     await fresh(`econ-risk-${risk}`);
     byRisk[risk] = await ev((arg) => window.__econ.run(arg), {
       shipId: cast[cast.length - 1].hull.id, count: 1, risk, days: MAX_DAYS, marks: HORIZONS,
       repair: true, learn: LEARN, seed: `econ-risk-${risk}`,
+    });
+    await fresh(`econ-risk-small-${risk}`);
+    byRiskSmall[risk] = await ev((arg) => window.__econ.run(arg), {
+      shipId: cast[0].hull.id, count: 1, risk, days: MAX_DAYS, marks: HORIZONS,
+      repair: true, learn: LEARN, seed: `econ-risk-small-${risk}`,
     });
   }
   // several traders on one economy
@@ -303,6 +367,39 @@ const money = (n) => Number(n).toLocaleString('en-US');
         last ? `${Math.round((last.traders[0].idle / HORIZONS[HORIZONS.length - 1]) * 100)}%` : '-'];
     })));
 
+  L.push(table(`Danger setting, one maintained ${cast[0].label} (${cast[0].hull.hold} t)`,
+    ['setting', ...HORIZONS.map((d) => `${d}d net L`), 'circuits at 5000', 'shipments delivered', 'hull left', 'idle at 5000'],
+    Object.entries(byRiskSmall).map(([risk, snaps]) => {
+      const last = snaps[HORIZONS[HORIZONS.length - 1]];
+      return [risk, ...HORIZONS.map((d) => snaps[d] ? money(snaps[d].traders[0].cumulative) : '-'),
+        last ? last.traders[0].circuits : '-',
+        last ? last.traders[0].deliveries : '-',
+        last ? `${Math.round(last.traders[0].hull * 100)}%` : '-',
+        last ? `${Math.round((last.traders[0].idle / HORIZONS[HORIZONS.length - 1]) * 100)}%` : '-'];
+    })));
+
+  // The books of work by danger setting: how full they are, how old what is on them is, and why the
+  // trader passes it over. Read for the heavy freighter's runs, at the horizons review asked for.
+  const BOOK_HORIZONS = HORIZONS.filter((d) => d <= 3000);
+  const reasonKeys = ['ok', 'danger', 'unreported', 'no-route', 'refusal', 'too-big', 'no-room'];
+  const bookRows = [];
+  for (const [label, source] of [['heavy freighter', byRisk], [cast[0].label, byRiskSmall]])
+    for (const [risk, snaps] of Object.entries(source))
+      for (const d of BOOK_HORIZONS) {
+        const snap = snaps[d];
+        if (!snap || !snap.books) continue;
+        const b = snap.books, tr = snap.traders[0];
+        const total = Object.values(b.reasons).reduce((n, x) => n + x, 0) || 1;
+        const pct = (k) => `${Math.round(((b.reasons[k] || 0) / total) * 100)}%`;
+        bookRows.push([label, risk, d, `${b.seeded}/${b.worlds}`, `${Math.round(b.occupancy * 100)}%`,
+          b.full, b.empty, b.open, `${b.age.median} / ${b.age.p90} / ${b.age.max}`,
+          ...reasonKeys.map(pct), `${b.load}/${b.hold}`, tr.deliveries, tr.lastDeliveryDay == null ? '-' : tr.lastDeliveryDay]);
+      }
+  L.push(table('The books of work, by danger setting (seeded worlds only; a world nobody has looked at is not seeded)',
+    ['hull', 'setting', 'day', 'seeded/trading', 'occupancy', 'full', 'empty', 'open', 'age med / p90 / max',
+      ...reasonKeys.map((k) => `${k}`), 'aboard/hold', 'delivered', 'last delivery'],
+    bookRows));
+
   L.push(table('Several heavy freighters on one economy',
     ['traders', ...HORIZONS.map((d) => `${d}d each`), 'circuits each at 5000', 'idle each at 5000'],
     Object.entries(competition).map(([n, snaps]) => {
@@ -315,7 +412,7 @@ const money = (n) => Number(n).toLocaleString('en-US');
 
   fs.mkdirSync(outDir, { recursive: true });
   fs.writeFileSync(path.join(outDir, 'economy-measurements.json'),
-    JSON.stringify({ horizons: HORIZONS, learn: LEARN, worlds, cast, runs, unmaintained, byRisk, competition }, null, 1) + '\n');
+    JSON.stringify({ horizons: HORIZONS, learn: LEARN, worlds, cast, runs, unmaintained, byRisk, byRiskSmall, competition }, null, 1) + '\n');
   console.log(L.join('\n'));
   console.log(`\nWritten to ${path.join(outDir, 'economy-measurements.json')}`);
   if (probe.errors.length) { console.log(`page errors: ${probe.errors.slice(0, 4).join(' | ')}`); process.exitCode = 1; }

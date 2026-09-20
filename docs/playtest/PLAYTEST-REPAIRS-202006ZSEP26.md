@@ -1,13 +1,152 @@
 # BM1 playtest repairs on top of `ae4ae4d`
 
-DTG 201805ZSEP26
+DTG 202006ZSEP26
 
 Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Nothing pushed, merged or deployed.
 The commit count is in `CANDIDATE.json`, computed by the pack script rather than typed here.
 
 ## Read this first
 
-**This round is the five repairs review asked for before the economy is tuned**, on top of `4008e24`.
+**This round is the six items review raised against `8ce4c4d`, and nothing else.** The economy is not
+redesigned and the payout is not touched. The base is `8ce4c4d`. **§4 is open pending your reading of
+the tables**; if nothing new is in them, this is the candidate to close it on.
+
+1. **Failed-contract cargo is the shipper's**, not the captain's stock. It becomes a *return* entry
+   addressed back to the world it came from, goes home ahead of new work, is handed back for nothing,
+   and is never sold — however much the next port is paying. Gate `FAILED-CARGO-OWNER`; on `8ce4c4d`
+   it reports *"New Switzerland is buying Corpses, and the trader sold the shipper's 30 tons of it
+   there for 30 latinum."*
+2. **The books of work are instrumented, not changed.** Regeneration stays at one shipment per world
+   per twelve days. At 300, 1,000 and 3,000 days, for each danger setting and for two hulls, the
+   measurements now report how many worlds' books have been opened, how full they are, how old what is
+   on them is, and the first reason the trader would pass each open shipment over. The answer to "why
+   does shipment work dry up" is in `ECONOMY-MEASUREMENTS-202006ZSEP26.md` §2, and it is not regeneration.
+3. **The payout stands** at a route and hazard fee once plus twenty latinum a ton, for playtesting.
+4. **The five-ton starter hull is in the danger-setting table** alongside the heavy freighter, with the
+   shipments it actually delivered, before anyone decides whether courier fees need scaling.
+5. **The Concord is 1,320 tons** as an authored civilian/commercial exception — the heavy-cargo tier
+   for a battleship-class hull, recorded in both data files with the 10,000 it shipped with and the 308
+   it was briefly cut to. The other thirteen reductions and every existing freight exception stand.
+6. **The stale sentence is gone.** `CARGO-CAPACITY-202006ZSEP26.md` no longer says no ship data changed; it
+   says which thirteen are at the derived default and which one is an authored exception.
+
+**One thing not on the list**, found by item 4 and fixed: a reposition to a world with nothing at the
+other end. The five-ton hull at Any risk made 192 circuits that moved no money, bouncing toward work
+it could not hold. A move now needs a reason, and work counts only if it fits the hull.
+
+**The headline finding.** Shipment work does not dry up because of regeneration — the books are
+92–100% full at every horizon. Under Safe and Cautious, **93–97% of what is on them is on a route the
+captain has no condition report for**, which those settings do not fly; deliverable work is 0% from day
+1,000 and the last shipment lands on day 365–385. Under Risky and Any 93–94% is deliverable and the
+limit is transit time. Nothing in the economy itself moved this round. If that is what review needed
+to see, §4 can close on this candidate.
+
+---
+
+## The six items, in detail
+
+Raised against `8ce4c4d`, which stays the base. Changes are in `src/main.js`, the two ship data files,
+`scripts/playtest-gate.cjs` and `scripts/economy-measure.cjs`.
+
+### 1. Freight from a failed contract is the shipper's
+
+A shipment addressed to a port that refused the ship became, at the end of the circuit, the captain's
+own unaddressed cargo — carried at no cost and sold at the next world that was buying. That was the
+open question in the previous round's design document, and review answered it: **the goods belong to
+the employer.**
+
+The entry is now a **`return`** on the manifest: the same tonnage, addressed back to the world the
+shipment came from (`from` is recorded on every shipment when it is taken; an older manifest still
+names its origin in the shipment id, `job-<origin>-<n>`), carrying the shipper's name, worth nothing.
+Three rules follow, and each is what the trader does rather than what a note says:
+
+- **Home first.** Return cargo aboard decides the first calls of the next circuit, ahead of new work.
+  A trader with nothing else to do repositions to the shipper's world ahead of any world that buys or
+  has work. Standing at the shipper's world at planning time — after a reload — hands it back before
+  anything is planned.
+- **For nothing.** At the shipper's world the tons come off, the purse does not move, and the log says
+  *"returned N tons of undelivered freight to <shipper>; nothing owed."*
+- **Never sold.** At any other world the entry stays aboard, whatever that world is paying. The panel
+  line reads *"30 t Corpses → Earth (returning to Earth, nothing owed)"*.
+
+`FAILED-CARGO-OWNER` ends a circuit at a refusing port with thirty tons of a shipper's freight aboard,
+calls at a third world that is buying exactly that good, and requires the tons still aboard and the
+purse unchanged; then requires the next plan to call at the shipper's world; then calls there and
+requires an empty hold, an unchanged purse and the return in the log. On `8ce4c4d`: *"New Switzerland
+is buying Corpses, and the trader sold the shipper's 30 tons of it there for 30 latinum: a failed
+delivery became the captain's free merchandise."* `CIRCUIT a failed delivery loses the contract, not
+the cargo` is updated to require the failed entry to be a return rather than unaddressed goods; its
+conservation assertions are unchanged.
+
+**Not built, on purpose:** any claim, fine, standing penalty or deadline on the return. A failed
+contract costs the fee and the trip and nothing more until review says otherwise. If the shipper's own
+world will not deal with the ship either, the freight stays aboard, and that is a hold the captain has
+to solve by repairing standing.
+
+### 2. The books of work are instrumented, not changed
+
+Regeneration stays at one shipment per world per twelve days. What changed is that the measurements
+can now say **why** a trader passes work over. At every horizon, for each danger setting and for both
+the heavy freighter and the five-ton starter hull, the script reads every world whose book has been
+opened — without opening any that have not — and records how full the books are, how old the open
+shipments are (each shipment is now stamped with the campaign day it was generated), and the first
+reason the trader standing on that world would pass each one over: `danger`, `unreported`, `no-route`,
+`refusal`, `too-big` for the hull, or `no-room` in the hold as it is.
+
+The answer is in `ECONOMY-MEASUREMENTS-202006ZSEP26.md` §2, and it is not regeneration. **The books are
+92–100% full at every horizon and every setting.** Under Safe and Cautious the trader opens eight of
+ninety worlds' books and **93–97% of what is on them is `unreported`** — the route crosses a system the
+captain has no condition report for, which those settings do not fly — so deliverable work goes from
+4% at day 300 to **0% from day 1,000**, and the last shipment is delivered on day 418 (Safe) or 345
+(Cautious). Under Risky and Any 93–94% of open work is deliverable and the limit is transit time. For
+the five-ton hull, 65–80% of open work is `too-big` and the rest `no-room`, because its hold is always
+full of the last commodity lot.
+
+### 3. The payout stands
+
+A route and hazard fee paid once plus twenty latinum a ton, exactly as `8ce4c4d` left it. Not tuned.
+
+### 4. The five-ton hull in the danger-setting table
+
+Alongside the heavy freighter, at all four settings, with a column for the shipments it actually
+delivered. It delivers none under Safe or Cautious at five thousand days and a handful under Risky and
+Any — the courier lots it takes when its hold happens to be empty and one is on the board.
+
+**One thing the table turned up, and one fix for it.** The five-ton hull at Any risk completed 192
+circuits between days 1,136 and 5,000 and moved no money at all. A reposition whose destination has
+nothing for her — no buyer, no work she could take, not the shipper's world — was a move for its own
+sake, and repeated it became a trader bouncing between ports and counting circuits. The reposition now
+counts as work only a shipment **her hull can hold**, and with no reason to go anywhere she holds where
+she is and the panel says why. `CIRCUIT-IDLE` and `CIRCUIT-FULL-HOLD` still pass, because both give
+her a reason.
+
+### 5. The Concord is 1,320 tons
+
+An authored civilian/commercial exception on review, in both data files, with `cargoReview` carrying
+the ruling, the 10,000 it shipped with and the 308 it was briefly cut to. The heavy-cargo tier for a
+battleship-class hull from the same table that judged every other hull; second largest hold in the
+game behind the Isaac. Its text says so again: *"Its large commercial hold and long reach outweigh its
+slower response."* The other thirteen reductions and every existing freight exception stand.
+
+### 6. The stale sentence
+
+`CARGO-CAPACITY-202006ZSEP26.md` said *"No ship data is changed in this candidate, as asked."* It now says
+which thirteen hulls are at the derived default, which one is an authored exception, and that the
+per-hull CSV is how an individual call gets overruled — which is exactly what happened with the
+Concord.
+
+### Gates
+
+One new check, **60 in the playtest gate**. `FAILED-CARGO-OWNER` reproduces on `8ce4c4d` with the
+message quoted above; nothing else reproduces there. `CIRCUIT a failed delivery loses the contract,
+not the cargo` is updated for the return entry (its conservation assertions are unchanged) and still
+reproduces on `4008e24`. No check was weakened and no baseline raises a `TypeError`.
+
+---
+
+## The round before it: the five pre-tuning repairs
+
+**That round was the five repairs review asked for before the economy is tuned**, on top of `4008e24`.
 **§4 is still open** until review reads the tables below. Nothing else was touched: the danger settings
 are exactly as they were, the authorized cloak bypass stays, Tactical Cube plan and capture content
 stays deferred, Gorn services and recovery stay behind the authored discovery requirement, and
@@ -50,18 +189,18 @@ The measurements document also records a fault in the measuring instrument — "
 actually repairing the trader — and corrects it.
 
 **One thing needs a decision and one needs a second look.** Selling undelivered freight at a later port
-is a disposal mechanic arrived at by default rather than by design (`ECONOMY-DESIGN-201805ZSEP26.md`, §E). And
+is a disposal mechanic arrived at by default rather than by design (`ECONOMY-DESIGN-202006ZSEP26.md`, §E). And
 the **Concord-class Grand Cruiser** is the only one of the fourteen whose other authored fields —
 `marketRole: civilian`, an art note calling it a civilian megaship, and the previous balance review's own
 "commercial role" — argue for its hold; the derivation never saw them because none of it is description
-text. It is reduced to 308 as approved, and `CARGO-CAPACITY-201805ZSEP26.md` names 1,320 as the figure that
+text. It is reduced to 308 as approved, and `CARGO-CAPACITY-202006ZSEP26.md` names 1,320 as the figure that
 would follow if review would rather treat it as an authored exception.
 
 **The headline numbers.** Like for like at a thousand days, one maintained trader on Cautious: net
 **239,054 → 27,462** latinum, shipment income **223,760 → 11,922**, commodity income roughly unchanged
 at **29,313 → 26,405**. The economy is now commodity-led. Payback runs 4,400 to 9,300 days against 357
 to 752 before. The full tables, and four things worth asking about, are in
-`ECONOMY-MEASUREMENTS-201805ZSEP26.md`.
+`ECONOMY-MEASUREMENTS-202006ZSEP26.md`.
 
 ---
 
@@ -87,7 +226,7 @@ unchanged, and the failed contract carried as goods with no address. On `4008e24
 went into the circuit and 9 came out: 40 tons of undeliverable freight were destroyed by the end of the
 circuit."*
 
-**This needs a decision (see `ECONOMY-DESIGN-201805ZSEP26.md` §E).** Unaddressed cargo is sold wherever
+**This needs a decision (see `ECONOMY-DESIGN-202006ZSEP26.md` §E).** Unaddressed cargo is sold wherever
 somebody is buying, so the goods do eventually turn into money for a captain who was never entitled to
 them. The alternative — tons that stay aboard and unsellable until an explicit claim, fine or discounted
 salvage mechanic exists — quietly fills a hold with dead weight and stops the ship, so this candidate
@@ -150,7 +289,7 @@ the worth of a ton of hold to vary by at least fourfold across a real board. On 
 *"61 of 61 shipments cost twice as much for twice the load."*
 
 **This is a first measurement pass, not a locked number.** The five constants are named in
-`TRADE_ECONOMY`; the tables are in `ECONOMY-MEASUREMENTS-201805ZSEP26.md`.
+`TRADE_ECONOMY`; the tables are in `ECONOMY-MEASUREMENTS-202006ZSEP26.md`.
 
 ### 4. The danger settings are not tuned
 
@@ -180,7 +319,7 @@ it commodity trading. What stops it is the **danger model**, not the size of the
 shipments of five tons or less open on the map, one is on a route a Cautious trader will fly. The work
 is now there for it to take; reaching it is the danger settings' problem, which is §6's.
 
-`CARGO-CAPACITY-201805ZSEP26.md` is the table, reissued as applied rather than proposed, and it names the one
+`CARGO-CAPACITY-202006ZSEP26.md` is the table, reissued as applied rather than proposed, and it names the one
 hull worth a second look — the **Concord**, whose `marketRole: civilian`, art note and previous balance
 rationale all say commercial, none of which is description text and none of which the derivation saw.
 
@@ -280,7 +419,7 @@ records call dangerous**, because only the destination was examined — fixed, w
 turned away at a port came home with its prices** — fixed, with a gate. **The pack's cover sheets
 shipped describing the previous round**; the duplicated narrative is gone and the pack now refuses to
 build when its stamps disagree with what is being packed. And the economy question is **costed rather
-than tuned**: `ECONOMY-DESIGN-201805ZSEP26.md`, nothing implemented.
+than tuned**: `ECONOMY-DESIGN-202006ZSEP26.md`, nothing implemented.
 
 The foreign-market specification is amended twice, and one of those amendments reorders the work:
 **persistent strategic vessel identity is now a prerequisite** before any offscreen operation may
@@ -382,7 +521,7 @@ how two traders cannot take the same shipment, and it means a planner call is no
 
 ### 6. The measurements, at 300, 1,000, 3,000 and 5,000 days
 
-`ECONOMY-MEASUREMENTS-201805ZSEP26.md`, driven through the engine rather than modelled, with **nothing
+`ECONOMY-MEASUREMENTS-202006ZSEP26.md`, driven through the engine rather than modelled, with **nothing
 tuned**. The four findings that matter:
 
 - **Contract pay is the economy.** 416–620 latinum a ton. A cruiser books 223,760 of shipments against
@@ -399,7 +538,7 @@ four make 108,824 each and idle 38% of the time.
 
 ### 7. Cargo capacity — a table, not a change
 
-`CARGO-CAPACITY-201805ZSEP26.md`. **No ship data is changed.**
+`CARGO-CAPACITY-202006ZSEP26.md`. **No ship data is changed.**
 
 Defaults from `shipClass` and the authored `role`; a hull keeps what it shipped with unless its hold is
 below the default (raised, so it can take a shipment at all) or more than six times it — and then the
@@ -486,7 +625,7 @@ it stopped. On `75389f7`: *"she was stopped on a 11-day first leg, but it took u
 
 ### 2. Cargo capacity, proposed across the whole roster
 
-`CARGO-CAPACITY-201805ZSEP26.md`, and `scripts/cargo-capacity-proposal.cjs` which derives it.
+`CARGO-CAPACITY-202006ZSEP26.md`, and `scripts/cargo-capacity-proposal.cjs` which derives it.
 **No ship data is changed.**
 
 A hull's hold comes from two things the catalogue already records and neither is its name: `shipClass`
@@ -501,7 +640,7 @@ the heavy multiplier has to outweigh class or a capital-class cargo hull beats a
 
 ### 3. The economy design, rewritten to what was asked for
 
-`ECONOMY-DESIGN-201805ZSEP26.md`, superseding the price-slippage proposal, which is deleted. Simple
+`ECONOMY-DESIGN-202006ZSEP26.md`, superseding the price-slippage proposal, which is deleted. Simple
 visible scarcity instead: a world's board carries a **quantity** — `Medical supplies — 82 t available
 @ 7 L/t` — consumed by buying and replenished over campaign time; finite demand in the other direction;
 cargo jobs with explicit tonnage and a limited number open at once, so standing at one system cannot
@@ -511,7 +650,7 @@ numbers. Uninhabited worlds are derived from population and installations, not n
 
 ### 4. The measurements, and the finding in them
 
-`ECONOMY-MEASUREMENTS-201805ZSEP26.md`, from `scripts/economy-measure.cjs`, run against the real map.
+`ECONOMY-MEASUREMENTS-202006ZSEP26.md`, from `scripts/economy-measure.cjs`, run against the real map.
 
 Small worlds carry about 50 tons of a commodity and keep two jobs open; major worlds 110–220 and four
 to six. Nine worlds have no economy at all. Four heavy freighters working the same map make 11,298
@@ -613,7 +752,7 @@ Both reproduce behaviourally on `5d32b7c` with no `TypeError`. The playtest gate
 
 ### 5. The economy, costed rather than tuned
 
-`ECONOMY-DESIGN-201805ZSEP26.md`. **Nothing implemented.** The short version: the fleet trader
+`ECONOMY-DESIGN-202006ZSEP26.md`. **Nothing implemented.** The short version: the fleet trader
 did not break the economy, it was the first thing able to execute at a scale the market model never
 priced. A world's board has no depth — 10,000 tons of one good clears at the same unit price as one
 ton. Upkeep is charged on mass while profit is earned on cargo capacity, and the largest hold in the

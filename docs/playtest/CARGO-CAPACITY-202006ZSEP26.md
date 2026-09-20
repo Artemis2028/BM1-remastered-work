@@ -1,6 +1,6 @@
 # Cargo capacity — derived defaults, challenged outliers, authored exceptions
 
-DTG 201805ZSEP26 · against `4008e24` · supersedes `CARGO-CAPACITY-PROPOSAL-201428ZSEP26.md`
+DTG 202006ZSEP26 · against `8ce4c4d` · supersedes `CARGO-CAPACITY-201805ZSEP26.md`
 · **the fourteen reductions are applied; the nine raises are not**
 
 Review: *"Do not blindly replace all 174 cargo capacities with a formula. Use ship class and authored
@@ -14,7 +14,9 @@ their authored capacities; if needed, allow occasional 1-5t courier jobs."*
 
 **The fourteen challenged holds were reduced**, in both `data/starship_manifest.json` and
 `bm-ships/ships.json`, with the old figure kept on each hull as `cargoReview.previousCargoCapacity` so
-the change is legible in the data rather than only in this document. **The nine raises were not
+the change is legible in the data rather than only in this document. **One of the fourteen, the
+Concord, was then restored to 1,320 tons** as an authored civilian/commercial exception on review — see
+the section on it below — so thirteen are at the derived default. **The nine raises were not
 applied**: those hulls keep exactly what they shipped with. **Every authored freight exception stands** —
 the Tholian Isaac Freighter at 3,500 tons (the largest hold in the game), the Delpin Luxury Liner at
 1,600, the Tarellian and Ferengi hulls at 1,500, the Dominion Freighter at 1,350. **149 hulls are
@@ -36,7 +38,7 @@ less open on the map, one is on a route a Cautious trader will fly. The courier 
 small hull can take one; reaching them is a separate question, and it belongs with the danger settings
 in §6 rather than here.
 
-## One hull that should be looked at again
+## The one hull that was looked at again: the Concord, 1,320 tons
 
 The **Concord-class Grand Cruiser** is the only one of the fourteen whose *other* authored fields argue
 for the hold. Its `role` reads "independent supercapital", which is what the derivation read, but its
@@ -44,10 +46,13 @@ for the hold. Its `role` reads "independent supercapital", which is what the der
 previous balance review's own rationale says it "preserves approved endgame values and **commercial
 role**". None of that is description text, so the derivation never saw it.
 
-It is reduced to 308 as approved. If review wants it treated as an authored exception instead, the
-figure that follows from the same table is **1,320** — a battleship-class hull at the heavy-cargo tier —
-which would make it the second largest hold in the game behind the Isaac. It is one line of data
-either way; this candidate does not assume.
+Review ruled it an **authored civilian/commercial exception**. It is **1,320 tons** — a battleship-class
+hull at the heavy-cargo tier, `220 x 6`, the same table that judged every other hull — which makes it
+the second largest hold in the game behind the Isaac's 3,500, rather than the 10,000 it shipped with,
+which nothing authored explains. Its own text says so again: *"Its large commercial hold and long
+reach outweigh its slower response."* Both data files carry the ruling as `cargoReview`, with the
+shipped figure and the 308 it was briefly cut to. The other thirteen reductions stand, and so does every
+existing freight exception.
 
 ## How a hull is judged
 
@@ -237,14 +242,14 @@ Cargo hulls: **33** of 174, of which **4** are heavy.
 | 6              | 12           | 14         | 160       | 68,743         | 3500         |
 | 8              | 16           | 9          | 165       | 70,467         | 3500         |
 
-Outcomes as the derivation tabled them: **149 left exactly as shipped**, **9 raised to a hold that can take the smallest shipment**, **14 challenged and reduced**, **2 kept because the text says what the volume is for**. As **applied**: the 14 reductions and nothing else, so 160 hulls are untouched and the 9 raises were declined in favour of courier work.
+Outcomes as the derivation tabled them: **149 left exactly as shipped**, **9 raised to a hold that can take the smallest shipment**, **14 challenged and reduced**, **2 kept because the text says what the volume is for**. As **applied**: 13 reductions to the derived default, the Concord at an authored 1,320, and nothing else — 160 hulls are untouched and the 9 raises were declined in favour of courier work.
 
 Full roster with every hull's derived default, proposal, outcome and authored phrase: `validation/cargo-capacity-proposal.csv`.
 
 ## What this changes, and what it does not
 
 **It does not change the balance.** The long-horizon measurements
-(`ECONOMY-MEASUREMENTS-201805ZSEP26.md`) say the hold is not what limits a trader: a 220-ton cruiser
+(`ECONOMY-MEASUREMENTS-202006ZSEP26.md`) say the hold is not what limits a trader: a 220-ton cruiser
 and a 3,500-ton freighter both earn about the same, because what is scarce is the
 number of shipments a world has open, not the room to carry them. Hold utilisation at the top of the
 roster still runs at three to seven per cent after the reductions.
@@ -253,6 +258,8 @@ So this proposal is about **plausibility** — a mass-6 warship should not be th
 game — and about **the bottom end**, where a five-ton hold cannot accept any shipment on any world's
 book and the ship is simply shut out.
 
-**It is a proposal.** No ship data is changed in this candidate, as asked. The threshold is a dial and
-the table above shows where each setting puts the line; the per-hull CSV carries every hull's
-description so an individual call can be overruled without moving the dial.
+**It is applied.** The ship data is changed in this candidate, as approved: thirteen holds are at the
+derived default, one — the Concord — is at an authored exception figure, and everything else is as it
+shipped. The threshold remains a dial and the table above shows where each setting puts the line; the
+per-hull CSV carries every hull's description so an individual call can be overruled without moving
+the dial, which is exactly what happened with the Concord.

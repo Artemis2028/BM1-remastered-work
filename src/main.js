@@ -14303,6 +14303,7 @@ function buildWorldJob(index, cap, seq) {
     employerFaction: getTradeStandingFaction(index),
     hazards,
     createdAt: Date.now(),
+    createdDay: Number(state.day) || 1,
     negotiated: false,
   };
 }
@@ -26387,7 +26388,7 @@ function planFleetTradeCircuit(f, t, day = state.day) {
   // and a five-ton hull idle for nine tenths of the campaign with five tons of cargo aboard that
   // nobody near her was buying. Every dead end in the planner now moves her on instead. [playtest]
   const moveOn = (note) => {
-    const move = planFleetTradeReposition(f, t, from, (t.manifest || []).map((m) => m.goods));
+    const move = planFleetTradeReposition(f, t, from, t.manifest || []);
     return move ? { ok: true, plan: move, repositioning: true, note } : { ok: false, note };
   };
   const purse = Math.max(0, Math.floor(finiteNumber(state.latinum, 0)) - TRADE_PURSE_RESERVE);
@@ -26395,16 +26396,28 @@ function planFleetTradeCircuit(f, t, day = state.day) {
   // shipment can be DELIVERED (needs only a route and a port that will take her).
   const sellable = new Set(fleetTradeCandidates(f, t, from));
 
+  // Standing at the very world some shipper's freight belongs to — after a reload, or a reposition
+  // that ended here — it is handed back before anything else is planned.
+  const home = (t.manifest || []).filter((m) => m.kind === 'return' && Number(m.to) === Number(from));
+  if (home.length) {
+    t.manifest = (t.manifest || []).filter((m) => !home.includes(m));
+    const tons = home.reduce((n, m) => n + m.tons, 0);
+    setLog(`${f.name} returned ${tons} tons of undelivered freight to ${[...new Set(home.map((m) => m.owner || state.planets[from]?.name))].join(', ')}; nothing owed.`);
+  }
   // Cargo still aboard from a previous circuit takes up room and comes along.
   let room = hold - fleetTradeLoad(t);
   if (room < 1) return moveOn(`${f.name}'s hold is full of cargo nobody has bought.`);
   const manifest = [];
   // Shipments still aboard from a previous circuit decide the first calls: a trader that could not
   // deliver last time goes back rather than carrying the load around for ever.
-  const stops = [...new Set((t.manifest || [])
-    .filter((m) => m.kind === 'job' && Number.isFinite(Number(m.to)))
-    .map((m) => Number(m.to))
-    .filter((to) => to !== from && fleetTradeDeliverable(f, t, from, to)))].slice(0, TRADE_MAX_STOPS);
+  // Cargo being taken back to the shipper it belongs to comes first of all: it is somebody else's
+  // property, it earns nothing, and the only thing to do with it is get it home. [playtest]
+  const aboard = (t.manifest || []).filter((m) => Number.isFinite(Number(m.to)));
+  const stops = [...new Set([
+    ...aboard.filter((m) => m.kind === 'return'),
+    ...aboard.filter((m) => m.kind === 'job'),
+  ].map((m) => Number(m.to)).filter((to) => to !== from && fleetTradeDeliverable(f, t, from, to)))]
+    .slice(0, TRADE_MAX_STOPS);
   let expected = 0;
 
   // 1. Shipments on this world's book, best rate first, taken whole or not at all.
@@ -26419,6 +26432,7 @@ function planFleetTradeCircuit(f, t, day = state.day) {
     room -= job.tons;
     if (!stops.includes(Number(job.targetIndex))) stops.push(Number(job.targetIndex));
     manifest.push({ kind: 'job', jobId: job.id, goods: job.goods, tons: job.tons, to: Number(job.targetIndex),
+      from: Number(from), owner: job.employerName || state.planets[from]?.name || 'the shipper',
       fee: jobFee(job), payPerTon: jobPerTon(job), courier: Boolean(job.courier), paid: 0 });
     expected += jobPay(job);
   }
@@ -26547,10 +26561,13 @@ function planFleetTradeCircuit(f, t, day = state.day) {
 // Not a circuit: a move to somewhere she can work again, by the shortest acceptable route.
 function planFleetTradeReposition(f, t, from, carrying = []) {
   // Nearest is not the point on its own: a trader moved off a world with no work for her, onto another
-  // with no work for her, is a trader bouncing between two empty ports. Somewhere that will buy what
-  // is already in the hold comes first — that is what frees her to work at all — then somewhere with
-  // shipments she could take, and only then the nearest port. [playtest]
-  const wanted = [...new Set(carrying.filter(Boolean).map(String))];
+  // with no work for her, is a trader bouncing between two empty ports. The home of any shipper's
+  // freight she is carrying back comes first of all; then somewhere that will buy what is in the hold
+  // — that is what frees her to work — then somewhere with shipments she could take, and only then the
+  // nearest port. [playtest]
+  const entries = carrying.filter((m) => m && typeof m === 'object');
+  const wanted = [...new Set(entries.filter((m) => m.kind !== 'return').map((m) => String(m.goods)).filter(Boolean))];
+  const homes = new Set(entries.filter((m) => m.kind === 'return' && Number.isFinite(Number(m.to))).map((m) => Number(m.to)));
   let best = null;
   for (let i = 0; i < state.planets.length; i++) {
     if (i === Number(from) || !worldTrades(i)) continue;
@@ -26561,13 +26578,20 @@ function planFleetTradeReposition(f, t, from, carrying = []) {
     const route = getPlottedRoute(from, i);
     if (!route) continue;
     const days = Math.max(1, Fleet.travelDays(finiteNumber(route.distance, 0)));
+    const home = homes.has(i) ? 1 : 0;
     const buys = wanted.length && wanted.some((g) => marketDemand(i, g) > 0) ? 1 : 0;
-    const work = worldOpenJobs(i).some((j) => fleetTradeDeliverable(f, t, i, j.targetIndex)) ? 1 : 0;
-    const rank = buys * 2 + work;
+    // Work she could actually take: a shipment her hull can hold, to somewhere she may go. A five-ton
+    // hull sent towards a book of eighty-ton lots is a five-ton hull sent nowhere.
+    const hold = fleetTradeCapacity(f);
+    const work = worldOpenJobs(i).some((j) => j.tons <= hold && fleetTradeDeliverable(f, t, i, j.targetIndex)) ? 1 : 0;
+    const rank = home * 4 + buys * 2 + work;
     if (!best || rank > best.rank || (rank === best.rank && days < best.days))
       best = { to: i, days, route, rank };
   }
-  if (!best) return null;
+  // No reason to go anywhere is no reason to go: a move with nothing at the other end is the start of
+  // a trader bouncing between empty ports, burning upkeep and counting circuits that move no money.
+  // She holds where she is, and the panel says why. [playtest]
+  if (!best || !best.rank) return null;
   const path = (best.route.systems || []).map(Number).slice(1);
   const legDays = routeLegDays(best.route);
   if (!path.length) return null;
@@ -26703,7 +26727,17 @@ function fleetTradeCall(f, t, at, day = state.day) {
   recordMarketObservation(at);
   let revenue = 0, contract = 0, commodity = 0, stranded = 0;
   const keep = [];
+  let returned = 0;
+  const owners = [];
   for (const m of t.manifest) {
+    // Freight from a failed contract is the shipper's property, not the captain's stock. It is handed
+    // back at the world it came from for nothing, and at any other world it stays in the hold. [playtest]
+    if (m.kind === 'return') {
+      if (Number(m.to) !== Number(at)) { keep.push(m); continue; }
+      returned += m.tons;
+      if (!owners.includes(m.owner || where)) owners.push(m.owner || where);
+      continue;
+    }
     // Cargo left over from an earlier circuit has no address: it is sold wherever somebody is buying.
     if (m.to === null && m.kind === 'goods') {
       const board = getPlanetMarket(at).find((o) => o.goods === m.goods);
@@ -26728,6 +26762,8 @@ function fleetTradeCall(f, t, at, day = state.day) {
     }
   }
   t.manifest = keep;
+  if (returned > 0)
+    setLog(`${f.name} returned ${returned} tons of undelivered freight to ${owners.join(', ')} at ${where}; nothing owed.`);
   if (revenue > 0) {
     state.latinum += revenue;
     state.mylatinum = state.latinum;
@@ -26747,20 +26783,33 @@ function fleetTradeCall(f, t, at, day = state.day) {
       if (!takeWorldJob(at, job.id)) continue;
       room -= job.tons;
       t.manifest.push({ kind: 'job', jobId: job.id, goods: job.goods, tons: job.tons,
-        to: Number(job.targetIndex), fee: jobFee(job), payPerTon: jobPerTon(job),
-        courier: Boolean(job.courier), paid: 0 });
+        to: Number(job.targetIndex), from: Number(at), owner: job.employerName || state.planets[at]?.name || 'the shipper',
+        fee: jobFee(job), payPerTon: jobPerTon(job), courier: Boolean(job.courier), paid: 0 });
     }
   }
   return true;
 }
+// The shipper's freight, addressed home. A manifest written before the origin was recorded still names
+// it in the shipment id, which is `job-<origin>-<n>`.
+function returnCargoFor(m) {
+  let origin = Number(m.from);
+  if (!Number.isFinite(origin)) {
+    const match = /^job-(\d+)-/.exec(String(m.jobId || ''));
+    origin = match ? Number(match[1]) : NaN;
+  }
+  const to = Number.isFinite(origin) && state.planets[origin] ? origin : null;
+  return { kind: 'return', goods: m.goods, tons: m.tons, to, from: to,
+    owner: m.owner || state.planets[to]?.name || 'the shipper', jobId: m.jobId || null,
+    unit: 0, paid: 0, fee: 0, payPerTon: 0 };
+}
 function completeFleetTradeCircuit(f, t) {
   // Cargo nobody bought is still cargo: it keeps its cost, loses its address, and is sold at whichever
   // later call is buying. Only what was actually sold is expensed against this circuit. [playtest]
-  // A shipment to a port that will not deal with the ship is a failed contract, and nothing more than
-  // that. The contract pays nothing and the shipment is gone from the books, but the goods are aboard
-  // and stay aboard: they become ordinary unaddressed cargo, carried at no cost, until some later
-  // mechanic says what becomes of undelivered freight. Dropping the entry destroyed the tons outright,
-  // so a full hold emptied itself by failing. [playtest]
+  // A shipment to a port that will not deal with the ship is a failed contract. The contract pays
+  // nothing and is gone from the books, but the goods are aboard, and they are the shipper's: they are
+  // addressed back to the world they came from, to be handed over for nothing, and are never the
+  // captain's to sell. Dropping the entry destroyed the tons outright; treating them as unaddressed
+  // stock turned a failure into free merchandise. [playtest]
   const undeliverable = (t.manifest || []).filter((m) => m.kind === 'job' && m.tons > 0
     && serviceRefusal(getSystemFaction(Number(m.to))));
   if (undeliverable.length) {
@@ -26769,9 +26818,7 @@ function completeFleetTradeCircuit(f, t) {
   }
   const leftovers = (t.manifest || [])
     .filter((m) => m.tons > 0)
-    .map((m) => (undeliverable.includes(m)
-      ? { kind: 'goods', goods: m.goods, tons: m.tons, to: null, unit: 0, paid: 0, failedJobId: m.jobId || null }
-      : { ...m, to: m.kind === 'goods' ? null : m.to }));
+    .map((m) => (undeliverable.includes(m) ? returnCargoFor(m) : { ...m, to: m.kind === 'goods' ? null : m.to }));
   const carried = leftovers.reduce((n, m) => n + Math.max(0, finiteNumber(m.paid, 0)), 0);
   const expected = Math.max(0, finiteNumber(t.expectedProfit, 0));
   const profit = t.revenue - (t.paid - carried);
@@ -26860,7 +26907,9 @@ function selectedFleetTradeRisk(id) {
 function fleetTradeManifestLine(t) {
   if (!t.manifest?.length) return 'empty';
   return t.manifest
-    .map((m) => `${m.tons} t ${m.goods} → ${state.planets[m.to]?.name || '?'}${m.kind === 'job' ? ' (shipment)' : ''}`)
+    .map((m) => m.kind === 'return'
+      ? `${m.tons} t ${m.goods} → ${state.planets[m.to]?.name || '?'} (returning to ${m.owner || 'the shipper'}, nothing owed)`
+      : `${m.tons} t ${m.goods} → ${state.planets[m.to]?.name || '?'}${m.kind === 'job' ? ' (shipment)' : ''}`)
     .join(' · ');
 }
 function fleetTradeStatusLine(f) {
