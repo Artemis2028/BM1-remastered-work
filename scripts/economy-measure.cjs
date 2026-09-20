@@ -4,8 +4,10 @@
 // work, and advances the campaign day by day, reading the same shelves, the same books of work and the
 // same danger the captain would. Everything it reports is what the engine did.
 //
-// Nothing is tuned here, and nothing is changed: the ship roster still carries its shipped cargo
-// capacities, and contract pay is still the engine's own `150 + min(350, distance*3) + hazard`.
+// Nothing is tuned here, and nothing is changed: it reads whatever the tree under measurement does.
+// This pass measures the reviewed payout — a route and hazard fee paid once for the voyage plus a flat
+// rate per ton — against the fourteen reduced warship holds and the narrowed rule for which
+// installations give a world an economy.
 //
 // Usage: node scripts/economy-measure.cjs [--out dir] [--days 5000]
 const fs = require('node:fs');
@@ -96,12 +98,32 @@ const money = (n) => Number(n).toLocaleString('en-US');
             }
             // The captain maintaining her ships: without a repair loop a trader is crippled once and
             // idle for ever, which would make every long horizon a measure of how fast it broke.
-            if (repair && tr.stage !== 'outbound' && f.vessel && f.vessel.condition !== 'destroyed'
-                && f.vessel.hull < f.vessel.maxHull) {
-              f.vessel.hull = f.vessel.maxHull;
-              f.vessel.shields = f.vessel.maxShields;
-              f.vessel.condition = 'operational';
-              if (!tr.active) { tr.active = true; tr.stage = 'idle'; tr.note = ''; }
+            //
+            // A trader's condition is read from the LOCAL ACTOR first and only then from the fleet
+            // record (`fleetVesselCondition`), so restoring the record alone left a disabled ship
+            // disabled: the run went on reporting a "maintained" trader that had in fact stopped, with
+            // its circuits and income frozen from the day it was hit and its idle time climbing to
+            // ninety per cent. Both are restored now, which is what "maintained" was always supposed
+            // to mean. [review]
+            if (repair && tr.stage !== 'outbound' && !f.destroyed) {
+              let fixed = false;
+              const v = f.vessel;
+              if (v && v.condition !== 'destroyed' && (v.hull < v.maxHull || v.condition !== 'operational')) {
+                v.hull = v.maxHull;
+                v.shields = v.maxShields;
+                v.condition = 'operational';
+                fixed = true;
+              }
+              const actor = typeof t.fleetLocalActor === 'function' ? t.fleetLocalActor(f.id) : null;
+              if (actor && !actor.destroyed
+                  && (actor.condition !== 'operational' || actor.combatHull < actor.maxCombatHull)) {
+                actor.combatHull = actor.maxCombatHull;
+                if (Number.isFinite(Number(actor.maxCombatShields))) actor.combatShields = actor.maxCombatShields;
+                actor.condition = 'operational';
+                actor.recoveryAt = 0;
+                fixed = true;
+              }
+              if (fixed && !tr.active) { tr.active = true; tr.stage = 'idle'; tr.note = ''; }
             }
           }
           if (marks.includes(d)) {
@@ -209,13 +231,21 @@ const money = (n) => Number(n).toLocaleString('en-US');
         tons: b((w) => w.tons), demand: b((w) => w.demand), replenish: b((w) => w.replenish), jobs: b((w) => w.jobs) };
     }
     // what the world's book of work actually looks like
-    const tonnage = [], pay = [];
-    for (const w of live.slice(0, 40)) for (const j of t.worldOpenJobs(w.i)) { tonnage.push(j.tons); pay.push(j.payPerTon); }
+    const tonnage = [], pay = [], fee = [], perHoldTon = [];
+    let couriers = 0, shipments = 0;
+    const whole = (j) => (typeof t.jobPay === 'function' ? t.jobPay(j)
+      : Math.round((Number(j.fee) || 0) + (Number(j.payPerTon) || 0) * (Number(j.tons) || 0)));
+    for (const w of live.slice(0, 40)) for (const j of t.worldOpenJobs(w.i)) {
+      tonnage.push(j.tons); pay.push(whole(j)); fee.push(Math.round(Number(j.fee) || 0));
+      perHoldTon.push(Math.round(whole(j) / Math.max(1, j.tons)));
+      shipments += 1; if (j.courier) couriers += 1;
+    }
     const stat = (v) => { const a = v.slice().sort((x, y) => x - y); const q = (p) => a[Math.floor((a.length - 1) * p)];
       return { n: a.length, min: a[0], p25: q(0.25), med: q(0.5), p75: q(0.75), max: a[a.length - 1] }; };
     return { total: rows.length, live: live.length, dead: rows.length - live.length,
       deadNames: rows.filter((w) => !w.inhabited).map((w) => w.name),
-      popBand: band((w) => w.pop), bySize, tonnage: stat(tonnage), pay: stat(pay) };
+      popBand: band((w) => w.pop), bySize, tonnage: stat(tonnage), pay: stat(pay),
+      fee: stat(fee), perHoldTon: stat(perHoldTon), couriers, shipments };
   }, LEARN);
 
   const L = [];
@@ -232,8 +262,11 @@ const money = (n) => Number(n).toLocaleString('en-US');
     })));
   L.push(`Shipments on the board (n / min / p25 / median / p75 / max): tonnage **${worlds.tonnage.n} / `
     + `${worlds.tonnage.min} / ${worlds.tonnage.p25} / ${worlds.tonnage.med} / ${worlds.tonnage.p75} / ${worlds.tonnage.max}**, `
-    + `pay per ton **${worlds.pay.min} / ${worlds.pay.p25} / ${worlds.pay.med} / ${worlds.pay.p75} / ${worlds.pay.max} L** — `
-    + `the engine's shipped rate, untouched.`);
+    + `whole price **${worlds.pay.min} / ${worlds.pay.p25} / ${worlds.pay.med} / ${worlds.pay.p75} / ${worlds.pay.max} L**, `
+    + `of which the once-paid route and hazard fee is **${worlds.fee.min} / ${worlds.fee.p25} / ${worlds.fee.med} / `
+    + `${worlds.fee.p75} / ${worlds.fee.max} L**. What a trader actually compares — price over the hold it takes — is `
+    + `**${worlds.perHoldTon.min} / ${worlds.perHoldTon.p25} / ${worlds.perHoldTon.med} / ${worlds.perHoldTon.p75} / `
+    + `${worlds.perHoldTon.max} L per ton of hold**. ${worlds.couriers} of ${worlds.shipments} are courier lots.`);
 
   const rows = [];
   for (const c of cast)

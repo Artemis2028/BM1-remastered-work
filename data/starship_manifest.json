@@ -2604,14 +2604,14 @@
     {
       "id": 60,
       "name": "Concord-class Grand Cruiser",
-      "description": "The Concord-class Grand Cruiser is an independent endgame flagship. Its immense cargo capacity and long reach outweigh its slower response; Excalibur has greater combat durability.",
+      "description": "The Concord-class Grand Cruiser is an independent endgame flagship. Its long reach and endurance outweigh its slower response; Excalibur has greater combat durability.",
       "shipClass": "battleship",
       "drawWidth": 74,
       "drawHeight": 74,
       "drawScale": 4,
       "mass": 6,
       "antimatterUse": 10,
-      "cargoCapacity": 10000,
+      "cargoCapacity": 308,
       "hull": 6500,
       "shields": 8000,
       "topSpeed": 50,
@@ -2713,19 +2713,25 @@
       "capture": {
         "mode": "allowed",
         "resistance": "hardened"
+      },
+      "cargoReview": {
+        "revision": "finite-economy-cargo-v1",
+        "date": "2026-09-20",
+        "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
+        "previousCargoCapacity": 10000
       }
     },
     {
       "id": 61,
       "name": "Klingon Qonos",
-      "description": "A Klingon supercapital offering substantial freight capacity, long interstellar reach, strong protection. Three equipment slots support its supplied weapons and compatible refits.",
+      "description": "A Klingon supercapital offering long interstellar reach and strong protection. Three equipment slots support its supplied weapons and compatible refits.",
       "shipClass": "battleship",
       "drawWidth": 74,
       "drawHeight": 74,
       "drawScale": 4,
       "mass": 9,
       "antimatterUse": 10,
-      "cargoCapacity": 2500,
+      "cargoCapacity": 220,
       "hull": 11000,
       "shields": 6000,
       "topSpeed": 38,
@@ -2820,19 +2826,25 @@
       "capture": {
         "mode": "allowed",
         "resistance": "hardened"
+      },
+      "cargoReview": {
+        "revision": "finite-economy-cargo-v1",
+        "date": "2026-09-20",
+        "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
+        "previousCargoCapacity": 2500
       }
     },
     {
       "id": 62,
       "name": "Cardassian Behemoth",
-      "description": "A Cardassian supercapital offering substantial freight capacity, long interstellar reach, strong protection. Three equipment slots support its supplied weapons and compatible refits.",
+      "description": "A Cardassian supercapital offering long interstellar reach and strong protection. Three equipment slots support its supplied weapons and compatible refits.",
       "shipClass": "battleship",
       "drawWidth": 74,
       "drawHeight": 74,
       "drawScale": 4,
       "mass": 10,
       "antimatterUse": 10,
-      "cargoCapacity": 6000,
+      "cargoCapacity": 286,
       "hull": 10500,
       "shields": 6500,
       "topSpeed": 32,
@@ -2927,6 +2939,12 @@
       "capture": {
         "mode": "allowed",
         "resistance": "hardened"
+      },
+      "cargoReview": {
+        "revision": "finite-economy-cargo-v1",
+        "date": "2026-09-20",
+        "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
+        "previousCargoCapacity": 6000
       }
     },
     {
@@ -2989,14 +3007,14 @@
     {
       "id": 64,
       "name": "Romulan Warhawk",
-      "description": "A Romulan supercapital offering substantial freight capacity, long interstellar reach, strong protection. Three equipment slots support its supplied weapons and compatible refits.",
+      "description": "A Romulan supercapital offering long interstellar reach and strong protection. Three equipment slots support its supplied weapons and compatible refits.",
       "shipClass": "battleship",
       "drawWidth": 74,
       "drawHeight": 74,
       "drawScale": 4,
       "mass": 9,
       "antimatterUse": 10,
-      "cargoCapacity": 4000,
+      "cargoCapacity": 242,
       "hull": 6500,
       "shields": 11000,
       "topSpeed": 42,
@@ -3091,6 +3109,12 @@
       "capture": {
         "mode": "allowed",
         "resistance": "hardened"
+      },
+      "cargoReview": {
+        "revision": "finite-economy-cargo-v1",
+        "date": "2026-09-20",
+        "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
+        "previousCargoCapacity": 4000
       }
     },
     {
@@ -3103,7 +3127,7 @@
       "drawScale": 4,
       "mass": 10,
       "antimatterUse": 10,
-      "cargoCapacity": 3000,
+      "cargoCapacity": 231,
       "hull": 8500,
       "shields": 9500,
       "topSpeed": 38,
@@ -3198,19 +3222,25 @@
       "capture": {
         "mode": "allowed",
         "resistance": "hardened"
+      },
+      "cargoReview": {
+        "revision": "finite-economy-cargo-v1",
+        "date": "2026-09-20",
+        "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
+        "previousCargoCapacity": 3000
       }
     },
     {
       "id": 66,
       "name": "Tholian Conquest",
-      "description": "A Tholian supercapital offering substantial freight capacity, long interstellar reach, strong protection. Three equipment slots support its supplied weapons and compatible refits.",
+      "description": "A Tholian supercapital offering long interstellar reach and strong protection. Three equipment slots support its supplied weapons and compatible refits.",
       "shipClass": "battleship",
       "drawWidth": 74,
       "drawHeight": 74,
       "drawScale": 4,
       "mass": 10,
       "antimatterUse": 10,
-      "cargoCapacity": 4500,
+      "cargoCapacity": 264,
       "hull": 7500,
       "shields": 10500,
       "topSpeed": 30,
@@ -3307,6 +3337,12 @@
       "capture": {
         "mode": "allowed",
         "resistance": "hardened"
+      },
+      "cargoReview": {
+        "revision": "finite-economy-cargo-v1",
+        "date": "2026-09-20",
+        "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
+        "previousCargoCapacity": 4500
       }
     },
     {
@@ -5878,7 +5914,7 @@
       "drawScale": 0.62,
       "mass": 2,
       "antimatterUse": 2,
-      "cargoCapacity": 110,
+      "cargoCapacity": 17,
       "hull": 130,
       "shields": 190,
       "topSpeed": 65,
@@ -5977,6 +6013,12 @@
       "capture": {
         "mode": "allowed",
         "resistance": "light"
+      },
+      "cargoReview": {
+        "revision": "finite-economy-cargo-v1",
+        "date": "2026-09-20",
+        "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
+        "previousCargoCapacity": 110
       }
     },
     {
@@ -9425,14 +9467,14 @@
     {
       "id": 261,
       "name": "Tactical Cube",
-      "description": "A mission tactical cube offering substantial freight capacity, long interstellar reach, strong protection. Three equipment slots support its supplied weapons and compatible refits.",
+      "description": "A mission tactical cube offering long interstellar reach and strong protection. Three equipment slots support its supplied weapons and compatible refits.",
       "shipClass": "battleship",
       "drawWidth": 86,
       "drawHeight": 86,
       "drawScale": 2.55,
       "mass": 10,
       "antimatterUse": 8,
-      "cargoCapacity": 4000,
+      "cargoCapacity": 253,
       "hull": 13000,
       "shields": 15000,
       "topSpeed": 22,
@@ -9532,6 +9574,12 @@
         "mode": "unlock",
         "resistance": "exceptional",
         "reason": "Tactical Cube capture content is deferred"
+      },
+      "cargoReview": {
+        "revision": "finite-economy-cargo-v1",
+        "date": "2026-09-20",
+        "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
+        "previousCargoCapacity": 4000
       }
     },
     {
@@ -13318,7 +13366,7 @@
       "drawScale": 0.82,
       "mass": 4,
       "antimatterUse": 5,
-      "cargoCapacity": 500,
+      "cargoCapacity": 63,
       "hull": 230,
       "shields": 520,
       "topSpeed": 52,
@@ -13417,6 +13465,12 @@
       "capture": {
         "mode": "allowed",
         "resistance": "standard"
+      },
+      "cargoReview": {
+        "revision": "finite-economy-cargo-v1",
+        "date": "2026-09-20",
+        "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
+        "previousCargoCapacity": 500
       }
     },
     {
@@ -13540,7 +13594,7 @@
       "drawScale": 1.22,
       "mass": 5,
       "antimatterUse": 5,
-      "cargoCapacity": 600,
+      "cargoCapacity": 94,
       "hull": 500,
       "shields": 750,
       "topSpeed": 54,
@@ -13639,6 +13693,12 @@
       "capture": {
         "mode": "allowed",
         "resistance": "standard"
+      },
+      "cargoReview": {
+        "revision": "finite-economy-cargo-v1",
+        "date": "2026-09-20",
+        "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
+        "previousCargoCapacity": 600
       }
     },
     {
@@ -14782,7 +14842,7 @@
       "drawScale": 0.9,
       "mass": 4,
       "antimatterUse": 5,
-      "cargoCapacity": 430,
+      "cargoCapacity": 62,
       "hull": 230,
       "shields": 270,
       "topSpeed": 52,
@@ -14886,6 +14946,12 @@
       "capture": {
         "mode": "allowed",
         "resistance": "light"
+      },
+      "cargoReview": {
+        "revision": "finite-economy-cargo-v1",
+        "date": "2026-09-20",
+        "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
+        "previousCargoCapacity": 430
       }
     },
     {
@@ -14898,7 +14964,7 @@
       "drawScale": 1.4,
       "mass": 3,
       "antimatterUse": 10,
-      "cargoCapacity": 380,
+      "cargoCapacity": 60,
       "hull": 160,
       "shields": 240,
       "topSpeed": 50,
@@ -15002,6 +15068,12 @@
       "capture": {
         "mode": "allowed",
         "resistance": "light"
+      },
+      "cargoReview": {
+        "revision": "finite-economy-cargo-v1",
+        "date": "2026-09-20",
+        "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
+        "previousCargoCapacity": 380
       }
     },
     {
@@ -18688,14 +18760,14 @@
     {
       "id": 346,
       "name": "Borg Assimilation Cube",
-      "description": "A Borg assimilation cube offering substantial freight capacity, long interstellar reach, strong protection. Three equipment slots support its supplied weapons and compatible refits.",
+      "description": "A Borg assimilation cube offering long interstellar reach and strong protection. Three equipment slots support its supplied weapons and compatible refits.",
       "shipClass": "battleship",
       "drawWidth": 86,
       "drawHeight": 86,
       "drawScale": 4,
       "mass": 10,
       "antimatterUse": 2,
-      "cargoCapacity": 6000,
+      "cargoCapacity": 297,
       "hull": 6000,
       "shields": 6500,
       "topSpeed": 25,
@@ -18798,6 +18870,12 @@
       "capture": {
         "mode": "allowed",
         "resistance": "exceptional"
+      },
+      "cargoReview": {
+        "revision": "finite-economy-cargo-v1",
+        "date": "2026-09-20",
+        "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
+        "previousCargoCapacity": 6000
       }
     },
     {
@@ -18848,7 +18926,7 @@
       "cost": 1500000,
       "hull": 9000,
       "shields": 12000,
-      "cargoCapacity": 5000,
+      "cargoCapacity": 275,
       "mass": 10,
       "antimatterUse": 12,
       "topSpeed": 50,
@@ -18907,6 +18985,12 @@
       "capture": {
         "mode": "allowed",
         "resistance": "hardened"
+      },
+      "cargoReview": {
+        "revision": "finite-economy-cargo-v1",
+        "date": "2026-09-20",
+        "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
+        "previousCargoCapacity": 5000
       }
     },
     {

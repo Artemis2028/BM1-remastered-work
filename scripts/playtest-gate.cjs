@@ -44,7 +44,9 @@ const { startProbe } = require('./probe-harness.cjs');
       const o = opts || {};
       const ships = Object.values(s.shipStatsById).filter((x) => x && x.assetType === 'ship' && Number(x.cargoCapacity) > 0);
       ships.sort((a, b) => Number(a.cargoCapacity) - Number(b.cargoCapacity));
-      const pick = o.big ? ships[ships.length - 1] : ships[Math.floor(ships.length / 2)];
+      const pick = o.big ? ships[ships.length - 1]
+        : o.hold ? (ships.find((x) => Number(x.cargoCapacity) >= o.hold) || ships[0])
+        : ships[Math.floor(ships.length / 2)];
       const f = { id, shipId: Number(o.shipId ?? pick.id), name: o.name || id, faction: s.playerFaction,
         assignment: 'defense', systemIndex: o.at ?? s.currentPlanet, seed: o.seed ?? 3 };
       s.playerFleet.push(f);
@@ -2275,7 +2277,9 @@ const { startProbe } = require('./probe-harness.cjs');
       if (typeof t.startFleetTrading !== 'function') return { ordered: false, reason: 'no trade order exists on a fleet ship' };
       const before = s.latinum;
       t.startFleetTrading('gate-trade-1', 'any');
-      window.__tradeDays(60);
+      // Long enough for a call to happen: legs run to sixty-odd days each across this galaxy, so a
+      // sixty-day window measured the calendar rather than whether the ship trades.
+      window.__tradeDays(150);
       const f = s.playerFleet.find((x) => x.id === 'gate-trade-1');
       const trade = f && f.trade;
       return {
@@ -2289,7 +2293,7 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.ok(r.ordered, `a fleet ship was ordered to trade and nothing took the order: ${r.reason}`);
     assert.ok(r.moved, 'the trader was ordered out and never left the system it was parked in');
     assert.ok(r.cumulative > 0,
-      `the trader ran for 60 days and has ${r.cumulative} latinum of realised profit to show for it`);
+      `the trader ran for 150 days and has ${r.cumulative} latinum of realised profit to show for it`);
     assert.ok(r.after > r.before,
       `the captain had ${r.before} latinum before the run and ${r.after} after`);
     assert.equal(r.captainHold, 0,
@@ -2303,7 +2307,7 @@ const { startProbe } = require('./probe-harness.cjs');
     const r = await ev(() => {
       const t = testBM1, s = t.state;
       window.__tradeSetup({});
-      const small = window.__tradeShip('gate-cap-small', { big: false, seed: 4 });
+      const small = window.__tradeShip('gate-cap-small', { hold: 25, seed: 4 });
       const big = window.__tradeShip('gate-cap-big', { big: true, seed: 4 });
       const plan = t.planFleetTradeCircuit || t.planFleetTradeRun;
       if (typeof plan !== 'function') return { planned: false, reason: 'no trade planner exists' };
@@ -2315,7 +2319,7 @@ const { startProbe } = require('./probe-harness.cjs');
         s.worldJobs = {}; s.marketStock = {};
         s.latinum = 200000; s.mylatinum = s.latinum;
         s.playerFleet.length = 0;
-        const ship = window.__tradeShip(id, { big, seed: 4 });
+        const ship = window.__tradeShip(id, big ? { big: true, seed: 4 } : { hold: 25, seed: 4 });
         const f = s.playerFleet.find((x) => x.id === id);
         const p = plan(f, t.ensureFleetTradeState(f, 'any'), s.day);
         const jobs = typeof t.worldOpenJobs === 'function' ? t.worldOpenJobs(s.currentPlanet) : [];
@@ -2413,7 +2417,8 @@ const { startProbe } = require('./probe-harness.cjs');
       const paid = f.trade.paid;
       // the destination's board collapses while the run is committed
       t.getPlanetMarket(dest);
-      for (const o of s.planetMarkets[dest]) if (o.goods === goods) o.price = 1;
+      const bound = new Set((f.trade.manifest || []).filter((m) => Number(m.to) === Number(dest)).map((m) => m.goods));
+      for (const o of s.planetMarkets[dest]) if (bound.has(o.goods)) o.price = 1;
       // stop after this circuit so the run being measured is the one that was priced
       t.stopFleetTrading('gate-stale-1');
       let guard = 0;
@@ -2895,8 +2900,10 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.equal(r.back, r.cap, `the world's appetite never comes back: ${r.back} of ${r.cap}`);
   });
 
-  // ECON-4 — an empty rock with nobody on it ran a commodity market and handed out shipping work.
-  await check('ECON a world with no people and no installation has no economy', async () => {
+  // ECON-4 — an empty rock with nobody on it ran a commodity market and handed out shipping work; and
+  // then, once installations were read, ANY installation did it. A gun platform on a bare rock kept a
+  // commodity shelf and a book of freight contracts.
+  await check('ECON an empty world trades only where something there does economic work', async () => {
     await fresh('play-econ-dead');
     const r = await ev(() => {
       const t = testBM1, s = t.state;
@@ -2910,22 +2917,40 @@ const { startProbe } = require('./probe-harness.cjs');
       if (!dead.length) return { derived: true, found: false };
       const one = dead[0];
       const goods = t.getPlanetMarket(one.i)[0].goods;
-      // and it starts trading the moment something is built there
-      const before = { trades: t.worldTrades(one.i), supply: t.marketSupply(one.i, goods), jobs: t.worldOpenJobs(one.i).length };
-      (s.stationDefinitions ||= []).push({ id: `gate-dead-${one.i}`, systemIndex: one.i, stationTypeId: 1, name: 'Gate Outpost' });
-      const after = { trades: t.worldTrades(one.i), supply: t.marketSupply(one.i, goods), jobs: t.worldOpenJobs(one.i).length };
-      s.stationDefinitions = s.stationDefinitions.filter((d) => d.id !== `gate-dead-${one.i}`);
-      const populated = alive.filter((w) => w.pop > 0).length;
-      return { derived: true, found: true, dead: dead.map((w) => w.name), one, before, after, populated, aliveCount: alive.length };
+      const id = `gate-dead-${one.i}`;
+      const look = () => ({ trades: t.worldTrades(one.i), supply: t.marketSupply(one.i, goods), jobs: t.worldOpenJobs(one.i).length });
+      const build = (stationTypeId, name) => {
+        s.stationDefinitions = (s.stationDefinitions || []).filter((d) => d.id !== id);
+        s.stationDefinitions.push({ id, systemIndex: one.i, stationTypeId, name });
+        const seen = look();
+        s.worldJobs = {}; s.marketStock = {};
+        return seen;
+      };
+      const before = look();
+      // 86 is the Defense Platform: local beam defence, authored as no commerce at all.
+      const platform = build(86, 'Gate Defence Platform');
+      // 201 is the Communication Array: a relay, and nothing else.
+      const relay = build(201, 'Gate Relay');
+      // 75 is the Trade Station: freight brokerage, commodities, warehousing.
+      const market = build(75, 'Gate Trade Station');
+      s.stationDefinitions = s.stationDefinitions.filter((d) => d.id !== id);
+      s.worldJobs = {}; s.marketStock = {};
+      return { derived: true, found: true, dead: dead.map((w) => w.name), one, before, platform, relay, market,
+        populated: alive.filter((w) => w.pop > 0).length, aliveCount: alive.length };
     });
     assert.ok(r.derived, `${r.reason}`);
     assert.ok(r.found, 'precondition: every world on the map has people or an installation');
     assert.equal(r.before.trades, false, `${r.one.name} has ${r.one.pop} people and ${r.one.installations} installations and still trades`);
     assert.equal(r.before.supply, 0, `${r.one.name} has ${r.before.supply} tons on a shelf nobody is standing behind`);
     assert.equal(r.before.jobs, 0, `${r.one.name} is handing out ${r.before.jobs} shipping jobs with nobody there to hire`);
-    assert.equal(r.after.trades, true,
-      `an outpost was built at ${r.one.name} and it still has no economy: the rule is reading the world's name, not its installations`);
-    assert.ok(r.after.jobs > 0, `an outpost was built at ${r.one.name} and it generates no work`);
+    assert.equal(r.platform.trades, false,
+      `a defence platform was built on the empty rock at ${r.one.name} and the world now runs a market with ${r.platform.supply} tons on the shelf and ${r.platform.jobs} shipments waiting: a gun is not a trading post`);
+    assert.equal(r.relay.trades, false,
+      `a relay was built on the empty rock at ${r.one.name} and the world now runs a market with ${r.relay.supply} tons on the shelf and ${r.relay.jobs} shipments waiting: a relay brokers no freight`);
+    assert.equal(r.market.trades, true,
+      `a trade station was built at ${r.one.name} and it still has no economy: the rule is reading the world's name, not what is actually there`);
+    assert.ok(r.market.jobs > 0, `a trade station was built at ${r.one.name} and it generates no work`);
+    assert.ok(r.market.supply > 0, `a trade station was built at ${r.one.name} and it has nothing on the shelf`);
   });
 
   // JOB-1 — a contract was invented to fit whatever hold was asking, so tonnage was never a constraint
@@ -3081,7 +3106,10 @@ const { startProbe } = require('./probe-harness.cjs');
       const stops = f.trade.stops.slice();
       if (stops.length < 2) return { addressed: true, planned: true, multi: false, stops: stops.length };
       const before = f.trade.manifest.map((m) => ({ tons: m.tons, to: m.to }));
-      const first = stops[0];
+      // The call has to be one the ship is actually served at: a port that turns her away is a failed
+      // call and keeps its cargo on purpose, which is TRADE-4's business, not this check's.
+      const first = stops.find((i) => !t.serviceRefusal(t.getSystemFaction(i)));
+      if (first == null) return { addressed: true, planned: true, multi: false, stops: 0 };
       const forFirst = before.filter((m) => m.to === first).reduce((n, m) => n + m.tons, 0);
       const forOthers = before.filter((m) => m.to !== first).reduce((n, m) => n + m.tons, 0);
       f.systemIndex = first; delete f.transit; f.assignment = 'defense';
@@ -3121,7 +3149,11 @@ const { startProbe } = require('./probe-harness.cjs');
       trade.active = true;
       const stops = trade.stops.slice();
       if (stops.length < 2) return { refills: true, planned: true, multi: false };
-      const first = stops[0], ahead = stops.slice(1);
+      // A port that turns the ship away loads nothing, by design; the freed-hold rule needs a call
+      // that is actually served, with somewhere still to come after it.
+      const servedAt = stops.findIndex((i) => !t.serviceRefusal(t.getSystemFaction(i)));
+      if (servedAt < 0 || servedAt >= stops.length - 1) return { refills: true, planned: true, multi: false };
+      const first = stops[servedAt], ahead = stops.slice(servedAt + 1);
       // make sure the first call has work of its own bound for somewhere still to come
       const pool = t.worldJobPool(first);
       const cap = t.worldTradeCapability(first);
@@ -3195,6 +3227,169 @@ const { startProbe } = require('./probe-harness.cjs');
       `the shelf came back at ${r.after.supply} tons instead of ${r.before.supply}`);
     assert.equal(r.after.jobs, r.before.jobs,
       `the world came back with ${r.after.jobs} shipments open instead of ${r.before.jobs}`);
+  });
+
+  // CIRCUIT-6 — a world that deals with the ship but has nothing for her to do was reported as a routing
+  // failure and the trader was left standing there. Measured at 4,342 idle days out of 5,000.
+  await check('CIRCUIT a trader with no work here moves on rather than standing still', async () => {
+    await fresh('play-circuit-idle');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.planFleetTradeCircuit !== 'function') return { moves: false, reason: 'there is no circuit to plan' };
+      // Only this world's prices are known, so there is no commodity lot anywhere to plan for...
+      window.__tradeSetup({ learn: 1 });
+      window.__tradeShip('gate-idle-1', { big: true });
+      const f = s.playerFleet.find((x) => x.id === 'gate-idle-1');
+      const trade = t.ensureFleetTradeState(f, 'any');
+      trade.active = true;
+      const at = Number(s.currentPlanet);
+      // ...and this world's book of work is empty, so there is no shipment either. The world itself is
+      // untouched: it trades, it will deal with her, and there is simply nothing to do.
+      s.worldJobs = { [at]: { day: s.day, jobs: [], seq: 1 } };
+      const open = t.worldOpenJobs(at).length;
+      const trades = t.worldTrades(at);
+      const refusal = t.serviceRefusal(t.getSystemFaction(at));
+      const plan = t.planFleetTradeCircuit(f, trade, s.day);
+      return { moves: true, at, name: s.planets[at]?.name, open, trades, refusal,
+        ok: Boolean(plan.ok), repositioning: Boolean(plan.repositioning), note: String(plan.note || ''),
+        stops: plan.ok ? plan.plan.stops.slice() : [], legs: plan.ok ? plan.plan.path.length : 0 };
+    });
+    assert.ok(r.moves, `${r.reason}`);
+    assert.equal(r.trades, true, `precondition: ${r.name} has no market at all, so this is the wrong case`);
+    assert.ok(!r.refusal, `precondition: ${r.name} refuses the captain, which is TRADE-4's case: "${r.refusal}"`);
+    assert.equal(r.open, 0, `precondition: ${r.name} still has ${r.open} shipments open`);
+    assert.equal(r.ok, true,
+      `${r.name} will deal with the trader and has nothing for her to do, and the planner answers "${r.note}" — she stands there for the rest of the campaign`);
+    assert.equal(r.repositioning, true,
+      `a plan was produced but it is not a move: the trader stays at ${r.name} with no work`);
+    assert.ok(r.stops.length === 1 && r.stops[0] !== r.at,
+      `the trader was sent to ${JSON.stringify(r.stops)} from ${r.at}`);
+    assert.ok(r.legs > 0, 'the move has no route to fly');
+    assert.ok(/no work/i.test(r.note), `the panel does not say why she left: "${r.note}"`);
+  });
+
+  // CIRCUIT-7 — a hold full of cargo nobody nearby was buying stopped a trader for good: she could not
+  // plan, so she never went anywhere, so nobody ever bought it. Measured at nine tenths of a campaign.
+  await check('CIRCUIT a trader whose hold nobody will buy goes where somebody will', async () => {
+    await fresh('play-circuit-fullhold');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.planFleetTradeCircuit !== 'function') return { moves: false, reason: 'there is no circuit to plan' };
+      window.__tradeSetup({});
+      const ship = window.__tradeShip('gate-full-1', { hold: 25 });
+      const f = s.playerFleet.find((x) => x.id === 'gate-full-1');
+      const trade = t.ensureFleetTradeState(f, 'any');
+      trade.active = true;
+      const at = Number(s.currentPlanet);
+      const hold = t.fleetTradeCapacity(f);
+      const goods = t.getPlanetMarket(at)[0].goods;
+      // Every ton of her is cargo with no address, and this world is not buying it.
+      trade.manifest = [{ kind: 'goods', goods, tons: hold, to: null, unit: 1, paid: 0 }];
+      t.fillMarketDemand(at, goods, t.marketDemand(at, goods));
+      const plan = t.planFleetTradeCircuit(f, trade, s.day);
+      const wanted = plan.ok && plan.repositioning ? t.marketDemand(Number(plan.plan.stops[0]), goods) : 0;
+      return { moves: true, at, name: s.planets[at]?.name, hold, load: t.fleetTradeLoad(trade), goods,
+        hereWants: t.marketDemand(at, goods), ok: Boolean(plan.ok), repositioning: Boolean(plan.repositioning),
+        note: String(plan.note || ''), stops: plan.ok ? plan.plan.stops.slice() : [],
+        legs: plan.ok ? plan.plan.path.length : 0, wanted };
+    });
+    assert.ok(r.moves, `${r.reason}`);
+    assert.equal(r.load, r.hold, `precondition: the ${r.hold}-ton hold is carrying ${r.load} tons, so it is not full`);
+    assert.equal(r.hereWants, 0, `precondition: ${r.name} still wants ${r.hereWants} tons of ${r.goods}`);
+    assert.equal(r.ok, true,
+      `a full hold of ${r.goods} nobody at ${r.name} is buying, and the planner answers "${r.note}" — she stands there with it for the rest of the campaign`);
+    assert.equal(r.repositioning, true, `a plan was produced but it is not a move: the trader stays at ${r.name}`);
+    assert.ok(r.stops.length === 1 && r.stops[0] !== r.at, `the trader was sent to ${JSON.stringify(r.stops)} from ${r.at}`);
+    assert.ok(r.legs > 0, 'the move has no route to fly');
+    assert.ok(r.wanted > 0,
+      `she was sent to system ${r.stops[0]}, which is buying ${r.wanted} tons of the ${r.goods} filling her hold`);
+  });
+
+  // JOB-4 — a shipment's price was its tonnage times a rate, so the whole cost of the voyage was
+  // charged again on every ton and one full hold was worth more than a warship.
+  await check('JOB the voyage is paid for once, and the tonnage by the ton', async () => {
+    await fresh('play-job-fee');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.getContractTotal !== 'function') return { priced: false, reason: 'a shipment has no price to read' };
+      window.__tradeSetup({});
+      const jobs = [];
+      for (let i = 0; i < s.planets.length && jobs.length < 60; i++)
+        if (t.worldTrades(i)) for (const j of t.worldOpenJobs(i)) jobs.push(j);
+      if (jobs.length < 4) return { priced: true, found: false, n: jobs.length };
+      // The same shipment, twice the load. The voyage has not got any longer.
+      const doubled = jobs.map((j) => ({ id: j.id, tons: j.tons,
+        one: t.getContractTotal(j), two: t.getContractTotal({ ...j, tons: j.tons * 2 }) }));
+      const proportional = doubled.filter((d) => d.two >= d.one * 2);
+      // And across a real board, what a ton of hold is worth must depend on how big the shipment is.
+      const perTon = jobs.map((j) => t.getContractTotal(j) / Math.max(1, j.tons)).sort((a, b) => a - b);
+      return { priced: true, found: true, n: jobs.length, proportional: proportional.slice(0, 3),
+        proportionalCount: proportional.length,
+        spread: Math.round((perTon[perTon.length - 1] / Math.max(0.01, perTon[0])) * 10) / 10,
+        lowPerTon: Math.round(perTon[0]), highPerTon: Math.round(perTon[perTon.length - 1]) };
+    });
+    assert.ok(r.priced, `${r.reason}`);
+    assert.ok(r.found, `precondition: only ${r.n} shipments were open anywhere on the map`);
+    assert.equal(r.proportionalCount, 0,
+      `${r.proportionalCount} of ${r.n} shipments cost twice as much for twice the load: e.g. ${JSON.stringify(r.proportional[0])} — the voyage is being charged again on every ton`);
+    assert.ok(r.spread >= 4,
+      `a ton of hold is worth between ${r.lowPerTon} and ${r.highPerTon} latinum whatever the shipment (a spread of ${r.spread}x): the price is a flat rate per ton, so the size of the job makes no difference to what it is worth carrying`);
+  });
+
+  // CIRCUIT-5 — a shipment to a port that would not deal with the ship was struck off the manifest at
+  // the end of the circuit and its tons ceased to exist. The contract is lost, but the goods are in
+  // the hold and nothing in the game has taken them out of it.
+  await check('CIRCUIT a failed delivery loses the contract, not the cargo', async () => {
+    await fresh('play-circuit-conserve');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.completeFleetTradeCircuit !== 'function') return { conserves: false, reason: 'a circuit never completes with cargo aboard' };
+      window.__tradeSetup({});
+      window.__tradeShip('gate-conserve-1', { big: true });
+      const f = s.playerFleet.find((x) => x.id === 'gate-conserve-1');
+      const trade = t.ensureFleetTradeState(f, 'any');
+      trade.active = true;
+      // A governed destination the captain can be refused at, reachable and not the ship's own world.
+      let target = null, faction = null;
+      for (let i = 0; i < s.planets.length; i++) {
+        if (i === Number(s.currentPlanet)) continue;
+        const key = t.getSystemFaction(i);
+        if (!key || key === 'neutral' || key === s.playerFaction) continue;
+        if (!t.worldTrades(i)) continue;
+        target = i; faction = key; break;
+      }
+      if (target == null) return { conserves: true, found: false };
+      t.adjustFactionStanding(faction, -100, { silent: true });
+      if (!t.serviceRefusal(faction)) return { conserves: true, found: true, refused: false, faction };
+      // One shipment addressed there, and one ordinary lot with nowhere in particular to go, so the
+      // check reads the whole hold rather than one entry.
+      const goods = t.getPlanetMarket(Number(s.currentPlanet))[0].goods;
+      trade.manifest = [
+        { kind: 'job', jobId: 'gate-conserve-job', goods, tons: 40, to: target, fee: 500, payPerTon: 20, paid: 0 },
+        { kind: 'goods', goods, tons: 9, to: target, unit: 5, paid: 45 },
+      ];
+      trade.stops = [target]; trade.path = [target]; trade.legDays = [1]; trade.legIndex = 0;
+      trade.paid = 45; trade.revenue = 0; trade.stage = 'outbound'; trade.destination = target;
+      const before = { load: t.fleetTradeLoad(trade), purse: s.latinum, circuits: trade.circuits };
+      t.completeFleetTradeCircuit(f, trade);
+      const after = { load: t.fleetTradeLoad(trade), purse: s.latinum, circuits: trade.circuits };
+      return { conserves: true, found: true, refused: true, faction, target, before, after,
+        kinds: trade.manifest.map((m) => ({ kind: m.kind, tons: m.tons, to: m.to, paid: m.paid })),
+        note: trade.note };
+    });
+    assert.ok(r.conserves, `${r.reason}`);
+    assert.ok(r.found, 'precondition: no governed destination was available to refuse the captain');
+    assert.ok(r.refused, `precondition: dropping ${r.faction} standing to the floor did not make them refuse the captain`);
+    assert.equal(r.after.load, r.before.load,
+      `${r.before.load} tons went into the circuit and ${r.after.load} came out: ${r.before.load - r.after.load} tons of undeliverable freight were destroyed by the end of the circuit`);
+    assert.equal(r.after.purse, r.before.purse,
+      `a failed delivery paid the captain ${r.after.purse - r.before.purse} latinum`);
+    assert.ok(r.kinds.every((m) => m.kind === 'goods'),
+      `the failed contract is still on the books as a contract: ${JSON.stringify(r.kinds)}`);
+    assert.ok(r.kinds.every((m) => m.to === null),
+      `cargo came out of the circuit still addressed somewhere: ${JSON.stringify(r.kinds)}`);
+    assert.equal(r.kinds.find((m) => m.tons === 40)?.paid, 0,
+      'the goods from a failed contract came out of the circuit carrying a cost the captain never paid');
   });
 
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);

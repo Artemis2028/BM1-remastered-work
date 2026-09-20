@@ -8443,6 +8443,9 @@ function normalizeContract(contract) {
     targetName: String(targetName),
     tons,
     payPerTon,
+    // Paid once on delivery, on top of the per-ton rate. A contract saved before the fee existed has
+    // none, and its per-ton rate still carries the whole price, so old saves settle as they always did.
+    fee: Math.max(0, Math.round(Number(contract.fee || 0))),
     hazardPay: Math.max(0, Math.round(Number(contract.hazardPay || 0))),
     originIndex: Number.isFinite(Number(contract.originIndex)) ? Number(contract.originIndex) : state.currentPlanet,
     originName: String(contract.originName || state.planets[state.currentPlanet]?.name || 'Local space'),
@@ -8474,7 +8477,8 @@ function getOpenContracts() {
 }
 
 function getContractTotal(contract) {
-  return Math.max(0, Math.round(Number(contract?.payPerTon || 0) * Number(contract?.tons || 0)));
+  return Math.max(0, Math.round(Number(contract?.fee || 0)
+    + Number(contract?.payPerTon || 0) * Number(contract?.tons || 0)));
 }
 
 function getContractTargetIndex(contract = {}) {
@@ -13799,11 +13803,90 @@ const TRADE_ECONOMY = Object.freeze({
   jobsCeiling: 6,
   jobTonsLow: 0.1,
   jobTonsHigh: 0.8,
+  jobTonsFloor: 1,
   jobRespawnDays: 12,
+  // Not every shipment is a hold full of ore. Every third entry in a world's book is a courier lot of
+  // a few tons, so a shuttle, a fighter or a scout has work it can actually take. This is deliberately
+  // NOT a reason to enlarge any small hold: the authored capacities stand and the work comes to them.
+  // [playtest]
+  courierEvery: 3,
+  courierTonsLow: 1,
+  courierTonsHigh: 5,
+  // A shipment is a job of work, not a per-ton bounty. The shipper pays a fee once for the voyage —
+  // the distance and whatever the route makes dangerous — and then a modest rate for the tonnage
+  // itself. Under the old scheme every ton carried the whole voyage's price again, so pay ran to
+  // 416-620 latinum a ton and one full hold was worth more than a warship. [playtest]
+  // Route distances across this galaxy run from 66 to 1,838 units (median 640), which is seven to a
+  // hundred and eighty-four days of travel. The old per-ton distance term saturated at distance 117,
+  // so every shipment beyond the next system over paid the same flat rate — the reason the measured
+  // band was a nearly uniform 416-620 latinum a ton. Priced once, the distance term can carry the
+  // whole range without a ceiling doing all the work: it binds only past 1,533 units.
+  feeBase: 200,
+  feePerDistance: 1.5,
+  feeDistanceCeiling: 2500,
+  feeAsteroids: 150,
+  feeNebula: 250,
+  feeWartime: 800,
+  payPerTon: 20,
 });
+// An installation feeds a world's economy only when its authored role does economic, commercial or
+// logistics work: it keeps a commodity board, carries passengers, sells hulls, earns revenue, clears
+// freight through customs, mines, farms or houses people. A defence platform and a relay are real
+// installations and real targets, but they buy nothing, ship nothing and broker no freight, and
+// counting them gave an empty rock with a gun on it a market. Nothing is named: the test reads the
+// same resolved capabilities the docking port and the campaign read, so an abandoned, dormant,
+// destroyed or unbuilt site contributes nothing either. [playtest]
+const ECONOMIC_STATION_EFFECTS = Object.freeze(['revenue', 'customs', 'mining', 'food', 'housing']);
+function stationCapabilityIsEconomic(cap) {
+  if (!cap || !['operational', 'damaged', 'unstaffed'].includes(cap.status)) return false;
+  const s = cap.services || {}, e = cap.effects || {};
+  if (s.commodities || s.passengers || (s.shipSales && s.shipSales !== 'none')) return true;
+  return ECONOMIC_STATION_EFFECTS.some((k) => finiteNumber(e[k], 0) > 0);
+}
+// Resolving every definition is not free, so the per-system tally is built once and reused until
+// something that could change it changes: the day, the roster, or any of the campaign records the
+// resolver reads.
+function economicInstallationTally() {
+  const campaign = ensurePlaytestState().campaign || {};
+  const size = (o) => Object.keys(o || {}).length;
+  const defs = state.stationDefinitions || [];
+  // The roster's own fingerprint, not just its length: a site replaced by a different kind of site is
+  // the same number of installations and a different economy. Integer arithmetic over the roster, so
+  // it costs far less than resolving every definition again.
+  let stamp = 0;
+  for (let i = 0; i < defs.length; i++) stamp = (stamp + (i + 1) * ((Number(defs[i].stationTypeId) || 0) + 1)) | 0;
+  const key = [
+    defs.length, stamp, size(state.destroyedStations), size(campaign.restoredStations),
+    size(campaign.activatedStations), size(campaign.unstaffedStations), size(campaign.stationDamage),
+    size(getCampaignDiscoveries()), Number(state.day) || 0,
+  ].join('|');
+  if (economicInstallationTally.key === key && economicInstallationTally.tally) return economicInstallationTally.tally;
+  const tally = {};
+  for (const d of state.stationDefinitions || []) {
+    const destroyed = Boolean(state.destroyedStations?.[d.id]) || Boolean(d.destroyed);
+    const cap = StationRoles.resolveStationCapabilities(
+      { ...d, destroyed, underConstruction: Boolean(d.underConstruction), name: d.name },
+      getShipStats(d.stationTypeId),
+      {
+        discovered: getCampaignDiscoveries(),
+        restored: campaign.restoredStations || {},
+        activated: campaign.activatedStations || {},
+        conditionFraction: 1 - campaignStationDamage(d.id),
+        staffed: campaign.unstaffedStations?.[d.id] ? false : true,
+        destroyed,
+      },
+    );
+    if (!stationCapabilityIsEconomic(cap)) continue;
+    const sys = Number(d.systemIndex);
+    if (!Number.isFinite(sys)) continue;
+    tally[sys] = (tally[sys] || 0) + 1;
+  }
+  economicInstallationTally.key = key;
+  economicInstallationTally.tally = tally;
+  return tally;
+}
 function worldInstallationCount(index) {
-  return (state.stationDefinitions || [])
-    .filter((d) => Number(d.systemIndex) === Number(index) && !state.destroyedStations?.[d.id]).length;
+  return economicInstallationTally()[Number(index)] || 0;
 }
 // Population and installations decide whether a world trades at all, and how much. A world with no
 // people and no surviving installation has no market, no appetite and no work — derived from the world
@@ -13949,10 +14032,11 @@ function stationDoesCommerce(station) {
 }
 function commodityTradeBlock() {
   if (!state.gameStarted) return '';
-  // No people and no surviving installation means nobody to trade with. Derived from the world, not
-  // from a list of names, so an outpost on an empty rock still deals. [playtest]
+  // No people and no surviving installation that does economic work means nobody to trade with.
+  // Derived from the world, not from a list of names, so a trading post or a mine on an empty rock
+  // still deals, and a gun platform on one does not. [playtest]
   if (!worldTrades(state.currentPlanet))
-    return `${state.planets[state.currentPlanet]?.name || 'This world'} has no population and no installation: there is no market here.`;
+    return `${state.planets[state.currentPlanet]?.name || 'This world'} has no population and nothing here that trades: there is no market.`;
   const station = getCurrentServiceStation();
   if (station && stationDoesCommerce(station)) return '';
   if (state.systemPlanet && distanceToPlayer(state.systemPlanet) <= WORLD_CARGO_DROPOFF_RANGE * 2) return '';
@@ -14183,11 +14267,21 @@ function buildWorldJob(index, cap, seq) {
   // Explicit tonnage, from what the world can move rather than from the hold of whoever is asking.
   const share = TRADE_ECONOMY.jobTonsLow
     + seeded(index * 307 + seq * 53) * (TRADE_ECONOMY.jobTonsHigh - TRADE_ECONOMY.jobTonsLow);
-  const tons = Math.max(5, Math.min(cap.tons, Math.round(cap.tons * share)));
+  const courier = seq % TRADE_ECONOMY.courierEvery === 0;
+  const tons = courier
+    ? clamp(TRADE_ECONOMY.courierTonsLow
+        + Math.floor(seeded(index * 409 + seq * 61) * (TRADE_ECONOMY.courierTonsHigh - TRADE_ECONOMY.courierTonsLow + 1)),
+      TRADE_ECONOMY.courierTonsLow, Math.min(TRADE_ECONOMY.courierTonsHigh, Math.max(1, cap.tons)))
+    : Math.max(TRADE_ECONOMY.jobTonsFloor, Math.min(cap.tons, Math.round(cap.tons * share)));
   const distance = finiteNumber(route?.distance, (route?.legs || []).reduce((n, leg) => n + getRouteWarpDistance(leg), 0));
   const wartime = areFactionsOpposed(getSystemFaction(index), getSystemFaction(targetIndex));
-  const hazardPay = (targetSystem.hasAsteroids ? 20 : 0) + (targetSystem.hasNebula ? 30 : 0) + (wartime ? 100 : 0);
-  const basePay = Math.round(150 + Math.min(350, distance * 3));
+  // Paid once for the voyage, whatever the load: the shipper is buying a trip to a place, and a
+  // dangerous place costs more to reach whether the ship carries one ton or a hundred.
+  const hazardPay = (targetSystem.hasAsteroids ? TRADE_ECONOMY.feeAsteroids : 0)
+    + (targetSystem.hasNebula ? TRADE_ECONOMY.feeNebula : 0)
+    + (wartime ? TRADE_ECONOMY.feeWartime : 0);
+  const routeFee = Math.round(TRADE_ECONOMY.feeBase
+    + Math.min(TRADE_ECONOMY.feeDistanceCeiling, distance * TRADE_ECONOMY.feePerDistance));
   const hazards = [];
   if (targetSystem.hasAsteroids) hazards.push('asteroid traffic');
   if (targetSystem.hasNebula) hazards.push('nebula interference');
@@ -14198,7 +14292,9 @@ function buildWorldJob(index, cap, seq) {
     targetIndex,
     targetName: state.planets[targetIndex].name,
     tons,
-    payPerTon: basePay + hazardPay,
+    courier,
+    fee: routeFee + hazardPay,
+    payPerTon: TRADE_ECONOMY.payPerTon,
     hazardPay,
     originIndex: index,
     originName: origin.name || 'Local space',
@@ -14209,6 +14305,21 @@ function buildWorldJob(index, cap, seq) {
     createdAt: Date.now(),
     negotiated: false,
   };
+}
+// What a shipment is worth, in one place. A shipment written before the fee existed carries its whole
+// price in the per-ton rate and still settles for what it always did.
+function jobFee(job) {
+  return Math.max(0, Math.round(finiteNumber(job?.fee, 0)));
+}
+function jobPerTon(job) {
+  return Math.max(0, Math.round(finiteNumber(job?.payPerTon, 0)));
+}
+function jobPay(job) {
+  return jobFee(job) + jobPerTon(job) * Math.max(0, Math.round(finiteNumber(job?.tons, 0)));
+}
+// What a trader compares: a shipment's whole price against the hold it takes up.
+function jobPayPerHoldTon(job) {
+  return jobPay(job) / Math.max(1, Math.round(finiteNumber(job?.tons, 1)));
 }
 function worldJobPool(index) {
   const i = Number(index);
@@ -14365,7 +14476,7 @@ function renderContractModal() {
         <span>Destination</span><b>${escapeHtml(offer.targetName)}</b>
         <span>Cargo</span><b>${escapeHtml(offer.tons)}t ${escapeHtml(offer.goods)}</b>
         <span>Payment</span><b>${escapeHtml(totalPay)} latinum</b>
-        <span>Rate</span><b>${escapeHtml(offer.payPerTon)}L/t${offer.hazardPay ? `, +${escapeHtml(offer.hazardPay)} hazard` : ''}</b>
+        <span>Rate</span><b>${escapeHtml(jobFee(offer))} for the run${offer.hazardPay ? ` (${escapeHtml(offer.hazardPay)} hazard)` : ''} + ${escapeHtml(offer.payPerTon)}L/t</b>
         <span>Conditions</span><b>${escapeHtml(hazards.length ? hazards.join(', ') : 'routine shipping lane')}</b>
       </div>
       <div class="contract-capacity ${canAccept ? '' : 'blocked'}">Cargo space: ${escapeHtml(capacityLeft)}/${escapeHtml(state.cargoCap)} free${state.godMode ? ' (God Mode override)' : canAccept ? '' : `, need ${escapeHtml(offer.tons)}`}</div>
@@ -22414,7 +22525,7 @@ function mapObjectives() {
   for (const c of getOpenContracts()) {
     if (c.showMarker === false) continue;
     push(getContractTargetIndex(c), 'cargo', `${c.tons}t ${c.goods || 'cargo'}`,
-      `${chartSystemLabel(getContractTargetIndex(c))} · ${c.payPerTon ? `${c.payPerTon}L/t` : 'delivery'}`);
+      `${chartSystemLabel(getContractTargetIndex(c))} · ${getContractTotal(c) ? `${getContractTotal(c)}L` : 'delivery'}`);
   }
   for (const pod of (state.cargoArray || [])) {
     if (!(pod.tons > 0) || pod.destination === undefined) continue;
@@ -22606,7 +22717,7 @@ function renderContractsPanel() {
   const cargoRows = cargo.map((c) => {
     const i = getContractTargetIndex(c);
     return row(`${c.tons}t ${c.goods || 'cargo'}`, contractDestinationLabel(i),
-      c.payPerTon ? `${c.payPerTon} L/t` : '',
+      getContractTotal(c) ? `${getContractTotal(c)} L` : '',
       `<button data-contract-marker="${escapeHtml(c.id)}">${c.showMarker === false ? 'Show' : 'Hide'} marker</button>`
       + `<button data-contract-show="${escapeHtml(String(i))}">Show on map</button>`, c.employerName || '');
   }).join('');
@@ -26239,6 +26350,17 @@ function fleetTradeCandidates(f, t, from = fleetShipSystem(f)) {
 // Shipments first, because they are the predictable business and they are what a large hold is for;
 // then commodity lots in whatever room is left. Nothing is invented to fit the ship: every shipment
 // comes off the origin world's own book and every ton of cargo off its own shelf. [playtest]
+// A shipment put back on the world's book after it was claimed, with its own terms intact.
+function rebuildWorldJob(m, from) {
+  return {
+    id: m.jobId, goods: m.goods, tons: m.tons, targetIndex: m.to,
+    targetName: state.planets[m.to]?.name, fee: finiteNumber(m.fee, 0), payPerTon: m.payPerTon, hazardPay: 0,
+    courier: Boolean(m.courier), originIndex: from, originName: state.planets[from]?.name,
+    employerName: state.planets[from]?.name, employerType: 'planet',
+    employerFaction: getTradeStandingFaction(from), showMarker: false,
+    negotiated: false, createdAt: Date.now(),
+  };
+}
 function planFleetTradeCircuit(f, t, day = state.day) {
   const from = fleetShipSystem(f);
   // Access first, then knowledge. A ship told to leave does not come away with the week's prices, so
@@ -26259,6 +26381,15 @@ function planFleetTradeCircuit(f, t, day = state.day) {
   if (!here) return { ok: false, note: 'No market here.' };
   const hold = fleetTradeCapacity(f);
   if (hold < 1) return { ok: false, note: `${f.name} has no cargo hold.` };
+  // Standing at a world that deals with the ship and still cannot put a circuit together is the same
+  // situation as standing at one that refuses her, and it got the same answer as being told to stop:
+  // nothing. Measured, that was a trader idle for four thousand three hundred of five thousand days,
+  // and a five-ton hull idle for nine tenths of the campaign with five tons of cargo aboard that
+  // nobody near her was buying. Every dead end in the planner now moves her on instead. [playtest]
+  const moveOn = (note) => {
+    const move = planFleetTradeReposition(f, t, from, (t.manifest || []).map((m) => m.goods));
+    return move ? { ok: true, plan: move, repositioning: true, note } : { ok: false, note };
+  };
   const purse = Math.max(0, Math.floor(finiteNumber(state.latinum, 0)) - TRADE_PURSE_RESERVE);
   // Two different questions: where cargo can be SOLD (needs the captain to know the prices) and where a
   // shipment can be DELIVERED (needs only a route and a port that will take her).
@@ -26266,7 +26397,7 @@ function planFleetTradeCircuit(f, t, day = state.day) {
 
   // Cargo still aboard from a previous circuit takes up room and comes along.
   let room = hold - fleetTradeLoad(t);
-  if (room < 1) return { ok: false, note: `${f.name}'s hold is full of cargo nobody has bought.` };
+  if (room < 1) return moveOn(`${f.name}'s hold is full of cargo nobody has bought.`);
   const manifest = [];
   // Shipments still aboard from a previous circuit decide the first calls: a trader that could not
   // deliver last time goes back rather than carrying the load around for ever.
@@ -26279,7 +26410,7 @@ function planFleetTradeCircuit(f, t, day = state.day) {
   // 1. Shipments on this world's book, best rate first, taken whole or not at all.
   const jobs = worldOpenJobs(from)
     .filter((j) => fleetTradeDeliverable(f, t, from, j.targetIndex))
-    .sort((a, b) => b.payPerTon - a.payPerTon);
+    .sort((a, b) => jobPayPerHoldTon(b) - jobPayPerHoldTon(a));
   for (const job of jobs) {
     if (job.tons > room) continue;
     const next = new Set([...stops, Number(job.targetIndex)]);
@@ -26288,8 +26419,8 @@ function planFleetTradeCircuit(f, t, day = state.day) {
     room -= job.tons;
     if (!stops.includes(Number(job.targetIndex))) stops.push(Number(job.targetIndex));
     manifest.push({ kind: 'job', jobId: job.id, goods: job.goods, tons: job.tons, to: Number(job.targetIndex),
-      payPerTon: job.payPerTon, paid: 0 });
-    expected += job.tons * job.payPerTon;
+      fee: jobFee(job), payPerTon: jobPerTon(job), courier: Boolean(job.courier), paid: 0 });
+    expected += jobPay(job);
   }
 
   // 2. Commodity lots, in whatever room is left, for a call the captain knows the prices at. A lot is
@@ -26343,6 +26474,13 @@ function planFleetTradeCircuit(f, t, day = state.day) {
     }
   }
 
+  // A world can have a market, deal with the ship and still have nothing she can do: no shipment she
+  // may deliver and no lot worth buying. That is not a routing failure, and it used to be reported as
+  // one and then left the trader standing there — measured at four thousand three hundred idle days out
+  // of five thousand. It is the same situation as a port that refuses her, so it gets the same answer:
+  // she moves on to somewhere she can work. [playtest]
+  if (!stops.length) return moveOn(`${state.planets[from]?.name || 'This world'} has no work for ${f.name}.`);
+
   // 3. The route through the calls, nearest first, and the systems it actually crosses.
   const order = [];
   const remaining = stops.slice();
@@ -26360,20 +26498,28 @@ function planFleetTradeCircuit(f, t, day = state.day) {
     remaining.splice(remaining.indexOf(pick.stop), 1);
     cursor = pick.stop;
   }
-  if (!order.length) return { ok: false, note: 'No plottable route to those destinations.' };
+  // Steps 1 and 2 commit: they claim shipments off the world's book and buy cargo off its shelf. Any
+  // bail-out after them has to put both back, or the work and the tons are destroyed by a planner that
+  // decided not to go. [playtest]
+  const unwind = (entries) => {
+    for (const m of entries) {
+      if (m.kind === 'job') worldJobPool(from)?.jobs.push(rebuildWorldJob(m, from));
+      else {
+        state.latinum += m.paid;
+        state.mylatinum = state.latinum;
+        t.cumulative += m.paid;
+        returnMarketSupply(from, m.goods, m.tons);
+      }
+    }
+  };
+  if (!order.length) { unwind(manifest); return moveOn('No plottable route to those destinations.'); }
   // A call that could not be plotted is dropped, and so is its cargo: a shipment goes back on the
   // world's book and unbought commodities are simply not bought. Nothing is ever re-addressed to a
   // world it was not meant for. [playtest]
   for (let i = manifest.length - 1; i >= 0; i--) {
     const m = manifest[i];
     if (order.includes(Number(m.to))) continue;
-    if (m.kind === 'job') worldJobPool(from)?.jobs.push({
-      id: m.jobId, goods: m.goods, tons: m.tons, targetIndex: m.to,
-      targetName: state.planets[m.to]?.name, payPerTon: m.payPerTon, hazardPay: 0,
-      originIndex: from, originName: state.planets[from]?.name, employerName: state.planets[from]?.name,
-      employerType: 'planet', employerFaction: getTradeStandingFaction(from), showMarker: false,
-      negotiated: false, createdAt: Date.now(),
-    });
+    if (m.kind === 'job') worldJobPool(from)?.jobs.push(rebuildWorldJob(m, from));
     else {
       state.latinum += m.paid;
       state.mylatinum = state.latinum;
@@ -26382,14 +26528,14 @@ function planFleetTradeCircuit(f, t, day = state.day) {
     }
     manifest.splice(i, 1);
   }
-  if (!manifest.length) return { ok: false, note: 'No plottable route to those destinations.' };
+  if (!manifest.length) return moveOn(`${state.planets[from]?.name || 'This world'} has no work for ${f.name}.`);
 
   const path = [];
   const legDays = [];
   cursor = from;
   for (const stop of order) {
     const route = getPlottedRoute(cursor, stop);
-    if (!route) return { ok: false, note: 'No plottable route to those destinations.' };
+    if (!route) { unwind(manifest); return moveOn('No plottable route to those destinations.'); }
     const hops = (route.systems || []).map(Number).slice(1);
     const days = routeLegDays(route);
     for (let i = 0; i < hops.length; i++) { path.push(hops[i]); legDays.push(days[i] ?? 1); }
@@ -26399,7 +26545,12 @@ function planFleetTradeCircuit(f, t, day = state.day) {
   return { ok: true, plan: { stops: order, path, legDays, manifest, expected: Math.round(expected - upkeep) } };
 }
 // Not a circuit: a move to somewhere she can work again, by the shortest acceptable route.
-function planFleetTradeReposition(f, t, from) {
+function planFleetTradeReposition(f, t, from, carrying = []) {
+  // Nearest is not the point on its own: a trader moved off a world with no work for her, onto another
+  // with no work for her, is a trader bouncing between two empty ports. Somewhere that will buy what
+  // is already in the hold comes first — that is what frees her to work at all — then somewhere with
+  // shipments she could take, and only then the nearest port. [playtest]
+  const wanted = [...new Set(carrying.filter(Boolean).map(String))];
   let best = null;
   for (let i = 0; i < state.planets.length; i++) {
     if (i === Number(from) || !worldTrades(i)) continue;
@@ -26410,7 +26561,11 @@ function planFleetTradeReposition(f, t, from) {
     const route = getPlottedRoute(from, i);
     if (!route) continue;
     const days = Math.max(1, Fleet.travelDays(finiteNumber(route.distance, 0)));
-    if (!best || days < best.days) best = { to: i, days, route };
+    const buys = wanted.length && wanted.some((g) => marketDemand(i, g) > 0) ? 1 : 0;
+    const work = worldOpenJobs(i).some((j) => fleetTradeDeliverable(f, t, i, j.targetIndex)) ? 1 : 0;
+    const rank = buys * 2 + work;
+    if (!best || rank > best.rank || (rank === best.rank && days < best.days))
+      best = { to: i, days, route, rank };
   }
   if (!best) return null;
   const path = (best.route.systems || []).map(Number).slice(1);
@@ -26560,7 +26715,7 @@ function fleetTradeCall(f, t, at, day = state.day) {
     if (Number(m.to) !== Number(at)) { keep.push(m); continue; }
     if (m.kind === 'job') {
       // A shipment is paid on delivery at the world it was addressed to, whole.
-      const pay = Math.round(m.tons * finiteNumber(m.payPerTon, 0));
+      const pay = Math.round(finiteNumber(m.fee, 0) + m.tons * finiteNumber(m.payPerTon, 0));
       revenue += pay; contract += pay;
       continue;
     }
@@ -26587,12 +26742,13 @@ function fleetTradeCall(f, t, at, day = state.day) {
   const ahead = t.stops.slice(t.stops.indexOf(Number(at)) + 1);
   if (ahead.length && t.active) {
     let room = fleetTradeCapacity(f) - fleetTradeLoad(t);
-    for (const job of worldOpenJobs(at).filter((j) => ahead.includes(Number(j.targetIndex))).sort((a, b) => b.payPerTon - a.payPerTon)) {
+    for (const job of worldOpenJobs(at).filter((j) => ahead.includes(Number(j.targetIndex))).sort((a, b) => jobPayPerHoldTon(b) - jobPayPerHoldTon(a))) {
       if (job.tons > room) continue;
       if (!takeWorldJob(at, job.id)) continue;
       room -= job.tons;
       t.manifest.push({ kind: 'job', jobId: job.id, goods: job.goods, tons: job.tons,
-        to: Number(job.targetIndex), payPerTon: job.payPerTon, paid: 0 });
+        to: Number(job.targetIndex), fee: jobFee(job), payPerTon: jobPerTon(job),
+        courier: Boolean(job.courier), paid: 0 });
     }
   }
   return true;
@@ -26600,15 +26756,22 @@ function fleetTradeCall(f, t, at, day = state.day) {
 function completeFleetTradeCircuit(f, t) {
   // Cargo nobody bought is still cargo: it keeps its cost, loses its address, and is sold at whichever
   // later call is buying. Only what was actually sold is expensed against this circuit. [playtest]
+  // A shipment to a port that will not deal with the ship is a failed contract, and nothing more than
+  // that. The contract pays nothing and the shipment is gone from the books, but the goods are aboard
+  // and stay aboard: they become ordinary unaddressed cargo, carried at no cost, until some later
+  // mechanic says what becomes of undelivered freight. Dropping the entry destroyed the tons outright,
+  // so a full hold emptied itself by failing. [playtest]
   const undeliverable = (t.manifest || []).filter((m) => m.kind === 'job' && m.tons > 0
     && serviceRefusal(getSystemFaction(Number(m.to))));
   if (undeliverable.length) {
     const tons = undeliverable.reduce((n, m) => n + m.tons, 0);
-    setLog(`${f.name} could not deliver ${tons} tons: ${undeliverable.map((m) => state.planets[m.to]?.name || '?').join(', ')} will not take her cargo.`);
+    setLog(`${f.name} could not deliver ${tons} tons: ${undeliverable.map((m) => state.planets[m.to]?.name || '?').join(', ')} will not take her cargo. The contract is lost; the cargo is still aboard.`);
   }
   const leftovers = (t.manifest || [])
-    .filter((m) => m.tons > 0 && !undeliverable.includes(m))
-    .map((m) => ({ ...m, to: m.kind === 'goods' ? null : m.to }));
+    .filter((m) => m.tons > 0)
+    .map((m) => (undeliverable.includes(m)
+      ? { kind: 'goods', goods: m.goods, tons: m.tons, to: null, unit: 0, paid: 0, failedJobId: m.jobId || null }
+      : { ...m, to: m.kind === 'goods' ? null : m.to }));
   const carried = leftovers.reduce((n, m) => n + Math.max(0, finiteNumber(m.paid, 0)), 0);
   const expected = Math.max(0, finiteNumber(t.expectedProfit, 0));
   const profit = t.revenue - (t.paid - carried);
