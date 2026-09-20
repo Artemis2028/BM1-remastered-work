@@ -3314,8 +3314,14 @@ const { startProbe } = require('./probe-harness.cjs');
       if (typeof t.getContractTotal !== 'function') return { priced: false, reason: 'a shipment has no price to read' };
       window.__tradeSetup({});
       const jobs = [];
-      for (let i = 0; i < s.planets.length && jobs.length < 60; i++)
-        if (t.worldTrades(i)) for (const j of t.worldOpenJobs(i)) jobs.push(j);
+      // A tree with a world book of work is read from the book; one without it still quotes freight, so
+      // the check reads the quotes it offers rather than falling over on a name it does not have.
+      if (typeof t.worldTrades === 'function' && typeof t.worldOpenJobs === 'function') {
+        for (let i = 0; i < s.planets.length && jobs.length < 60; i++)
+          if (t.worldTrades(i)) for (const j of t.worldOpenJobs(i)) jobs.push(j);
+      } else if (typeof t.createCargoRunOffer === 'function') {
+        for (let k = 0; k < 60; k++) { const o = t.createCargoRunOffer(); if (o) jobs.push(o); }
+      }
       if (jobs.length < 4) return { priced: true, found: false, n: jobs.length };
       // The same shipment, twice the load. The voyage has not got any longer.
       const doubled = jobs.map((j) => ({ id: j.id, tons: j.tons,

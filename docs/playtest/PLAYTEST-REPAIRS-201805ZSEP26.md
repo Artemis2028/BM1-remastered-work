@@ -245,6 +245,13 @@ the controller the captain has *recorded*, so a world nobody has looked at is a 
 captain finds out about on arrival. That is the intended design from `75389f7`, and the reposition from
 `4008e24` — extended here — is what keeps her from being stuck there.
 
+One check needed a second pass of its own. `JOB the voyage is paid for once…` read a world's book of
+work, which trees older than `4008e24` do not have, so on the older baselines it fell over with a
+`TypeError` instead of saying what was wrong. It now reads whatever the tree quotes — the book where
+there is one, the freight offers where there is not — and reproduces behaviourally on every baseline:
+*"60 of 60 shipments cost twice as much for twice the load."* No baseline in this pack raises a
+`TypeError`.
+
 One note on running the baseline: the `LAYOUT` check measures rendered geometry at 1366px and it fails
 on **any** tree, base or candidate, when the machine is busy enough to slow layout. The baseline run
 quoted here was made with nothing else running, and on it exactly the five new checks reproduce and
