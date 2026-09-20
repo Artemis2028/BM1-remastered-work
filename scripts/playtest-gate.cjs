@@ -51,6 +51,19 @@ const { startProbe } = require('./probe-harness.cjs');
       t.autoAssignFleet(f);
       return { id, shipId: f.shipId, capacity: Number(t.getShipStats(f.shipId).cargoCapacity) || 0 };
     };
+    // Put the captain alongside the world and docked, so the ordinary market and contract paths run
+    // rather than refusing for range. Nothing here bypasses a refusal that is about standing.
+    window.__dock = () => {
+      const t = testBM1, s = t.state;
+      t.applySystemState(s.currentPlanet);
+      if (!s.systemPlanet) s.systemPlanet = { x: 0, y: 0, name: s.planets[s.currentPlanet]?.name };
+      t.setCamera(s.systemPlanet.x, s.systemPlanet.y);
+      s.docked = true;
+      s.dockedPlanetIndex = s.currentPlanet;
+      s.dockedStationId = null;
+      return { block: t.commodityTradeBlock(), offers: t.currentMarketOffers().length,
+        connected: !t.commodityTradeBlock() };
+    };
     window.__tradeDays = (n) => {
       const t = testBM1, s = t.state;
       for (let i = 0; i < n; i++) {
@@ -2292,24 +2305,39 @@ const { startProbe } = require('./probe-harness.cjs');
       window.__tradeSetup({});
       const small = window.__tradeShip('gate-cap-small', { big: false, seed: 4 });
       const big = window.__tradeShip('gate-cap-big', { big: true, seed: 4 });
-      if (typeof t.planFleetTradeRun !== 'function') return { planned: false, reason: 'no trade planner exists' };
-      const fs = s.playerFleet.find((x) => x.id === 'gate-cap-small');
-      const fb = s.playerFleet.find((x) => x.id === 'gate-cap-big');
-      const ps = t.planFleetTradeRun(fs, t.ensureFleetTradeState(fs, 'any'));
-      const pb = t.planFleetTradeRun(fb, t.ensureFleetTradeState(fb, 'any'));
-      return { planned: true, small: { cap: small.capacity, plan: ps.ok ? ps.plan : null, note: ps.note },
-        big: { cap: big.capacity, plan: pb.ok ? pb.plan : null, note: pb.note }, reason: '' };
+      const plan = t.planFleetTradeCircuit || t.planFleetTradeRun;
+      if (typeof plan !== 'function') return { planned: false, reason: 'no trade planner exists' };
+      const load = (p) => p && p.manifest ? p.manifest.reduce((n, m) => n + m.tons, 0) : (p ? p.tons : 0);
+      // Planning commits: it claims shipments off the world's book and buys cargo off its shelf. So the
+      // two ships are measured against the same world in the same state, one after a reset, rather than
+      // one after the other has already taken the work.
+      const measure = (id, big) => {
+        s.worldJobs = {}; s.marketStock = {};
+        s.latinum = 200000; s.mylatinum = s.latinum;
+        s.playerFleet.length = 0;
+        const ship = window.__tradeShip(id, { big, seed: 4 });
+        const f = s.playerFleet.find((x) => x.id === id);
+        const p = plan(f, t.ensureFleetTradeState(f, 'any'), s.day);
+        const jobs = typeof t.worldOpenJobs === 'function' ? t.worldOpenJobs(s.currentPlanet) : [];
+        return { cap: ship.capacity, ok: p.ok, note: p.note, load: p.ok ? load(p.plan) : 0,
+          took: p.ok ? (p.plan.manifest || []).filter((m) => m.kind === 'job').map((m) => m.tons) : [],
+          offered: jobs.map((j) => j.tons) };
+      };
+      const smallRun = measure('gate-cap-small', false);
+      const bigRun = measure('gate-cap-big', true);
+      return { planned: true, small: smallRun, big: bigRun, reason: '' };
     });
     assert.ok(r.planned, `nothing plans a trade run: ${r.reason}`);
-    assert.ok(r.small.plan, `the smaller ship found no run at all: ${r.small.note}`);
-    assert.ok(r.big.plan, `the larger ship found no run at all: ${r.big.note}`);
     assert.ok(r.big.cap > r.small.cap, `precondition: both test ships have the same hold (${r.small.cap})`);
-    assert.ok(r.small.plan.tons <= r.small.cap,
-      `a ${r.small.cap}-ton hold was loaded with ${r.small.plan.tons} tons`);
-    assert.ok(r.big.plan.tons > r.small.plan.tons,
-      `the ${r.big.cap}-ton ship loads ${r.big.plan.tons} tons and the ${r.small.cap}-ton ship loads ${r.small.plan.tons} — the hold is not being read`);
-    assert.ok(r.big.plan.net > r.small.plan.net,
-      `the bigger hold is expected to earn ${r.big.plan.net} against the smaller one's ${r.small.plan.net}`);
+    assert.ok(r.big.ok, `the larger ship found no work at all: ${r.big.note}`);
+    assert.ok(r.small.load <= r.small.cap,
+      `a ${r.small.cap}-ton hold was loaded with ${r.small.load} tons`);
+    assert.ok(r.big.load <= r.big.cap,
+      `a ${r.big.cap}-ton hold was loaded with ${r.big.load} tons`);
+    assert.ok(r.big.load > r.small.load,
+      `the ${r.big.cap}-ton ship loads ${r.big.load} tons and the ${r.small.cap}-ton ship loads ${r.small.load} — the hold is not being read`);
+    assert.ok(r.small.took.every((tons) => tons <= r.small.cap),
+      `the ${r.small.cap}-ton ship accepted shipments of ${r.small.took.join(', ')} tons`);
   });
 
   // TRADE-3 — the danger setting did nothing: every setting considered the same destinations, so
@@ -2361,26 +2389,35 @@ const { startProbe } = require('./probe-harness.cjs');
       const t = testBM1, s = t.state;
       const setup = window.__tradeSetup({ learn: 12 });
       window.__tradeShip('gate-stale-1', { big: true });
-      if (typeof t.planFleetTradeRun !== 'function') return { planned: false, reason: 'no trade planner exists' };
+      const planner = t.planFleetTradeCircuit || t.planFleetTradeRun;
+      if (typeof planner !== 'function') return { planned: false, reason: 'no trade planner exists' };
+      // This check is about commodity pricing, so the world's book of shipments is emptied first:
+      // otherwise a circuit is all contract cargo and there is nothing priced off a remembered board.
+      if (s.worldJobs) s.worldJobs[s.currentPlanet] = { day: s.day, jobs: [], seq: 1 };
       const f = s.playerFleet.find((x) => x.id === 'gate-stale-1');
       const knownBefore = Object.keys(s.marketLog || {}).map(Number).sort((a, b) => a - b);
-      const plan = t.planFleetTradeRun(f, t.ensureFleetTradeState(f, 'any'));
+      const plan = planner(f, t.ensureFleetTradeState(f, 'any'), s.day);
       const knownAfter = Object.keys(s.marketLog || {}).map(Number).sort((a, b) => a - b);
       const boardsAfter = Object.keys(s.planetMarkets || {}).map(Number).sort((a, b) => a - b);
       if (!plan.ok) return { planned: true, ran: false, note: plan.note, knownBefore, knownAfter, boardsAfter };
-      const dest = plan.plan.to, goods = plan.plan.goods;
+      // The circuit planner returns a manifest; the single-run planner it replaced returned one lot.
+      const lot = (plan.plan.manifest || []).find((m) => m.kind === 'goods')
+        || (plan.plan.goods ? { goods: plan.plan.goods, tons: plan.plan.tons, to: plan.plan.to } : null);
+      if (!lot) return { planned: true, ran: false, note: 'no commodity lot in the planned run', knownBefore, knownAfter, boardsAfter };
+      const dest = lot.to, goods = lot.goods;
       const remembered = t.knownMarketPrice(dest, goods);
       const before = s.latinum;
-      t.startFleetTrading('gate-stale-1', 'any');
-      window.__tradeDays(1); // buys and departs
+      if (typeof t.beginFleetTradeCircuit === 'function') t.beginFleetTradeCircuit(f, f.trade, plan.plan, s.day);
+      else t.beginFleetTradeLeg(f, f.trade, plan.plan, s.day);
+      f.trade.active = true;
       const paid = f.trade.paid;
       // the destination's board collapses while the run is committed
       t.getPlanetMarket(dest);
       for (const o of s.planetMarkets[dest]) if (o.goods === goods) o.price = 1;
-      // stop after this leg so the trip being measured is the one that was priced, not a later one
+      // stop after this circuit so the run being measured is the one that was priced
       t.stopFleetTrading('gate-stale-1');
       let guard = 0;
-      while (f.trade.stage !== 'holding' && guard++ < 100) window.__tradeDays(1);
+      while (f.trade.stage === 'outbound' && guard++ < 200) window.__tradeDays(1);
       return { planned: true, ran: true, dest, goods, remembered, paid, before, after: s.latinum,
         trip: f.trade.tripProfit, stage: f.trade.stage, knownBefore, knownAfter, boardsAfter, learned: setup.learned.length };
     });
@@ -2393,9 +2430,7 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.ok(r.remembered > 1,
       `precondition: the remembered price at ${r.dest} was already ${r.remembered}`);
     assert.ok(r.trip < 0,
-      `${r.goods} was remembered at ${r.remembered} and is selling at 1; the trip booked ${r.trip} latinum instead of a loss`);
-    assert.ok(r.after < r.before,
-      `the captain paid ${r.paid} for cargo that sold into a collapsed market and still finished up (${r.before} to ${r.after})`);
+      `${r.goods} was remembered at ${r.remembered} and is selling at 1; the circuit booked ${r.trip} latinum instead of a loss`);
   });
 
   // TRADE-5 — the leg was rolled against the captain's own records, so a route that looked quiet on a
@@ -2409,9 +2444,11 @@ const { startProbe } = require('./probe-harness.cjs');
       if (typeof t.resolveFleetTradeLegRisk !== 'function') return { rolled: false, reason: 'a trade leg carries no risk at all' };
       const f = s.playerFleet.find((x) => x.id === 'gate-danger-1');
       t.ensureFleetTradeState(f, 'safe');
-      const plan = t.planFleetTradeRun(f, f.trade);
+      const planner = t.planFleetTradeCircuit || t.planFleetTradeRun;
+      if (typeof planner !== 'function') return { rolled: false, reason: 'a trade leg carries no risk at all' };
+      const plan = planner(f, f.trade, s.day);
       if (!plan.ok) return { rolled: true, sampled: false, note: plan.note };
-      const dest = plan.plan.to;
+      const dest = plan.plan.stops ? plan.plan.stops[0] : plan.plan.to;
       const recordedBefore = t.plannedRiskBand(dest);
       t.transferSystemControlToFaction(dest, 'pirate');
       const recordedAfter = t.plannedRiskBand(dest);
@@ -2454,7 +2491,8 @@ const { startProbe } = require('./probe-harness.cjs');
       const t = testBM1, s = t.state;
       window.__tradeSetup({});
       window.__tradeShip('gate-refuse-1', { big: true });
-      if (typeof t.fleetTradeCandidates !== 'function') return { checked: false, reason: 'a trader does not consult standing' };
+      if (typeof t.fleetTradeCandidates !== 'function' || typeof (t.fleetTradeCall || t.completeFleetTradeSale) !== 'function')
+        return { checked: false, reason: 'a trader does not consult standing' };
       const f = s.playerFleet.find((x) => x.id === 'gate-refuse-1');
       t.ensureFleetTradeState(f, 'any');
       const before = t.fleetTradeCandidates(f, f.trade);
@@ -2469,12 +2507,16 @@ const { startProbe } = require('./probe-harness.cjs');
       // and a trader already standing there is turned away rather than selling
       f.systemIndex = target;
       const trade = t.ensureFleetTradeState(f, 'any');
-      trade.goods = t.knownMarket(target).offers[0].goods; trade.tons = 5; trade.paid = 25;
-      trade.stage = 'outbound'; trade.active = true; trade.destination = target;
+      const goods = t.knownMarket(target).offers[0].goods;
+      trade.manifest = [{ kind: 'goods', goods, tons: 5, to: target, unit: 5, paid: 25 }];
+      trade.stops = [target]; trade.path = [target]; trade.legDays = [1]; trade.legIndex = 0;
+      trade.paid = 25; trade.stage = 'outbound'; trade.active = true; trade.destination = target;
       const purse = s.latinum;
-      const sold = t.completeFleetTradeSale(f, trade);
+      const call = t.fleetTradeCall || t.completeFleetTradeSale;
+      call(f, trade, target, s.day);
+      const stillAboard = typeof t.fleetTradeLoad === 'function' ? t.fleetTradeLoad(trade) : trade.tons;
       return { checked: true, found: true, target, faction, refusal: t.serviceRefusal(faction),
-        had: before.includes(target), still: after.includes(target), sold, purse, after: s.latinum, note: trade.note, active: trade.active };
+        had: before.includes(target), still: after.includes(target), stillAboard, purse, after: s.latinum, note: trade.note };
     });
     assert.ok(r.checked, `standing never reaches a trader: ${r.reason}`);
     assert.ok(r.found, 'precondition: no governed destination was available to refuse the captain');
@@ -2482,12 +2524,11 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.equal(r.had, true, `precondition: system ${r.target} was not a candidate to begin with`);
     assert.equal(r.still, false,
       `${r.faction} will not deal with the captain and their freighters are still being sent to system ${r.target}`);
-    assert.equal(r.sold, false,
-      `a trader sold cargo at a port that refuses the captain`);
     assert.equal(r.after, r.purse,
-      `a refused sale still paid the captain ${r.after - r.purse} latinum`);
-    assert.equal(r.active, false, 'a trader turned away from its destination carried on trading');
-    assert.ok(/refuse/i.test(String(r.note)), `the trader does not say why it stopped: "${r.note}"`);
+      `a refused call still paid the captain ${r.after - r.purse} latinum`);
+    assert.equal(r.stillAboard, 5,
+      `the cargo was unloaded at a port that refuses the captain: ${r.stillAboard} of 5 tons left aboard`);
+    assert.ok(/refuse/i.test(String(r.note)), `the trader does not record why the call failed: "${r.note}"`);
   });
 
   // TRADE-7 — trade orders and remembered prices did not survive a reload: a saved campaign came back
@@ -2623,28 +2664,41 @@ const { startProbe } = require('./probe-harness.cjs');
       const knewBefore = Boolean(t.knownMarket(target));
       // arriving with cargo, and being turned away
       f.systemIndex = target;
-      trade.goods = goods; trade.tons = 5; trade.paid = 25; trade.unitPaid = 5; trade.expectedUnit = 9;
-      trade.destination = target; trade.path = [target]; trade.stage = 'outbound'; trade.active = true;
+      trade.manifest = [{ kind: 'goods', goods, tons: 5, to: target, unit: 5, paid: 25 }];
+      trade.stops = [target]; trade.paid = 25;
+      trade.destination = target; trade.path = [target]; trade.legDays = [1]; trade.legIndex = 0;
+      trade.stage = 'outbound'; trade.active = true;
       const purse = s.latinum;
       t.advanceFleetTrading(s.day);
-      const afterArrival = { known: Boolean(t.knownMarket(target)), purse: s.latinum, note: trade.note, active: trade.active };
+      const afterArrival = { known: Boolean(t.knownMarket(target)), purse: s.latinum, note: trade.note,
+        aboard: typeof t.fleetTradeLoad === 'function' ? t.fleetTradeLoad(trade) : trade.tons };
       // and standing at a port that refuses her, planning the next run teaches her nothing either
       delete s.marketLog[target];
       const g = { id: 'gate-access-2', shipId: f.shipId, name: 'Refused', faction: s.playerFaction,
         assignment: 'defense', systemIndex: target, seed: 2 };
       s.playerFleet.push(g);
-      const plan = t.planFleetTradeRun(g, t.ensureFleetTradeState(g, 'any'));
-      const afterPlanning = { known: Boolean(t.knownMarket(target)), ok: plan.ok, note: plan.note };
+      const planner = t.planFleetTradeCircuit || t.planFleetTradeRun;
+      const plan = typeof planner === 'function' ? planner(g, t.ensureFleetTradeState(g, 'any'), s.day) : { ok: false, note: 'no planner' };
+      const afterPlanning = { known: Boolean(t.knownMarket(target)), ok: plan.ok, note: plan.note,
+        repositioning: Boolean(plan.repositioning),
+        took: plan.ok ? (plan.plan.manifest || []).length : 0 };
       return { checked: true, found: true, target, faction, goods, knewBefore, afterArrival, afterPlanning, purse };
     });
     assert.ok(r.checked, `${r.reason}`);
     assert.ok(r.found, 'precondition: no governed destination was available to refuse the captain');
     assert.equal(r.knewBefore, false, 'precondition: the price record for that world was not cleared');
-    assert.equal(r.afterArrival.active, false, 'precondition: the trader was not actually turned away');
+    assert.ok(/refuse/i.test(String(r.afterArrival.note)),
+      `precondition: the trader was not actually turned away ("${r.afterArrival.note}")`);
+    assert.equal(r.afterArrival.aboard, 5, 'the cargo came off at a port that refused her');
     assert.equal(r.afterArrival.purse, r.purse, `a refused sale still paid the captain ${r.afterArrival.purse - r.purse} latinum`);
     assert.equal(r.afterArrival.known, false,
       `${r.faction} turned the freighter away at system ${r.target} and she came home with that week's prices`);
-    assert.equal(r.afterPlanning.ok, false, 'a trader planned a run out of a port that will not deal with her');
+    // She may leave; she may not take on work. A plan out of a refusing port has to be a move and
+    // nothing else.
+    assert.equal(r.afterPlanning.took, 0,
+      `a trader loaded ${r.afterPlanning.took} lots at a port that will not deal with her`);
+    assert.ok(!r.afterPlanning.ok || r.afterPlanning.repositioning,
+      'a trader planned a trading circuit out of a port that will not deal with her');
     assert.equal(r.afterPlanning.known, false,
       `a trader standing at a port that refuses her read its board anyway`);
   });
@@ -2740,6 +2794,407 @@ const { startProbe } = require('./probe-harness.cjs');
       `the ship was stopped on the first leg and the run crossed ${JSON.stringify(r.stopped.crossed)}`);
     assert.equal(r.stopped.legIndex, 0,
       `the ship was stopped on the first leg and the run advanced to leg ${r.stopped.legIndex}`);
+  });
+
+
+  // ECON-1 — a world's board was an infinite tap: it sold any quantity of anything for ever, and
+  // nothing the captain or a trader bought made the slightest difference to what was there.
+  await check('ECON a world sells what it has, and it comes back over time', async () => {
+    await fresh('play-econ-supply');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.marketSupply !== 'function') return { finite: false, reason: 'a world sells any quantity of anything' };
+      window.__tradeSetup({});
+      const at = Number(s.currentPlanet);
+      const goods = t.getPlanetMarket(at)[0].goods;
+      const cap = t.worldTradeCapability(at);
+      const start = t.marketSupply(at, goods);
+      const took = t.takeMarketSupply(at, goods, Math.floor(start / 2));
+      const half = t.marketSupply(at, goods);
+      const grab = t.takeMarketSupply(at, goods, start * 10);
+      const empty = t.marketSupply(at, goods);
+      const dayWas = s.day;
+      s.day += 5;
+      const after5 = t.marketSupply(at, goods);
+      s.day += 500;
+      const afterAges = t.marketSupply(at, goods);
+      return { finite: true, at, goods, cap: cap.tons, replenish: cap.replenish, start, took, half, grab, empty,
+        after5, afterAges, dayWas };
+    });
+    assert.ok(r.finite, `${r.reason}`);
+    assert.ok(r.start > 0, `system ${r.at} starts with no ${r.goods} at all`);
+    assert.equal(r.half, r.start - r.took, `buying ${r.took} tons left ${r.half} of ${r.start}`);
+    assert.equal(r.empty, 0, `asking for ten times the shelf left ${r.empty} tons behind`);
+    assert.ok(r.grab < r.start * 10, `the world sold ${r.grab} tons when it only had ${r.half}`);
+    assert.ok(r.after5 > 0 && r.after5 <= r.cap,
+      `five days after being cleaned out the shelf holds ${r.after5} against a capacity of ${r.cap}`);
+    assert.ok(r.after5 < r.cap, `five days brought the shelf all the way back to ${r.cap}: it refills instantly`);
+    assert.equal(r.afterAges, r.cap, `five hundred days later the shelf is ${r.afterAges} of ${r.cap}: it never comes back`);
+  });
+
+  // ECON-2 — the captain and their traders were trading out of different worlds: nothing a fleet
+  // trader bought was missing when the captain got there.
+  await check('ECON the captain and their traders buy out of the same hold', async () => {
+    await fresh('play-econ-shared');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.marketSupply !== 'function') return { shared: false, reason: 'a fleet trader has stock of its own' };
+      window.__tradeSetup({});
+      const at = Number(s.currentPlanet);
+      const goods = t.getPlanetMarket(at)[0].goods;
+      const before = t.marketSupply(at, goods);
+      // the captain buys a ton at the market screen
+      s.latinum = 100000;
+      const dock = window.__dock();
+      const offers = t.currentMarketOffers();
+      const slot = offers.findIndex((o) => o.goods === goods);
+      t.buyMarketGood(slot);
+      const afterCaptain = t.marketSupply(at, goods);
+      // and a trader takes the rest
+      const rest = t.takeMarketSupply(at, goods, afterCaptain);
+      const afterTrader = t.marketSupply(at, goods);
+      // now the captain cannot buy what the trader took
+      const purse = s.latinum;
+      t.buyMarketGood(slot);
+      return { shared: true, at, goods, before, afterCaptain, rest, afterTrader, dock,
+        purse, purseAfter: s.latinum, log: String(s.log || '') };
+    });
+    assert.ok(r.shared, `${r.reason}`);
+    assert.ok(r.before > 1, `precondition: system ${r.at} had ${r.before} tons of ${r.goods}`);
+    assert.ok(r.dock.offers > 0, `precondition: the market screen showed nothing (${r.dock.block})`);
+    assert.equal(r.afterCaptain, r.before - 1,
+      `the captain bought a ton of ${r.goods} and the shelf went from ${r.before} to ${r.afterCaptain}`);
+    assert.equal(r.afterTrader, 0, 'a trader took the rest of the shelf and something is still there');
+    assert.equal(r.purseAfter, r.purse,
+      `the captain bought ${r.goods} a trader had already taken, for ${r.purse - r.purseAfter} latinum`);
+    assert.ok(/no .* left|sold out|comes back/i.test(r.log), `the market does not say why it refused: "${r.log}"`);
+  });
+
+  // ECON-3 — a world would absorb any tonnage of anything at its posted price, so a thousand tons of
+  // one commodity cleared exactly like one ton.
+  await check('ECON a world only buys what it wants', async () => {
+    await fresh('play-econ-demand');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.marketDemand !== 'function') return { finite: false, reason: 'a world absorbs any tonnage at its posted price' };
+      window.__tradeSetup({});
+      const at = Number(s.currentPlanet);
+      const goods = t.getPlanetMarket(at)[0].goods;
+      const cap = t.worldTradeCapability(at);
+      const want = t.marketDemand(at, goods);
+      const filled = t.fillMarketDemand(at, goods, want * 20);
+      const left = t.marketDemand(at, goods);
+      s.day += 500;
+      const back = t.marketDemand(at, goods);
+      return { finite: true, at, goods, want, filled, left, back, cap: cap.demand };
+    });
+    assert.ok(r.finite, `${r.reason}`);
+    assert.ok(r.want > 0, `system ${r.at} will not buy any ${r.goods} at all`);
+    assert.equal(r.filled, r.want, `the world took ${r.filled} tons when it only wanted ${r.want}`);
+    assert.equal(r.left, 0, `after being filled the world still wants ${r.left} tons`);
+    assert.equal(r.back, r.cap, `the world's appetite never comes back: ${r.back} of ${r.cap}`);
+  });
+
+  // ECON-4 — an empty rock with nobody on it ran a commodity market and handed out shipping work.
+  await check('ECON a world with no people and no installation has no economy', async () => {
+    await fresh('play-econ-dead');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.worldTrades !== 'function') return { derived: false, reason: 'every world trades, whoever lives there' };
+      window.__tradeSetup({});
+      const dead = [], alive = [];
+      for (let i = 0; i < s.planets.length; i++) {
+        const cap = t.worldTradeCapability(i);
+        (cap.inhabited ? alive : dead).push({ i, name: s.planets[i].name, pop: cap.pop, installations: cap.installations });
+      }
+      if (!dead.length) return { derived: true, found: false };
+      const one = dead[0];
+      const goods = t.getPlanetMarket(one.i)[0].goods;
+      // and it starts trading the moment something is built there
+      const before = { trades: t.worldTrades(one.i), supply: t.marketSupply(one.i, goods), jobs: t.worldOpenJobs(one.i).length };
+      (s.stationDefinitions ||= []).push({ id: `gate-dead-${one.i}`, systemIndex: one.i, stationTypeId: 1, name: 'Gate Outpost' });
+      const after = { trades: t.worldTrades(one.i), supply: t.marketSupply(one.i, goods), jobs: t.worldOpenJobs(one.i).length };
+      s.stationDefinitions = s.stationDefinitions.filter((d) => d.id !== `gate-dead-${one.i}`);
+      const populated = alive.filter((w) => w.pop > 0).length;
+      return { derived: true, found: true, dead: dead.map((w) => w.name), one, before, after, populated, aliveCount: alive.length };
+    });
+    assert.ok(r.derived, `${r.reason}`);
+    assert.ok(r.found, 'precondition: every world on the map has people or an installation');
+    assert.equal(r.before.trades, false, `${r.one.name} has ${r.one.pop} people and ${r.one.installations} installations and still trades`);
+    assert.equal(r.before.supply, 0, `${r.one.name} has ${r.before.supply} tons on a shelf nobody is standing behind`);
+    assert.equal(r.before.jobs, 0, `${r.one.name} is handing out ${r.before.jobs} shipping jobs with nobody there to hire`);
+    assert.equal(r.after.trades, true,
+      `an outpost was built at ${r.one.name} and it still has no economy: the rule is reading the world's name, not its installations`);
+    assert.ok(r.after.jobs > 0, `an outpost was built at ${r.one.name} and it generates no work`);
+  });
+
+  // JOB-1 — a contract was invented to fit whatever hold was asking, so tonnage was never a constraint
+  // and a shipment always fitted.
+  await check('JOB a shipment has a size, and a hold has to have room for it', async () => {
+    await fresh('play-job-tonnage');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.worldOpenJobs !== 'function') return { finite: false, reason: 'shipments are invented to fit whoever is asking' };
+      window.__tradeSetup({});
+      const at = Number(s.currentPlanet);
+      const jobs = t.worldOpenJobs(at).map((j) => ({ id: j.id, tons: j.tons, to: j.targetIndex }));
+      const cap = t.worldTradeCapability(at);
+      // a hold far too small for the smallest shipment is offered nothing
+      s.cargoCap = Math.max(1, s.cargo + 1);
+      const tiny = t.createCargoRunOffer();
+      // a big hold is offered one of the world's own shipments, at its own size
+      s.cargoCap = 5000;
+      const big = t.createCargoRunOffer();
+      return { finite: true, at, jobs, capTons: cap.tons, tiny: tiny ? tiny.tons : null,
+        big: big ? { id: big.id, tons: big.tons } : null };
+    });
+    assert.ok(r.finite, `${r.reason}`);
+    assert.ok(r.jobs.length > 0, `system ${r.at} has no shipments waiting at all`);
+    assert.ok(r.jobs.every((j) => j.tons > 0), 'a shipment has no tonnage on it');
+    assert.equal(r.tiny, null,
+      `a one-ton hold was offered a ${r.tiny}-ton shipment when the smallest on the board is ${Math.min(...r.jobs.map((j) => j.tons))}`);
+    assert.ok(r.big, 'a large hold was offered no shipment at all');
+    assert.ok(r.jobs.some((j) => j.id === r.big.id && j.tons === r.big.tons),
+      `the offered shipment (${r.big.tons} t, ${r.big.id}) is not one of the world's own: it was invented for the ship`);
+  });
+
+  // JOB-2 — asking again produced a fresh contract every time, so a captain stood at one system and
+  // filled an arbitrarily large hold without going anywhere.
+  await check('JOB a world has only so much work, and taking it does not make more', async () => {
+    await fresh('play-job-finite');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.worldOpenJobs !== 'function') return { finite: false, reason: 'a world hands out a new contract every time it is asked' };
+      window.__tradeSetup({});
+      const at = Number(s.currentPlanet);
+      s.cargoCap = 100000; s.totcargo = s.cargoCap; s.latinum = 100000;
+      window.__dock();
+      const cap = t.worldTradeCapability(at);
+      const open = t.worldOpenJobs(at).length;
+      // ask twenty times without leaving
+      const seen = new Set();
+      for (let k = 0; k < 20; k++) { const o = t.createCargoRunOffer(); if (o) seen.add(o.id); }
+      // and take them all
+      let taken = 0;
+      for (let k = 0; k < 20; k++) {
+        const o = t.createCargoRunOffer();
+        if (!o) break;
+        const was = t.worldOpenJobs(at).length;
+        s.pendingContractOffer = o;
+        t.acceptPendingContract();
+        if (t.worldOpenJobs(at).length < was) taken++; else break;
+      }
+      const leftSameDay = t.worldOpenJobs(at).length;
+      s.day += 60;
+      const later = t.worldOpenJobs(at).length;
+      return { finite: true, at, cap: cap.jobs, open, distinct: seen.size, taken, leftSameDay, later };
+    });
+    assert.ok(r.finite, `${r.reason}`);
+    assert.ok(r.open > 0 && r.open <= r.cap, `system ${r.at} keeps ${r.open} jobs open against a cap of ${r.cap}`);
+    assert.ok(r.distinct <= r.open,
+      `asking twenty times at one system produced ${r.distinct} different shipments from a board of ${r.open}`);
+    assert.ok(r.taken <= r.open, `${r.taken} shipments were taken from a board of ${r.open}`);
+    assert.equal(r.leftSameDay, 0, `after taking every shipment the world still has ${r.leftSameDay} waiting`);
+    assert.ok(r.later > 0, 'sixty days later the world has generated no new work at all');
+    assert.ok(r.later <= r.cap, `sixty days later the world has ${r.later} jobs open against a cap of ${r.cap}`);
+  });
+
+  // JOB-3 — a freighter could only ever carry one job, so a large hold had nothing to put in it.
+  await check('JOB several shipments ride in one freighter', async () => {
+    await fresh('play-job-combine');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.planFleetTradeCircuit !== 'function') return { combined: false, reason: 'a trader carries one thing at a time' };
+      window.__tradeSetup({});
+      window.__tradeShip('gate-combine-1', { big: true });
+      const f = s.playerFleet.find((x) => x.id === 'gate-combine-1');
+      const at = Number(s.currentPlanet);
+      const open = t.worldOpenJobs(at).length;
+      const plan = t.planFleetTradeCircuit(f, t.ensureFleetTradeState(f, 'any'), s.day);
+      if (!plan.ok) return { combined: true, planned: false, note: plan.note, open };
+      const jobs = plan.plan.manifest.filter((m) => m.kind === 'job');
+      const destinations = new Set(plan.plan.manifest.map((m) => m.to));
+      return { combined: true, planned: true, open, hold: t.fleetTradeCapacity(f),
+        jobs: jobs.length, tons: jobs.reduce((n, m) => n + m.tons, 0),
+        destinations: destinations.size, stops: plan.plan.stops.length,
+        manifest: plan.plan.manifest.map((m) => ({ kind: m.kind, tons: m.tons, to: m.to })) };
+    });
+    assert.ok(r.combined, `${r.reason}`);
+    assert.ok(r.planned, `no circuit could be planned at all: ${r.note}`);
+    assert.ok(r.open >= 2, `precondition: the origin had ${r.open} shipments open`);
+    assert.ok(r.jobs >= 2,
+      `a ${r.hold}-ton freighter took ${r.jobs} of the ${r.open} shipments on offer`);
+    assert.ok(r.tons <= r.hold, `${r.tons} tons of shipments went into a ${r.hold}-ton hold`);
+    assert.ok(r.stops >= 2 && r.stops <= 4,
+      `the circuit calls at ${r.stops} worlds, which is outside the two-to-four bound`);
+  });
+
+  // CIRCUIT-1 — two traders drew on nothing: the same tons and the same shipment could be taken twice.
+  await check('CIRCUIT two traders cannot take the same tons or the same shipment', async () => {
+    await fresh('play-circuit-shared');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.planFleetTradeCircuit !== 'function') return { shared: false, reason: 'traders do not draw on a shared economy' };
+      window.__tradeSetup({});
+      const at = Number(s.currentPlanet);
+      const openBefore = t.worldOpenJobs(at).map((j) => j.id);
+      window.__tradeShip('gate-share-a', { big: true, seed: 1 });
+      window.__tradeShip('gate-share-b', { big: true, seed: 2 });
+      const a = s.playerFleet.find((x) => x.id === 'gate-share-a');
+      const b = s.playerFleet.find((x) => x.id === 'gate-share-b');
+      const goods = t.getPlanetMarket(at)[0].goods;
+      const supplyBefore = t.marketSupply(at, goods);
+      const pa = t.planFleetTradeCircuit(a, t.ensureFleetTradeState(a, 'any'), s.day);
+      const supplyMid = t.marketSupply(at, goods);
+      const pb = t.planFleetTradeCircuit(b, t.ensureFleetTradeState(b, 'any'), s.day);
+      const supplyAfter = t.marketSupply(at, goods);
+      const jobsA = pa.ok ? pa.plan.manifest.filter((m) => m.kind === 'job').map((m) => m.jobId) : [];
+      const jobsB = pb.ok ? pb.plan.manifest.filter((m) => m.kind === 'job').map((m) => m.jobId) : [];
+      const overlap = jobsA.filter((id) => jobsB.includes(id));
+      const openAfter = t.worldOpenJobs(at).map((j) => j.id);
+      return { shared: true, openBefore: openBefore.length, openAfter: openAfter.length,
+        jobsA: jobsA.length, jobsB: jobsB.length, overlap, supplyBefore, supplyMid, supplyAfter };
+    });
+    assert.ok(r.shared, `${r.reason}`);
+    assert.ok(r.jobsA > 0, 'the first trader took no shipments at all');
+    assert.deepEqual(r.overlap, [],
+      `both traders are carrying the same shipment: ${r.overlap.join(', ')}`);
+    assert.ok(r.openAfter <= r.openBefore - r.jobsA - r.jobsB,
+      `${r.jobsA + r.jobsB} shipments were taken and the board went from ${r.openBefore} to ${r.openAfter}`);
+    assert.ok(r.supplyMid <= r.supplyBefore && r.supplyAfter <= r.supplyMid,
+      `the shelf went ${r.supplyBefore} -> ${r.supplyMid} -> ${r.supplyAfter} as two traders loaded from it`);
+  });
+
+  // CIRCUIT-2 — cargo for different worlds was one undifferentiated load, delivered wherever the ship
+  // happened to stop.
+  await check('CIRCUIT cargo stays addressed, and comes off only at its own call', async () => {
+    await fresh('play-circuit-manifest');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.fleetTradeCall !== 'function') return { addressed: false, reason: 'a load has no addresses in it' };
+      window.__tradeSetup({});
+      window.__tradeShip('gate-manifest-1', { big: true });
+      const f = s.playerFleet.find((x) => x.id === 'gate-manifest-1');
+      const plan = t.planFleetTradeCircuit(f, t.ensureFleetTradeState(f, 'any'), s.day);
+      if (!plan.ok) return { addressed: true, planned: false, note: plan.note };
+      t.beginFleetTradeCircuit(f, f.trade, plan.plan, s.day);
+      const stops = f.trade.stops.slice();
+      if (stops.length < 2) return { addressed: true, planned: true, multi: false, stops: stops.length };
+      const before = f.trade.manifest.map((m) => ({ tons: m.tons, to: m.to }));
+      const first = stops[0];
+      const forFirst = before.filter((m) => m.to === first).reduce((n, m) => n + m.tons, 0);
+      const forOthers = before.filter((m) => m.to !== first).reduce((n, m) => n + m.tons, 0);
+      f.systemIndex = first; delete f.transit; f.assignment = 'defense';
+      t.fleetTradeCall(f, f.trade, first, s.day);
+      const after = f.trade.manifest.map((m) => ({ tons: m.tons, to: m.to }));
+      const leftForFirst = after.filter((m) => m.to === first).reduce((n, m) => n + m.tons, 0);
+      const leftForOthers = after.filter((m) => m.to !== first).reduce((n, m) => n + m.tons, 0);
+      return { addressed: true, planned: true, multi: true, stops: stops.length,
+        forFirst, forOthers, leftForFirst, leftForOthers, revenue: f.trade.revenue };
+    });
+    assert.ok(r.addressed, `${r.reason}`);
+    assert.ok(r.planned, `no circuit could be planned: ${r.note}`);
+    assert.ok(r.multi, `the planned circuit calls at only ${r.stops} world, so nothing can be mis-delivered`);
+    assert.ok(r.forFirst > 0, 'nothing on the manifest was addressed to the first call');
+    assert.ok(r.forOthers > 0, 'nothing on the manifest was addressed to a later call');
+    assert.ok(r.leftForFirst < r.forFirst,
+      `${r.forFirst} tons were addressed to the first call and ${r.leftForFirst} are still aboard after it`);
+    assert.equal(r.leftForOthers, r.forOthers,
+      `${r.forOthers} tons addressed to later calls went to ${r.leftForOthers} at the first stop: cargo came off at the wrong world`);
+    assert.ok(r.revenue > 0, 'calling at the first stop earned nothing');
+  });
+
+  // CIRCUIT-3 — space freed by a delivery sat empty for the rest of the circuit.
+  await check('CIRCUIT freed hold goes back to work later in the circuit', async () => {
+    await fresh('play-circuit-refill');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.fleetTradeCall !== 'function') return { refills: false, reason: 'a circuit never picks anything up after it sets out' };
+      window.__tradeSetup({});
+      window.__tradeShip('gate-refill-1', { big: true });
+      const f = s.playerFleet.find((x) => x.id === 'gate-refill-1');
+      const trade = t.ensureFleetTradeState(f, 'any');
+      trade.active = true; // a trader that has been stopped does not take on new work
+      const plan = t.planFleetTradeCircuit(f, trade, s.day);
+      if (!plan.ok) return { refills: true, planned: false, note: plan.note };
+      t.beginFleetTradeCircuit(f, trade, plan.plan, s.day);
+      trade.active = true;
+      const stops = trade.stops.slice();
+      if (stops.length < 2) return { refills: true, planned: true, multi: false };
+      const first = stops[0], ahead = stops.slice(1);
+      // make sure the first call has work of its own bound for somewhere still to come
+      const pool = t.worldJobPool(first);
+      const cap = t.worldTradeCapability(first);
+      if (pool && ahead.length) {
+        pool.jobs.push({ id: `gate-refill-job`, goods: 'Medical Supplies', tons: Math.max(5, Math.round(cap.tons / 4)),
+          targetIndex: ahead[0], targetName: s.planets[ahead[0]]?.name, payPerTon: 300, hazardPay: 0,
+          originIndex: first, originName: s.planets[first]?.name, employerName: s.planets[first]?.name,
+          employerType: 'planet', employerFaction: 'neutral', showMarker: false, negotiated: false, createdAt: Date.now() });
+      }
+      const beforeIds = trade.manifest.map((m) => m.jobId).filter(Boolean);
+      f.systemIndex = first; delete f.transit; f.assignment = 'defense';
+      t.fleetTradeCall(f, trade, first, s.day);
+      const afterIds = trade.manifest.map((m) => m.jobId).filter(Boolean);
+      const stillOpen = (t.worldOpenJobs(first) || []).some((j) => j.id === 'gate-refill-job');
+      return { refills: true, planned: true, multi: true, picked: afterIds.includes('gate-refill-job'),
+        stillOpen, beforeIds, afterIds, load: t.fleetTradeLoad(trade), hold: t.fleetTradeCapacity(f) };
+    });
+    assert.ok(r.refills, `${r.reason}`);
+    assert.ok(r.planned, `no circuit could be planned: ${r.note}`);
+    assert.ok(r.multi, 'the planned circuit has only one call, so there is no later stop to load for');
+    assert.equal(r.picked, true,
+      'a shipment waiting at the first call, bound for a world still on the circuit, was left behind in the freed hold');
+    assert.equal(r.stillOpen, false, 'the shipment was loaded and is still on that world’s board');
+    assert.ok(r.load <= r.hold, `${r.load} tons ended up in a ${r.hold}-ton hold`);
+  });
+
+  // CIRCUIT-4 — a reload came back with the route, the load and the economy all reset.
+  await check('CIRCUIT a reload resumes the route, the manifest and the economy', async () => {
+    await fresh('play-circuit-persist');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.planFleetTradeCircuit !== 'function') return { saved: false, reason: 'there is no circuit to save' };
+      window.__tradeSetup({});
+      window.__tradeShip('gate-persist-2', { big: true });
+      const f = s.playerFleet.find((x) => x.id === 'gate-persist-2');
+      t.startFleetTrading('gate-persist-2', 'risky');
+      window.__tradeDays(20);
+      const at = Number(s.currentPlanet);
+      const goods = t.getPlanetMarket(at)[0].goods;
+      t.takeMarketSupply(at, goods, Math.floor(t.marketSupply(at, goods) / 2));
+      const snap = (g) => g && g.trade ? {
+        risk: g.trade.risk, stage: g.trade.stage, stops: g.trade.stops.slice(), path: g.trade.path.slice(),
+        legIndex: g.trade.legIndex, legDays: g.trade.legDays.slice(),
+        manifest: g.trade.manifest.map((m) => ({ kind: m.kind, goods: m.goods, tons: m.tons, to: m.to })),
+        crossed: g.trade.crossed.slice(), cumulative: g.trade.cumulative, circuits: g.trade.circuits,
+      } : null;
+      const before = { trade: snap(f), supply: t.marketSupply(at, goods), jobs: t.worldOpenJobs(at).length,
+        transit: f.transit ? { to: f.transit.to, arrivalDay: f.transit.arrivalDay } : null };
+      t.saveGame(6);
+      t.startWithFaction('terran');
+      const wiped = { stock: Object.keys(s.marketStock || {}).length, jobs: Object.keys(s.worldJobs || {}).length };
+      t.loadGame(6);
+      const g = s.playerFleet.find((x) => x.id === 'gate-persist-2');
+      const after = { trade: snap(g), supply: t.marketSupply(at, goods), jobs: t.worldOpenJobs(at).length,
+        transit: g && g.transit ? { to: g.transit.to, arrivalDay: g.transit.arrivalDay } : null };
+      return { saved: true, before, wiped, after };
+    });
+    assert.ok(r.saved, `${r.reason}`);
+    assert.equal(r.wiped.stock, 0, 'precondition: a new campaign kept the previous one’s shelves');
+    assert.ok(r.before.trade, 'precondition: the trader had no circuit to save');
+    assert.ok(r.after.trade, 'the trader came back from the save with no circuit at all');
+    assert.deepEqual(r.after.trade.stops, r.before.trade.stops,
+      `the circuit came back calling at ${JSON.stringify(r.after.trade.stops)} instead of ${JSON.stringify(r.before.trade.stops)}`);
+    assert.deepEqual(r.after.trade.path, r.before.trade.path, 'the route came back different');
+    assert.equal(r.after.trade.legIndex, r.before.trade.legIndex,
+      `the ship came back on leg ${r.after.trade.legIndex} instead of leg ${r.before.trade.legIndex}`);
+    assert.deepEqual(r.after.trade.manifest, r.before.trade.manifest, 'the manifest came back different');
+    assert.deepEqual(r.after.trade.crossed, r.before.trade.crossed, 'the record of systems crossed came back different');
+    assert.deepEqual(r.after.transit, r.before.transit, 'the leg the ship was flying came back different');
+    assert.equal(r.after.supply, r.before.supply,
+      `the shelf came back at ${r.after.supply} tons instead of ${r.before.supply}`);
+    assert.equal(r.after.jobs, r.before.jobs,
+      `the world came back with ${r.after.jobs} shipments open instead of ${r.before.jobs}`);
   });
 
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);

@@ -1,17 +1,23 @@
 # BM1 playtest repairs on top of `ae4ae4d`
 
-DTG 191921ZSEP26
+DTG 201428ZSEP26
 
 Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Nothing pushed, merged or deployed.
 The commit count is in `CANDIDATE.json`, computed by the pack script rather than typed here.
 
 ## Read this first
 
-**This round is the leg-by-leg traversal fix, plus the economy papers**, on top of `75389f7`. **§4 is
-not closed.** The only code change is the traversal fix; everything else is documents, because review
-asked for the numbers before the data changes.
+**This round is the economy**, on top of `54cd501`. **§4 is still open.** Finite commodity supply and
+demand, finite sized cargo work, multi-stop circuits, and uninhabited worlds derived from population
+and installations — all built. Cargo capacities are a table rather than a change, and **nothing has
+been tuned**, both as asked.
 
-The round before it, fleet-trading repairs, is on top of `5d32b7c`. It is the first
+Four things before the detail. **Contract pay is the whole economy** — 416 to 620 latinum a ton, eight
+times what commodity trading contributes. **The hold is not what limits a trader**: a 220-ton cruiser
+and a 3,500-ton freighter earn the same over a thousand days. **Risk is worth four times cargo
+capacity.** And **a trader could strand itself for ever** at a port that refused it; that is fixed here.
+
+The round before it, leg-by-leg traversal, is on top of `75389f7`. It is the first
 section below; "Fleet trading" beneath it is the round that built it, and everything under that is the
 record of the rounds before, newest first, unchanged.
 
@@ -20,7 +26,7 @@ records call dangerous**, because only the destination was examined — fixed, w
 turned away at a port came home with its prices** — fixed, with a gate. **The pack's cover sheets
 shipped describing the previous round**; the duplicated narrative is gone and the pack now refuses to
 build when its stamps disagree with what is being packed. And the economy question is **costed rather
-than tuned**: `ECONOMY-DESIGN-191921ZSEP26.md`, nothing implemented.
+than tuned**: `ECONOMY-DESIGN-201428ZSEP26.md`, nothing implemented.
 
 The foreign-market specification is amended twice, and one of those amendments reorders the work:
 **persistent strategic vessel identity is now a prerequisite** before any offscreen operation may
@@ -53,6 +59,127 @@ little haven" — which made it neutral and stopped it being hostile. Rigel's te
 independent planet" and "The Andorians however lay claim to this world and are quite willing to protect
 it", and the engine has no protectorate level to express that, so nothing was authored and the shipped
 table's `andorian` stands. That second one is **a gap, not a decision**.
+
+## The economy round
+
+Raised against `54cd501`, which stays the base. **§4 is still open**: the economy is built, the
+measurements are in, and the cargo capacities are a table rather than a change, as asked.
+
+### 1. Commodities are finite and visible
+
+A board now carries a quantity: `Medical supplies — 82 t available · buying 66 t`. Buying takes it
+away, selling fills a finite appetite, and both come back over campaign time at a rate derived from the
+world's population, market strength and installations — `clamp(score × 6, 10, 220)` tons a good, back
+in about twenty days.
+
+**One economy.** `takeMarketSupply` and `fillMarketDemand` are the only two places stock moves, and the
+captain's market screen and every fleet trader go through them. A trader that empties a shelf empties
+it for the captain, and the captain can do the same to their own traders. Replenishment is caught up
+lazily from the day a shelf was last touched, so a world nobody has visited for a hundred days is full
+when somebody arrives and one emptied yesterday is still empty — no per-day sweep over a hundred and
+one worlds.
+
+Prices keep drifting ±2 a day and selling does not move them. The quantity is the whole of the
+scarcity, because that is the part a player can read — which is what review asked for instead of the
+slippage curve.
+
+### 2. Cargo work is finite, sized, and does not reroll
+
+A world keeps a book of open shipments, bounded by the same capability score — about two at a small
+world, four to six at a major one — each with explicit tonnage drawn from what that world can move, and
+each regenerating one at a time every twelve days rather than on demand. Taking one removes it.
+
+The offer the captain is shown is **one of the world's own shipments that fits what is left of their
+hold**, not a shipment invented to fit it. Asking again at the same system cycles the same board.
+Standing at one system can no longer fill an arbitrarily large hold.
+
+### 3. Multi-stop circuits
+
+A trader plans a **circuit of two to four calls**: shipments first, best rate first, taken whole or not
+at all; then commodity lots in whatever room is left, for a call whose prices the captain has actually
+read. Cargo is addressed, comes off only at its own call, and space freed by a delivery goes straight
+back to work on anything waiting at that world bound for a call still ahead.
+
+A **shipment** needs a route the danger setting accepts and a port that will take her — it does not
+need the captain to have read that world's prices. **Commodities** need the prices. Requiring market
+knowledge for both turned most of every world's book into work no trader would touch, which is what
+the first build did.
+
+Every leg still uses the leg-by-leg danger from `54cd501`, and a stopped trader still stops where it
+was stopped with the rest of the circuit cancelled.
+
+### 4. Uninhabited worlds
+
+No population and no surviving installation means no market, no appetite and no work — nine worlds on
+the current map. Derived from the world, so an outpost built on an empty rock starts trading on its own
+account, and the gate proves it by building one. That closes the open §3.5 item.
+
+### 5. Two things the build turned up
+
+**A trader could strand itself for ever.** A circuit ending at a world that refuses the captain left
+her unable to plan, and she sat there for the rest of the campaign — the risk settings showed it as
+*zero circuits and 98% idle from day 113*. Being turned away at a call is now a failed call: cargo
+addressed there stays aboard, the rest of the circuit goes ahead, and a trader with nowhere to work
+moves to the nearest port that will deal with her. That is not recall; §5 is still where the captain
+says where a ship should go.
+
+**Planning commits.** Choosing a circuit claims shipments and buys cargo in the same breath. That is
+how two traders cannot take the same shipment, and it means a planner call is not a query.
+
+### 6. The measurements, at 300, 1,000, 3,000 and 5,000 days
+
+`ECONOMY-MEASUREMENTS-201428ZSEP26.md`, driven through the engine rather than modelled, with **nothing
+tuned**. The four findings that matter:
+
+- **Contract pay is the economy.** 416–620 latinum a ton. A cruiser books 223,760 of shipments against
+  29,313 of commodities over a thousand days. If later builds made too much money, this is the number.
+- **The hold is not what limits a trader.** At a thousand days a 220-ton cruiser, a 1,350-ton freighter
+  and a 3,500-ton freighter all make about 239,000. Utilisation 73%, 12%, 6%.
+- **Risk is worth four times cargo capacity.** At five thousand days Safe makes 284,063 and Any makes
+  1,154,013 — not because danger pays, but because the looser settings reach more of the map.
+- **Without repair a trader is finished by about day 1,089.** The maintained figures assume the captain
+  repairs her, which is §6.
+
+Competition behaves: one heavy freighter makes 330,550 over five thousand days, two make 174,635 each,
+four make 108,824 each and idle 38% of the time.
+
+### 7. Cargo capacity — a table, not a change
+
+`CARGO-CAPACITY-PROPOSAL-201428ZSEP26.md`. **No ship data is changed.**
+
+Defaults from `shipClass` and the authored `role`; a hull keeps what it shipped with unless its hold is
+below the default (raised, so it can take a shipment at all) or more than six times it — and then the
+authored text decides. The care went into what counts as the author meaning it: *"offering substantial
+freight capacity"* appears verbatim on a bulk freighter, a Cardassian supercapital and a Borg cube, so
+phrases that restate the number are stripped before the text is read.
+
+| Hull | Shipped | What the text says | Outcome |
+| --- | --- | --- | --- |
+| Concord-class Grand Cruiser | 10,000 t | boilerplate, on a mass-6 battleship | challenged → 308 t |
+| Delpin Luxury Liner | 1,600 t | "a **spacious** … **passenger liner**" | kept |
+| Tholian Isaac Freighter | 3,500 t | role: "**bulk** interstellar freighter" | kept |
+
+At the recommended threshold: **149 hulls untouched, 14 challenged, 9 raised, 2 kept as authored
+exceptions**. The threshold is shown as a dial, and the per-hull CSV carries every description so an
+individual call can be overruled without moving it.
+
+### 8. Eleven new checks
+
+The playtest gate goes 44 → 55. All eleven reproduce behaviourally on `54cd501`, with no `TypeError`s.
+
+| Check | Reproduces |
+| --- | --- |
+| `ECON a world sells what it has, and it comes back over time` | an infinite tap, a shelf that never moves, or one that refills instantly |
+| `ECON the captain and their traders buy out of the same hold` | a trader with stock of its own |
+| `ECON a world only buys what it wants` | a world absorbing any tonnage at its posted price |
+| `ECON a world with no people and no installation has no economy` | an empty rock running a market — and a rule that reads names rather than installations |
+| `JOB a shipment has a size, and a hold has to have room for it` | a contract invented to fit whoever is asking |
+| `JOB a world has only so much work, and taking it does not make more` | rerolling a full hold at one system |
+| `JOB several shipments ride in one freighter` | a trader that carries one thing at a time |
+| `CIRCUIT two traders cannot take the same tons or the same shipment` | two traders drawing on nothing |
+| `CIRCUIT cargo stays addressed, and comes off only at its own call` | one undifferentiated load delivered wherever the ship stops |
+| `CIRCUIT freed hold goes back to work later in the circuit` | space freed by a delivery sitting empty |
+| `CIRCUIT a reload resumes the route, the manifest and the economy` | a save that comes back with the route, the load and the shelves reset |
 
 ## Leg-by-leg traversal, and the economy papers
 
@@ -93,7 +220,7 @@ it stopped. On `75389f7`: *"she was stopped on a 11-day first leg, but it took u
 
 ### 2. Cargo capacity, proposed across the whole roster
 
-`CARGO-CAPACITY-PROPOSAL-191921ZSEP26.md`, and `scripts/cargo-capacity-proposal.cjs` which derives it.
+`CARGO-CAPACITY-PROPOSAL-201428ZSEP26.md`, and `scripts/cargo-capacity-proposal.cjs` which derives it.
 **No ship data is changed.**
 
 A hull's hold comes from two things the catalogue already records and neither is its name: `shipClass`
@@ -108,7 +235,7 @@ the heavy multiplier has to outweigh class or a capital-class cargo hull beats a
 
 ### 3. The economy design, rewritten to what was asked for
 
-`ECONOMY-DESIGN-191921ZSEP26.md`, superseding the price-slippage proposal, which is deleted. Simple
+`ECONOMY-DESIGN-201428ZSEP26.md`, superseding the price-slippage proposal, which is deleted. Simple
 visible scarcity instead: a world's board carries a **quantity** — `Medical supplies — 82 t available
 @ 7 L/t` — consumed by buying and replenished over campaign time; finite demand in the other direction;
 cargo jobs with explicit tonnage and a limited number open at once, so standing at one system cannot
@@ -118,7 +245,7 @@ numbers. Uninhabited worlds are derived from population and installations, not n
 
 ### 4. The measurements, and the finding in them
 
-`ECONOMY-MEASUREMENTS-191921ZSEP26.md`, from `scripts/economy-measure.cjs`, run against the real map.
+`ECONOMY-MEASUREMENTS-201428ZSEP26.md`, from `scripts/economy-measure.cjs`, run against the real map.
 
 Small worlds carry about 50 tons of a commodity and keep two jobs open; major worlds 110–220 and four
 to six. Nine worlds have no economy at all. Four heavy freighters working the same map make 11,298
@@ -220,7 +347,7 @@ Both reproduce behaviourally on `5d32b7c` with no `TypeError`. The playtest gate
 
 ### 5. The economy, costed rather than tuned
 
-`ECONOMY-DESIGN-191921ZSEP26.md`. **Nothing implemented.** The short version: the fleet trader
+`ECONOMY-DESIGN-201428ZSEP26.md`. **Nothing implemented.** The short version: the fleet trader
 did not break the economy, it was the first thing able to execute at a scale the market model never
 priced. A world's board has no depth — 10,000 tons of one good clears at the same unit price as one
 ton. Upkeep is charged on mass while profit is earned on cargo capacity, and the largest hold in the

@@ -604,6 +604,8 @@ const state = {
   visitedDays: {}, // systemIndex -> the day the captain was last there; absent means date unknown
   conditionLog: {}, // systemIndex -> the trade/security reading taken there, as it was read
   marketLog: {}, // systemIndex -> the market board as it was last read there, with its date
+  marketStock: {}, // systemIndex -> what is actually on the shelf there, and when it was last settled
+  worldJobs: {}, // systemIndex -> the cargo work that world has open, and when it last generated any
   conditionsRev: 0,
   factionSystemOverrides: {},
   factionStanding: {},
@@ -699,6 +701,7 @@ const state = {
   },
   activeContract: null,
   pendingContractOffer: null,
+  contractOfferCursor: 0, // which of the world's open shipments was last shown
   missionCompleteNotice: null,
   pendingShipPurchase: null,
   pendingFleetPurchase: null,
@@ -8413,10 +8416,15 @@ function iconStat(kind, value, label = kind) {
 }
 
 function renderMarketOffer(offer, index) {
+  // The quantity is the scarcity. It is on the board rather than behind a price curve, because a
+  // number the captain can read is the whole point of doing it this way. [playtest]
+  const supply = marketSupply(state.currentPlanet, offer.goods);
+  const wanted = marketDemand(state.currentPlanet, offer.goods);
   return `<span class="market-offer">
     <span class="market-good">${resourceIcon('cargo', 'Cargo')}${escapeHtml(offer.goods)}</span>
     ${iconStat('latinum', `${offer.price}L`, 'Latinum')}
-    <span class="market-buttons"><button data-market-buy="${index}">Buy</button><button data-market-sell="${index}">Sell</button></span>
+    <span class="market-stock">${supply} t available \u00b7 buying ${wanted} t</span>
+    <span class="market-buttons"><button data-market-buy="${index}" ${supply < 1 ? 'disabled title="Sold out here; it comes back over time"' : ''}>Buy</button><button data-market-sell="${index}" ${wanted < 1 ? 'disabled title="This world is not buying any more of this"' : ''}>Sell</button></span>
   </span>`;
 }
 
@@ -13295,6 +13303,8 @@ function saveGame(slot = state.currentSaveSlot || 1) {
     visitedDays: state.visitedDays || {},
     conditionLog: state.conditionLog || {},
     marketLog: state.marketLog || {},
+    marketStock: state.marketStock || {},
+    worldJobs: state.worldJobs || {},
     factionSystemOverrides: state.factionSystemOverrides,
     destroyedStations: state.destroyedStations,
     depletedAsteroids: state.depletedAsteroids,
@@ -13459,6 +13469,28 @@ function loadGame(slot = state.currentSaveSlot || 1) {
       .filter((o) => o && typeof o.goods === 'string' && Number(o.price) > 0)
       .map((o) => ({ goods: String(o.goods), price: Math.max(1, Math.round(Number(o.price))) }));
     if (offers.length) state.marketLog[i] = { day: Number(v.day), offers };
+  }
+  // What is actually on the shelves, and the work each world has open. A save written before these
+  // existed loads with none, which reads as a full shelf and no jobs taken yet.
+  state.marketStock = {};
+  for (const [k, v] of Object.entries(s.marketStock || {})) {
+    const i = Number(k);
+    if (!Number.isFinite(i) || !v || typeof v !== 'object' || !v.goods) continue;
+    const goods = {};
+    for (const [g, e] of Object.entries(v.goods))
+      if (e && typeof e === 'object')
+        goods[g] = { supply: Math.max(0, finiteNumber(e.supply, 0)), demand: Math.max(0, finiteNumber(e.demand, 0)) };
+    state.marketStock[i] = { day: Math.max(1, Math.round(finiteNumber(v.day, 1))), goods };
+  }
+  state.worldJobs = {};
+  for (const [k, v] of Object.entries(s.worldJobs || {})) {
+    const i = Number(k);
+    if (!Number.isFinite(i) || !v || typeof v !== 'object') continue;
+    const jobs = (Array.isArray(v.jobs) ? v.jobs : []).map(normalizeContract).filter(Boolean);
+    // The sequence matters as much as the jobs: without it a reload treats the world as never having
+    // generated any and seeds a whole fresh book on top of the one that was saved.
+    state.worldJobs[i] = { day: Math.max(1, Math.round(finiteNumber(v.day, 1))),
+      seq: Math.max(jobs.length, Math.round(finiteNumber(v.seq, 0))), jobs };
   }
   state.visitedSystems = Array.isArray(s.visitedSystems)
     ? s.visitedSystems.map((index) => Number(index)).filter(Number.isFinite)
@@ -13746,6 +13778,132 @@ function getPlanetMarket(planetIndex = state.currentPlanet) {
   return offers;
 }
 
+// ---------- one economy, with quantities in it ----------
+// A world's board stops being an infinite tap. Every good it trades carries a quantity the captain can
+// read, buying takes it away, selling fills a finite appetite, and both come back over campaign time.
+// The captain and every fleet trader draw on these same numbers: a trader that empties a shelf empties
+// it for the captain too. [playtest]
+const TRADE_ECONOMY = Object.freeze({
+  // A world's economic capability, from what the world already has. Nothing is named. The authored
+  // population figures run to fifty thousand, so they are read per thousand: at face value that one
+  // term swamped market strength and installations and put every world on the same ceiling.
+  popPerThousand: 1,
+  marketWeight: 0.6,
+  installationWeight: 1.5,
+  tonsPerPoint: 6,
+  tonsFloor: 10,
+  tonsCeiling: 220,
+  replenishDays: 20,
+  demandFraction: 0.8,
+  jobsPerPoint: 0.22,
+  jobsCeiling: 6,
+  jobTonsLow: 0.1,
+  jobTonsHigh: 0.8,
+  jobRespawnDays: 12,
+});
+function worldInstallationCount(index) {
+  return (state.stationDefinitions || [])
+    .filter((d) => Number(d.systemIndex) === Number(index) && !state.destroyedStations?.[d.id]).length;
+}
+// Population and installations decide whether a world trades at all, and how much. A world with no
+// people and no surviving installation has no market, no appetite and no work — derived from the world
+// rather than from a list of names, so a colony or an outpost on an empty rock trades on its own
+// account. [playtest]
+function worldTradeCapability(index) {
+  const i = Number(index);
+  const planet = state.planets[i];
+  if (!planet) return { score: 0, tons: 0, replenish: 0, demand: 0, jobs: 0, inhabited: false, pop: 0, installations: 0 };
+  const pop = Math.max(0, finiteNumber(planet.population, 0));
+  const installations = worldInstallationCount(i);
+  if (pop <= 0 && installations <= 0)
+    return { score: 0, tons: 0, replenish: 0, demand: 0, jobs: 0, inhabited: false, pop, installations };
+  const score = (pop / 1000) * TRADE_ECONOMY.popPerThousand
+    + Math.max(0, finiteNumber(planet.market, 0) - 4) * TRADE_ECONOMY.marketWeight
+    + installations * TRADE_ECONOMY.installationWeight;
+  const tons = clamp(Math.round(score * TRADE_ECONOMY.tonsPerPoint), TRADE_ECONOMY.tonsFloor, TRADE_ECONOMY.tonsCeiling);
+  return {
+    score,
+    tons,
+    replenish: Math.max(1, Math.round(tons / TRADE_ECONOMY.replenishDays)),
+    demand: Math.round(tons * TRADE_ECONOMY.demandFraction),
+    jobs: clamp(Math.round(score * TRADE_ECONOMY.jobsPerPoint), 1, TRADE_ECONOMY.jobsCeiling),
+    inhabited: true,
+    pop,
+    installations,
+  };
+}
+function worldTrades(index) {
+  return worldTradeCapability(index).inhabited;
+}
+function marketStock() {
+  if (!state.marketStock || typeof state.marketStock !== 'object') state.marketStock = {};
+  return state.marketStock;
+}
+// The shelf as it stands today. Replenishment is caught up lazily from the day it was last touched, so
+// a world nobody has visited for a hundred days is full when somebody arrives, and one emptied
+// yesterday is still empty.
+function marketStockFor(index) {
+  const i = Number(index);
+  const cap = worldTradeCapability(i);
+  if (!cap.inhabited) return null;
+  const store = marketStock();
+  const day = Number(state.day) || 1;
+  let record = store[i];
+  if (!record || typeof record !== 'object' || !record.goods) {
+    record = { day, goods: {} };
+    store[i] = record;
+  }
+  for (const offer of getPlanetMarket(i))
+    if (!record.goods[offer.goods]) record.goods[offer.goods] = { supply: cap.tons, demand: cap.demand };
+  const elapsed = Math.max(0, day - (Number(record.day) || day));
+  if (elapsed > 0) {
+    const back = elapsed * cap.replenish;
+    for (const entry of Object.values(record.goods)) {
+      entry.supply = Math.min(cap.tons, Math.max(0, finiteNumber(entry.supply, cap.tons)) + back);
+      entry.demand = Math.min(cap.demand, Math.max(0, finiteNumber(entry.demand, cap.demand)) + back);
+    }
+  }
+  record.day = day;
+  return record;
+}
+function marketSupply(index, goods) {
+  const record = marketStockFor(index);
+  return record ? Math.max(0, Math.floor(finiteNumber(record.goods[goods]?.supply, 0))) : 0;
+}
+function marketDemand(index, goods) {
+  const record = marketStockFor(index);
+  return record ? Math.max(0, Math.floor(finiteNumber(record.goods[goods]?.demand, 0))) : 0;
+}
+// The only two places stock moves. Every buy and every sell in the game goes through these, the
+// captain's and a trader's alike, so there is no path that still trades out of nothing.
+function takeMarketSupply(index, goods, tons) {
+  const record = marketStockFor(index);
+  const entry = record?.goods[goods];
+  if (!entry) return 0;
+  const taken = Math.max(0, Math.min(Math.floor(finiteNumber(tons, 0)), Math.floor(finiteNumber(entry.supply, 0))));
+  entry.supply -= taken;
+  return taken;
+}
+// Putting stock back, for a purchase that is unwound before the ship leaves. Bounded by the shelf's
+// own capacity so an unwind cannot conjure more than the world could hold.
+function returnMarketSupply(index, goods, tons) {
+  const record = marketStockFor(index);
+  const entry = record?.goods[goods];
+  if (!entry) return 0;
+  const cap = worldTradeCapability(index).tons;
+  const before = Math.max(0, finiteNumber(entry.supply, 0));
+  entry.supply = Math.min(cap, before + Math.max(0, Math.floor(finiteNumber(tons, 0))));
+  return entry.supply - before;
+}
+function fillMarketDemand(index, goods, tons) {
+  const record = marketStockFor(index);
+  const entry = record?.goods[goods];
+  if (!entry) return 0;
+  const sold = Math.max(0, Math.min(Math.floor(finiteNumber(tons, 0)), Math.floor(finiteNumber(entry.demand, 0))));
+  entry.demand -= sold;
+  return sold;
+}
+
 // ---------- what the captain knows about prices ----------
 // getPlanetMarket() creates a world's board the first time anything asks for it, and
 // updatePlanetMarketVariance() then drifts every board that exists. So a route planner that called it
@@ -13757,7 +13915,7 @@ function marketLog() {
 }
 function recordMarketObservation(index = state.currentPlanet) {
   const i = Number(index);
-  if (!Number.isFinite(i) || !state.planets[i]) return null;
+  if (!Number.isFinite(i) || !state.planets[i] || !worldTrades(i)) return null;
   const log = marketLog();
   const day = Number(state.day) || 1;
   if (log[i] && log[i].day === day) return log[i];
@@ -13791,6 +13949,10 @@ function stationDoesCommerce(station) {
 }
 function commodityTradeBlock() {
   if (!state.gameStarted) return '';
+  // No people and no surviving installation means nobody to trade with. Derived from the world, not
+  // from a list of names, so an outpost on an empty rock still deals. [playtest]
+  if (!worldTrades(state.currentPlanet))
+    return `${state.planets[state.currentPlanet]?.name || 'This world'} has no population and no installation: there is no market here.`;
   const station = getCurrentServiceStation();
   if (station && stationDoesCommerce(station)) return '';
   if (state.systemPlanet && distanceToPlayer(state.systemPlanet) <= WORLD_CARGO_DROPOFF_RANGE * 2) return '';
@@ -13996,43 +14158,112 @@ function updatePlanetMarketVariance() {
   }
 }
 
-function createCargoRunOffer() {
-  const available = Math.max(0, Math.floor(state.cargoCap - state.cargo));
-  if (!available) return null;
-  const destinations=state.planets.map((p,i)=>i).filter(i=>i!==state.currentPlanet&&isChartSystemVisible(i)&&getPlottedRoute(state.currentPlanet,i));
-  if(!destinations.length)return null;
-  const targetIndex=destinations[Math.floor(Math.random()*destinations.length)];
+// A world's open work, bounded by what that world can actually generate, and regenerating over time
+// rather than on demand. Standing at one system and asking again used to produce a fresh contract every
+// time, which is how a captain filled an arbitrarily large hold without going anywhere. [playtest]
+function buildWorldJob(index, cap, seq) {
+  const origin = state.planets[index];
+  if (!origin) return null;
+  const pool = [];
+  for (let k = 0; k < state.planets.length; k++)
+    if (k !== index && worldTrades(k) && isChartSystemVisible(k)) pool.push(k);
+  if (!pool.length) return null;
+  let targetIndex = null, route = null;
+  // Deterministic: the same world generates the same nth job in the same campaign.
+  for (let attempt = 0; attempt < 6 && targetIndex === null; attempt++) {
+    const pick = pool[Math.floor(seeded(index * 131 + seq * 17 + attempt * 7) * pool.length) % pool.length];
+    const plotted = getPlottedRoute(index, pick);
+    if (plotted) { targetIndex = pick; route = plotted; }
+  }
+  if (targetIndex === null) return null;
   const targetSystem = ensureSystemState(targetIndex);
-  const goods = state.tradeGoodsArray[Math.floor(Math.random() * state.tradeGoodsArray.length)];
-  const tons = Math.min(available, 2 + Math.floor(Math.random() * Math.min(19, Math.max(3, available))));
-  const route = getPlottedRoute(state.currentPlanet, targetIndex);
+  const goodsList = state.tradeGoodsArray || [];
+  if (!goodsList.length) return null;
+  const goods = goodsList[Math.floor(seeded(index * 211 + seq * 29) * goodsList.length) % goodsList.length];
+  // Explicit tonnage, from what the world can move rather than from the hold of whoever is asking.
+  const share = TRADE_ECONOMY.jobTonsLow
+    + seeded(index * 307 + seq * 53) * (TRADE_ECONOMY.jobTonsHigh - TRADE_ECONOMY.jobTonsLow);
+  const tons = Math.max(5, Math.min(cap.tons, Math.round(cap.tons * share)));
   const distance = finiteNumber(route?.distance, (route?.legs || []).reduce((n, leg) => n + getRouteWarpDistance(leg), 0));
-  const wartime = areFactionsOpposed(getSystemFaction(state.currentPlanet), getSystemFaction(targetIndex));
+  const wartime = areFactionsOpposed(getSystemFaction(index), getSystemFaction(targetIndex));
   const hazardPay = (targetSystem.hasAsteroids ? 20 : 0) + (targetSystem.hasNebula ? 30 : 0) + (wartime ? 100 : 0);
   const basePay = Math.round(150 + Math.min(350, distance * 3));
-  const station = getCurrentServiceStation();
-  const stationStats = station ? getShipStats(station.stationTypeId) : null;
-  const origin = state.planets[state.currentPlanet];
   const hazards = [];
   if (targetSystem.hasAsteroids) hazards.push('asteroid traffic');
   if (targetSystem.hasNebula) hazards.push('nebula interference');
   if (wartime) hazards.push('wartime destination; access is not guaranteed');
   return {
-    id: `contract-${Date.now().toString(36)}-${Math.floor(Math.random() * 100000).toString(36)}`,
+    id: `job-${index}-${seq}`,
     goods,
     targetIndex,
     targetName: state.planets[targetIndex].name,
     tons,
     payPerTon: basePay + hazardPay,
     hazardPay,
-    originIndex: state.currentPlanet,
-    originName: origin?.name || 'Local space',
-    employerName: station?.name || stationStats?.name || origin?.name || 'Contract Office',
-    employerType: station ? 'station' : 'planet',
-    employerFaction: getTradeStandingFaction(state.currentPlanet, station),
+    originIndex: index,
+    originName: origin.name || 'Local space',
+    employerName: origin.name || 'Contract Office',
+    employerType: 'planet',
+    employerFaction: getTradeStandingFaction(index),
     hazards,
     createdAt: Date.now(),
     negotiated: false,
+  };
+}
+function worldJobPool(index) {
+  const i = Number(index);
+  const cap = worldTradeCapability(i);
+  if (!cap.inhabited) return null;
+  if (!state.worldJobs || typeof state.worldJobs !== 'object') state.worldJobs = {};
+  const day = Number(state.day) || 1;
+  let record = state.worldJobs[i];
+  if (!record || typeof record !== 'object' || !Array.isArray(record.jobs)) {
+    record = { day, jobs: [], seq: 0 };
+    state.worldJobs[i] = record;
+  }
+  record.seq = Math.max(0, Math.round(finiteNumber(record.seq, 0)));
+  record.jobs = record.jobs.filter((j) => j && state.planets[j.targetIndex]);
+  // The first look seeds the world's book of work; after that it generates one more job per period,
+  // and never more than it can support at once.
+  let generations = record.seq === 0
+    ? cap.jobs
+    : Math.floor(Math.max(0, day - (Number(record.day) || day)) / TRADE_ECONOMY.jobRespawnDays);
+  if (generations > 0) record.day = day;
+  while (generations-- > 0 && record.jobs.length < cap.jobs) {
+    const job = buildWorldJob(i, cap, ++record.seq);
+    if (job) record.jobs.push(job); else break;
+  }
+  return record;
+}
+function worldOpenJobs(index) {
+  return worldJobPool(index)?.jobs || [];
+}
+function takeWorldJob(index, id) {
+  const record = worldJobPool(index);
+  if (!record) return null;
+  const at = record.jobs.findIndex((j) => j && j.id === id);
+  if (at < 0) return null;
+  return record.jobs.splice(at, 1)[0] || null;
+}
+// The offer the captain is shown is one of the world's open jobs that will fit what is left of their
+// hold — not a job invented to fit it.
+function createCargoRunOffer() {
+  const available = Math.max(0, Math.floor(state.cargoCap - state.cargo));
+  if (!available) return null;
+  const jobs = worldOpenJobs(state.currentPlanet);
+  if (!jobs.length) return null;
+  const fits = jobs.filter((j) => j.tons <= available);
+  if (!fits.length) return null;
+  const station = getCurrentServiceStation();
+  const stationStats = station ? getShipStats(station.stationTypeId) : null;
+  const seen = Math.max(0, Math.round(finiteNumber(state.contractOfferCursor, 0)));
+  state.contractOfferCursor = seen + 1;
+  const job = fits[seen % fits.length];
+  return {
+    ...job,
+    employerName: station?.name || stationStats?.name || job.employerName,
+    employerType: station ? 'station' : 'planet',
+    employerFaction: getTradeStandingFaction(state.currentPlanet, station),
   };
 }
 
@@ -14163,6 +14394,14 @@ function acceptPendingContract() {
     closeContractModal();
     return;
   }
+  // Taken off the world's book before it is loaded: the same shipment cannot be accepted twice, and
+  // the world does not immediately replace it. [playtest]
+  const claimed = takeWorldJob(offer.originIndex, offer.id);
+  if (!claimed && String(offer.id || '').startsWith('job-')) {
+    setLog('That shipment has already been taken.');
+    closeContractModal();
+    return;
+  }
   const loaded = addCargoToPods(
     offer.goods,
     offer.tons,
@@ -14171,6 +14410,7 @@ function acceptPendingContract() {
     { destinationIndex: offer.targetIndex, contractId: offer.id },
   );
   if (!loaded) {
+    if (claimed) worldJobPool(offer.originIndex)?.jobs.push(claimed);
     setLog('No cargo space available for this contract.');
     renderContractModal();
     return;
@@ -14209,11 +14449,17 @@ function buyMarketGood(slot = 0) {
     updateStats();
     return;
   }
+  if (marketSupply(state.currentPlanet, offer.goods) < 1) {
+    setLog(`${state.planets[state.currentPlanet]?.name || 'This world'} has no ${offer.goods} left. It comes back over time.`);
+    updateStats();
+    return;
+  }
   if (!addCargoToPods(offer.goods, 1, undefined, 0)) {
     setLog('You have no more cargo space for this cargo.');
     updateStats();
     return;
   }
+  takeMarketSupply(state.currentPlanet, offer.goods, 1);
   state.latinum -= offer.price;
   const tradeFaction = getTradeStandingFaction(state.currentPlanet, getCurrentServiceStation());
   if (tradeFaction && getFactionStanding(tradeFaction) < 15) adjustFactionStanding(tradeFaction, 1, { silent: true });
@@ -14236,12 +14482,18 @@ function sellMarketGood(slot = 0) {
   if (marketBlock) { setLog(marketBlock); updateStats(); return; }
   const offer = currentMarketOffers()[slot];
   if (!offer) return;
+  if (marketDemand(state.currentPlanet, offer.goods) < 1) {
+    setLog(`${state.planets[state.currentPlanet]?.name || 'This world'} is not buying any more ${offer.goods} for now.`);
+    updateStats();
+    return;
+  }
   const sold = removeCargoFromPods(offer.goods, 1);
   if (!sold) {
     setLog(`No undelivered ${offer.goods} cargo to sell.`);
     updateStats();
     return;
   }
+  fillMarketDemand(state.currentPlanet, offer.goods, 1);
   state.latinum += offer.price;
   const tradeFaction = getTradeStandingFaction(state.currentPlanet, getCurrentServiceStation());
   if (tradeFaction && getFactionStanding(tradeFaction) < 15) adjustFactionStanding(tradeFaction, 1, { silent: true });
@@ -14390,7 +14642,17 @@ function negotiateContract() {
   // captain has to go somewhere else to be offered work by somebody else.
   if (state.pendingContractOffer) recordOpportunity('issuers',
     `${state.currentPlanet}:${getCurrentServiceStation()?.id || 'planet'}`);
-  if (!state.pendingContractOffer) { renderContractModal(); setLog(state.cargoCap - state.cargo < 1 ? 'Cargo hold full. Free space before requesting a contract.' : 'No reachable cargo destinations available.'); return; }
+  if (!state.pendingContractOffer) {
+    renderContractModal();
+    const free = Math.max(0, Math.floor(state.cargoCap - state.cargo));
+    const open = worldOpenJobs(state.currentPlanet);
+    const smallest = open.length ? Math.min(...open.map((j) => j.tons)) : 0;
+    setLog(free < 1 ? 'Cargo hold full. Free space before requesting a contract.'
+      : !worldTrades(state.currentPlanet) ? `${state.planets[state.currentPlanet]?.name || 'This world'} has nobody to hire you.`
+      : !open.length ? `${state.planets[state.currentPlanet]?.name || 'This world'} has no shipments waiting. More come up as the world generates work.`
+      : `The smallest shipment here is ${smallest} tons and you have ${free} free.`);
+    return;
+  }
   renderContractModal();
   setLog(`Contract offer from ${state.pendingContractOffer.employerName}.`);
   updateStats();
@@ -22634,6 +22896,8 @@ function resetRunState() {
   state.visitedDays = {};
   state.conditionLog = {};
   state.marketLog = {};
+  state.marketStock = {};
+  state.worldJobs = {};
   // The boards themselves, not only the captain's memory of them. A new campaign was inheriting the
   // previous one's prices, because the market cache was saved and loaded but never cleared on a new
   // game — so a world the new captain has never seen already had a price history drifting behind it.
@@ -25321,10 +25585,11 @@ function renderFleetManager(open = false) {
         trade?.risk || 'cautious',
       )}</select></label>${trade?.active ? btn('trade-stop', 'Stop trading', f.id) : btn('trade-start', 'Start trading', f.id)}
       <p>${escapeHtml(fleetTradeStatusLine(f) || 'Not trading')}</p>
-      <p>Hold ${trade?.tons || 0}/${fleetTradeCapacity(f)} t${trade?.goods ? ` · ${escapeHtml(trade.goods)} · paid ${trade.paid} L` : ''}${
-        trade?.destination != null ? ` · ${escapeHtml(state.planets[trade.destination]?.name || '?')} · ETA day ${trade.etaDay}` : ''
-      }</p>
-      <p>${trade?.expectedProfit != null ? `This trip ${trade.expectedProfit} L expected` : `Last trip ${trade?.tripProfit ?? 0} L`} · Total ${trade?.cumulative ?? 0} L</p></div>`;
+      <p>Hold ${trade ? fleetTradeLoad(trade) : 0}/${fleetTradeCapacity(f)} t${trade?.paid ? ` · paid ${trade.paid} L for cargo` : ''}</p>
+      ${trade?.manifest?.length ? `<p>Manifest: ${escapeHtml(fleetTradeManifestLine(trade))}</p>` : ''}
+      ${trade?.stops?.length ? `<p>Calls: ${escapeHtml(trade.stops.map((i) => state.planets[i]?.name || '?').join(' → '))} · circuit ends day ${trade.etaDay}</p>` : ''}
+      <p>${trade?.expectedProfit != null ? `This circuit ${trade.expectedProfit} L expected` : `Last circuit ${trade?.tripProfit ?? 0} L`} · Total ${trade?.cumulative ?? 0} L over ${trade?.circuits ?? 0} circuits</p>
+      <p>Shipments ${trade?.contractIncome ?? 0} L · Commodities ${trade?.commodityIncome ?? 0} L</p></div>`;
       return `<details><summary>${escapeHtml(f.name)} · ${v ? Math.round((v.hull / v.maxHull) * 100) + '% hull' : 'Ready'} · ${escapeHtml(v?.condition || 'operational')} · ${upkeepPerDay(f.shipId)} L/day · ${escapeHtml(state.planets[f.assignment === 'escort' ? state.currentPlanet : f.systemIndex]?.name || 'Transit')}${tradeLine}</summary>
     <label>Formation<select data-fleet-group="${escapeHtml(f.id)}">${options(
       b.formations.map((g) => [g.id, g.name]),
@@ -25791,9 +26056,10 @@ function completeFleetJourneys() {
 }
 
 // ---------- autonomous fleet trading ----------
-// A trader buys where it stands, carries the cargo somewhere it remembers paying more, and sells at
-// whatever that world is actually paying when it gets there. Every number the captain's ships act on
-// is one the captain could have read; every number the galaxy answers with is the truth.
+// A trader buys where it stands, works a short circuit of two to four worlds carrying several
+// shipments at once, and sells or delivers at each stop. Every number it acts on is one the captain
+// could have read; every number the galaxy answers with is the truth, and it is the same economy the
+// captain trades in.
 const TRADE_RISK_LEVELS = Object.freeze(['safe', 'cautious', 'risky', 'any']);
 const TRADE_RISK_LABELS = Object.freeze({ safe: 'Safe', cautious: 'Cautious', risky: 'Risky', any: 'Any' });
 // The worst threat a setting will accept, and whether a world nobody has reported on is a candidate at
@@ -25805,8 +26071,9 @@ const TRADE_RISK_RULES = Object.freeze({
   risky: { maxBand: 2, acceptUnreported: true },
   any: { maxBand: 3, acceptUnreported: true },
 });
-// Odds of being jumped on a leg, read from what is TRUE at the destination, never from the record the
-// route was planned on. Somebody watching the place lowers it; nothing removes it but an empty lane.
+// Odds of being jumped on a leg, read from what is TRUE at the system the ship is crossing, never from
+// the record the route was planned on. Somebody watching the place lowers it; nothing removes it but an
+// empty lane.
 const TRADE_ENCOUNTER_BASE = Object.freeze([0, 0.08, 0.2, 0.38]);
 const TRADE_ENCOUNTER_RELIEF = Object.freeze([0, 0.03, 0.06, 0.1]);
 const TRADE_EXCEPTIONAL_FLOOR = 150;
@@ -25814,6 +26081,9 @@ const TRADE_EXCEPTIONAL_FLOOR = 150;
 // autonomous ships can empty the account between one repair and the next, which is not a trade-off the
 // captain ever chose. [playtest]
 const TRADE_PURSE_RESERVE = 500;
+// A circuit, not an unbounded tour. Two to four calls is enough for a large hold to aggregate several
+// pieces of business without turning route planning into a travelling-salesman problem. [playtest]
+const TRADE_MAX_STOPS = 4;
 
 function tradeSeed(key) {
   return seeded(Math.abs(hashString(String(key))) % 1000003);
@@ -25834,30 +26104,37 @@ function ensureFleetTradeState(f, risk) {
   t.risk = normalizeTradeRisk(risk === undefined ? t.risk : risk);
   t.stage = ['idle', 'outbound', 'holding'].includes(t.stage) ? t.stage : 'idle';
   t.active = Boolean(t.active);
-  t.goods = typeof t.goods === 'string' ? t.goods : null;
-  t.tons = Math.max(0, Math.round(finiteNumber(t.tons, 0)));
-  t.paid = Math.max(0, Math.round(finiteNumber(t.paid, 0)));
-  t.origin = Number.isFinite(Number(t.origin)) ? Number(t.origin) : null;
-  t.destination = Number.isFinite(Number(t.destination)) ? Number(t.destination) : null;
-  t.etaDay = Number.isFinite(Number(t.etaDay)) ? Number(t.etaDay) : null;
-  t.expectedUnit = Number.isFinite(Number(t.expectedUnit)) ? Number(t.expectedUnit) : null;
-  t.unitPaid = Number.isFinite(Number(t.unitPaid)) ? Number(t.unitPaid) : null;
-  t.tripProfit = Math.round(finiteNumber(t.tripProfit, 0));
-  t.expectedProfit = Number.isFinite(Number(t.expectedProfit)) ? Math.round(Number(t.expectedProfit)) : null;
-  t.cumulative = Math.round(finiteNumber(t.cumulative, 0));
-  t.note = typeof t.note === 'string' ? t.note : '';
+  // The circuit: where it is going, what it is carrying, and for whom.
+  t.manifest = Array.isArray(t.manifest) ? t.manifest.filter((m) => m && typeof m === 'object' && m.tons > 0) : [];
+  t.stops = Array.isArray(t.stops) ? t.stops.map(Number).filter((i) => Number.isFinite(i) && state.planets[i]) : [];
   t.path = Array.isArray(t.path) ? t.path.map(Number).filter((i) => Number.isFinite(i) && state.planets[i]) : [];
   t.legDays = Array.isArray(t.legDays) ? t.legDays.map((n) => Math.max(1, Math.round(finiteNumber(n, 1)))) : [];
   t.legIndex = Math.max(0, Math.round(finiteNumber(t.legIndex, 0)));
-  // The systems this trip actually crossed and was rolled at. A ship stopped on the second leg has two
-  // entries and never acquires a third, which is the whole of what "the later legs never happened"
+  // The systems this circuit actually crossed and was rolled at. A ship stopped on the second leg has
+  // two entries and never acquires a third, which is the whole of what "the later legs never happened"
   // means and the only way to see it from outside. [playtest]
   t.crossed = Array.isArray(t.crossed) ? t.crossed.map(Number).filter((i) => Number.isFinite(i)) : [];
   t.tripId = typeof t.tripId === 'string' ? t.tripId : null;
+  t.paid = Math.max(0, Math.round(finiteNumber(t.paid, 0)));
+  t.revenue = Math.max(0, Math.round(finiteNumber(t.revenue, 0)));
+  t.origin = Number.isFinite(Number(t.origin)) ? Number(t.origin) : null;
+  t.destination = Number.isFinite(Number(t.destination)) ? Number(t.destination) : null;
+  t.etaDay = Number.isFinite(Number(t.etaDay)) ? Number(t.etaDay) : null;
+  t.legEtaDay = Number.isFinite(Number(t.legEtaDay)) ? Number(t.legEtaDay) : null;
+  t.expectedProfit = Number.isFinite(Number(t.expectedProfit)) ? Math.round(Number(t.expectedProfit)) : null;
+  t.tripProfit = Math.round(finiteNumber(t.tripProfit, 0));
+  t.cumulative = Math.round(finiteNumber(t.cumulative, 0));
+  t.contractIncome = Math.round(finiteNumber(t.contractIncome, 0));
+  t.commodityIncome = Math.round(finiteNumber(t.commodityIncome, 0));
+  t.circuits = Math.max(0, Math.round(finiteNumber(t.circuits, 0)));
+  t.note = typeof t.note === 'string' ? t.note : '';
   return t;
 }
 function fleetTradeCapacity(f) {
   return Math.max(0, Math.floor(finiteNumber(getShipStats(f.shipId).cargoCapacity, 0)));
+}
+function fleetTradeLoad(t) {
+  return (t.manifest || []).reduce((n, m) => n + Math.max(0, finiteNumber(m.tons, 0)), 0);
 }
 function fleetVesselCondition(f) {
   const actor = fleetLocalActor(f.id);
@@ -25903,7 +26180,7 @@ function plannedRiskBand(index) {
 // The worst thing the captain's records say about anywhere on the way, not just the far end. A quiet
 // destination reached through a system nobody is watching is not a quiet run, and checking only the
 // destination let a Safe trader be routed straight through a pirate haven. Passing through is not
-// docking, so a government that refuses the captain is only consulted at the destination. [playtest]
+// docking, so a government that refuses the captain is only consulted where the ship calls. [playtest]
 function plannedRouteRisk(from, to) {
   const route = getPlottedRoute(from, to);
   if (!route) return null;
@@ -25917,98 +26194,250 @@ function plannedRouteRisk(from, to) {
   }
   return { route, path, worst, unreported };
 }
-function fleetTradeCandidates(f, t) {
-  const from = fleetShipSystem(f);
+// How long each hop of a plotted route takes, in the order the ship flies them. `route.legs[i]` joins
+// `route.systems[i]` to `route.systems[i + 1]`, so this lines up one-for-one with the path.
+function routeLegDays(route) {
+  return (route?.legs || []).map((leg) => Math.max(1, Fleet.travelDays(getRouteWarpDistance(leg))));
+}
+function fleetTradeRouteAcceptable(f, t, from, to) {
   const rule = TRADE_RISK_RULES[t.risk] || TRADE_RISK_RULES.cautious;
+  const risk = plannedRouteRisk(from, to);
+  if (!risk) return null;
+  if (risk.unreported.length && !rule.acceptUnreported) return null;
+  if (risk.worst && risk.worst.band > rule.maxBand) return null;
+  return risk;
+}
+// Whether a shipment addressed to a world can be taken. A contract needs a route the danger setting
+// accepts and a government that will let the ship dock — it does not need the captain to have read that
+// world's prices, which is what selling commodities there would need. Requiring market knowledge for
+// both turned most of a world's book of work into shipments no trader would touch. [playtest]
+function fleetTradeDeliverable(f, t, from, to) {
+  const i = Number(to);
+  if (!Number.isFinite(i) || i === Number(from) || !state.planets[i]) return false;
+  const recordedController = conditionLog()[i]?.controller;
+  if (recordedController !== undefined && recordedController !== null && serviceRefusal(recordedController)) return false;
+  return Boolean(fleetTradeRouteAcceptable(f, t, from, i));
+}
+function fleetTradeCandidates(f, t, from = fleetShipSystem(f)) {
   const out = [];
   for (let i = 0; i < state.planets.length; i++) {
     if (i === from) continue;
+    if (!worldTrades(i)) continue;
     if (!knownMarket(i)) continue;
     // Who the captain thinks holds the place, not who holds it. A world that changed hands after the
     // last look is still a candidate; the ship finds out when it gets there and is turned away, which
     // is a report the captain reads rather than a route that quietly never existed.
     const recordedController = conditionLog()[i]?.controller;
     if (recordedController !== undefined && recordedController !== null && serviceRefusal(recordedController)) continue;
-    const risk = plannedRouteRisk(from, i);
-    if (!risk) continue;
-    if (risk.unreported.length && !rule.acceptUnreported) continue;
-    if (risk.worst && risk.worst.band > rule.maxBand) continue;
+    if (!fleetTradeRouteAcceptable(f, t, from, i)) continue;
     out.push(i);
   }
   return out;
 }
-// How long each hop of a plotted route takes, in the order the ship flies them. `route.legs[i]` joins
-// `route.systems[i]` to `route.systems[i + 1]`, so this lines up one-for-one with the path.
-function routeLegDays(route) {
-  return (route?.legs || []).map((leg) => Math.max(1, Fleet.travelDays(getRouteWarpDistance(leg))));
-}
-function planFleetTradeRun(f, t) {
+
+// ---------- planning a circuit ----------
+// Shipments first, because they are the predictable business and they are what a large hold is for;
+// then commodity lots in whatever room is left. Nothing is invented to fit the ship: every shipment
+// comes off the origin world's own book and every ton of cargo off its own shelf. [playtest]
+function planFleetTradeCircuit(f, t, day = state.day) {
   const from = fleetShipSystem(f);
   // Access first, then knowledge. A ship told to leave does not come away with the week's prices, so
   // nothing is recorded until the port has agreed to deal with her. [playtest]
   const refusal = serviceRefusal(getSystemFaction(from));
-  if (refusal) return { ok: false, note: refusal };
+  const stranded = refusal || (!worldTrades(from)
+    ? `${state.planets[from]?.name || 'This world'} has no market to trade at.` : null);
+  // A circuit can end somewhere that will not deal with the ship — a world that changed hands while
+  // she was out, or one with no economy at all. She cannot take on work there, but she is not stuck
+  // there either: she moves on to the nearest world she may trade at, carrying whatever is aboard.
+  // Without this a trader stranded at a hostile port sat there for the rest of the campaign. [playtest]
+  if (stranded) {
+    const move = planFleetTradeReposition(f, t, from);
+    if (move) return { ok: true, plan: move, repositioning: true, note: stranded };
+    return { ok: false, note: stranded };
+  }
   const here = recordMarketObservation(from);
   if (!here) return { ok: false, note: 'No market here.' };
-  const capacity = fleetTradeCapacity(f);
-  if (capacity < 1) return { ok: false, note: `${f.name} has no cargo hold.` };
+  const hold = fleetTradeCapacity(f);
+  if (hold < 1) return { ok: false, note: `${f.name} has no cargo hold.` };
   const purse = Math.max(0, Math.floor(finiteNumber(state.latinum, 0)) - TRADE_PURSE_RESERVE);
-  if (purse < 1) return { ok: false, note: `No latinum to spare for cargo; ${TRADE_PURSE_RESERVE} L is held back.` };
-  const upkeep = upkeepPerDay(f.shipId);
-  let best = null;
-  for (const to of fleetTradeCandidates(f, t)) {
-    const risk = plannedRouteRisk(from, to);
-    if (!risk) continue;
-    const route = risk.route;
-    const days = Math.max(1, Fleet.travelDays(finiteNumber(route.distance, 0)));
-    for (const offer of here.offers) {
-      const sell = knownMarketPrice(to, offer.goods);
-      if (!sell || sell <= offer.price) continue;
-      const tons = Math.min(capacity, Math.floor(purse / offer.price));
-      if (tons < 1) continue;
-      const net = (sell - offer.price) * tons - upkeep * days;
-      if (net <= 0) continue;
-      const score = net / days;
-      if (!best || score > best.score)
-        best = { to, goods: offer.goods, tons, unit: offer.price, sell, days, net, score,
-          path: risk.path, legDays: routeLegDays(route) };
+  // Two different questions: where cargo can be SOLD (needs the captain to know the prices) and where a
+  // shipment can be DELIVERED (needs only a route and a port that will take her).
+  const sellable = new Set(fleetTradeCandidates(f, t, from));
+
+  // Cargo still aboard from a previous circuit takes up room and comes along.
+  let room = hold - fleetTradeLoad(t);
+  if (room < 1) return { ok: false, note: `${f.name}'s hold is full of cargo nobody has bought.` };
+  const manifest = [];
+  // Shipments still aboard from a previous circuit decide the first calls: a trader that could not
+  // deliver last time goes back rather than carrying the load around for ever.
+  const stops = [...new Set((t.manifest || [])
+    .filter((m) => m.kind === 'job' && Number.isFinite(Number(m.to)))
+    .map((m) => Number(m.to))
+    .filter((to) => to !== from && fleetTradeDeliverable(f, t, from, to)))].slice(0, TRADE_MAX_STOPS);
+  let expected = 0;
+
+  // 1. Shipments on this world's book, best rate first, taken whole or not at all.
+  const jobs = worldOpenJobs(from)
+    .filter((j) => fleetTradeDeliverable(f, t, from, j.targetIndex))
+    .sort((a, b) => b.payPerTon - a.payPerTon);
+  for (const job of jobs) {
+    if (job.tons > room) continue;
+    const next = new Set([...stops, Number(job.targetIndex)]);
+    if (next.size > TRADE_MAX_STOPS) continue;
+    if (!takeWorldJob(from, job.id)) continue;
+    room -= job.tons;
+    if (!stops.includes(Number(job.targetIndex))) stops.push(Number(job.targetIndex));
+    manifest.push({ kind: 'job', jobId: job.id, goods: job.goods, tons: job.tons, to: Number(job.targetIndex),
+      payPerTon: job.payPerTon, paid: 0 });
+    expected += job.tons * job.payPerTon;
+  }
+
+  // 2. Commodity lots, in whatever room is left, for a call the captain knows the prices at. A lot is
+  // never re-addressed to some other stop later: cargo the captain cannot price is cargo the planner
+  // had no business buying. [playtest]
+  if (room > 0 && purse > 0) {
+    const onTheWay = stops.filter((i) => sellable.has(i));
+    const reachable = onTheWay.length ? onTheWay
+      : stops.length < TRADE_MAX_STOPS ? [...sellable] : [];
+    let best = null;
+    for (const to of reachable) {
+      const lots = [];
+      for (const offer of here.offers) {
+        const sell = knownMarketPrice(to, offer.goods);
+        if (!sell || sell <= offer.price) continue;
+        // Capped by what that world could plausibly absorb, which is public — its size, not its shelf.
+        // Without this a trader buys out the origin and carries hundreds of tons nobody will take.
+        const appetite = worldTradeCapability(to).demand;
+        const available = Math.min(marketSupply(from, offer.goods), appetite);
+        if (available < 1) continue;
+        lots.push({ goods: offer.goods, unit: offer.price, margin: sell - offer.price, available });
+      }
+      if (!lots.length) continue;
+      lots.sort((a, b) => b.margin - a.margin);
+      let r = room, spend = purse, net = 0;
+      const take = [];
+      for (const lot of lots) {
+        const tons = Math.min(lot.available, r, Math.floor(spend / Math.max(1, lot.unit)));
+        if (tons < 1) continue;
+        take.push({ ...lot, tons });
+        r -= tons; spend -= tons * lot.unit; net += tons * lot.margin;
+      }
+      if (!take.length || net <= 0) continue;
+      if (!best || net > best.net) best = { to: Number(to), take, net };
+    }
+    if (best) {
+      for (const lot of best.take) {
+        const tons = takeMarketSupply(from, lot.goods, lot.tons);
+        if (tons < 1) continue;
+        const cost = tons * lot.unit;
+        state.latinum -= cost;
+        state.mylatinum = state.latinum;
+        // Booked as it happens. A circuit that is abandoned half way still spent what it spent and
+        // earned what it earned, and the panel used to show neither until a circuit completed.
+        t.cumulative -= cost;
+        room -= tons;
+        manifest.push({ kind: 'goods', goods: lot.goods, tons, to: best.to, unit: lot.unit, paid: cost });
+        expected += tons * lot.margin;
+      }
+      if (!stops.includes(best.to)) stops.push(best.to);
     }
   }
-  if (!best) return { ok: false, note: 'No profitable run from here on current information.' };
-  return { ok: true, plan: best };
+
+  // 3. The route through the calls, nearest first, and the systems it actually crosses.
+  const order = [];
+  const remaining = stops.slice();
+  let cursor = from;
+  while (remaining.length) {
+    let pick = null;
+    for (const stop of remaining) {
+      const route = getPlottedRoute(cursor, stop);
+      if (!route) continue;
+      const days = Math.max(1, Fleet.travelDays(finiteNumber(route.distance, 0)));
+      if (!pick || days < pick.days) pick = { stop, days };
+    }
+    if (!pick) break;
+    order.push(pick.stop);
+    remaining.splice(remaining.indexOf(pick.stop), 1);
+    cursor = pick.stop;
+  }
+  if (!order.length) return { ok: false, note: 'No plottable route to those destinations.' };
+  // A call that could not be plotted is dropped, and so is its cargo: a shipment goes back on the
+  // world's book and unbought commodities are simply not bought. Nothing is ever re-addressed to a
+  // world it was not meant for. [playtest]
+  for (let i = manifest.length - 1; i >= 0; i--) {
+    const m = manifest[i];
+    if (order.includes(Number(m.to))) continue;
+    if (m.kind === 'job') worldJobPool(from)?.jobs.push({
+      id: m.jobId, goods: m.goods, tons: m.tons, targetIndex: m.to,
+      targetName: state.planets[m.to]?.name, payPerTon: m.payPerTon, hazardPay: 0,
+      originIndex: from, originName: state.planets[from]?.name, employerName: state.planets[from]?.name,
+      employerType: 'planet', employerFaction: getTradeStandingFaction(from), showMarker: false,
+      negotiated: false, createdAt: Date.now(),
+    });
+    else {
+      state.latinum += m.paid;
+      state.mylatinum = state.latinum;
+      t.cumulative += m.paid;
+      returnMarketSupply(from, m.goods, m.tons);
+    }
+    manifest.splice(i, 1);
+  }
+  if (!manifest.length) return { ok: false, note: 'No plottable route to those destinations.' };
+
+  const path = [];
+  const legDays = [];
+  cursor = from;
+  for (const stop of order) {
+    const route = getPlottedRoute(cursor, stop);
+    if (!route) return { ok: false, note: 'No plottable route to those destinations.' };
+    const hops = (route.systems || []).map(Number).slice(1);
+    const days = routeLegDays(route);
+    for (let i = 0; i < hops.length; i++) { path.push(hops[i]); legDays.push(days[i] ?? 1); }
+    cursor = stop;
+  }
+  const upkeep = upkeepPerDay(f.shipId) * legDays.reduce((n, d) => n + d, 0);
+  return { ok: true, plan: { stops: order, path, legDays, manifest, expected: Math.round(expected - upkeep) } };
 }
-function beginFleetTradeLeg(f, t, plan, day = state.day) {
+// Not a circuit: a move to somewhere she can work again, by the shortest acceptable route.
+function planFleetTradeReposition(f, t, from) {
+  let best = null;
+  for (let i = 0; i < state.planets.length; i++) {
+    if (i === Number(from) || !worldTrades(i)) continue;
+    if (serviceRefusal(getSystemFaction(i))) continue;
+    const recordedController = conditionLog()[i]?.controller;
+    if (recordedController !== undefined && recordedController !== null && serviceRefusal(recordedController)) continue;
+    if (!fleetTradeRouteAcceptable(f, t, from, i)) continue;
+    const route = getPlottedRoute(from, i);
+    if (!route) continue;
+    const days = Math.max(1, Fleet.travelDays(finiteNumber(route.distance, 0)));
+    if (!best || days < best.days) best = { to: i, days, route };
+  }
+  if (!best) return null;
+  const path = (best.route.systems || []).map(Number).slice(1);
+  const legDays = routeLegDays(best.route);
+  if (!path.length) return null;
+  return { stops: [best.to], path, legDays, manifest: [], expected: 0 };
+}
+function beginFleetTradeCircuit(f, t, plan, day = state.day) {
   const from = fleetShipSystem(f);
-  const cost = plan.unit * plan.tons;
-  if (cost > Math.floor(finiteNumber(state.latinum, 0))) return false;
-  // One debit, here, for cargo that lives on this ship's record and nowhere else. It never enters the
-  // captain's own hold, so it cannot be sold a second time from the market screen.
-  state.latinum -= cost;
-  state.mylatinum = state.latinum;
-  t.goods = plan.goods;
-  t.tons = plan.tons;
-  t.paid = cost;
-  t.unitPaid = plan.unit;
-  t.expectedUnit = plan.sell;
   t.origin = from;
-  t.destination = plan.to;
-  // The systems the ship will pass through, kept so the run is rolled against the route it flew even
-  // if the chart changes while it is out there.
-  t.path = Array.isArray(plan.path) && plan.path.length ? plan.path.slice() : [plan.to];
-  t.legDays = Array.isArray(plan.legDays) && plan.legDays.length === t.path.length
-    ? plan.legDays.slice()
-    : t.path.map(() => Math.max(1, Math.round(plan.days / Math.max(1, t.path.length))));
+  t.stops = plan.stops.slice();
+  t.destination = plan.stops[plan.stops.length - 1];
+  t.path = plan.path.slice();
+  t.legDays = plan.legDays.slice();
   t.legIndex = 0;
   t.crossed = [];
-  t.tripId = `${from}:${plan.to}:${Number(day)}`;
-  // The last completed trip's realised profit stays on screen until this one produces its own. Zeroing
-  // it here put a 0 in the panel the instant a run paid out, which read as "that trip made nothing".
-  t.expectedProfit = Math.round(finiteNumber(plan.net, 0));
+  t.manifest = [...(t.manifest || []), ...plan.manifest];
+  t.paid = t.manifest.reduce((n, m) => n + Math.max(0, finiteNumber(m.paid, 0)), 0);
+  t.revenue = 0;
+  t.tripId = `${from}:${t.destination}:${Number(day)}`;
+  // The last completed circuit's realised profit stays on screen until this one produces its own.
+  t.expectedProfit = Math.round(finiteNumber(plan.expected, 0));
   t.stage = 'outbound';
   t.note = '';
-  // One hop is scheduled, not the whole run. The ship is somewhere in particular on every day of the
-  // journey, so a system it is crossing can be rolled on the day it crosses it, and a ship stopped on
-  // the second leg never flies the third. [playtest]
+  // One hop is scheduled, not the whole circuit. The ship is somewhere in particular on every day of
+  // the journey, so a system it is crossing can be rolled on the day it crosses it, and a ship stopped
+  // on the second leg never flies the third. [playtest]
   scheduleFleetTradeLeg(f, t, from, Number(day));
   state.npcShips = state.npcShips.filter((n) => n.fleetId !== f.id);
   return true;
@@ -26027,8 +26456,8 @@ function scheduleFleetTradeLeg(f, t, from, day) {
   t.legEtaDay = f.transit.arrivalDay;
   return true;
 }
-// The leg is rolled against the destination as it is, not as the record said. A route planned from a
-// month-old reading of a heavily patrolled world is rolled against whoever is there now.
+// The leg is rolled against the system the ship is in, on the day it is there — not against the record
+// the route was planned on, and not at a destination it may never reach.
 function resolveFleetTradeLegRisk(f, t, at, day = state.day) {
   const threat = trueThreat(at);
   const protection = trueProtection(at);
@@ -26037,9 +26466,6 @@ function resolveFleetTradeLegRisk(f, t, at, day = state.day) {
     (TRADE_ENCOUNTER_BASE[threat.band] || 0) - (TRADE_ENCOUNTER_RELIEF[protection.band] || 0),
   );
   if (chance <= 0) return null;
-  // Seeded on the trip and the day the ship is actually there, not on a projected arrival at the far
-  // end. The far end's date moved every time a leg was flown, which would have reshuffled the odds of
-  // systems the ship had already passed.
   const trip = t.tripId || `${t.origin}:${t.destination}`;
   if (tradeSeed(`trade-encounter:${f.id}:${trip}:${at}:${day}`) >= chance) return null;
   const severity = tradeSeed(`trade-harm:${f.id}:${trip}:${at}:${day}`);
@@ -26047,8 +26473,7 @@ function resolveFleetTradeLegRisk(f, t, at, day = state.day) {
   v.shields = 0;
   // How hard the hit lands follows how bad the place is. A quiet lane's opportunist scratches the
   // paint; a system with a battle in it can leave a freighter adrift in one pass, and can finish one
-  // that was already hurt. A single fixed damage band made heavy space survivable and light space
-  // pointless. [playtest]
+  // that was already hurt.
   const bite = [0, 0.25, 0.45, 0.85][threat.band] || 0.25;
   const wasDisabled = v.condition === 'disabled';
   let hull = Math.max(0, v.hull - Math.max(1, Math.round(v.maxHull * bite * (0.35 + severity * 0.65))));
@@ -26067,6 +26492,7 @@ function resolveFleetTradeLegRisk(f, t, at, day = state.day) {
     actor.destroyed = v.condition === 'destroyed';
   }
   const where = state.planets[at]?.name || 'open space';
+  const aboard = fleetTradeLoad(t);
   if (v.condition === 'destroyed') {
     f.destroyed = true;
     f.vessel = v;
@@ -26075,89 +26501,143 @@ function resolveFleetTradeLegRisk(f, t, at, day = state.day) {
     t.active = false;
     t.stage = 'holding';
     t.note = `Lost at ${where}.`;
-    setLog(`${f.name} was destroyed running cargo into ${where}. ${t.tons} tons and ${t.paid} latinum lost with her.`);
+    setLog(`${f.name} was destroyed running cargo into ${where}. ${aboard} tons and ${t.paid} latinum lost with her.`);
     return 'destroyed';
   }
   if (v.condition === 'disabled') {
     t.active = false;
     t.stage = 'holding';
     t.note = `Disabled at ${where}; repair before trading again.`;
-    setLog(`${f.name} was attacked at ${where} and is disabled, holding with ${t.tons} tons aboard.`);
+    setLog(`${f.name} was attacked at ${where} and is disabled, holding with ${aboard} tons aboard.`);
     return 'disabled';
   }
   setLog(`${f.name} was attacked at ${where}; hull ${Math.round((v.hull / v.maxHull) * 100)}%, cargo intact.`);
   return 'damaged';
 }
-// One system, on the day the ship reaches it. The run is flown rather than teleported: the ship is
-// somewhere in particular on every day of the journey, this is called when it arrives at each of those
-// somewheres, and a crossing that cripples her means the systems beyond it are never reached at all.
-// [playtest]
+// One system, on the day the ship reaches it. A crossing that cripples her means the systems beyond it
+// are never reached at all, and the rest of the circuit is cancelled where it happened.
 function crossFleetTradeSystem(f, t, day = state.day) {
   const at = Number(t.path[t.legIndex]);
   if (!Number.isFinite(at) || !state.planets[at]) return null;
   if (!t.crossed.includes(at)) t.crossed.push(at);
   const outcome = resolveFleetTradeLegRisk(f, t, at, day);
   if (outcome === 'destroyed' || outcome === 'disabled') {
-    // She did not go on. Where she stopped is where she is, and the rest of the journey is cancelled.
     f.systemIndex = at;
     f.assignment = 'defense';
     delete f.transit;
     t.etaDay = null;
     t.legEtaDay = null;
+    t.stops = [];
     return outcome;
   }
   return outcome;
 }
-function completeFleetTradeSale(f, t) {
-  const at = fleetShipSystem(f);
+// A call: unload what belongs here, then fill the freed hold with anything bound for a later call.
+function fleetTradeCall(f, t, at, day = state.day) {
   const where = state.planets[at]?.name || 'this system';
   const refusal = serviceRefusal(getSystemFaction(at));
   if (refusal) {
-    t.active = false;
-    t.stage = 'holding';
+    // Turned away at one call is a failed call, not the end of the run: what was addressed here stays
+    // aboard and the ship carries on to the rest of her circuit. Stopping her outright left a trader
+    // parked at a hostile port for the remainder of the campaign. [playtest]
+    if (t.note !== refusal) setLog(`${f.name} was turned away at ${where}: ${refusal}`);
     t.note = refusal;
-    setLog(`${f.name} cannot sell at ${where}: ${refusal}`);
-    return false;
+    return true;
   }
   // Docked, and dealt with: the board is read here and not before.
   recordMarketObservation(at);
-  const offer = getPlanetMarket(at).find((o) => o.goods === t.goods);
-  if (!offer) {
-    t.active = false;
-    t.stage = 'holding';
-    t.note = `${where} is not buying ${t.goods}.`;
-    setLog(`${f.name} arrived at ${where} with ${t.tons} tons of ${t.goods} and found no buyer.`);
-    return false;
+  let revenue = 0, contract = 0, commodity = 0, stranded = 0;
+  const keep = [];
+  for (const m of t.manifest) {
+    // Cargo left over from an earlier circuit has no address: it is sold wherever somebody is buying.
+    if (m.to === null && m.kind === 'goods') {
+      const board = getPlanetMarket(at).find((o) => o.goods === m.goods);
+      const sold = board ? fillMarketDemand(at, m.goods, m.tons) : 0;
+      if (sold > 0) { const take = sold * board.price; revenue += take; commodity += take; }
+      if (sold < m.tons) keep.push({ ...m, tons: m.tons - sold, paid: Math.round(m.paid * ((m.tons - sold) / m.tons)) });
+      continue;
+    }
+    if (Number(m.to) !== Number(at)) { keep.push(m); continue; }
+    if (m.kind === 'job') {
+      // A shipment is paid on delivery at the world it was addressed to, whole.
+      const pay = Math.round(m.tons * finiteNumber(m.payPerTon, 0));
+      revenue += pay; contract += pay;
+      continue;
+    }
+    const offer = getPlanetMarket(at).find((o) => o.goods === m.goods);
+    const sold = offer ? fillMarketDemand(at, m.goods, m.tons) : 0;
+    if (sold > 0) { const take = sold * offer.price; revenue += take; commodity += take; }
+    if (sold < m.tons) {
+      stranded += m.tons - sold;
+      keep.push({ ...m, tons: m.tons - sold, paid: Math.round(m.paid * ((m.tons - sold) / m.tons)) });
+    }
   }
-  const revenue = offer.price * t.tons;
-  state.latinum += revenue;
-  state.mylatinum = state.latinum;
-  const profit = revenue - t.paid;
-  const expected = Math.max(0, (finiteNumber(t.expectedUnit, 0) - finiteNumber(t.unitPaid, 0)) * t.tons);
+  t.manifest = keep;
+  if (revenue > 0) {
+    state.latinum += revenue;
+    state.mylatinum = state.latinum;
+    t.revenue += revenue;
+    t.cumulative += revenue;
+    t.contractIncome += contract;
+    t.commodityIncome += commodity;
+  }
+  if (stranded > 0)
+    setLog(`${f.name} could not place ${stranded} tons at ${where}; ${where} is not buying any more.`);
+  // Freed space goes back to work: anything on this world's book bound for a call still ahead.
+  const ahead = t.stops.slice(t.stops.indexOf(Number(at)) + 1);
+  if (ahead.length && t.active) {
+    let room = fleetTradeCapacity(f) - fleetTradeLoad(t);
+    for (const job of worldOpenJobs(at).filter((j) => ahead.includes(Number(j.targetIndex))).sort((a, b) => b.payPerTon - a.payPerTon)) {
+      if (job.tons > room) continue;
+      if (!takeWorldJob(at, job.id)) continue;
+      room -= job.tons;
+      t.manifest.push({ kind: 'job', jobId: job.id, goods: job.goods, tons: job.tons,
+        to: Number(job.targetIndex), payPerTon: job.payPerTon, paid: 0 });
+    }
+  }
+  return true;
+}
+function completeFleetTradeCircuit(f, t) {
+  // Cargo nobody bought is still cargo: it keeps its cost, loses its address, and is sold at whichever
+  // later call is buying. Only what was actually sold is expensed against this circuit. [playtest]
+  const undeliverable = (t.manifest || []).filter((m) => m.kind === 'job' && m.tons > 0
+    && serviceRefusal(getSystemFaction(Number(m.to))));
+  if (undeliverable.length) {
+    const tons = undeliverable.reduce((n, m) => n + m.tons, 0);
+    setLog(`${f.name} could not deliver ${tons} tons: ${undeliverable.map((m) => state.planets[m.to]?.name || '?').join(', ')} will not take her cargo.`);
+  }
+  const leftovers = (t.manifest || [])
+    .filter((m) => m.tons > 0 && !undeliverable.includes(m))
+    .map((m) => ({ ...m, to: m.kind === 'goods' ? null : m.to }));
+  const carried = leftovers.reduce((n, m) => n + Math.max(0, finiteNumber(m.paid, 0)), 0);
+  const expected = Math.max(0, finiteNumber(t.expectedProfit, 0));
+  const profit = t.revenue - (t.paid - carried);
   t.tripProfit = profit;
   t.expectedProfit = null;
-  t.cumulative += profit;
-  // Reported only when it is news: a loss, or a run that beat what the records promised. An ordinary
-  // profitable trip is in the panel and nowhere else.
+  t.circuits += 1;
+  // Reported only when it is news: a loss, or a circuit that beat what the records promised. An
+  // ordinary profitable run is in the panel and nowhere else.
   if (profit < 0)
-    setLog(`${f.name} sold ${t.tons} tons of ${t.goods} at ${where} for ${revenue} L — a loss of ${Math.abs(profit)}. ${t.goods} was ${t.expectedUnit} L there on day ${knownMarket(t.destination)?.day ?? '?'}, and is ${offer.price} now.`);
+    setLog(`${f.name} finished her circuit ${Math.abs(profit)} latinum down.`);
   else if (profit >= Math.max(TRADE_EXCEPTIONAL_FLOOR, expected * 2))
-    setLog(`${f.name} cleared ${profit} latinum on ${t.goods} at ${where}.`);
-  t.goods = null;
-  t.tons = 0;
-  t.paid = 0;
-  t.unitPaid = null;
-  t.expectedUnit = null;
-  t.destination = null;
-  t.etaDay = null;
-  t.legEtaDay = null;
+    setLog(`${f.name} cleared ${profit} latinum on her circuit.`);
+  t.manifest = leftovers;
+  t.stops = [];
   t.path = [];
   t.legDays = [];
   t.legIndex = 0;
+  t.destination = null;
+  t.etaDay = null;
+  t.legEtaDay = null;
   t.tripId = null;
+  t.paid = carried;
+  t.revenue = 0;
   t.stage = t.active ? 'idle' : 'holding';
-  t.note = t.active ? '' : 'Stopped; holding position.';
-  return true;
+  // A refusal recorded during the circuit is the one thing worth carrying past the end of it: it is why
+  // a call failed and why cargo is still aboard, and clearing it left the panel saying nothing at all.
+  const refused = /refuse/i.test(String(t.note || ''));
+  if (!t.active) t.note = 'Stopped; holding position.';
+  else if (!refused) t.note = '';
 }
 function advanceFleetTrading(day = state.day) {
   for (const f of state.playerFleet) {
@@ -26168,15 +26648,15 @@ function advanceFleetTrading(day = state.day) {
     if (f.transit) continue; // still on this leg; the calendar moves it
     if (t.stage === 'outbound') {
       const outcome = crossFleetTradeSystem(f, t, day);
-      if (outcome === 'destroyed') continue;
-      if (outcome === 'disabled') continue; // stopped short; the cargo is still aboard where she lies
+      if (outcome === 'destroyed' || outcome === 'disabled') continue;
       const reached = Number(t.path[t.legIndex]);
-      if (Number.isFinite(reached) && reached !== Number(t.destination) && t.legIndex + 1 < t.path.length) {
+      if (t.stops.includes(reached) && !fleetTradeCall(f, t, reached, day)) continue;
+      if (t.legIndex + 1 < t.path.length) {
         t.legIndex += 1;
         scheduleFleetTradeLeg(f, t, reached, day);
         continue;
       }
-      completeFleetTradeSale(f, t);
+      completeFleetTradeCircuit(f, t);
       if (!t.active || t.stage === 'holding') continue;
     }
     if (!t.active) { if (t.stage !== 'holding') { t.stage = 'holding'; t.note = t.note || 'Stopped; holding position.'; } continue; }
@@ -26187,7 +26667,15 @@ function advanceFleetTrading(day = state.day) {
       t.active = false;
       continue;
     }
-    const run = planFleetTradeRun(f, t);
+    const run = planFleetTradeCircuit(f, t, day);
+    if (run.ok && run.repositioning) {
+      if (t.note !== run.note) setLog(`${f.name}: ${run.note} Moving on to ${state.planets[run.plan.stops[0]]?.name || 'the nearest port'}.`);
+      beginFleetTradeCircuit(f, t, run.plan, day);
+      // The reason she is moving survives being given a new route: it is the only thing on the panel
+      // that says why she left with cargo still aboard.
+      t.note = run.note;
+      continue;
+    }
     if (!run.ok) {
       // Inability to continue is news the first time it happens, not once a day forever.
       if (t.stage !== 'idle' || t.note !== run.note) setLog(`${f.name}: ${run.note}`);
@@ -26195,7 +26683,7 @@ function advanceFleetTrading(day = state.day) {
       t.note = run.note;
       continue;
     }
-    beginFleetTradeLeg(f, t, run.plan, day);
+    beginFleetTradeCircuit(f, t, run.plan, day);
   }
 }
 // Fleet ids carry colons, so the risk control is found by reading the selects rather than by building
@@ -26206,16 +26694,21 @@ function selectedFleetTradeRisk(id) {
     if (el.dataset.fleetTradeRisk === id) return el.value;
   return undefined;
 }
+function fleetTradeManifestLine(t) {
+  if (!t.manifest?.length) return 'empty';
+  return t.manifest
+    .map((m) => `${m.tons} t ${m.goods} → ${state.planets[m.to]?.name || '?'}${m.kind === 'job' ? ' (shipment)' : ''}`)
+    .join(' · ');
+}
 function fleetTradeStatusLine(f) {
   const t = fleetTradeState(f);
   if (!t) return '';
   if (f.transit && t.stage === 'outbound') {
     const next = state.planets[f.transit.to]?.name || '?';
-    const end = state.planets[t.destination]?.name || '?';
-    const hop = next === end ? '' : ` · next ${next} day ${t.legEtaDay}`;
-    return `Trading (${TRADE_RISK_LABELS[t.risk]}) · ${t.tons} t ${t.goods} → ${end} · ETA day ${t.etaDay}${hop}`;
+    const calls = t.stops.map((i) => state.planets[i]?.name || '?').join(' → ');
+    return `Trading (${TRADE_RISK_LABELS[t.risk]}) · ${fleetTradeLoad(t)} t · ${calls} · next ${next} day ${t.legEtaDay} · circuit ends day ${t.etaDay}`;
   }
-  if (t.active) return `Trading (${TRADE_RISK_LABELS[t.risk]}) · ${t.note || 'seeking a run'}`;
+  if (t.active) return `Trading (${TRADE_RISK_LABELS[t.risk]}) · ${t.note || 'seeking work'}`;
   return `Not trading${t.note ? ` · ${t.note}` : ''}`;
 }
 function startFleetTrading(id, risk) {
@@ -26232,7 +26725,7 @@ function startFleetTrading(id, risk) {
   }
   const t = ensureFleetTradeState(f, risk);
   // A travelling escort has to stop being one: it cannot both hold station on the captain and run a
-  // route. It is released here, at the system it is standing in.
+  // circuit. It is released here, at the system it is standing in.
   if (f.assignment === 'escort') {
     f.systemIndex = state.currentPlanet;
     f.assignment = 'defense';
@@ -26248,22 +26741,23 @@ function stopFleetTrading(id) {
   const t = f && fleetTradeState(f);
   if (!t) return false;
   t.active = false;
-  // Stopping does not abandon a leg already paid for. The ship finishes it, sells, and holds.
+  // Stopping does not abandon a circuit already paid for. The ship finishes it, delivers, and holds.
   if (t.stage !== 'outbound') {
     t.stage = 'holding';
     t.note = 'Stopped; holding position.';
     setLog(`${f.name} stops trading and holds position.`);
-  } else setLog(`${f.name} will finish the run to ${state.planets[t.destination]?.name || 'her destination'} and hold there.`);
+  } else setLog(`${f.name} will finish her circuit and hold at ${state.planets[t.destination]?.name || 'her last call'}.`);
   return true;
 }
 function setFleetTradeRisk(id, risk) {
   const f = state.playerFleet.find((x) => x.id === id);
   if (!f) return false;
   const t = ensureFleetTradeState(f, risk);
-  // A change of risk applies to the next run, not to a leg already under way.
+  // A change of risk applies to the next circuit, not to one already under way.
   if (t.stage === 'idle') t.note = '';
   return Boolean(t);
 }
+
 function fleetFormationPoint(npc, now) {
   const g = fleetBook().formations.find((g) => g.members.includes(npc.fleetId));
   if (!g) return null;

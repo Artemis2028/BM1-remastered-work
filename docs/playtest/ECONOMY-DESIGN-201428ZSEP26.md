@@ -1,6 +1,6 @@
 # Finite commodity and cargo economy — design
 
-DTG 191921ZSEP26 · supersedes `CARGO-ECONOMY-PROPOSAL-191746ZSEP26.md` · **nothing here is implemented**
+DTG 201428ZSEP26 · supersedes `ECONOMY-DESIGN-191921ZSEP26.md` · **built in this candidate, except where marked**
 
 The previous proposal recommended price slippage — a world absorbing `market × 25` tons at its posted
 price and moving a latinum against you per further block. **Review rejected it** as more complicated
@@ -9,9 +9,20 @@ curve the player has to infer, where a quantity on a shelf is a number they can 
 
 Four parts, and they share one economy.
 
-## A. Cargo capacity, rebalanced
+## What is built, and what is not
 
-`CARGO-CAPACITY-PROPOSAL-191921ZSEP26.md`. Derived from the catalogue's own `shipClass` and `role`,
+**Built in this candidate:** B, C and D below — finite commodity supply and demand with replenishment,
+cargo contracts with explicit tonnage drawn from a bounded per-world book, one economy shared by the
+captain and every fleet trader, uninhabited worlds derived from population and installations, and
+multi-stop circuits carrying several shipments at once.
+
+**Not built, on purpose:** A, the cargo-capacity rebalance. Review asked for the roster table first, so
+the ship data is untouched and the table is `CARGO-CAPACITY-PROPOSAL-201428ZSEP26.md`. And **no payout,
+margin, replenishment rate or ship price has been tuned** — the measurements come first.
+
+## A. Cargo capacity, rebalanced — proposed, not built
+
+`CARGO-CAPACITY-PROPOSAL-201428ZSEP26.md`. Derived from the catalogue's own `shipClass` and `role`,
 never from a hull's name. Fighters and scouts tiny, escorts small, cruisers moderate, large combat
 ships larger but below freighter capacity, freighters substantially larger, heavy dedicated freighters
 the largest in the game at 840 tons. The 10,000-ton mass-6 warship becomes 308; the 3,500-ton bulk
@@ -79,7 +90,21 @@ This closes the open §3.5 item, which is why it is in here rather than waiting 
 purse reserve, the danger model, the intelligence model, and the personal-ship upkeep exemption.
 Foreign markets are unaffected: a prize is a hull, not cargo, and is not priced off a board.
 
-## Validation the implementing round owes
+## Two things the build turned up
+
+**A trader could strand itself for ever.** A circuit that ended at a world which refuses the captain —
+one that changed hands while she was out, or one with no economy — left her unable to plan, and she sat
+there for the rest of the campaign. Being turned away at a call is now a failed **call**: the cargo
+addressed there stays aboard, the rest of the circuit goes ahead, and a trader with nowhere to work
+moves to the nearest world that will deal with her. That is not recall — she is continuing her own
+business, and §5 is still where the captain gets to say where she should go.
+
+**Planning commits.** Choosing a circuit claims shipments off a world's book and buys cargo off its
+shelf in the same breath. That is deliberate — it is how two traders cannot take the same shipment —
+but it means a planner call is not a query, and anything that wants to compare two plans has to do it
+against the same world twice, not once after the other.
+
+## Validation
 
 | Gate | Reproduces |
 | --- | --- |
@@ -91,7 +116,15 @@ Foreign markets are unaffected: a prize is a hull, not cargo, and is not priced 
 | `JOB-FINITE` | a world producing unlimited jobs on demand — standing at one system must not reroll a full hold |
 | `JOB-COMBINE` | a freighter unable to carry two shipments its hold has room for |
 | `DEAD-WORLD` | a world with no people and no installation offering goods, demand or jobs |
-| `CAPACITY-ROLE` | a hull's hold not matching its class and role derivation |
 
-`DEAD-WORLD` must fail on a tree that special-cases worlds by name as well as on one that ignores
-population, so that the derivation is what is being tested.
+`CAPACITY-ROLE` — a hull's hold not matching its class and role derivation — belongs to the round that
+changes the ship data, and is not in this candidate because that data is unchanged.
+
+Eleven checks are in the suite, covering those eight plus the circuit behaviour review asked for: two
+traders cannot take the same tons or the same shipment; cargo stays addressed and comes off only at its
+own call; freed hold goes back to work later in the circuit; and a reload resumes the route, the leg,
+the manifest, the shelves and the books of work exactly. Intermediate danger and a stopped trader never
+flying the rest of its route are already held by the leg-by-leg check from the previous round.
+
+`DEAD-WORLD` fails on a tree that special-cases worlds by name as well as on one that ignores
+population: the check builds an outpost on an empty world and requires it to start trading.

@@ -4635,6 +4635,11 @@ button:disabled {
 }
 /* A trader's state, cargo, destination and money, kept together so the panel answers "what is this
    ship doing and is it paying" without the captain reading four separate lines. */
+.market-stock {
+  opacity: 0.85;
+  font-size: 12px;
+  white-space: nowrap;
+}
 .fleet-trade {
   margin: 6px 0 4px;
   padding: 8px 10px;
