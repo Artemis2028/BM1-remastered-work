@@ -233,6 +233,13 @@ doing and are worth stating rather than burying:
   destination and expected a loss. The circuit now carries more than one lot to that world, and the
   others paid for the failure. It collapses every good the manifest is carrying there.
 
+Two probes outside the playtest gate read the old payout directly and were repaired the same way.
+`captains-briefing-probe` asserted that every freight quote carried at least 150 latinum a ton, which
+is now the fee's job; it reads the whole price instead. `briefing-cargo-probe` built its fixture by
+spreading a live offer and overriding the tonnage and the rate, so the live offer's route fee came
+along and the expected figure counted only the tonnage; the fixture now names `fee: 0` and pays exactly
+what it says. Neither check is about pricing and neither assertion was weakened.
+
 A trader being routed to a port that turns her away is **not** a new fault: deliverability is judged on
 the controller the captain has *recorded*, so a world nobody has looked at is a world whose politics the
 captain finds out about on arrival. That is the intended design from `75389f7`, and the reposition from

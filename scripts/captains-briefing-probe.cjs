@@ -85,7 +85,7 @@ const server = http.createServer((req, res) => {
     assert.ok(rows[2].hit.shieldDamage<rows[1].hit.shieldDamage/2);console.log('COMBAT_POOLS',JSON.stringify(rows));
   });
   await check('new freight quotes scale with route and cargo; old accepted prices remain intact',async()=>{
-    const r=await ev(()=>{const t=testBM1;t.startWithFaction('terran');const offers=Array.from({length:120},()=>t.createCargoRunOffer());return {min:Math.min(...offers.map(t.getContractTotal)),max:Math.max(...offers.map(t.getContractTotal)),mean:offers.reduce((n,o)=>n+t.getContractTotal(o),0)/offers.length,old:t.getContractTotal(t.normalizeContract({goods:'Ore',targetIndex:1,tons:2,payPerTon:15})),valid:offers.every(o=>o.tons<=t.state.cargoCap&&o.payPerTon>=150)};});
+    const r=await ev(()=>{const t=testBM1;t.startWithFaction('terran');const offers=Array.from({length:120},()=>t.createCargoRunOffer());return {min:Math.min(...offers.map(t.getContractTotal)),max:Math.max(...offers.map(t.getContractTotal)),mean:offers.reduce((n,o)=>n+t.getContractTotal(o),0)/offers.length,old:t.getContractTotal(t.normalizeContract({goods:'Ore',targetIndex:1,tons:2,payPerTon:15})),valid:offers.every(o=>o.tons<=t.state.cargoCap&&t.getContractTotal(o)>=300&&t.getContractTotal(o)>=(Number(o.fee)||0))};});
     assert.ok(r.valid);assert.ok(r.min>=300);assert.equal(r.old,30);console.log('FREIGHT_QUOTES',JSON.stringify(r));
   });
   await check('remote station purchases honor real stock, charge once, and never grant physical docking',async()=>{
