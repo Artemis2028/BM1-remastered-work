@@ -101,7 +101,19 @@ const server = http.createServer((req, res) => {
     await page.screenshot({path:path.join(process.env.BM1_TEST_OUTPUT||'/tmp','transporter-range.png')});
   });
   await check('full holds do not produce unloadable freight offers',async()=>{
-    const r=await ev(()=>{const t=testBM1,s=t.state;t.startWithFaction('terran');s.cargo=s.cargoCap;const offer=t.createCargoRunOffer();s.cargo=s.cargoCap-1;const small=t.createCargoRunOffer();return {offer,tons:small.tons};});assert.equal(r.offer,null);assert.equal(r.tons,1);
+    // A shipment now has its own tonnage, taken from what the world can move, so a hold with one ton
+    // free is offered nothing at all rather than a one-ton contract invented to fit it.
+    const r=await ev(()=>{const t=testBM1,s=t.state;t.startWithFaction('terran');
+      const cap=s.cargoCap;s.cargo=cap;const full=t.createCargoRunOffer();
+      s.cargo=cap-1;const sliver=t.createCargoRunOffer();
+      s.cargo=0;const roomy=t.createCargoRunOffer();
+      const open=typeof t.worldOpenJobs==='function'?t.worldOpenJobs(s.currentPlanet):[];
+      return {full,sliver,roomy:roomy?{tons:roomy.tons,id:roomy.id}:null,cap,
+        smallest:open.length?Math.min(...open.map(j=>j.tons)):null,open:open.length};});
+    assert.equal(r.full,null,'a full hold was offered freight');
+    assert.equal(r.sliver,null,`a hold with one ton free was offered a shipment; the smallest on the board is ${r.smallest}`);
+    assert.ok(r.roomy,`an empty ${r.cap}-ton hold was offered nothing from a board of ${r.open} shipments`);
+    assert.ok(r.roomy.tons<=r.cap,`a ${r.cap}-ton hold was offered ${r.roomy.tons} tons`);
   });
   await check('each real reconstruction loss reports once and duplicate destruction calls do not report again',async()=>{
     const r=await ev(()=>{const t=testBM1,s=t.state;t.startWithFaction('terran');const original=s.stations.find(st=>t.getStationOwner(st)==='terran');t.destroyStation(original);t.destroyStation(original);const once=t.galaxyNewsBook().items.filter(r=>r.kind==='Installation lost').length;

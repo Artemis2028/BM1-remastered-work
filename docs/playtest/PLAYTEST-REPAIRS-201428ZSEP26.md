@@ -163,7 +163,19 @@ At the recommended threshold: **149 hulls untouched, 14 challenged, 9 raised, 2 
 exceptions**. The threshold is shown as a dial, and the per-hull CSV carries every description so an
 individual call can be overruled without moving it.
 
-### 8. Eleven new checks
+### 8. Two gates changed, and one retired
+
+`intelligence` carried a check that a hold with one ton free is offered a one-ton contract. That was
+the old behaviour — a contract invented to fit whoever was asking. It now asserts the opposite, which
+is the stronger claim: a sliver of hold is offered **nothing**, because a shipment has its own size,
+and an empty hold is offered one of the world's own.
+
+`fleet-trade-fixtures.cjs` is **retired**. It drove the single-run trader through `planFleetTradeRun`,
+which no longer exists, and everything it covered is now either a gate — stale markets, access refusal,
+hold limits, persistence — or in `economy-measure.cjs`, which covers risk levels, profit and loss and
+competition at four horizons instead of one. The suite is 37 gates.
+
+### 9. Eleven new checks
 
 The playtest gate goes 44 → 55. All eleven reproduce behaviourally on `54cd501`, with no `TypeError`s.
 
