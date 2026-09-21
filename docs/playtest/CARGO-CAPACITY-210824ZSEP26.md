@@ -1,6 +1,6 @@
 # Cargo capacity — derived defaults, challenged outliers, authored exceptions
 
-DTG 202006ZSEP26 · against `8ce4c4d` · supersedes `CARGO-CAPACITY-201805ZSEP26.md`
+DTG 210824ZSEP26 · against `6a33345` · supersedes `CARGO-CAPACITY-202006ZSEP26.md`
 · **the fourteen reductions are applied; the nine raises are not**
 
 Review: *"Do not blindly replace all 174 cargo capacities with a formula. Use ship class and authored
@@ -249,7 +249,7 @@ Full roster with every hull's derived default, proposal, outcome and authored ph
 ## What this changes, and what it does not
 
 **It does not change the balance.** The long-horizon measurements
-(`ECONOMY-MEASUREMENTS-202006ZSEP26.md`) say the hold is not what limits a trader: a 220-ton cruiser
+(`ECONOMY-MEASUREMENTS-210824ZSEP26.md`) say the hold is not what limits a trader: a 220-ton cruiser
 and a 3,500-ton freighter both earn about the same, because what is scarce is the
 number of shipments a world has open, not the room to carry them. Hold utilisation at the top of the
 roster still runs at three to seven per cent after the reductions.

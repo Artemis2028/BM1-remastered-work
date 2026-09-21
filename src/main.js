@@ -13805,6 +13805,13 @@ const TRADE_ECONOMY = Object.freeze({
   jobTonsHigh: 0.8,
   jobTonsFloor: 1,
   jobRespawnDays: 12,
+  // A shipment nobody has accepted does not wait on the board for ever. After this many campaign days
+  // it is gone — somebody else carried it, or the need passed — its slot is free, and the ordinary
+  // twelve-day generation fills it in time. Nothing is said about it and nobody is paid for it. A
+  // shipment that has been accepted, by the captain or a trader, is a contract and is not touched by
+  // this. Measured before it existed: books 92-100% full at three thousand days with a median posting
+  // dating from around day one hundred. A first setting to test, not a locked number. [playtest]
+  jobLifetimeDays: 150,
   // Not every shipment is a hold full of ore. Every third entry in a world's book is a courier lot of
   // a few tons, so a shuttle, a fighter or a scout has work it can actually take. This is deliberately
   // NOT a reason to enlarge any small hold: the authored capacities stand and the work comes to them.
@@ -14335,6 +14342,11 @@ function worldJobPool(index) {
   }
   record.seq = Math.max(0, Math.round(finiteNumber(record.seq, 0)));
   record.jobs = record.jobs.filter((j) => j && state.planets[j.targetIndex]);
+  // A posting saved before it had a date is dated today, and gets a whole lifetime from here; one
+  // that has run out is struck off. Its slot is free from this moment and the generation below fills
+  // it in its own time.
+  for (const j of record.jobs) if (!(Number(j.createdDay) > 0)) j.createdDay = day;
+  record.jobs = record.jobs.filter((j) => day - Number(j.createdDay) < TRADE_ECONOMY.jobLifetimeDays);
   // The first look seeds the world's book of work; after that it generates one more job per period,
   // and never more than it can support at once.
   let generations = record.seq === 0
@@ -26183,6 +26195,47 @@ const TRADE_RISK_RULES = Object.freeze({
   risky: { maxBand: 2, acceptUnreported: true },
   any: { maxBand: 3, acceptUnreported: true },
 });
+// A second reading of the four settings, FOR MEASUREMENT ONLY. The shipped rules above are what the
+// game uses; these exist so the long-horizon script can put the two side by side in the same engine
+// and review can see the difference before anything about a dropdown's meaning changes. Nothing
+// selects this set but the playtest flag the script sets. The one difference is Cautious: it may cross
+// charted space the captain has no report on, provided nothing the captain knows says it is hostile —
+// no hostile or warring control on the chart, no known operation against it. What is actually there
+// is still rolled on the day she crosses it, so she can meet what nobody told her about. [playtest]
+const TRADE_RISK_RULES_PROPOSED = Object.freeze({
+  safe: { maxBand: 0, acceptUnreported: false },
+  cautious: { maxBand: 1, acceptUnreported: 'charted-quiet' },
+  risky: { maxBand: 2, acceptUnreported: true },
+  any: { maxBand: 3, acceptUnreported: true },
+});
+function tradeRiskRule(risk) {
+  const set = state.playtest?.tradeRuleSet === 'proposed' ? TRADE_RISK_RULES_PROPOSED : TRADE_RISK_RULES;
+  return set[risk] || set.cautious;
+}
+// Whether an unreported system is one the captain has no reason to think is dangerous: it is on the
+// chart, its flag on the chart is not one that is hostile to the captain or at war with them, and no
+// operation the captain has heard of is aimed at it. The known operations are gathered once a day.
+function unreportedSystemQuiet(index) {
+  return unreportedSystemDoubt(index) === null;
+}
+// Why an unreported system is NOT quiet, or null when it is: 'uncharted', 'hostile-flag' (its flag on
+// the chart is hostile to the captain or at war with them), or 'known-operation'.
+function unreportedSystemDoubt(index) {
+  const i = Number(index);
+  if (!Number.isFinite(i) || !state.planets[i] || !isChartSystemVisible(i)) return 'uncharted';
+  const faction = normalizeFactionKey(getSystemFaction(i) || 'neutral');
+  if (faction && faction !== 'neutral') {
+    if (getEffectiveAttitude(faction) === 'hostile') return 'hostile-flag';
+    if (areFactionsOpposed(getPlayerFlag(), faction)) return 'hostile-flag';
+  }
+  const key = `${Number(state.day) || 0}|${Number(state.conditionsRev) || 0}`;
+  if (unreportedSystemDoubt.key !== key) {
+    unreportedSystemDoubt.key = key;
+    unreportedSystemDoubt.targets = new Set(
+      campaignKnownOperations((known, op) => op.status !== 'resolved').map((x) => Number(x.op.targetSystem)));
+  }
+  return unreportedSystemDoubt.targets.has(i) ? 'known-operation' : null;
+}
 // Odds of being jumped on a leg, read from what is TRUE at the system the ship is crossing, never from
 // the record the route was planned on. Somebody watching the place lowers it; nothing removes it but an
 // empty lane.
@@ -26312,12 +26365,16 @@ function routeLegDays(route) {
   return (route?.legs || []).map((leg) => Math.max(1, Fleet.travelDays(getRouteWarpDistance(leg))));
 }
 function fleetTradeRouteAcceptable(f, t, from, to) {
-  const rule = TRADE_RISK_RULES[t.risk] || TRADE_RISK_RULES.cautious;
+  const rule = tradeRiskRule(t.risk);
   const risk = plannedRouteRisk(from, to);
   if (!risk) return null;
-  if (risk.unreported.length && !rule.acceptUnreported) return null;
+  if (risk.unreported.length && !unreportedLegsAcceptable(rule, risk.unreported)) return null;
   if (risk.worst && risk.worst.band > rule.maxBand) return null;
   return risk;
+}
+function unreportedLegsAcceptable(rule, unreported) {
+  if (rule.acceptUnreported === 'charted-quiet') return unreported.every(unreportedSystemQuiet);
+  return Boolean(rule.acceptUnreported);
 }
 // Whether a shipment addressed to a world can be taken. A contract needs a route the danger setting
 // accepts and a government that will let the ship dock — it does not need the captain to have read that
@@ -26353,6 +26410,10 @@ function fleetTradeCandidates(f, t, from = fleetShipSystem(f)) {
 // comes off the origin world's own book and every ton of cargo off its own shelf. [playtest]
 // A shipment put back on the world's book after it was claimed, with its own terms intact.
 function rebuildWorldJob(m, from) {
+  // A shipment put back is the same shipment, and as old as it was. Rebuilding it without its age
+  // made every aborted plan a fresh posting, which is a way for a shipment nobody will take to live
+  // for ever. [playtest]
+  const createdDay = Number(m.createdDay);
   return {
     id: m.jobId, goods: m.goods, tons: m.tons, targetIndex: m.to,
     targetName: state.planets[m.to]?.name, fee: finiteNumber(m.fee, 0), payPerTon: m.payPerTon, hazardPay: 0,
@@ -26360,6 +26421,7 @@ function rebuildWorldJob(m, from) {
     employerName: state.planets[from]?.name, employerType: 'planet',
     employerFaction: getTradeStandingFaction(from), showMarker: false,
     negotiated: false, createdAt: Date.now(),
+    ...(Number.isFinite(createdDay) && createdDay > 0 ? { createdDay } : {}),
   };
 }
 function planFleetTradeCircuit(f, t, day = state.day) {
@@ -26433,6 +26495,7 @@ function planFleetTradeCircuit(f, t, day = state.day) {
     if (!stops.includes(Number(job.targetIndex))) stops.push(Number(job.targetIndex));
     manifest.push({ kind: 'job', jobId: job.id, goods: job.goods, tons: job.tons, to: Number(job.targetIndex),
       from: Number(from), owner: job.employerName || state.planets[from]?.name || 'the shipper',
+      createdDay: Number(job.createdDay) || null,
       fee: jobFee(job), payPerTon: jobPerTon(job), courier: Boolean(job.courier), paid: 0 });
     expected += jobPay(job);
   }
@@ -26784,6 +26847,7 @@ function fleetTradeCall(f, t, at, day = state.day) {
       room -= job.tons;
       t.manifest.push({ kind: 'job', jobId: job.id, goods: job.goods, tons: job.tons,
         to: Number(job.targetIndex), from: Number(at), owner: job.employerName || state.planets[at]?.name || 'the shipper',
+        createdDay: Number(job.createdDay) || null,
         fee: jobFee(job), payPerTon: jobPerTon(job), courier: Boolean(job.courier), paid: 0 });
     }
   }

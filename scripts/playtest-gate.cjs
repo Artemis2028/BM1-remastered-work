@@ -3024,6 +3024,90 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.ok(r.later <= r.cap, `sixty days later the world has ${r.later} jobs open against a cap of ${r.cap}`);
   });
 
+  // JOB-ROLLBACK-AGE — a shipment claimed during planning and then put back was rebuilt without its
+  // date, so an aborted plan made an old posting new again.
+  await check('JOB-ROLLBACK-AGE a shipment put back after planning is as old as it was', async () => {
+    await fresh('play-job-rollback-age');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.worldOpenJobs !== 'function') return { dated: false, reason: 'shipments have no date to lose' };
+      window.__tradeSetup({ day: 50 });
+      window.__tradeShip('gate-rollback-1', { big: true });
+      const f = s.playerFleet.find((x) => x.id === 'gate-rollback-1');
+      const trade = t.ensureFleetTradeState(f, 'any');
+      trade.active = true;
+      const at = Number(s.currentPlanet);
+      // Generated on day 50...
+      const posted = t.worldOpenJobs(at).map((j) => ({ id: j.id, createdDay: j.createdDay }));
+      if (!posted.length) return { dated: true, found: false };
+      const ages = posted.map((j) => j.createdDay);
+      // ...claimed by the planner on day 100...
+      s.day = 100;
+      const plan = t.planFleetTradeCircuit(f, trade, s.day);
+      if (!plan.ok || plan.repositioning) return { dated: true, found: true, planned: false, note: plan.note };
+      const claimed = plan.plan.manifest.filter((m) => m.kind === 'job');
+      if (!claimed.length) return { dated: true, found: true, planned: true, claimedAny: false };
+      // ...and put back, exactly as the planner does when it abandons a plan.
+      const restored = claimed.map((m) => (typeof t.rebuildWorldJob === 'function' ? t.rebuildWorldJob(m, at) : { id: m.jobId }));
+      return { dated: true, found: true, planned: true, claimedAny: true, ages,
+        claimed: claimed.map((m) => ({ id: m.jobId, createdDay: m.createdDay })),
+        restored: restored.map((j) => ({ id: j.id, createdDay: j.createdDay })), day: s.day };
+    });
+    assert.ok(r.dated, `${r.reason}`);
+    assert.ok(r.found, 'precondition: the home world had no shipments posted');
+    assert.ok(r.ages.every((d) => d != null), 'the postings carry no date at all, so a shipment has no age for anything to preserve');
+    assert.ok(r.ages.every((d) => d === 50), `precondition: the postings are not dated day 50: ${JSON.stringify(r.ages)}`);
+    assert.ok(r.planned, `precondition: no circuit could be planned from the home world: ${r.note}`);
+    assert.ok(r.claimedAny, 'precondition: the plan claimed no shipment from the home world');
+    for (const j of r.restored)
+      assert.equal(j.createdDay, 50,
+        `${j.id} was posted on day 50, claimed on day ${r.day} and put back dated ${j.createdDay == null ? 'nothing at all' : 'day ' + j.createdDay}: an abandoned plan made an old posting new`);
+  });
+
+  // JOB-TURNOVER — a shipment nobody would take sat on the board for the rest of the campaign, holding a
+  // slot that could have carried work somebody would.
+  await check('JOB-TURNOVER a shipment nobody takes leaves the board, and its slot is filled with new work', async () => {
+    await fresh('play-job-turnover');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.worldOpenJobs !== 'function') return { turns: false, reason: 'shipments are invented on demand and never sit anywhere' };
+      window.__tradeSetup({ day: 10 });
+      const at = Number(s.currentPlanet);
+      const cap = t.worldTradeCapability(at);
+      const lifetime = Number(t.TRADE_ECONOMY && t.TRADE_ECONOMY.jobLifetimeDays);
+      // A book full of shipments a one-ton hull can never carry, all posted on day 10.
+      const pool = t.worldJobPool(at);
+      const original = pool.jobs.map((j) => j.id);
+      for (const j of pool.jobs) j.tons = 5000;
+      window.__tradeShip('gate-turnover-1', { hold: 1 });
+      const f = s.playerFleet.find((x) => x.id === 'gate-turnover-1');
+      const trade = t.ensureFleetTradeState(f, 'any');
+      const takeable = () => t.worldOpenJobs(at).filter((j) => j.tons <= t.fleetTradeCapacity(f)).length;
+      const before = { open: t.worldOpenJobs(at).length, capacity: cap.jobs, takeable: takeable() };
+      // Well past whatever the lifetime is, if there is one; well past a year, if there is not.
+      const horizon = Number.isFinite(lifetime) && lifetime > 0 ? lifetime + 30 : 400;
+      s.day = 10 + horizon;
+      const afterIds = t.worldOpenJobs(at).map((j) => j.id);
+      const survivors = afterIds.filter((id) => original.includes(id));
+      const fresh = afterIds.filter((id) => !original.includes(id));
+      const newest = t.worldOpenJobs(at).filter((j) => !original.includes(j.id));
+      return { turns: true, at, lifetime: Number.isFinite(lifetime) ? lifetime : null, before, horizon, day: s.day,
+        after: { open: afterIds.length, survivors: survivors.length, fresh: fresh.length, takeable: takeable(),
+          freshTons: newest.map((j) => j.tons), freshDays: newest.map((j) => j.createdDay) } };
+    });
+    assert.ok(r.turns, `${r.reason}`);
+    assert.ok(r.before.open > 0 && r.before.open >= r.before.capacity, `precondition: the book at system ${r.at} is not full (${r.before.open} of ${r.before.capacity})`);
+    assert.equal(r.before.takeable, 0, 'precondition: the one-ton hull could take something on the board');
+    assert.ok(r.lifetime, 'an unaccepted shipment has no lifetime: it waits on the board for the rest of the campaign');
+    assert.ok(r.lifetime >= 120 && r.lifetime <= 180, `the lifetime is ${r.lifetime} days; review asked for something around 120-180 to start`);
+    assert.equal(r.after.survivors, 0,
+      `${r.after.survivors} of ${r.before.open} shipments nobody could carry are still on the board ${r.horizon} days after they were posted`);
+    assert.ok(r.after.fresh > 0, `the slots were freed and ${r.horizon} days later nothing new has been posted in them`);
+    assert.ok(r.after.open <= r.before.capacity, `the book holds ${r.after.open} shipments against a capacity of ${r.before.capacity}`);
+    assert.ok(r.after.freshDays.every((d) => d > 10), `a replacement shipment carries the old posting's date: ${JSON.stringify(r.after.freshDays)}`);
+    assert.ok(r.after.freshTons.some((tons) => tons < 5000), 'the replacements are the same unsuitable shipments back again');
+  });
+
   // JOB-3 — a freighter could only ever carry one job, so a large hold had nothing to put in it.
   await check('JOB several shipments ride in one freighter', async () => {
     await fresh('play-job-combine');

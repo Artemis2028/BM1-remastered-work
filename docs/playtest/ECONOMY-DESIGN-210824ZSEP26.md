@@ -1,18 +1,18 @@
 # Finite commodity and cargo economy — design
 
-DTG 202006ZSEP26 · supersedes `ECONOMY-DESIGN-201805ZSEP26.md` · **built**
+DTG 210824ZSEP26 · supersedes `ECONOMY-DESIGN-202006ZSEP26.md` · **built**
 
-Changed in this revision: **freight from a failed contract is the shipper's property** — it goes back
-to the world it came from, for nothing, and is never the captain's to sell (§E, replacing the open
-question the previous revision left there); the **Concord is 1,320 tons** as an authored
-civilian/commercial exception (§A); and the books of work are **instrumented** by danger setting rather
-than changed (`ECONOMY-MEASUREMENTS-202006ZSEP26.md`). The payout is as it was: a route and hazard fee paid
-once plus twenty latinum a ton, not tuned.
+Changed in this revision: **an unaccepted shipment has a lifetime** — a hundred and fifty campaign days
+to start with, a named number to test rather than a locked one — after which it leaves the board
+without a word, its slot is free, and the ordinary twelve-day generation fills it in time (§C). A
+shipment claimed by the planner and put back is **as old as it was** (§C). And the four danger settings
+have a **second, measurement-only reading** that the game does not use, so review can see the shipped
+and proposed meanings side by side in the same engine before anything changes (§F).
 
-Unchanged from the previous revision and still in force: the contract payout's shape; only an
-installation that does **economic, commercial or logistics** work gives a world an economy; the Isaac
-is 3,500 tons as an authored bulk-freighter exception and the largest hold in the game; every dead end
-in the trade planner is a move rather than a stop.
+Unchanged and still in force: the payout, a route and hazard fee once plus twenty latinum a ton; every
+hold, the Concord's 1,320 included; the twelve-day regeneration; freight from a failed contract is the
+shipper's and goes home for nothing; only an installation that does economic, commercial or logistics
+work gives a world an economy; every dead end in the trade planner is a move, with a reason, or a hold.
 
 The previous proposal recommended price slippage — a world absorbing `market × 25` tons at its posted
 price and moving a latinum against you per further block. **Review rejected it** as more complicated
@@ -34,7 +34,7 @@ honestly while repairs are free (see §6).
 
 ## A. Cargo capacity — the fourteen reductions, applied
 
-`CARGO-CAPACITY-202006ZSEP26.md`. Derived from the catalogue's own `shipClass` and `role`, never from a hull's
+`CARGO-CAPACITY-210824ZSEP26.md`. Derived from the catalogue's own `shipClass` and `role`, never from a hull's
 name. Fighters and scouts tiny, escorts small, cruisers moderate, large combat ships larger but below
 freighter capacity, freighters substantially larger, and the heavy dedicated freighters largest of all.
 
@@ -88,6 +88,18 @@ A job says what it is:
   about two at a small world, four to six at a major one. Taking one does not instantly produce
   another; a world generates new demand over time. **A captain cannot stand at one system rerolling
   jobs until an arbitrarily large hold is full.**
+- **A shipment nobody accepts does not wait for ever.** After `jobLifetimeDays` — **150** to start —
+  it is gone: somebody else carried it, or the need passed. Nothing is said about it and nobody is paid
+  for it. Its slot is free from that moment and the twelve-day generation fills it in its own time, so
+  a book that was full of work a trader could never take turns over into work it might. A shipment
+  that has been **accepted** — by the captain or a trader — is a contract, and this rule never touches
+  it. The instrumentation that found the problem measured books 92–100% full at three thousand days
+  with a median posting from around day one hundred; the tables in `ECONOMY-MEASUREMENTS-210824ZSEP26.md`
+  show what the same boards look like now.
+- **A shipment put back is as old as it was.** The planner claims shipments as it plans and puts them
+  back when it abandons a plan; rebuilding them without their date made every abandoned plan a fresh
+  posting, which is one way a shipment nobody will take lives for ever. The date travels with the
+  shipment onto the manifest and back.
 - **Large freighters combine compatible shipments.** Several jobs, and commodity lots for whatever hold
   is left, carried together. This is the thing that makes a large hold worth its price — see the
   finding in the measurements document, which is unambiguous about it.
@@ -117,7 +129,7 @@ only past 1,533 units. What a shipment is worth is now `fee + 20 x tons`, in one
 the shipment occupies (`jobPayPerHoldTon`), which is the question a hauler actually asks.
 
 **This is a first measurement pass, not a locked number.** The five constants are named in
-`TRADE_ECONOMY` and the resulting tables are in `ECONOMY-MEASUREMENTS-202006ZSEP26.md`.
+`TRADE_ECONOMY` and the resulting tables are in `ECONOMY-MEASUREMENTS-210824ZSEP26.md`.
 
 ## D. Uninhabited worlds trade only where something there does economic work
 
@@ -212,6 +224,29 @@ shelf in the same breath. That is deliberate — it is how two traders cannot ta
 but it means a planner call is not a query, and anything that wants to compare two plans has to do it
 against the same world twice, not once after the other.
 
+## F. The four danger settings, as shipped and as proposed — measured, not changed
+
+The instrumentation says why Safe and Cautious traders run out of shipments after about a year: they
+fly only routes the captain has reports on, and 93–97% of the work on the boards they can reach is on a
+route with a system nobody has reported. Review asked to see the alternative before deciding anything.
+
+The game uses `TRADE_RISK_RULES`, unchanged. Beside it is `TRADE_RISK_RULES_PROPOSED`, which nothing
+selects but a playtest flag the measurement script sets. The two differ in one setting:
+
+| setting | shipped | proposed |
+| --- | --- | --- |
+| Safe | refuses any route with an unreported system | the same |
+| Cautious | refuses any route with an unreported system | may cross an unreported system that is **charted**, whose flag on the chart is **not hostile to or at war with** the captain, and against which **no operation the captain has heard of** is under way |
+| Risky | accepts known danger up to its band | the same |
+| Any | accepts anything | the same |
+
+Under the proposed reading a Cautious trader can still meet what nobody told her about: the crossing is
+rolled against what is actually there on the day, as it has been since `54cd501`. The comparison in
+`ECONOMY-MEASUREMENTS-210824ZSEP26.md` runs the same hull on the same seeds under both readings and reports
+net, circuits, shipments delivered and how many times she was crippled — and, for the proposed Cautious,
+which of the captain's doubts (`uncharted`, `hostile-flag`, `known-operation`) still stopped each
+shipment.
+
 ## Validation
 
 | Gate | Reproduces |
@@ -226,11 +261,13 @@ against the same world twice, not once after the other.
 | `DEAD-WORLD` | a world with no people and nothing that trades offering goods, demand or jobs — and, now, a defence platform or a relay on a bare rock creating an economy |
 | `CIRCUIT-CONSERVE` | tons of undeliverable freight destroyed at the end of a circuit |
 | `FAILED-CARGO-OWNER` | the shipper's freight sold at the next port that is buying, or not routed home, or paid for on return |
+| `JOB-TURNOVER` | a shipment nobody takes holding its slot for the rest of the campaign |
+| `JOB-ROLLBACK-AGE` | a shipment claimed by the planner and put back coming back without its date |
 | `CIRCUIT-IDLE` | a trader left standing at a world that will deal with her and has nothing for her to do |
 | `CIRCUIT-FULL-HOLD` | a trader stopped for good by a hold full of cargo nobody nearby is buying |
 | `JOB-FEE` | a shipment costing twice as much for twice the load, so the voyage is charged again on every ton |
 
-Fifteen checks are in the suite, covering those eight plus the circuit behaviour review asked for: two
+Seventeen checks are in the suite, covering those eight plus the circuit behaviour review asked for: two
 traders cannot take the same tons or the same shipment; cargo stays addressed and comes off only at its
 own call; freed hold goes back to work later in the circuit; and a reload resumes the route, the leg,
 the manifest, the shelves and the books of work exactly. Intermediate danger and a stopped trader never
