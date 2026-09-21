@@ -1,12 +1,10 @@
 # Finite commodity and cargo economy — design
 
-DTG 211624ZSEP26 · supersedes `ECONOMY-DESIGN-211330ZSEP26.md` · **built**
+DTG 211926ZSEP26 · supersedes `ECONOMY-DESIGN-211624ZSEP26.md` · **built**
 
-Changed in this revision: **one reckoning of journey time** (§G) — the planner estimated a route from
-its total distance while the calendar charges every leg rounded up on its own, so a many-hopped route
-looked faster than it flew; `fleetTradeRouteDays(route)`, the sum of the legs, is now the only
-reckoning fleet trading uses, in insertion and ranking, expected profit per day, reposition days and
-reposition profitability, and the ranking gates. Nothing is retuned.
+Changed in this revision: **§H, recall and rendezvous** — the captain's two movement orders for a
+trader, as review specified them. Nothing in the economy itself changes: A–G are as `e9be30b` left
+them, and §4 is closed.
 
 Unchanged and still in force: the four danger settings as review approved them (§F), judged from the
 flag the captain knows and never the live truth; the time-aware planner (§G); the payout, a route and
@@ -219,7 +217,7 @@ one that changed hands while she was out, or one with no economy — left her un
 there for the rest of the campaign. Being turned away at a call is now a failed **call**: the cargo
 addressed there stays aboard, the rest of the circuit goes ahead, and a trader with nowhere to work
 moves to the nearest world that will deal with her. That is not recall — she is continuing her own
-business, and §5 is still where the captain gets to say where she should go.
+business; where the captain says she should go is §H.
 
 **Planning commits.** Choosing a circuit claims shipments off a world's book and buys cargo off its
 shelf in the same breath. That is deliberate — it is how two traders cannot take the same shipment —
@@ -298,6 +296,39 @@ one she could already have had. On `372f8a5` it reports *"the trader chose a cir
 a day (149 days) when the Alpha Centauri shipment alone was worth 327 a day (9 days) and was still on
 the board."*
 
+## H. Recall and rendezvous
+
+A trader can rationally have nowhere to go. Under Cautious, from a pocket whose neighbours are flagged
+by powers hostile to the captain, she may fly to two worlds; if neither has work she holds, and the
+setting, the planner and the captain's records are all doing exactly what they say. Measured: 1,626
+days at Promelli Drift. The captain needs an order that moves her, and it has to be an order, not a
+tuning of the setting.
+
+**Recall** stops her trading and sends her to rendezvous with the captain: the system the captain is
+in when the order is given, fixed at issuance. A captain who moves on is not pursued; the order still
+names the system it named. **Rendezvous** sends her to any charted system the captain chooses,
+whoever holds it. Both:
+
+- keep her hold as it is — nothing is sold on the way, no shipment is taken on after the order; a
+  circuit she was on is broken off where the leg she is flying ends, with what belongs at that call
+  unloaded and nothing new loaded, and is not counted as a circuit worked;
+- plot the route without asking her danger setting — the order is the captain's, and the captain can
+  read what the route crosses (the log line says what the records call it) before giving it;
+- are flown leg by leg on the same calendar as a trading run, each crossing rolled against the truth
+  on the day she is there, each system recorded as she passes (source `fleet`, dated) by the same
+  rule a trading run uses — the order overrides her tolerance, not the danger;
+- leave her where she was stopped if a crossing disables her, with the order **unresolved** on her; she
+  flies the rest from there once repaired;
+- end in **holding, awaiting orders**, never in trading; the captain sends her back to work;
+- survive a save: the leg, the destination, the cargo and the order;
+- can be **changed** en route, replotted from the system she actually reaches next, or **cancelled**,
+  which ends the passage at the end of the leg she is on.
+
+The panel shows the destination and the day she arrives, and the controls: Recall to captain,
+Rendezvous at system, Change rendezvous, Cancel. The order reaches her the way her trade orders do,
+without a relay link; the formation dispatch's relay rule is not applied, and that is named for
+review. A formation dispatch no longer moves a trader who is under way on a route of her own.
+
 ## Validation
 
 | Gate | Reproduces |
@@ -317,12 +348,15 @@ the board."*
 | `CAUTIOUS-STALE-FLAG` | a Cautious trader's plans changing the day a system is secretly taken, or a trader crossing a system and reporting nothing about who holds it |
 | `RANK-TIME` | a wider permitted route set making a trader choose a circuit worth less per day than one still available to her |
 | `RANK-LEG-TIME` | a circuit chosen by days reckoned from a route's distance rather than the rounded days of every leg she will fly |
+| `RECALL` ×2 | a trader with nowhere her setting lets her go and no order that moves her; a recall that follows a captain who moved on |
+| `RENDEZVOUS` | no order to a chosen system; a hold sold or a shipment taken on the way; days reckoned other than by the legs |
+| `PASSAGE` ×6 | an order turning her round in warp or not breaking off her circuit; a passage made safe by the order, or a stopped ship's order dropped; a save losing the leg, the cargo or the order; a change plotted from her departure rather than where she is; a formation dispatch moving a trader off her route in one jump; a panel with no way to move her |
 | `CIRCUIT-FULL-OF-SHIPMENT` | a trader whose hold is full of a shipment still to be delivered repositioning to sell it instead of flying it |
 | `CIRCUIT-IDLE` | a trader left standing at a world that will deal with her and has nothing for her to do |
 | `CIRCUIT-FULL-HOLD` | a trader stopped for good by a hold full of cargo nobody nearby is buying |
 | `JOB-FEE` | a shipment costing twice as much for twice the load, so the voyage is charged again on every ton |
 
-Twenty-one checks are in the suite, covering those eight plus the circuit behaviour review asked for: two
+Thirty checks are in the suite, covering those eight plus the circuit behaviour review asked for: two
 traders cannot take the same tons or the same shipment; cargo stays addressed and comes off only at its
 own call; freed hold goes back to work later in the circuit; and a reload resumes the route, the leg,
 the manifest, the shelves and the books of work exactly. Intermediate danger and a stopped trader never

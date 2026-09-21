@@ -124,7 +124,12 @@ const money = (n) => Number(n).toLocaleString('en-US');
         return out;
       },
       // One run, snapshotted at each horizon, so a five-thousand-day answer costs one pass.
-      run({ shipId, count, risk, days, marks, repair, learn, seed, rules }) {
+      // `orders`: the captain's part in the run, if any — a trader that has stood idle with nothing to
+      // do for `orders.idleDays` days is sent to rendezvous at the home world, and put back to work
+      // when she arrives. It is a policy the harness plays, stated here and nowhere else in the game;
+      // it exists to show what the recall order does to the one case the tables kept finding, a
+      // trader parked where her setting gives her nowhere to go. [playtest]
+      run({ shipId, count, risk, days, marks, repair, learn, seed, rules, orders }) {
         const t = testBM1, s = t.state;
         t.startWithFaction('terran');
         const p = t.ensurePlaytestState(); delete p.diplomacy; delete p.campaign;
@@ -142,7 +147,7 @@ const money = (n) => Number(n).toLocaleString('en-US');
         const purse0 = s.latinum;
         const upkeepPerDay = ships.reduce((n, f) => n + t.upkeepPerDay(f.shipId), 0);
         const stats = ships.map(() => ({ idle: 0, stoppedDay: null, loadSum: 0, loadSamples: 0,
-          contractSeen: 0, deliveries: 0, lastDeliveryDay: null, disabled: 0, down: false }));
+          contractSeen: 0, deliveries: 0, lastDeliveryDay: null, disabled: 0, down: false, idleRun: 0, ordered: 0, passageDays: 0 }));
         const snapshots = {};
         for (let d = 1; d <= days; d++) {
           s.day += 1;
@@ -152,6 +157,16 @@ const money = (n) => Number(n).toLocaleString('en-US');
             const f = ships[k], tr = f.trade;
             if (!tr) continue;
             if (tr.stage !== 'outbound') stats[k].idle++;
+            if (tr.stage === 'passage') stats[k].passageDays++;
+            // The captain's policy: idle with nothing to do for long enough is sent home, and put back
+            // to work on arrival.
+            if (orders && typeof t.orderFleetRendezvous === 'function') {
+              stats[k].idleRun = tr.active && tr.stage === 'idle' ? stats[k].idleRun + 1 : 0;
+              if (stats[k].idleRun >= orders.idleDays && Number(f.systemIndex) !== home) {
+                if (t.orderFleetRendezvous(f.id, home)) { stats[k].ordered += 1; stats[k].idleRun = 0; }
+              }
+              if (!tr.active && tr.stage === 'holding' && tr.order && tr.order.arrivedDay != null) t.startFleetTrading(f.id, risk);
+            }
             // Every time she is crippled on a crossing, once per crippling.
             const crippled = !tr.active && /^Disabled/.test(String(tr.note || ''));
             if (crippled && !stats[k].down) stats[k].disabled += 1;
@@ -193,7 +208,8 @@ const money = (n) => Number(n).toLocaleString('en-US');
                 actor.recoveryAt = 0;
                 fixed = true;
               }
-              if (fixed && !tr.active) { tr.active = true; tr.stage = 'idle'; tr.note = ''; }
+              // A ship under orders resumes them once she can fly; only one with none goes back to work.
+              if (fixed && !tr.active && !tr.order) { tr.active = true; tr.stage = 'idle'; tr.note = ''; }
             }
           }
           if (marks.includes(d)) {
@@ -212,6 +228,8 @@ const money = (n) => Number(n).toLocaleString('en-US');
                 deliveries: stats[k].deliveries,
                 lastDeliveryDay: stats[k].lastDeliveryDay,
                 disabled: stats[k].disabled,
+                ordered: stats[k].ordered,
+                passageDays: stats[k].passageDays,
               };
             });
             const books = window.__econ.books(ships[0]);
@@ -287,6 +305,12 @@ const money = (n) => Number(n).toLocaleString('en-US');
       repair: true, learn: LEARN, seed: `econ-competition-${count}`,
     });
   }
+  // the same two freighters, with the captain sending an idle one home after sixty days of nothing
+  await fresh('econ-competition-2-orders');
+  const competitionOrders = await ev((arg) => window.__econ.run(arg), {
+    shipId: cast[cast.length - 1].hull.id, count: 2, risk: 'cautious', days: MAX_DAYS, marks: HORIZONS,
+    repair: true, learn: LEARN, seed: 'econ-competition-2', orders: { idleDays: 60 },
+  });
   const worlds = await ev((learn) => {
     const t = testBM1, s = t.state;
     t.startWithFaction('terran');
@@ -440,9 +464,20 @@ const money = (n) => Number(n).toLocaleString('en-US');
         last ? `${Math.round((last.idle / c / HORIZONS[HORIZONS.length - 1]) * 100)}%` : '-'];
     })));
 
+  // Two traders, same seeds, with and without the captain's order: each trader on her own.
+  const orderRows = [];
+  for (const [label, snaps] of [['nobody moves her', competition[2]], ['sent home after 60 idle days', competitionOrders]]) {
+    const last = snaps && snaps[HORIZONS[HORIZONS.length - 1]];
+    if (!last) continue;
+    last.traders.forEach((tr, k) => orderRows.push([label, `Trader ${k + 1}`, money(tr.cumulative), tr.circuits, tr.deliveries,
+      `${Math.round((tr.idle / HORIZONS[HORIZONS.length - 1]) * 100)}%`, tr.ordered ?? 0, tr.passageDays ?? 0, tr.disabled]));
+  }
+  L.push(table('Two heavy freighters on one economy, with and without the captain moving an idle one',
+    ['captain', 'trader', '5000d net L', 'circuits', 'shipments', 'idle', 'times ordered home', 'days on passage', 'times crippled'], orderRows));
+
   fs.mkdirSync(outDir, { recursive: true });
   fs.writeFileSync(path.join(outDir, 'economy-measurements.json'),
-    JSON.stringify({ horizons: HORIZONS, learn: LEARN, worlds, cast, runs, unmaintained, byRisk, byRiskSmall, competition }, null, 1) + '\n');
+    JSON.stringify({ horizons: HORIZONS, learn: LEARN, worlds, cast, runs, unmaintained, byRisk, byRiskSmall, competition, competitionOrders }, null, 1) + '\n');
   console.log(L.join('\n'));
   console.log(`\nWritten to ${path.join(outDir, 'economy-measurements.json')}`);
   if (probe.errors.length) { console.log(`page errors: ${probe.errors.slice(0, 4).join(' | ')}`); process.exitCode = 1; }

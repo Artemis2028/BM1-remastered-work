@@ -3823,6 +3823,451 @@ const { startProbe } = require('./probe-harness.cjs');
       `the captain's own unsold lot came out of the circuit still addressed somewhere: ${JSON.stringify(r.kinds)}`);
   });
 
+  // ---------- §5 recall and rendezvous ----------
+  // A trader can rationally have nowhere to go — every world her setting allows has no work for her —
+  // and hold for the rest of the campaign, and the captain had no order that moved her. Measured: a
+  // Cautious heavy freighter held 1,626 days at Promelli Drift with two worlds she was allowed to fly
+  // to and nothing at either.
+  await page.evaluate(() => {
+    // A trader standing somewhere with nothing to do and, under her setting, nowhere she may go: the
+    // work is cleared and the route home is made unreported, so a Safe trader refuses it.
+    window.__boxedTrader = (id, risk) => {
+      const t = testBM1, s = t.state;
+      const home = Number(s.currentPlanet);
+      let at = null, route = null;
+      for (let i = 0; i < s.planets.length; i++) {
+        if (i === home || !t.isChartSystemVisible(i)) continue;
+        const rt = t.getPlottedRoute(i, home);
+        if (rt && (rt.systems || []).length >= 3) { at = i; route = rt; break; }
+      }
+      if (at == null) return null;
+      window.__tradeShip(id, { big: true, at });
+      const f = s.playerFleet.find((x) => x.id === id);
+      const trade = t.ensureFleetTradeState(f, risk || 'safe');
+      trade.active = true; trade.stage = 'idle';
+      s.worldJobs = {};
+      for (const k of (route.systems || []).map(Number)) if (k !== at && s.conditionLog) delete s.conditionLog[k];
+      const path = (route.systems || []).map(Number).slice(1);
+      const legDays = t.routeLegDays(route);
+      return { f, trade, at, home, path, legDays, days: legDays.reduce((n, d) => n + d, 0) };
+    };
+  });
+
+  // RECALL-1 — no order existed that moved a trader; her setting decided where she could go and, boxed
+  // in, she held. Recall sends her to the captain's system whatever the setting says of the route.
+  await check('RECALL a trader with nowhere to go can be ordered to the captain, whatever her setting allows', async () => {
+    await fresh('play-recall-1');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({ learn: 24 });
+      if (typeof t.orderFleetRecall !== 'function') return { orders: false, reason: 'there is no order that brings a trader to the captain' };
+      const b = window.__boxedTrader('gate-recall-1', 'safe');
+      if (!b) return { orders: true, found: false };
+      const { f, trade, at, home, path, legDays, days } = b;
+      const acceptable = Boolean(t.fleetTradeRouteAcceptable(f, trade, at, home));
+      const run = t.planFleetTradeCircuit(f, trade, s.day);
+      const boxed = { ok: run.ok, note: run.note };
+      const day0 = s.day;
+      const ordered = t.orderFleetRecall('gate-recall-1');
+      const after = { stage: trade.stage, active: trade.active, to: trade.order?.to, path: trade.path.slice(), eta: trade.etaDay,
+        transitTo: f.transit?.to, line: t.fleetTradeStatusLine(f) };
+      window.__tradeDays(days);
+      const arrived = { day: s.day, at: Number(f.systemIndex), stage: trade.stage, active: trade.active, transit: Boolean(f.transit),
+        arrivedDay: trade.order?.arrivedDay, crossed: trade.crossed.slice(), line: t.fleetTradeStatusLine(f), note: trade.note,
+        records: path.map((k) => ({ k, source: s.conditionLog?.[k]?.source, day: s.conditionLog?.[k]?.day })),
+        jobs: trade.manifest.filter((m) => m.kind === 'job').length };
+      return { orders: true, found: true, at, home, path, legDays, days, acceptable, boxed, day0, ordered, after, arrived };
+    });
+    assert.ok(r.orders, `${r.reason}`);
+    assert.ok(r.found, 'precondition: no system two or more legs from the captain');
+    assert.equal(r.acceptable, false, 'precondition: a Safe trader accepted the unreported route home');
+    assert.equal(r.boxed.ok, false, `precondition: the trader was not boxed in — she planned something: ${JSON.stringify(r.boxed)}`);
+    assert.ok(r.ordered, 'the recall order was refused');
+    assert.equal(r.after.stage, 'passage', `ordered to the captain, the trader is ${r.after.stage} (${r.after.line})`);
+    assert.equal(r.after.to, r.home, `the recall is to system ${r.after.to}, not the captain's ${r.home}`);
+    assert.deepEqual(r.after.path, r.path, `she is flying ${JSON.stringify(r.after.path)}, not the plotted route ${JSON.stringify(r.path)}`);
+    assert.equal(r.after.transitTo, r.path[0], `she left for ${r.after.transitTo} rather than the first system on the way, ${r.path[0]}`);
+    assert.equal(r.after.eta, r.day0 + r.days, `she is due on day ${r.after.eta}; the legs ${JSON.stringify(r.legDays)} make it day ${r.day0 + r.days}`);
+    assert.equal(r.after.active, false, 'she is still trading while under orders');
+    assert.equal(r.arrived.at, r.home, `on day ${r.arrived.day} she is at system ${r.arrived.at}, not the captain's ${r.home}`);
+    assert.equal(r.arrived.transit, false, 'she arrived and is still booked to go somewhere');
+    assert.equal(r.arrived.stage, 'holding', `she arrived and is ${r.arrived.stage} rather than holding`);
+    assert.equal(r.arrived.active, false, 'arrival put her straight back to trading instead of holding for orders');
+    assert.ok(/awaiting orders/i.test(r.arrived.line), `the panel does not say she is awaiting orders: "${r.arrived.line}"`);
+    assert.equal(r.arrived.arrivedDay, r.day0 + r.days, `she arrived on day ${r.arrived.arrivedDay}, not day ${r.day0 + r.days}`);
+    assert.deepEqual(r.arrived.crossed, r.path, `she crossed ${JSON.stringify(r.arrived.crossed)} rather than every system on the way`);
+    assert.ok(r.arrived.records.every((x) => x.source === 'fleet' && x.day >= r.day0),
+      `she crossed systems and the captain's records do not carry her reading of them: ${JSON.stringify(r.arrived.records)}`);
+    assert.equal(r.arrived.jobs, 0, 'she took on a shipment while under orders');
+  });
+
+  // RECALL-2 — recall is to where the captain was when the order was given. A captain who moves on
+  // is not pursued; the rendezvous is the system named.
+  await check('RECALL is to where the captain was when the order was given, not to wherever the captain goes', async () => {
+    await fresh('play-recall-2');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({ learn: 24 });
+      if (typeof t.orderFleetRecall !== 'function') return { orders: false, reason: 'there is no order that brings a trader to the captain' };
+      const b = window.__boxedTrader('gate-recall-2', 'cautious');
+      if (!b) return { orders: true, found: false };
+      const { f, trade, home, days } = b;
+      t.orderFleetRecall('gate-recall-2');
+      const named = trade.order?.to;
+      // the captain moves on before she arrives
+      const elsewhere = [...Array(s.planets.length).keys()].find((i) => i !== home && i !== Number(f.systemIndex) && t.isChartSystemVisible(i));
+      s.currentPlanet = elsewhere;
+      window.__tradeDays(days);
+      return { orders: true, found: true, home, elsewhere, named, at: Number(f.systemIndex), to: trade.order?.to, stage: trade.stage, line: t.fleetTradeStatusLine(f) };
+    });
+    assert.ok(r.orders, `${r.reason}`);
+    assert.ok(r.found, 'precondition: no system two or more legs from the captain');
+    assert.equal(r.named, r.home, `the order names system ${r.named}, not the captain's ${r.home}`);
+    assert.equal(r.to, r.home, `the captain moved to ${r.elsewhere} and the order followed: it now names ${r.to}`);
+    assert.equal(r.at, r.home, `she went to ${r.at}; the captain was at ${r.home} when the order was given`);
+    assert.equal(r.stage, 'holding', `she is ${r.stage} rather than holding at the rendezvous`);
+  });
+
+  // RENDEZVOUS-1 — a chosen system, the captain's or not, owned or not; her hold stays hers and
+  // nothing is sold or taken on the way; the days are the days of the legs.
+  await check('RENDEZVOUS a trader can be sent to a chosen charted system the captain does not hold, keeping her hold', async () => {
+    await fresh('play-rendezvous-1');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({ learn: 24 });
+      if (typeof t.orderFleetRendezvous !== 'function') return { orders: false, reason: 'there is no order that sends a trader to a chosen system' };
+      window.__tradeShip('gate-rdv-1', { big: true });
+      const f = s.playerFleet.find((x) => x.id === 'gate-rdv-1');
+      const trade = t.ensureFleetTradeState(f, 'safe');
+      const from = Number(s.currentPlanet);
+      // A governed world the captain does not hold, at least two legs away, on a route where the days
+      // of the legs and one reckoning of the distance differ if such a world exists.
+      const worlds = [];
+      for (let i = 0; i < s.planets.length; i++) {
+        if (i === from || !t.isChartSystemVisible(i)) continue;
+        const key = t.getSystemFaction(i);
+        if (!key || key === 'neutral' || key === s.playerFaction) continue;
+        const rt = t.getPlottedRoute(from, i);
+        if (!rt || (rt.systems || []).length < 3) continue;
+        const legs = t.routeLegDays(rt);
+        worlds.push({ i, key, path: rt.systems.map(Number).slice(1), legs, flown: legs.reduce((n, d) => n + d, 0), reckoned: Math.max(1, t.Fleet.travelDays(rt.distance)) });
+      }
+      worlds.sort((a, b) => (b.flown - b.reckoned) - (a.flown - a.reckoned));
+      const w = worlds[0];
+      if (!w) return { orders: true, found: false };
+      const goods = t.getPlanetMarket(from)[0].goods;
+      trade.manifest = [{ kind: 'goods', goods, tons: 30, to: null, unit: 5, paid: 150 }];
+      trade.paid = 150;
+      trade.active = true; trade.stage = 'idle';
+      const purse = s.latinum;
+      const day0 = s.day;
+      const ordered = t.orderFleetRendezvous('gate-rdv-1', w.i);
+      const after = { stage: trade.stage, to: trade.order?.to, eta: trade.etaDay, line: t.fleetTradeStatusLine(f), active: trade.active };
+      window.__tradeDays(w.flown);
+      const aboard = trade.manifest.map((m) => ({ kind: m.kind, tons: m.tons, to: m.to }));
+      return { orders: true, found: true, from, w, purse, day0, ordered, after,
+        arrived: { day: s.day, at: Number(f.systemIndex), stage: trade.stage, active: trade.active, purse: s.latinum, aboard, arrivedDay: trade.order?.arrivedDay, line: t.fleetTradeStatusLine(f) } };
+    });
+    assert.ok(r.orders, `${r.reason}`);
+    assert.ok(r.found, 'precondition: no governed world two or more legs away');
+    assert.ok(r.ordered, `the rendezvous at ${r.w.key} system ${r.w.i} was refused`);
+    assert.equal(r.after.stage, 'passage', `ordered to rendezvous, the trader is ${r.after.stage} (${r.after.line})`);
+    assert.equal(r.after.to, r.w.i, `the rendezvous is at ${r.after.to}, not the chosen ${r.w.i}`);
+    assert.equal(r.after.eta, r.day0 + r.w.flown,
+      `she is due on day ${r.after.eta}; the legs ${JSON.stringify(r.w.legs)} make it day ${r.day0 + r.w.flown}${r.w.flown !== r.w.reckoned ? ` (one reckoning of the distance would say ${r.day0 + r.w.reckoned})` : ''}`);
+    assert.equal(r.arrived.at, r.w.i, `on day ${r.arrived.day} she is at ${r.arrived.at}, not the rendezvous ${r.w.i}`);
+    assert.equal(r.arrived.arrivedDay, r.day0 + r.w.flown, `she arrived on day ${r.arrived.arrivedDay}, not day ${r.day0 + r.w.flown}`);
+    assert.deepEqual(r.arrived.aboard, [{ kind: 'goods', tons: 30, to: null }], `her hold on arrival: ${JSON.stringify(r.arrived.aboard)} — the 30 tons she left with are not all there`);
+    assert.equal(r.arrived.purse, r.purse, `${r.arrived.purse - r.purse} latinum changed hands on a passage`);
+    assert.equal(r.arrived.active, false, 'arrival put her back to trading instead of holding for orders');
+    assert.ok(/awaiting orders/i.test(r.arrived.line), `the panel does not say she is awaiting orders: "${r.arrived.line}"`);
+  });
+
+  // PASSAGE-1 — an order to a ship on a leg takes effect where the leg ends: what belongs at that
+  // call comes off, nothing new goes on, and the rest of the circuit is broken off there.
+  await check('PASSAGE an order given on a leg takes effect where the leg ends, and the circuit is broken off there', async () => {
+    await fresh('play-passage-1');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({ learn: 24 });
+      if (typeof t.orderFleetRendezvous !== 'function') return { orders: false, reason: 'there is no order that sends a trader to a chosen system' };
+      window.__tradeShip('gate-passage-1', { big: true });
+      const f = s.playerFleet.find((x) => x.id === 'gate-passage-1');
+      t.startFleetTrading('gate-passage-1', 'any');
+      window.__tradeDays(1);
+      const trade = f.trade;
+      if (!(trade.stage === 'outbound' && f.transit && trade.stops.length >= 2)) return { orders: true, found: false, stage: trade.stage, stops: trade.stops };
+      const stops = trade.stops.slice();
+      const next = Number(f.transit.to);
+      const dest = [...Array(s.planets.length).keys()].find((i) => t.isChartSystemVisible(i) && !stops.includes(i) && !trade.path.includes(i) && i !== next && i !== Number(s.currentPlanet) && t.getPlottedRoute(next, i));
+      const before = { manifest: trade.manifest.map((m) => ({ kind: m.kind, to: m.to, tons: m.tons })), circuits: trade.circuits, arrival: f.transit.arrivalDay };
+      const ordered = t.orderFleetRendezvous('gate-passage-1', dest);
+      const pending = { pending: trade.order?.pending, active: trade.active, transitTo: f.transit?.to, line: t.fleetTradeStatusLine(f) };
+      window.__tradeDays(before.arrival - s.day);
+      const reached = Number(f.systemIndex);
+      const after = { reached, stage: trade.stage, origin: trade.origin, to: trade.order?.to, stops: trade.stops.slice(), circuits: trade.circuits,
+        manifest: trade.manifest.map((m) => ({ kind: m.kind, to: m.to, tons: m.tons })), transitFrom: f.transit?.from, line: t.fleetTradeStatusLine(f) };
+      return { orders: true, found: true, stops, next, dest, before, ordered, pending, after };
+    });
+    assert.ok(r.orders, `${r.reason}`);
+    assert.ok(r.found, `precondition: the trader is not on a leg of a circuit with two or more calls (${r.stage}, ${JSON.stringify(r.stops)})`);
+    assert.ok(r.ordered, 'the order to a ship on a leg was refused');
+    assert.equal(r.pending.pending, true, 'the order was not recorded against a ship on a leg');
+    assert.equal(r.pending.active, false, 'she is still trading with an order against her');
+    assert.equal(r.pending.transitTo, r.next, `the order turned her round in warp: she is now bound for ${r.pending.transitTo}, not ${r.next}`);
+    assert.equal(r.after.reached, r.next, `she is at ${r.after.reached}; the leg she was on ended at ${r.next}`);
+    assert.equal(r.after.stage, 'passage', `at the end of the leg she is ${r.after.stage}, not on her passage (${r.after.line})`);
+    assert.equal(r.after.origin, r.next, `the passage is plotted from ${r.after.origin}, not from ${r.next} where the leg ended`);
+    assert.deepEqual(r.after.stops, [], `the circuit was not broken off: calls ${JSON.stringify(r.after.stops)} remain`);
+    assert.equal(r.after.circuits, r.before.circuits, 'a circuit broken off short was counted as one worked');
+    const addressedHere = r.before.manifest.filter((m) => Number(m.to) === r.next).length;
+    if (r.stops.includes(r.next))
+      assert.equal(r.after.manifest.filter((m) => Number(m.to) === r.next).length, 0,
+        `she broke off at a call of her own without unloading the ${addressedHere} entries addressed there`);
+    assert.ok(r.after.manifest.length <= r.before.manifest.length - addressedHere,
+      `she took something new aboard after the order: ${JSON.stringify(r.after.manifest)} against ${JSON.stringify(r.before.manifest)}`);
+  });
+
+  // PASSAGE-2 — the order overrides her tolerance, not the danger. A passage crosses each system on
+  // the day she is there and is rolled against the truth; a ship stopped there stays there, with the
+  // order unresolved, and flies the rest of it when she is repaired.
+  await check('PASSAGE the order is not immunity: a passage through danger is rolled, a stopped ship stays stopped, the order stays unresolved', async () => {
+    await fresh('play-passage-2');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({ learn: 24 });
+      if (typeof t.orderFleetRendezvous !== 'function') return { orders: false, reason: 'there is no order that sends a trader to a chosen system' };
+      window.__tradeShip('gate-passage-seed', { big: true });
+      const seedShip = s.playerFleet.find((x) => x.id === 'gate-passage-seed');
+      const home = Number(s.currentPlanet);
+      let dest = null, path = null;
+      for (let d = 0; d < s.planets.length && !dest; d++) {
+        if (d === home || !t.isChartSystemVisible(d)) continue;
+        if (t.trueThreat(d).band !== 0) continue;
+        const rt = t.getPlottedRoute(home, d);
+        if (!rt) continue;
+        const p = (rt.systems || []).map(Number).slice(1);
+        if (p.length >= 2 && t.trueThreat(p[0]).band === 0) { dest = d; path = p; }
+      }
+      if (dest == null) return { orders: true, found: false };
+      t.transferSystemControlToFaction(path[0], 'pirate');
+      const day0 = s.day;
+      let stopped = null;
+      for (let k = 0; k < 40 && !stopped; k++) {
+        s.day = day0 + k; // a different day, a different roll
+        const probe = { id: `gate-passage-p${k}`, shipId: seedShip.shipId, name: `Runner ${k}`, faction: s.playerFaction, assignment: 'defense', systemIndex: home, seed: k };
+        s.playerFleet.push(probe);
+        const pt = t.ensureFleetTradeState(probe, 'safe');
+        const snap = t.ensureFleetVesselSnapshot(probe);
+        snap.hull = Math.max(1, Math.round(snap.maxHull * 0.14)); snap.condition = 'operational';
+        const ordered = t.orderFleetRendezvous(probe.id, dest);
+        if (!ordered) return { orders: true, found: true, refused: true, note: pt.note };
+        const legs = pt.legDays.slice();
+        window.__tradeDays(legs[0]);
+        if (probe.vessel.condition !== 'operational') {
+          const halted = { k, at: Number(probe.systemIndex), stage: pt.stage, transit: Boolean(probe.transit), order: pt.order ? { ...pt.order } : null, line: t.fleetTradeStatusLine(probe), crossed: pt.crossed.slice() };
+          // repaired where she lies
+          probe.vessel.hull = probe.vessel.maxHull; probe.vessel.condition = 'operational';
+          const actor = t.fleetLocalActor(probe.id); if (actor) { actor.combatHull = actor.maxCombatHull; actor.condition = 'operational'; }
+          window.__tradeDays(1);
+          const resumed = { stage: pt.stage, origin: pt.origin, transitFrom: probe.transit?.from, to: pt.order?.to, pending: pt.order?.pending, line: t.fleetTradeStatusLine(probe) };
+          stopped = { halted, resumed };
+        }
+        s.playerFleet = s.playerFleet.filter((x) => x.id !== probe.id);
+      }
+      return { orders: true, found: true, refused: false, home, dest, path, stopped };
+    });
+    assert.ok(r.orders, `${r.reason}`);
+    assert.ok(r.found, 'precondition: no destination two or more systems away through a quiet first system');
+    assert.equal(r.refused, false, `the order through pirate-held space was refused: ${r.note}`);
+    assert.ok(r.stopped, `40 ships were ordered through pirate-held system ${r.path[0]} and not one was touched: the order made the passage safe`);
+    assert.equal(r.stopped.halted.at, r.path[0], `the ship was stopped but is at ${r.stopped.halted.at}, not at ${r.path[0]} where it happened`);
+    assert.equal(r.stopped.halted.transit, false, 'the ship was stopped and is still booked to arrive somewhere');
+    assert.deepEqual(r.stopped.halted.crossed, [r.path[0]], `stopped on the first leg, she crossed ${JSON.stringify(r.stopped.halted.crossed)}`);
+    assert.ok(r.stopped.halted.order && r.stopped.halted.order.to === r.dest, `the order was dropped when she was stopped: ${JSON.stringify(r.stopped.halted.order)}`);
+    assert.ok(/unresolved/i.test(r.stopped.halted.line), `the panel does not say the rendezvous is unresolved: "${r.stopped.halted.line}"`);
+    assert.equal(r.stopped.resumed.stage, 'passage', `repaired, she is ${r.stopped.resumed.stage} rather than under way again (${r.stopped.resumed.line})`);
+    assert.equal(r.stopped.resumed.origin, r.path[0], `repaired, she flies from ${r.stopped.resumed.origin}, not from ${r.path[0]} where she lay`);
+    assert.equal(r.stopped.resumed.to, r.dest, `repaired, she is bound for ${r.stopped.resumed.to}, not the rendezvous ${r.dest}`);
+  });
+
+  // PASSAGE-3 — the leg, the destination, the cargo and the order survive a save.
+  await check('PASSAGE save and reload resume the leg, the destination, the cargo and the order', async () => {
+    await fresh('play-passage-3');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({ learn: 24 });
+      if (typeof t.orderFleetRendezvous !== 'function') return { orders: false, reason: 'there is no order to save' };
+      window.__tradeShip('gate-passage-3', { big: true });
+      const f = s.playerFleet.find((x) => x.id === 'gate-passage-3');
+      const trade = t.ensureFleetTradeState(f, 'cautious');
+      const from = Number(s.currentPlanet);
+      const dest = [...Array(s.planets.length).keys()].find((i) => i !== from && t.isChartSystemVisible(i) && (t.getPlottedRoute(from, i)?.systems || []).length >= 4);
+      if (dest == null) return { orders: true, found: false };
+      const goods = t.getPlanetMarket(from)[0].goods;
+      trade.manifest = [{ kind: 'goods', goods, tons: 12, to: null, unit: 5, paid: 60 }];
+      t.orderFleetRendezvous('gate-passage-3', dest);
+      const eta = trade.etaDay;
+      window.__tradeDays(trade.legDays[0]); // on the second leg
+      const snap = (g) => ({ day: s.day, at: Number(g.systemIndex), transit: g.transit ? { ...g.transit } : null, stage: g.trade.stage, legIndex: g.trade.legIndex,
+        path: g.trade.path.slice(), order: g.trade.order ? { ...g.trade.order } : null, tons: g.trade.manifest.reduce((n, m) => n + m.tons, 0), eta: g.trade.etaDay, crossed: g.trade.crossed.slice() });
+      const before = snap(f);
+      t.saveGame(9);
+      t.startWithFaction('terran');
+      const wiped = s.playerFleet.length;
+      t.loadGame(9);
+      const g = s.playerFleet.find((x) => x.id === 'gate-passage-3');
+      if (!g || !g.trade) return { orders: true, found: true, reloaded: false, wiped };
+      const after = snap(g);
+      window.__tradeDays(eta - s.day);
+      const arrived = { day: s.day, at: Number(g.systemIndex), stage: g.trade.stage, crossed: g.trade.crossed.slice(), tons: g.trade.manifest.reduce((n, m) => n + m.tons, 0), arrivedDay: g.trade.order?.arrivedDay };
+      return { orders: true, found: true, reloaded: true, wiped, dest, eta, before, after, arrived };
+    });
+    assert.ok(r.orders, `${r.reason}`);
+    assert.ok(r.found, 'precondition: no destination three or more legs away');
+    assert.equal(r.wiped, 0, 'precondition: a new campaign kept the old fleet');
+    assert.ok(r.reloaded, 'the trader came back from the save with no order at all');
+    assert.deepEqual(r.after.order, r.before.order, `the order came back as ${JSON.stringify(r.after.order)} instead of ${JSON.stringify(r.before.order)}`);
+    assert.deepEqual(r.after.transit, r.before.transit, `the leg came back as ${JSON.stringify(r.after.transit)} instead of ${JSON.stringify(r.before.transit)}`);
+    assert.equal(r.after.legIndex, r.before.legIndex, `she came back on leg ${r.after.legIndex} instead of ${r.before.legIndex}`);
+    assert.deepEqual(r.after.path, r.before.path, 'the route came back different');
+    assert.equal(r.after.tons, r.before.tons, `${r.before.tons} tons aboard came back as ${r.after.tons}`);
+    assert.equal(r.after.stage, 'passage', `she came back ${r.after.stage} rather than on her passage`);
+    assert.equal(r.arrived.at, r.dest, `after the reload she ended at ${r.arrived.at}, not the rendezvous ${r.dest}`);
+    assert.equal(r.arrived.arrivedDay, r.eta, `after the reload she arrived on day ${r.arrived.arrivedDay}, not day ${r.eta}`);
+    assert.deepEqual(r.arrived.crossed, r.before.path, `after the reload she crossed ${JSON.stringify(r.arrived.crossed)}, not the whole route ${JSON.stringify(r.before.path)}`);
+    assert.equal(r.arrived.tons, r.before.tons, 'cargo went missing between the reload and the rendezvous');
+  });
+
+  // PASSAGE-4 — a rendezvous changed en route is replotted from where she is; a cancelled one ends
+  // at the end of the leg she is on, and she holds there.
+  await check('PASSAGE a changed rendezvous is replotted from where she is, and a cancelled one ends where the leg ends', async () => {
+    await fresh('play-passage-4');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({ learn: 24 });
+      if (typeof t.orderFleetRendezvous !== 'function' || typeof t.cancelFleetPassage !== 'function') return { orders: false, reason: 'there is no rendezvous to change or cancel' };
+      window.__tradeShip('gate-passage-4', { big: true });
+      const f = s.playerFleet.find((x) => x.id === 'gate-passage-4');
+      const trade = t.ensureFleetTradeState(f, 'cautious');
+      const from = Number(s.currentPlanet);
+      const far = (origin, not) => [...Array(s.planets.length).keys()].filter((i) => i !== origin && !not.includes(i) && t.isChartSystemVisible(i) && (t.getPlottedRoute(origin, i)?.systems || []).length >= 4)
+        .sort((a, b) => t.getPlottedRoute(origin, b).systems.length - t.getPlottedRoute(origin, a).systems.length)[0];
+      const A = far(from, []);
+      if (A == null) return { orders: true, found: false };
+      t.orderFleetRendezvous('gate-passage-4', A);
+      const routeA = trade.path.slice();
+      window.__tradeDays(trade.legDays[0]);
+      const at1 = Number(f.systemIndex), next1 = Number(f.transit?.to);
+      const B = far(next1, [A, from, at1]);
+      if (B == null) return { orders: true, found: false };
+      const fromDeparture = (t.getPlottedRoute(from, B)?.systems || []).map(Number).slice(1);
+      const fromActual = (t.getPlottedRoute(next1, B)?.systems || []).map(Number).slice(1);
+      t.orderFleetRendezvous('gate-passage-4', B);
+      const mid = { pending: trade.order?.pending, transitTo: f.transit?.to, line: t.fleetTradeStatusLine(f) };
+      window.__tradeDays(f.transit.arrivalDay - s.day);
+      const replotted = { at: Number(f.systemIndex), origin: trade.origin, path: trade.path.slice(), to: trade.order?.to, stage: trade.stage, line: t.fleetTradeStatusLine(f) };
+      // now cancel on the next leg
+      window.__tradeDays(trade.legDays[0]);
+      const holdAt = Number(f.transit?.to);
+      const cancelled = t.cancelFleetPassage('gate-passage-4');
+      const cancelLine = t.fleetTradeStatusLine(f);
+      window.__tradeDays(f.transit.arrivalDay - s.day);
+      const held = { at: Number(f.systemIndex), stage: trade.stage, active: trade.active, transit: Boolean(f.transit), line: t.fleetTradeStatusLine(f) };
+      return { orders: true, found: true, from, A, B, routeA, at1, next1, fromDeparture, fromActual, mid, replotted, holdAt, cancelled, cancelLine, held };
+    });
+    assert.ok(r.orders, `${r.reason}`);
+    assert.ok(r.found, 'precondition: no pair of destinations three or more legs away');
+    assert.equal(r.mid.pending, true, 'the change of rendezvous was not recorded against a ship on a leg');
+    assert.equal(r.mid.transitTo, r.next1, `the change turned her round in warp: bound for ${r.mid.transitTo}, not ${r.next1}`);
+    assert.equal(r.replotted.at, r.next1, `she is at ${r.replotted.at}; the leg ended at ${r.next1}`);
+    assert.equal(r.replotted.to, r.B, `she is bound for ${r.replotted.to}, not the changed rendezvous ${r.B}`);
+    assert.equal(r.replotted.origin, r.next1, `the new route is plotted from ${r.replotted.origin}, not from ${r.next1} where she is`);
+    assert.deepEqual(r.replotted.path, r.fromActual,
+      `the new route is ${JSON.stringify(r.replotted.path)}; from where she is it is ${JSON.stringify(r.fromActual)}${JSON.stringify(r.replotted.path) === JSON.stringify(r.fromDeparture) ? ' — it was plotted from her original departure' : ''}`);
+    assert.ok(r.cancelled, 'the cancel was refused');
+    assert.equal(r.held.at, r.holdAt, `cancelled on a leg to ${r.holdAt}, she is at ${r.held.at}`);
+    assert.equal(r.held.stage, 'holding', `cancelled, she is ${r.held.stage} rather than holding (${r.held.line})`);
+    assert.equal(r.held.transit, false, 'cancelled, she is still booked to go somewhere');
+    assert.equal(r.held.active, false, 'cancelling the rendezvous put her back to trading');
+    assert.ok(/awaiting orders/i.test(r.held.line), `the panel does not say she is awaiting orders: "${r.held.line}"`);
+  });
+
+  // PASSAGE-5 — a formation dispatch put a trading member in one jump to the formation's destination
+  // while her circuit still had her on a route of her own.
+  await check('PASSAGE a formation dispatch cannot pull a trader off her own route', async () => {
+    await fresh('play-passage-5');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({ learn: 24 });
+      window.__tradeShip('gate-passage-5', { big: true });
+      const f = s.playerFleet.find((x) => x.id === 'gate-passage-5');
+      if (typeof t.startFleetTrading !== 'function') return { trades: false, reason: 'a fleet ship cannot be ordered to trade' };
+      t.startFleetTrading('gate-passage-5', 'any');
+      window.__tradeDays(1);
+      const trade = f.trade;
+      if (!(trade.stage === 'outbound' && f.transit)) return { trades: true, found: false, stage: trade.stage };
+      const b = t.fleetBook();
+      const g = b.formations.find((x) => x.members.includes(f.id));
+      const onWay = Number(f.transit.to);
+      const dest = [...Array(s.planets.length).keys()].find((i) => t.isChartSystemVisible(i) && i !== onWay && i !== Number(s.currentPlanet) && !trade.path.includes(i) && t.getPlottedRoute(Number(f.systemIndex), i));
+      g.destination = dest;
+      const before = { transit: { ...f.transit }, legIndex: trade.legIndex, path: trade.path.slice() };
+      const dispatched = t.dispatchFleetFormation(g.id);
+      return { trades: true, found: true, dest, onWay, before, dispatched, after: { transit: f.transit ? { ...f.transit } : null, stage: trade.stage, pathAt: trade.path[trade.legIndex] } };
+    });
+    assert.ok(r.trades, `${r.reason}`);
+    assert.ok(r.found, `precondition: the trader is not on a leg of a circuit (${r.stage})`);
+    assert.equal(r.dispatched, false,
+      `the formation was dispatched to ${r.dest} with a trader on a leg to ${r.onWay}: she is now booked to ${r.after.transit?.to} in one jump while her circuit still has her on the way to ${r.after.pathAt}`);
+    assert.deepEqual(r.after.transit, r.before.transit, `the refused dispatch still changed her leg: ${JSON.stringify(r.after.transit)}`);
+  });
+
+  // PASSAGE-6 — the fleet manager offered no way to move a trader; and what it shows of an order is
+  // the destination, the day, and the controls, not prose.
+  await check('PASSAGE the fleet manager offers recall, rendezvous, change and cancel, and shows destination and day', async () => {
+    await fresh('play-passage-6');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({ learn: 24 });
+      window.__tradeShip('gate-passage-6', { big: true });
+      const f = s.playerFleet.find((x) => x.id === 'gate-passage-6');
+      const from = Number(s.currentPlanet);
+      const dest = [...Array(s.planets.length).keys()].find((i) => i !== from && t.isChartSystemVisible(i) && (t.getPlottedRoute(from, i)?.systems || []).length >= 3);
+      const row = () => {
+        t.renderFleetManager(true);
+        const dlg = document.querySelector('dialog.fleet-manager');
+        const details = [...dlg.querySelectorAll('details')].find((d) => d.querySelector('summary')?.textContent.includes('gate-passage-6'));
+        const block = details?.querySelector('.fleet-trade');
+        const buttons = block ? [...block.querySelectorAll('button[data-fleet-action]')].map((b) => [b.dataset.fleetAction, b.textContent.trim()]) : [];
+        const select = block?.querySelector('select[data-fleet-passage]');
+        const status = block?.querySelector('p')?.textContent.trim() || '';
+        return { buttons, hasSelect: Boolean(select), options: select ? select.options.length : 0, status };
+      };
+      const idle = row();
+      // choose the destination in the panel and press the button, as the captain would
+      const dlg = document.querySelector('dialog.fleet-manager');
+      const select = [...dlg.querySelectorAll('select[data-fleet-passage]')].find((e) => e.dataset.fleetPassage === 'gate-passage-6');
+      if (select) select.value = String(dest);
+      const button = [...dlg.querySelectorAll('button[data-fleet-action="rendezvous"]')].find((b) => b.dataset.fleetId === 'gate-passage-6');
+      if (button) button.click();
+      const underWay = row();
+      document.querySelector('dialog.fleet-manager')?.close();
+      return { dest, name: s.planets[dest]?.name, eta: f.trade?.etaDay, stage: f.trade?.stage, idle, underWay };
+    });
+    const actions = (x) => x.buttons.map((b) => b[0]);
+    assert.ok(actions(r.idle).includes('recall') && actions(r.idle).includes('rendezvous'),
+      `the fleet manager offers no way to recall or send a trader anywhere: controls are ${JSON.stringify(r.idle.buttons)}`);
+    assert.ok(r.idle.hasSelect && r.idle.options > 1, 'there is no way to choose the rendezvous system');
+    assert.equal(r.stage, 'passage', `pressing the button in the panel did not send her (${r.stage})`);
+    assert.ok(r.underWay.status.includes(r.name) && r.underWay.status.includes(`day ${r.eta}`),
+      `under way, the row does not show the destination and the day: "${r.underWay.status}"`);
+    assert.ok(actions(r.underWay).includes('cancel-passage') && r.underWay.buttons.some((b) => /change/i.test(b[1])),
+      `under way, the row does not offer to change or cancel the rendezvous: ${JSON.stringify(r.underWay.buttons)}`);
+    assert.ok(!/\. [A-Z]/.test(r.underWay.status) && r.underWay.status.length < 140,
+      `the row explains instead of stating: "${r.underWay.status}"`);
+  });
+
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);
   if (failures.length) { console.log(`${failures.length} still reproduce:`); for (const f of failures) console.log(`  - ${f.name}: ${f.message.split('\n')[0]}`); process.exitCode = 1; }
   if (errors.length) { console.log(`page errors: ${errors.join(' | ')}`); process.exitCode = 1; }

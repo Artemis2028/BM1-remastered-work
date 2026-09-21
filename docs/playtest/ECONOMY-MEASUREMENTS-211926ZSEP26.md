@@ -1,22 +1,23 @@
 # Finite economy — long-horizon measurements
 
-DTG 211624ZSEP26 · against this candidate · **driven through the engine, not modelled**
+DTG 211926ZSEP26 · against this candidate · **driven through the engine, not modelled**
 
-Review: *"Add one shared `fleetTradeRouteDays(route)` that sums `routeLegDays(route)`, and use that
-same value everywhere fleet trading reasons about journey time … Do not retune turnover, payout, holds,
-Cautious, or the risk bands in this repair. If that passes with the existing 37 gates/65 playtest
-checks, close §4."*
+Review: *"The existing Promelli Drift case is exactly the behavior §5 needs to solve: an autonomous
+trader may rationally have nowhere profitable/allowed to go, but the captain must be able to order her
+somewhere else."*
 
 Everything below is what the engine did. The script starts a campaign, learns thirty worlds, puts fleet
 traders to work and advances the calendar day by day, reading the same shelves, the same books of work
 and the same danger the captain would. `scripts/economy-measure.cjs`; the suite runs it to 1,200 days
 for time, and the tables here are the full 5,000-day pass.
 
-**What changed since the last tables:** only the planner's reckoning of a route's days — the sum of
-its legs, each rounded up, as the calendar charges them, instead of one rounding of the total
-distance. Nothing is retuned: the danger settings, the payout, the holds, courier pay, regeneration and
-the 150-day lifetime are exactly as `acffccf` left them. The tables are rerun because the arithmetic
-the planner ranks by changed, and what moved is reported in §6 below against the `acffccf` figures.
+**What changed since the last tables:** nothing in the economy or the planner — §4 is closed and this
+candidate is §5. The tables above the last one are the `e9be30b` tables rerun and should read the
+same. **The last table is new**: the same two heavy freighters on the same seeds, once as before and
+once with the captain playing one policy — a trader that has stood idle with nothing to do for sixty
+days is sent to rendezvous at the home world, and put back to work when she arrives. The policy is the
+harness's, stated there and nowhere in the game; it exists to show what the order does to the one case
+these tables kept finding.
 
 ---
 
@@ -133,73 +134,56 @@ Shipments on the board (n / min / p25 / median / p75 / max): tonnage **136 / 1 /
 | 2       | 10,533    | 30,353     | 68,855     | 106,675    | 174                   | 40%               |
 | 4       | 9,513     | 21,302     | 74,084     | 124,267    | 181                   | 13%               |
 
+
+### Two heavy freighters on one economy, with and without the captain moving an idle one
+
+| captain                      | trader   | 5000d net L | circuits | shipments | idle | times ordered home | days on passage | times crippled |
+| ---------------------------- | -------- | ----------- | -------- | --------- | ---- | ------------------ | --------------- | -------------- |
+| nobody moves her             | Trader 1 | 172,525     | 300      | 49        | 0%   | 0                  | 0               | 3              |
+| nobody moves her             | Trader 2 | 40,824      | 48       | 19        | 80%  | 0                  | 0               | 1              |
+| sent home after 60 idle days | Trader 1 | 159,750     | 306      | 54        | 0%   | 0                  | 0               | 3              |
+| sent home after 60 idle days | Trader 2 | 201,605     | 264      | 22        | 3%   | 1                  | 91              | 4              |
+
 ## What the numbers say
 
-Everything here is read against the `acffccf` tables, which were the same seeds on the same script.
-The only change between the two passes is the planner's arithmetic for a route's days.
+### 1–5. Nothing moved
 
-### 1. Where the two reckonings agree, nothing moved; where they differ, the long routes cost what they cost
+Every table above the last is identical to the `e9be30b` pass to the latinum: the same seeds, the
+same planner, the same economy. §4 is closed and this candidate does not touch it. The readings of
+those tables are in `ECONOMY-MEASUREMENTS-211624ZSEP26.md` and are not repeated.
 
-Heavy freighter, five thousand days:
+### 6. The boxed-in trader, with the captain able to move her
 
-| setting | `acffccf` | this candidate | circuits | shipments | crippled | idle |
+The last table is the same two heavy freighters on the same seeds, run twice. In the first run nobody
+moves them, and it is the pair from every pass since `acffccf`: the second trader crosses into a
+pocket, holds — 4,018 of 5,000 days idle, the last 1,626 at Promelli Drift with two worlds a Cautious
+trader may fly to and nothing at either — and ends with 40,824. In the second run the harness plays
+one policy for the captain: a trader that has stood idle with nothing to do for sixty days is sent to
+rendezvous at the home world, and put back to work when she arrives.
+
+| captain | trader | 5,000-day net | circuits | idle | ordered home | days on passage |
 | --- | --- | --- | --- | --- | --- | --- |
-| Safe | 128,877 | **128,943** | 429 | 25 | 7 | 1% |
-| Cautious | 195,298 | **195,464** | 305 | 23 | 4 | 0% |
-| Risky | 137,925 | **134,966** | 44 | 50 | 6 | 0% |
-| Any | 167,364 | **145,282** | 36 | 54 | 9 | 0% |
+| nobody moves her | Trader 1 | 172,525 | 300 | 0% | – | – |
+| nobody moves her | Trader 2 | **40,824** | 48 | **80%** | – | – |
+| sent home after 60 idle days | Trader 1 | 159,750 | 306 | 0% | 0 | 0 |
+| sent home after 60 idle days | Trader 2 | **201,605** | 264 | **3%** | 1 | 91 |
 
-Safe and Cautious fly short routes of a hop or two, where one rounding of the distance and the sum
-of the rounded legs are the same number, and they moved by 66 and 166 latinum in five thousand days
-— the noise of one circuit ending on a different day. The 1,350-ton freighter on Cautious is
-196,384 in both passes to the latinum. Risky and Any fly the many-hopped routes where the two
-reckonings part company by a day a hop, and there the planner now prices a long shipment against the
-days it will really spend: Any is 13% lower and Risky 2%, with fewer circuits and fewer shipments
-delivered, because some hauls that looked worth the voyage were not. The order review asked for still
-holds — every loose setting earns at least what Safe does, and Cautious, short routes over three
-times the worlds, is the best earner — and it holds on honest arithmetic now.
+She was ordered once. She had stood sixty days with nothing to do, before day 1,000; the passage home
+was 91 days, leg by leg through the space that had boxed her in; she arrived holding, was sent back
+to work, and worked 264 circuits over the rest of the campaign,
+idle 156 days in five thousand — the sixty she waited, the ninety-one she flew, and five. The first
+trader earned 12,775 less, sharing the worlds near home with her; the pair together made 361,355
+against 213,349.
 
-### 2. Every hull, on Cautious
-
-Cruiser **196,334** (184,254 on `acffccf`), 1,350-ton **196,384** (196,384), 3,500-ton **196,011**
-(195,706), five-ton **23,362** (24,663). The three real hulls sit within 400 latinum of each other at
-39 a day, which is the finding of every pass since the boards began turning over: what is scarce is
-open shipments, not hold. The five-ton hull is 5% lower and idle 42% of its days rather than 37% —
-a courier lot across several hops is now seen to cost its flight, and is declined where it would not
-pay for it. That is the same §5 case as before, a little sharper: at the settings a new captain
-would use, a small trader runs out of work that covers its upkeep and waits where she is.
-
-### 3. The boards still turn over
-
-Oldest posting on any board at any horizon 148 days (the lifetime is 150), as before. The rejection
-shape is unchanged in kind: under Cautious every `unreported` refusal is `hostile-flag`; under Risky
-and Any it is `danger` and the ports the trader has learned refuse her.
-
-### 4. One trader boxed in, unchanged — the §5 case
-
-Two heavy freighters on one economy: the second is **identical to the last pass to the latinum** —
-40,824 over five thousand days, 48 circuits, 4,018 days idle, the last 1,626 of them holding at
-Promelli Drift with two worlds a Cautious trader may fly to and nothing at either. The change in the
-planner's arithmetic could not reach her because she has no route to reckon. The first trader earned
-172,525 against 96,229, having been crippled three times instead of five — a different order of
-routes draws a different sequence of encounters, and that is variance, not a tuning. The "each"
-figures (106,675 against 68,527) are the average of one trader working and one parked; four traders
-124,267 each against 145,622, for the same reason in the other direction.
-
-### 5. One thing that moved a lot, and why it is not a finding
-
-The heavy freighter with nobody repairing her is finished on day **697** with 24,931, where the last
-pass had her going until day 1,725 with 62,217. Same seeds, same setting, same hull: the planner chose
-a different circuit early, and the encounter she met on it left her at 5% hull with nobody to mend
-her. A single unmaintained ship is one life: the same table read day 452, 453 and 580 on the three
-passes before `acffccf`, and 1,725 was the long one. It measures what happens to a trader nobody
-repairs, which is that she does not last, and it still says so.
+The idle column counts every day not on a circuit, passage days included. The policy is the
+harness's — sixty days, home, straight back to work — and nothing in the game plays it for the
+captain; what the table shows is the order doing what it is for, on the case the earlier passes
+found.
 
 ---
 
 ## What I would ask
 
-1. The repair is arithmetic, not tuning, and the tables move only where the arithmetic bit. **§4
-   closes on this candidate.**
-2. §2 and §4 are the same finding a third time: a trader can be somewhere she has no reason to
-   leave and no work to do, and the captain cannot say otherwise. That is §5, and it starts next.
+1. The order moves the trader the tables kept finding parked, and nothing else in the tables moved.
+2. Whether an unresolved order should resume on its own after repair, or wait for the captain, is
+   named in the change document; the tables do not bear on it.
