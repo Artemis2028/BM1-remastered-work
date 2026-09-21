@@ -26372,6 +26372,15 @@ function plannedRouteRisk(from, to) {
 function routeLegDays(route) {
   return (route?.legs || []).map((leg) => Math.max(1, Fleet.travelDays(getRouteWarpDistance(leg))));
 }
+// The days a route actually takes to fly: the sum of its legs, each rounded up to whole campaign days,
+// which is what the calendar charges when she flies it. A plan that reckoned the same route from its
+// total distance could reckon a day or three fewer than she would spend, and so prefer a many-hopped
+// route over a straighter one that really was faster. Every place fleet trading reasons about journey
+// time reads this and nothing else. [playtest]
+function fleetTradeRouteDays(route) {
+  const legs = routeLegDays(route);
+  return legs.length ? legs.reduce((n, d) => n + d, 0) : (route ? 1 : null);
+}
 function fleetTradeRouteAcceptable(f, t, from, to) {
   const rule = tradeRiskRule(t.risk);
   const risk = plannedRouteRisk(from, to);
@@ -26516,7 +26525,7 @@ function planFleetTradeCircuit(f, t, day = state.day) {
     const key = `${a}>${b}`;
     if (!dayMemo.has(key)) {
       const route = getPlottedRoute(a, b);
-      dayMemo.set(key, route ? Math.max(1, Fleet.travelDays(finiteNumber(route.distance, 0))) : null);
+      dayMemo.set(key, route ? fleetTradeRouteDays(route) : null);
     }
     return dayMemo.get(key);
   };
@@ -26692,7 +26701,7 @@ function planFleetTradeReposition(f, t, from, carrying = []) {
     if (!fleetTradeRouteAcceptable(f, t, from, i)) continue;
     const route = getPlottedRoute(from, i);
     if (!route) continue;
-    const days = Math.max(1, Fleet.travelDays(finiteNumber(route.distance, 0)));
+    const days = fleetTradeRouteDays(route);
     const home = homes.has(i) ? 1 : 0;
     const buys = wanted.length && wanted.some((g) => marketDemand(i, g) > 0) ? 1 : 0;
     // Work she could actually take, and would: a shipment her hull can hold, to somewhere she may go,
@@ -26704,7 +26713,7 @@ function planFleetTradeReposition(f, t, from, carrying = []) {
     const work = worldOpenJobs(i).some((j) => {
       if (j.tons > hold || !fleetTradeDeliverable(f, t, i, j.targetIndex)) return false;
       const leg = getPlottedRoute(i, j.targetIndex);
-      const legDays = leg ? Math.max(1, Fleet.travelDays(finiteNumber(leg.distance, 0))) : null;
+      const legDays = leg ? fleetTradeRouteDays(leg) : null;
       return legDays !== null && jobPay(j) > upkeepRate * legDays;
     }) ? 1 : 0;
     const rank = home * 4 + buys * 2 + work;

@@ -1,19 +1,20 @@
 # Finite commodity and cargo economy — design
 
-DTG 211330ZSEP26 · supersedes `ECONOMY-DESIGN-210824ZSEP26.md` · **built**
+DTG 211624ZSEP26 · supersedes `ECONOMY-DESIGN-211330ZSEP26.md` · **built**
 
-Changed in this revision: **the four danger settings mean what review approved** (§F) — Cautious may
-cross charted space nobody has reported on unless what the captain *knows* says it is hostile, judged
-from the flag the captain has on record or was charted with and never from the live truth; and a
-trader reports who she finds holding a system when she is there. **The trade planner is time-aware**
-(§G): a circuit is built one call at a time by what each call earns per day it adds, so a shipment
-whose price does not pay for its voyage is not taken over one that does.
+Changed in this revision: **one reckoning of journey time** (§G) — the planner estimated a route from
+its total distance while the calendar charges every leg rounded up on its own, so a many-hopped route
+looked faster than it flew; `fleetTradeRouteDays(route)`, the sum of the legs, is now the only
+reckoning fleet trading uses, in insertion and ranking, expected profit per day, reposition days and
+reposition profitability, and the ranking gates. Nothing is retuned.
 
-Unchanged and still in force: the payout, a route and hazard fee once plus twenty latinum a ton; every
-hold, the Concord's 1,320 included; the twelve-day regeneration; the 150-day lifetime of an unaccepted
-shipment, approved and named for later playtesting; freight from a failed contract is the shipper's and
-goes home for nothing; only an installation that does economic, commercial or logistics work gives a
-world an economy; every dead end in the trade planner is a move, with a reason, or a hold.
+Unchanged and still in force: the four danger settings as review approved them (§F), judged from the
+flag the captain knows and never the live truth; the time-aware planner (§G); the payout, a route and
+hazard fee once plus twenty latinum a ton; every hold, the Concord's 1,320 included; the twelve-day
+regeneration; the 150-day lifetime of an unaccepted shipment, approved and named for later playtesting;
+freight from a failed contract is the shipper's and goes home for nothing; only an installation that
+does economic, commercial or logistics work gives a world an economy; every dead end in the trade
+planner is a move, with a reason, or a hold.
 
 The previous proposal recommended price slippage — a world absorbing `market × 25` tons at its posted
 price and moving a latinum against you per further block. **Review rejected it** as more complicated
@@ -276,6 +277,19 @@ expected net          = known shipment payouts + known commodity margin − upke
 add a call only if    incremental net / added days  ≥  circuit net / circuit days
 ```
 
+**Days are the days she will fly.** A route is flown leg by leg and the calendar charges each leg
+rounded up to a whole day, `routeLegDays(route)`; the planner first reckoned the same route from its
+total distance in one rounding, which is never more and usually less, by about a day a hop. So a
+six-hop shipment was priced per day against fewer days than it cost and could outrank a two-hop one
+that really paid better. `fleetTradeRouteDays(route)` — the sum of `routeLegDays(route)` — is now the
+one reckoning of journey time in fleet trading: the insertion cost of a call, the circuit's days and
+rate, a reposition's days, and whether a shipment at a candidate world pays for its own voyage. The
+formation dispatch that moves a fleet to its station in one jump is not fleet trading and is left as it
+is; §5 will meet it. `RANK-LEG-TIME` holds the property: two shipments priced so that the far one wins
+by the distance reckoning and loses by the flown one, and the planner must take the near one at its
+real rate. On `acffccf`: *"Lappa is 6 hops and really takes 134 days, not the 131 a distance reckoning
+gives it, and at 39 latinum a day it is worse than Alpha Centauri at 40."*
+
 Nothing is claimed or bought until the circuit is decided, so an abandoned plan has nothing to put
 back. Danger is not priced: the setting already says what the captain permits, and a Risky trader's
 losses can legitimately leave her behind a Safe one over a campaign. `RANK-TIME` holds the property
@@ -302,12 +316,13 @@ the board."*
 | `JOB-ROLLBACK-AGE` | a shipment claimed by the planner and put back coming back without its date |
 | `CAUTIOUS-STALE-FLAG` | a Cautious trader's plans changing the day a system is secretly taken, or a trader crossing a system and reporting nothing about who holds it |
 | `RANK-TIME` | a wider permitted route set making a trader choose a circuit worth less per day than one still available to her |
+| `RANK-LEG-TIME` | a circuit chosen by days reckoned from a route's distance rather than the rounded days of every leg she will fly |
 | `CIRCUIT-FULL-OF-SHIPMENT` | a trader whose hold is full of a shipment still to be delivered repositioning to sell it instead of flying it |
 | `CIRCUIT-IDLE` | a trader left standing at a world that will deal with her and has nothing for her to do |
 | `CIRCUIT-FULL-HOLD` | a trader stopped for good by a hold full of cargo nobody nearby is buying |
 | `JOB-FEE` | a shipment costing twice as much for twice the load, so the voyage is charged again on every ton |
 
-Twenty checks are in the suite, covering those eight plus the circuit behaviour review asked for: two
+Twenty-one checks are in the suite, covering those eight plus the circuit behaviour review asked for: two
 traders cannot take the same tons or the same shipment; cargo stays addressed and comes off only at its
 own call; freed hold goes back to work later in the circuit; and a reload resumes the route, the leg,
 the manifest, the shelves and the books of work exactly. Intermediate danger and a stopped trader never

@@ -1,13 +1,50 @@
 # BM1 playtest repairs on top of `ae4ae4d`
 
-DTG 211330ZSEP26
+DTG 211624ZSEP26
 
 Parent: `ae4ae4d` (Patch 1, DTG 171325ZSEP26) — untouched. Nothing pushed, merged or deployed.
 The commit count is in `CANDIDATE.json`, computed by the pack script rather than typed here.
 
 ## Read this first
 
-**This round is the two repairs review named as the conditions for closing §4, on top of `372f8a5`.**
+**This round is the one final §4 repair review named, on top of `acffccf`, and nothing else.** The
+stale-flag repair, the time-aware planner and the 150-day turnover are accepted and untouched; the
+payout, the holds, courier pay, Cautious and the risk bands are as they were.
+
+1. **The planner reckons a route by the days she will really fly.** Circuit planning estimated a
+   route with `Fleet.travelDays(route.distance)` — one rounding of the whole distance — while the
+   calendar charges `routeLegDays(route)`, every leg rounded up on its own. The two differ by a day
+   per hop or so, always in the same direction, so a many-hopped route looked faster than it flew and
+   could be chosen over a straighter one that really was faster. There is now one
+   `fleetTradeRouteDays(route)`, the sum of `routeLegDays(route)`, and it is the only reckoning of
+   journey time in fleet trading: circuit insertion and ranking, expected profit per day, the
+   reposition's days and its test of whether a shipment pays for its own voyage, and the two ranking
+   gates. Gate `RANK-LEG-TIME`; on `acffccf`: *"Lappa is 6 hops and really takes 134 days, not the
+   131 a distance reckoning gives it, and at 39 latinum a day it is worse than Alpha Centauri at 40 —
+   the planner is reckoning days from distance, not from the legs she will fly."*
+2. **Nothing is retuned.** Turnover, payout, holds, Cautious and the risk bands are not touched. The
+   tables are rerun because the planner's arithmetic changed, and they move only where it bit: Safe
+   128,943 and Cautious 195,464 against 128,877 and 195,298 (short routes, where the two reckonings
+   agree — the 1,350-ton freighter is 196,384 in both passes to the latinum); Risky 134,966 and Any
+   145,282 against 137,925 and 167,364, the many-hopped hauls now costing what they cost. Every
+   loose setting still earns at least what Safe does and Cautious is still the best earner. The
+   boxed-in trader at Promelli Drift is identical to the latinum, because she has no route to
+   reckon (`ECONOMY-MEASUREMENTS-211624ZSEP26.md`).
+3. **One reckoning left as it is, on purpose.** `dispatchFleetFormation` still moves a formation to
+   its station in `Fleet.travelDays(route.distance)` of the whole route, in one jump. That is not
+   fleet trading and this repair does not touch it; it is the first thing §5 recall/rendezvous will
+   meet, since a recalled trader must fly leg by leg through the same crossings a trading one does.
+
+**§4 closes on this candidate.** The next round is §5 recall/rendezvous, as its own candidate: the
+tables in `acffccf` showed a Cautious heavy freighter boxed in at Promelli Drift for 1,626 days with two
+worlds she may fly to — rationally nowhere profitable or allowed to go — and the captain had no way to
+order her anywhere else. That is the behaviour §5 has to solve.
+
+---
+
+## The round before it: the two repairs
+
+**That round was the two repairs review named as the conditions for closing §4, on top of `372f8a5`.**
 The 150-day turnover is approved and untouched; the payout, the holds, courier pay and the twelve-day
 regeneration are as they were.
 
@@ -110,14 +147,14 @@ the tables**; if nothing new is in them, this is the candidate to close it on.
    per twelve days. At 300, 1,000 and 3,000 days, for each danger setting and for two hulls, the
    measurements now report how many worlds' books have been opened, how full they are, how old what is
    on them is, and the first reason the trader would pass each open shipment over. The answer to "why
-   does shipment work dry up" is in `ECONOMY-MEASUREMENTS-211330ZSEP26.md` §2, and it is not regeneration.
+   does shipment work dry up" is in `ECONOMY-MEASUREMENTS-211624ZSEP26.md` §2, and it is not regeneration.
 3. **The payout stands** at a route and hazard fee once plus twenty latinum a ton, for playtesting.
 4. **The five-ton starter hull is in the danger-setting table** alongside the heavy freighter, with the
    shipments it actually delivered, before anyone decides whether courier fees need scaling.
 5. **The Concord is 1,320 tons** as an authored civilian/commercial exception — the heavy-cargo tier
    for a battleship-class hull, recorded in both data files with the 10,000 it shipped with and the 308
    it was briefly cut to. The other thirteen reductions and every existing freight exception stand.
-6. **The stale sentence is gone.** `CARGO-CAPACITY-211330ZSEP26.md` no longer says no ship data changed; it
+6. **The stale sentence is gone.** `CARGO-CAPACITY-211624ZSEP26.md` no longer says no ship data changed; it
    says which thirteen are at the derived default and which one is an authored exception.
 
 **One thing not on the list**, found by item 4 and fixed: a reposition to a world with nothing at the
@@ -130,6 +167,63 @@ captain has no condition report for**, which those settings do not fly; delivera
 1,000 and the last shipment lands on day 365–385. Under Risky and Any 93–94% is deliverable and the
 limit is transit time. Nothing in the economy itself moved this round. If that is what review needed
 to see, §4 can close on this candidate.
+
+---
+
+## The leg-time repair, in detail
+
+### 1. Two reckonings of the same route
+
+A plotted route is a list of legs. When a trader flies it, `scheduleFleetTradeLeg` charges each leg
+`Math.max(1, Fleet.travelDays(legDistance))` — that is `routeLegDays(route)` — so a route of six legs
+costs six roundings-up. When the planner *estimated* the same route it asked
+`Fleet.travelDays(route.distance)` once, of the total. The estimate is never more than the flight and
+usually less, and the shortfall grows with the number of hops. So a shipment across a many-hopped route
+was priced per day against fewer days than she would spend, and could outrank a shipment on a short
+route that really earned more per day flown.
+
+### 2. One reckoning
+
+```js
+function fleetTradeRouteDays(route) {
+  const legs = routeLegDays(route);
+  return legs.length ? legs.reduce((n, d) => n + d, 0) : (route ? 1 : null);
+}
+```
+
+It is read in four places and nowhere else reasons about a trader's journey time:
+
+- `planFleetTradeCircuit` — the memoised leg-days between two worlds that `insertion` uses to cost
+  adding a call, and so the circuit's `days`, `expected` and `rate`;
+- `planFleetTradeReposition` — the days of a candidate move;
+- `planFleetTradeReposition` — whether a shipment at the candidate world pays more than the upkeep
+  of carrying it to its destination, which is what makes it a reason to go;
+- the ranking gates: `RANK-TIME` now measures near and far in flown days on a tree that has the
+  function (and the way the tree reckons on one that does not), and `RANK-LEG-TIME` below.
+
+The rounding in `routeLegDays` is unchanged; a route with no legs is a day, as it was.
+
+### 3. `RANK-LEG-TIME`
+
+The check walks the worlds a trader at the home world may deliver to and, for each, computes the days
+the route really flies (sum of `routeLegDays`) and the days a distance reckoning gives it. It picks
+world A, the nearest whose two reckonings agree, and world B, the one whose flight exceeds its
+reckoning by the most (at least two days). It posts two ten-ton shipments at home: A's pays
+`(40 + upkeep) × A.flown`, so it is worth 40 latinum a day net however you reckon it; B's pays
+`(40 + upkeep) × (B.reckoned + B.flown) / 2`, which is worth *more* than 40 a day by the distance
+reckoning and *less* than 40 a day by the days she will fly. The check requires that separation as a
+precondition, then plans under Any and requires the circuit to include A and not B, and the plan's
+expected rate to equal A's real rate. A planner that reckons from distance takes B — on `acffccf`, Lappa
+at six hops, "134 days, not the 131 a distance reckoning gives it".
+
+### Gates
+
+`RANK-LEG-TIME` is new and reproduces on `acffccf`; on a tree with no circuit planner it reports that
+there is no circuit to plan, never a `TypeError`. `RANK-TIME`
+is unchanged in what it requires; its near/far selection now uses the same reckoning as the planner
+where the tree has one, and it still reproduces on `372f8a5` (the same 24 against 327 latinum a day,
+now over 150 flown days rather than 149 reckoned). The suite is 66 playtest reproductions; the
+candidate reproduces none, `acffccf` fails exactly `RANK-LEG-TIME`.
 
 ---
 
@@ -301,7 +395,7 @@ shipments are (each shipment is now stamped with the campaign day it was generat
 reason the trader standing on that world would pass each one over: `danger`, `unreported`, `no-route`,
 `refusal`, `too-big` for the hull, or `no-room` in the hold as it is.
 
-The answer is in `ECONOMY-MEASUREMENTS-211330ZSEP26.md` §2, and it is not regeneration. **The books are
+The answer is in `ECONOMY-MEASUREMENTS-211624ZSEP26.md` §2, and it is not regeneration. **The books are
 92–100% full at every horizon and every setting.** Under Safe and Cautious the trader opens eight of
 ninety worlds' books and **93–97% of what is on them is `unreported`** — the route crosses a system the
 captain has no condition report for, which those settings do not fly — so deliverable work goes from
@@ -338,7 +432,7 @@ slower response."* The other thirteen reductions and every existing freight exce
 
 ### 6. The stale sentence
 
-`CARGO-CAPACITY-211330ZSEP26.md` said *"No ship data is changed in this candidate, as asked."* It now says
+`CARGO-CAPACITY-211624ZSEP26.md` said *"No ship data is changed in this candidate, as asked."* It now says
 which thirteen hulls are at the derived default, which one is an authored exception, and that the
 per-hull CSV is how an individual call gets overruled — which is exactly what happened with the
 Concord.
@@ -397,18 +491,18 @@ The measurements document also records a fault in the measuring instrument — "
 actually repairing the trader — and corrects it.
 
 **One thing needs a decision and one needs a second look.** Selling undelivered freight at a later port
-is a disposal mechanic arrived at by default rather than by design (`ECONOMY-DESIGN-211330ZSEP26.md`, §E). And
+is a disposal mechanic arrived at by default rather than by design (`ECONOMY-DESIGN-211624ZSEP26.md`, §E). And
 the **Concord-class Grand Cruiser** is the only one of the fourteen whose other authored fields —
 `marketRole: civilian`, an art note calling it a civilian megaship, and the previous balance review's own
 "commercial role" — argue for its hold; the derivation never saw them because none of it is description
-text. It is reduced to 308 as approved, and `CARGO-CAPACITY-211330ZSEP26.md` names 1,320 as the figure that
+text. It is reduced to 308 as approved, and `CARGO-CAPACITY-211624ZSEP26.md` names 1,320 as the figure that
 would follow if review would rather treat it as an authored exception.
 
 **The headline numbers.** Like for like at a thousand days, one maintained trader on Cautious: net
 **239,054 → 27,462** latinum, shipment income **223,760 → 11,922**, commodity income roughly unchanged
 at **29,313 → 26,405**. The economy is now commodity-led. Payback runs 4,400 to 9,300 days against 357
 to 752 before. The full tables, and four things worth asking about, are in
-`ECONOMY-MEASUREMENTS-211330ZSEP26.md`.
+`ECONOMY-MEASUREMENTS-211624ZSEP26.md`.
 
 ---
 
@@ -434,7 +528,7 @@ unchanged, and the failed contract carried as goods with no address. On `4008e24
 went into the circuit and 9 came out: 40 tons of undeliverable freight were destroyed by the end of the
 circuit."*
 
-**This needs a decision (see `ECONOMY-DESIGN-211330ZSEP26.md` §E).** Unaddressed cargo is sold wherever
+**This needs a decision (see `ECONOMY-DESIGN-211624ZSEP26.md` §E).** Unaddressed cargo is sold wherever
 somebody is buying, so the goods do eventually turn into money for a captain who was never entitled to
 them. The alternative — tons that stay aboard and unsellable until an explicit claim, fine or discounted
 salvage mechanic exists — quietly fills a hold with dead weight and stops the ship, so this candidate
@@ -497,7 +591,7 @@ the worth of a ton of hold to vary by at least fourfold across a real board. On 
 *"61 of 61 shipments cost twice as much for twice the load."*
 
 **This is a first measurement pass, not a locked number.** The five constants are named in
-`TRADE_ECONOMY`; the tables are in `ECONOMY-MEASUREMENTS-211330ZSEP26.md`.
+`TRADE_ECONOMY`; the tables are in `ECONOMY-MEASUREMENTS-211624ZSEP26.md`.
 
 ### 4. The danger settings are not tuned
 
@@ -527,7 +621,7 @@ it commodity trading. What stops it is the **danger model**, not the size of the
 shipments of five tons or less open on the map, one is on a route a Cautious trader will fly. The work
 is now there for it to take; reaching it is the danger settings' problem, which is §6's.
 
-`CARGO-CAPACITY-211330ZSEP26.md` is the table, reissued as applied rather than proposed, and it names the one
+`CARGO-CAPACITY-211624ZSEP26.md` is the table, reissued as applied rather than proposed, and it names the one
 hull worth a second look — the **Concord**, whose `marketRole: civilian`, art note and previous balance
 rationale all say commercial, none of which is description text and none of which the derivation saw.
 
@@ -627,7 +721,7 @@ records call dangerous**, because only the destination was examined — fixed, w
 turned away at a port came home with its prices** — fixed, with a gate. **The pack's cover sheets
 shipped describing the previous round**; the duplicated narrative is gone and the pack now refuses to
 build when its stamps disagree with what is being packed. And the economy question is **costed rather
-than tuned**: `ECONOMY-DESIGN-211330ZSEP26.md`, nothing implemented.
+than tuned**: `ECONOMY-DESIGN-211624ZSEP26.md`, nothing implemented.
 
 The foreign-market specification is amended twice, and one of those amendments reorders the work:
 **persistent strategic vessel identity is now a prerequisite** before any offscreen operation may
@@ -729,7 +823,7 @@ how two traders cannot take the same shipment, and it means a planner call is no
 
 ### 6. The measurements, at 300, 1,000, 3,000 and 5,000 days
 
-`ECONOMY-MEASUREMENTS-211330ZSEP26.md`, driven through the engine rather than modelled, with **nothing
+`ECONOMY-MEASUREMENTS-211624ZSEP26.md`, driven through the engine rather than modelled, with **nothing
 tuned**. The four findings that matter:
 
 - **Contract pay is the economy.** 416–620 latinum a ton. A cruiser books 223,760 of shipments against
@@ -746,7 +840,7 @@ four make 108,824 each and idle 38% of the time.
 
 ### 7. Cargo capacity — a table, not a change
 
-`CARGO-CAPACITY-211330ZSEP26.md`. **No ship data is changed.**
+`CARGO-CAPACITY-211624ZSEP26.md`. **No ship data is changed.**
 
 Defaults from `shipClass` and the authored `role`; a hull keeps what it shipped with unless its hold is
 below the default (raised, so it can take a shipment at all) or more than six times it — and then the
@@ -833,7 +927,7 @@ it stopped. On `75389f7`: *"she was stopped on a 11-day first leg, but it took u
 
 ### 2. Cargo capacity, proposed across the whole roster
 
-`CARGO-CAPACITY-211330ZSEP26.md`, and `scripts/cargo-capacity-proposal.cjs` which derives it.
+`CARGO-CAPACITY-211624ZSEP26.md`, and `scripts/cargo-capacity-proposal.cjs` which derives it.
 **No ship data is changed.**
 
 A hull's hold comes from two things the catalogue already records and neither is its name: `shipClass`
@@ -848,7 +942,7 @@ the heavy multiplier has to outweigh class or a capital-class cargo hull beats a
 
 ### 3. The economy design, rewritten to what was asked for
 
-`ECONOMY-DESIGN-211330ZSEP26.md`, superseding the price-slippage proposal, which is deleted. Simple
+`ECONOMY-DESIGN-211624ZSEP26.md`, superseding the price-slippage proposal, which is deleted. Simple
 visible scarcity instead: a world's board carries a **quantity** — `Medical supplies — 82 t available
 @ 7 L/t` — consumed by buying and replenished over campaign time; finite demand in the other direction;
 cargo jobs with explicit tonnage and a limited number open at once, so standing at one system cannot
@@ -858,7 +952,7 @@ numbers. Uninhabited worlds are derived from population and installations, not n
 
 ### 4. The measurements, and the finding in them
 
-`ECONOMY-MEASUREMENTS-211330ZSEP26.md`, from `scripts/economy-measure.cjs`, run against the real map.
+`ECONOMY-MEASUREMENTS-211624ZSEP26.md`, from `scripts/economy-measure.cjs`, run against the real map.
 
 Small worlds carry about 50 tons of a commodity and keep two jobs open; major worlds 110–220 and four
 to six. Nine worlds have no economy at all. Four heavy freighters working the same map make 11,298
@@ -960,7 +1054,7 @@ Both reproduce behaviourally on `5d32b7c` with no `TypeError`. The playtest gate
 
 ### 5. The economy, costed rather than tuned
 
-`ECONOMY-DESIGN-211330ZSEP26.md`. **Nothing implemented.** The short version: the fleet trader
+`ECONOMY-DESIGN-211624ZSEP26.md`. **Nothing implemented.** The short version: the fleet trader
 did not break the economy, it was the first thing able to execute at a scale the market model never
 priced. A world's board has no depth — 10,000 tons of one good clears at the same unit price as one
 ton. Upkeep is charged on mass while profit is earned on cargo capacity, and the largest hold in the

@@ -3127,7 +3127,12 @@ const { startProbe } = require('./probe-harness.cjs');
       const trade = t.ensureFleetTradeState(f, 'safe');
       trade.active = true;
       const from = Number(s.currentPlanet);
-      const daysTo = (i) => { const route = t.getPlottedRoute(from, i); return route ? Math.max(1, t.Fleet.travelDays(route.distance)) : null; };
+      // Near and far are measured in the days she will really fly — the same reckoning the planner uses
+      // — where the tree has it; an older tree is measured the way it reckons.
+      const routeDays = (route) => typeof t.fleetTradeRouteDays === 'function' ? t.fleetTradeRouteDays(route)
+        : typeof t.routeLegDays === 'function' ? t.routeLegDays(route).reduce((n, d) => n + d, 0)
+        : Math.max(1, t.Fleet.travelDays(route.distance));
+      const daysTo = (i) => { const route = t.getPlottedRoute(from, i); return route ? routeDays(route) : null; };
       const worlds = [];
       for (let i = 0; i < s.planets.length; i++) {
         if (i === from || !t.worldTrades(i) || t.serviceRefusal(t.getSystemFaction(i))) continue;
@@ -3174,6 +3179,68 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.ok(r.any.rate >= r.safe.rate - 1e-6,
       `letting her go anywhere, the trader chose a circuit worth ${Math.round(r.any.rate)} latinum a day (${r.any.days} days, ${JSON.stringify(r.any.stops)}) when the ${r.nearName} shipment alone was worth ${Math.round(r.safe.rate)} a day (${r.safe.days} days) and was still on the board`);
     assert.ok(r.any.stops.includes(r.near.i), `letting her go anywhere, the trader left the ${r.nearName} shipment on the board`);
+  });
+
+  // RANK-LEG-TIME — the planner reckoned a route's days from its total distance, while the ship pays the
+  // rounded days of every leg; a many-hopped route could look faster than it flies, and be chosen over
+  // a straighter one that really was faster.
+  await check('RANK-LEG-TIME the planner reckons a route by the days it will really fly', async () => {
+    await fresh('play-rank-leg-time');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.planFleetTradeCircuit !== 'function') return { reckons: false, reason: 'there is no circuit to plan' };
+      window.__tradeSetup({ learn: 1 });
+      window.__tradeShip('gate-legtime-1', { big: true });
+      const f = s.playerFleet.find((x) => x.id === 'gate-legtime-1');
+      const trade = t.ensureFleetTradeState(f, 'any');
+      trade.active = true;
+      const from = Number(s.currentPlanet);
+      const upkeep = t.upkeepPerDay(f.shipId);
+      // What the calendar will charge for a route, and what a plan reckoning from the distance would.
+      const flown = (route) => t.routeLegDays(route).reduce((n, d) => n + d, 0);
+      const reckoned = (route) => Math.max(1, t.Fleet.travelDays(route.distance));
+      const worlds = [];
+      for (let i = 0; i < s.planets.length; i++) {
+        if (i === from || !t.worldTrades(i) || t.serviceRefusal(t.getSystemFaction(i))) continue;
+        if (!t.fleetTradeDeliverable(f, trade, from, i)) continue;
+        const route = t.getPlottedRoute(from, i);
+        if (!route || !(route.legs || []).length) continue;
+        worlds.push({ i, name: s.planets[i]?.name, legs: route.legs.length, flown: flown(route), reckoned: reckoned(route) });
+      }
+      // A: a world whose route flies in exactly the days a distance reckoning gives it.
+      // B: a world whose route really takes at least two days longer than a distance reckoning says.
+      const exact = worlds.filter((w) => w.flown === w.reckoned).sort((a, b) => a.flown - b.flown);
+      const longer = worlds.filter((w) => w.flown >= w.reckoned + 2).sort((a, b) => (b.flown - b.reckoned) - (a.flown - a.reckoned));
+      const A = exact[0], B = longer[0];
+      if (!A || !B) return { reckons: true, found: false, exact: exact.length, longer: longer.length };
+      // Priced so that B looks better per day by the reckoning and worse by the days actually flown.
+      const rateA = 40; // latinum a day, net of upkeep
+      const payA = Math.round((rateA + upkeep) * A.flown);
+      const payB = Math.round((rateA + upkeep) * (B.reckoned + B.flown) / 2);
+      const goods = t.getPlanetMarket(from)[0].goods;
+      const base = { goods, originIndex: from, originName: s.planets[from]?.name, employerName: s.planets[from]?.name,
+        employerType: 'planet', employerFaction: 'neutral', hazardPay: 0, hazards: [], negotiated: false, createdAt: Date.now(), createdDay: s.day, payPerTon: 0 };
+      s.worldJobs = { [from]: { day: s.day, seq: 2, jobs: [
+        { ...base, id: 'legtime-a', tons: 10, targetIndex: A.i, targetName: A.name, fee: payA },
+        { ...base, id: 'legtime-b', tons: 10, targetIndex: B.i, targetName: B.name, fee: payB },
+      ] } };
+      const plan = t.planFleetTradeCircuit(f, trade, s.day);
+      if (!plan.ok || plan.repositioning) return { reckons: true, found: true, planned: false, note: plan.note, A, B };
+      const days = (plan.plan.legDays || []).reduce((n, d) => n + d, 0);
+      return { reckons: true, found: true, planned: true, A, B, payA, payB, upkeep,
+        byReckoning: { A: (payA - upkeep * A.flown) / A.flown, B: (payB - upkeep * B.reckoned) / B.reckoned },
+        byFlight: { A: (payA - upkeep * A.flown) / A.flown, B: (payB - upkeep * B.flown) / B.flown },
+        stops: plan.plan.stops.map(Number), days, expected: plan.plan.expected, rate: days > 0 ? plan.plan.expected / days : 0 };
+    });
+    assert.ok(r.reckons, `${r.reason}`);
+    assert.ok(r.found, `precondition: no pair of worlds on this map separates the two reckonings (${r.exact} exact, ${r.longer} longer)`);
+    assert.ok(r.planned, `no circuit was planned: ${r.note}`);
+    assert.ok(r.byReckoning.B > r.byReckoning.A && r.byFlight.B < r.byFlight.A,
+      `precondition: the prices do not separate the two reckonings: ${JSON.stringify({ byReckoning: r.byReckoning, byFlight: r.byFlight })}`);
+    assert.ok(r.stops.includes(r.A.i) && !r.stops.includes(r.B.i),
+      `the trader was sent to ${JSON.stringify(r.stops)}: ${r.B.name} is ${r.B.legs} hops and really takes ${r.B.flown} days, not the ${r.B.reckoned} a distance reckoning gives it, and at ${Math.round(r.byFlight.B)} latinum a day it is worse than ${r.A.name} at ${Math.round(r.byFlight.A)} — the planner is reckoning days from distance, not from the legs she will fly`);
+    assert.ok(Math.abs(r.rate - r.byFlight.A) < 1e-6,
+      `the plan expects ${Math.round(r.rate)} latinum a day over ${r.days} days; ${r.A.name} really pays ${Math.round(r.byFlight.A)} a day over ${r.A.flown}`);
   });
 
   // JOB-ROLLBACK-AGE — a shipment claimed during planning and then put back was rebuilt without its
