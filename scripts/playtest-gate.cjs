@@ -4210,11 +4210,14 @@ const { startProbe } = require('./probe-harness.cjs');
       const b = t.fleetBook();
       const g = b.formations.find((x) => x.members.includes(f.id));
       const onWay = Number(f.transit.to);
-      const dest = [...Array(s.planets.length).keys()].find((i) => t.isChartSystemVisible(i) && i !== onWay && i !== Number(s.currentPlanet) && !trade.path.includes(i) && t.getPlottedRoute(Number(f.systemIndex), i));
+      // The route she is on: a path of legs on a tree that flies leg by leg, her destination on one that does not.
+      const own = Array.isArray(trade.path) ? trade.path.map(Number) : [Number(trade.destination)].filter(Number.isFinite);
+      const dest = [...Array(s.planets.length).keys()].find((i) => t.isChartSystemVisible(i) && i !== onWay && i !== Number(s.currentPlanet) && !own.includes(i) && t.getPlottedRoute(Number(f.systemIndex), i));
       g.destination = dest;
-      const before = { transit: { ...f.transit }, legIndex: trade.legIndex, path: trade.path.slice() };
+      const before = { transit: { ...f.transit }, legIndex: trade.legIndex, own: own.slice() };
       const dispatched = t.dispatchFleetFormation(g.id);
-      return { trades: true, found: true, dest, onWay, before, dispatched, after: { transit: f.transit ? { ...f.transit } : null, stage: trade.stage, pathAt: trade.path[trade.legIndex] } };
+      const pathAt = Array.isArray(trade.path) ? Number(trade.path[trade.legIndex]) : Number(trade.destination);
+      return { trades: true, found: true, dest, onWay, before, dispatched, after: { transit: f.transit ? { ...f.transit } : null, stage: trade.stage, pathAt } };
     });
     assert.ok(r.trades, `${r.reason}`);
     assert.ok(r.found, `precondition: the trader is not on a leg of a circuit (${r.stage})`);
