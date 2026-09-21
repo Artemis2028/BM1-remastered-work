@@ -2361,14 +2361,32 @@ const { startProbe } = require('./probe-harness.cjs');
         const list = t.fleetTradeCandidates(f, t.ensureFleetTradeState(f, level));
         counts[level] = list.length; sets[level] = list;
       }
-      // a world nobody has reported on
+      // a world nobody has reported on, whose flag the captain has no reason to doubt
       const unreported = sets.safe[0];
       delete s.conditionLog[unreported];
       s.conditionsRev = (Number(s.conditionsRev) || 0) + 1;
       const after = {};
       for (const level of ['safe', 'cautious', 'risky', 'any'])
         after[level] = t.fleetTradeCandidates(f, t.ensureFleetTradeState(f, level)).includes(unreported);
-      return { gated: true, counts, unreported, after, safeSubsetOfAny: sets.safe.every((i) => sets.any.includes(i)), reason: '' };
+      // ...and a destination whose route crosses charted, unreported space the captain has reason to
+      // doubt — a system charted under a flag that refuses the captain. Cautious may cross what nobody
+      // has reported on, but not what is known to be hostile; Any crosses anything.
+      let hostileFlag = null;
+      if (typeof t.unreportedSystemDoubt === 'function' && typeof t.fleetTradeRouteAcceptable === 'function') {
+        const from = Number(s.currentPlanet);
+        for (let i = 0; i < s.planets.length && !hostileFlag; i++) {
+          if (i === from || !t.worldTrades(i) || t.serviceRefusal(t.getSystemFaction(i))) continue;
+          const risk = t.plannedRouteRisk(from, i);
+          if (!risk || !risk.unreported.length) continue;
+          if (risk.worst && risk.worst.band > 1) continue;
+          const doubts = risk.unreported.map((k) => t.unreportedSystemDoubt(k));
+          if (!doubts.includes('hostile-flag')) continue;
+          hostileFlag = { to: i, name: s.planets[i]?.name, doubts,
+            cautious: Boolean(t.fleetTradeRouteAcceptable(f, t.ensureFleetTradeState(f, 'cautious'), from, i)),
+            any: Boolean(t.fleetTradeRouteAcceptable(f, t.ensureFleetTradeState(f, 'any'), from, i)) };
+        }
+      }
+      return { gated: true, counts, unreported, after, hostileFlag, safeSubsetOfAny: sets.safe.every((i) => sets.any.includes(i)), reason: '' };
     });
     assert.ok(r.gated, `the danger setting is not consulted: ${r.reason}`);
     assert.ok(r.counts.any > r.counts.safe,
@@ -2378,10 +2396,16 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.ok(r.safeSubsetOfAny, 'a destination Safe accepts is refused by Any');
     assert.equal(r.after.safe, false,
       `system ${r.unreported} has no report at all and a Safe trader will still run to it`);
-    assert.equal(r.after.cautious, false,
-      `system ${r.unreported} has no report at all and a Cautious trader will still run to it`);
+    // Cautious, as reviewed: charted space nobody has reported on is open to her unless what the
+    // captain knows says otherwise.
+    assert.equal(r.after.cautious, true,
+      `system ${r.unreported} is charted, nobody has reported on it and nothing the captain knows says it is hostile, and a Cautious trader will not run to it`);
     assert.equal(r.after.any, true,
       `system ${r.unreported} is refused by Any, which accepts everything`);
+    assert.ok(r.hostileFlag, 'a Cautious trader has no notion of a charted flag to doubt an unreported system by');
+    assert.equal(r.hostileFlag.cautious, false,
+      `the route to ${r.hostileFlag.name} crosses unreported space charted under a flag that refuses the captain (${r.hostileFlag.doubts.join(', ')}), and a Cautious trader will still fly it`);
+    assert.equal(r.hostileFlag.any, true, `Any refuses the route to ${r.hostileFlag.name}; Any accepts everything`);
   });
 
   // TRADE-4 — the planner read the world instead of the captain's records: it priced runs off markets
@@ -3024,6 +3048,134 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.ok(r.later <= r.cap, `sixty days later the world has ${r.later} jobs open against a cap of ${r.cap}`);
   });
 
+  // CAUTIOUS-STALE-FLAG — a Cautious trader's judgement of an unreported system read its LIVE controller,
+  // so a conquest nobody had seen changed her plans the day it happened; and a trader who crossed a
+  // system reported nothing about who she found holding it.
+  await check('CAUTIOUS-STALE-FLAG a Cautious trader plans on the flag she knows, and reports the one she finds', async () => {
+    await fresh('play-cautious-stale-flag');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.unreportedSystemDoubt !== 'function' || typeof t.knownSystemController !== 'function')
+        return { judged: false, reason: 'a Cautious trader never crosses unreported space, so there is no flag for her to judge' };
+      window.__tradeSetup({});
+      window.__tradeShip('gate-stale-1', { big: true });
+      const f = s.playerFleet.find((x) => x.id === 'gate-stale-1');
+      const trade = t.ensureFleetTradeState(f, 'cautious');
+      trade.active = true;
+      const from = Number(s.currentPlanet);
+      // A destination whose route crosses a charted system nobody has reported on, and which Cautious
+      // accepts today because nothing the captain knows says it is hostile.
+      let to = null, x = null;
+      for (let i = 0; i < s.planets.length; i++) {
+        if (i === from || !t.worldTrades(i) || t.serviceRefusal(t.getSystemFaction(i))) continue;
+        const risk = t.plannedRouteRisk(from, i);
+        if (!risk || !risk.unreported.length) continue;
+        if (!t.fleetTradeRouteAcceptable(f, trade, from, i)) continue;
+        const quiet = risk.unreported.find((k) => t.unreportedSystemDoubt(k) === null && t.isChartSystemVisible(k));
+        if (quiet == null) continue;
+        to = i; x = Number(quiet); break;
+      }
+      if (to == null) return { judged: true, found: false };
+      const hostile = 'romulan';
+      if (!t.serviceRefusal(hostile)) return { judged: true, found: true, hostileFound: false };
+      const known = t.knownSystemController(x);
+      const before = { live: t.getSystemFaction(x), known, doubt: t.unreportedSystemDoubt(x),
+        acceptable: Boolean(t.fleetTradeRouteAcceptable(f, trade, from, to)), recorded: Boolean(s.conditionLog && s.conditionLog[x]) };
+      // The Romulans take it, and nobody tells the captain.
+      s.factionSystemOverrides = s.factionSystemOverrides || {};
+      s.factionSystemOverrides[x] = hostile;
+      const secret = { live: t.getSystemFaction(x), known: t.knownSystemController(x), doubt: t.unreportedSystemDoubt(x),
+        acceptable: Boolean(t.fleetTradeRouteAcceptable(f, trade, from, to)) };
+      // Then she crosses it.
+      f.systemIndex = x; delete f.transit;
+      trade.stage = 'outbound'; trade.path = [x]; trade.legDays = [1]; trade.legIndex = 0; trade.crossed = []; trade.stops = [];
+      t.crossFleetTradeSystem(f, trade, s.day);
+      const after = { recorded: (s.conditionLog && s.conditionLog[x] && s.conditionLog[x].controller) || null,
+        known: t.knownSystemController(x), deliverable: Boolean(t.fleetTradeDeliverable(f, trade, from, x)) };
+      return { judged: true, found: true, hostileFound: true, from, to, x, name: s.planets[x]?.name, before, secret, after };
+    });
+    assert.ok(r.judged, `${r.reason}`);
+    assert.ok(r.found, 'precondition: no Cautious-acceptable route crosses a charted system nobody has reported on');
+    assert.ok(r.hostileFound, 'precondition: the Romulans do not refuse the captain, so a Romulan conquest is not a hostile one');
+    assert.ok(!r.before.recorded, `precondition: ${r.name} already has a conditions record`);
+    assert.equal(r.before.doubt, null, `precondition: ${r.name} was already in doubt (${r.before.doubt})`);
+    assert.equal(r.secret.live, 'romulan', 'precondition: the secret conquest did not take');
+    assert.equal(r.secret.known, r.before.known,
+      `the Romulans took ${r.name} and nobody told the captain, and her record of it changed from ${r.before.known} to ${r.secret.known}`);
+    assert.equal(r.secret.doubt, null,
+      `the Romulans took ${r.name} and nobody told the captain, and her Cautious trader already doubts it (${r.secret.doubt}): the plan is reading the live flag, not the one the captain knows`);
+    assert.equal(r.secret.acceptable, true,
+      `the Romulans took ${r.name} and nobody told the captain, and her trader's route through it was cancelled the same day`);
+    assert.equal(r.after.recorded, 'romulan',
+      `the trader crossed ${r.name} under the Romulan flag and recorded ${r.after.recorded === null ? 'nothing' : r.after.recorded}: what she found is not on the captain's record`);
+    assert.equal(r.after.known, 'romulan', `after the crossing the captain still believes ${r.name} is ${r.after.known}`);
+    assert.equal(r.after.deliverable, false, `with the Romulan flag on record, a shipment to ${r.name} is still being offered to a trader they refuse`);
+  });
+
+  // RANK-TIME — the planner ranked a shipment by its price over the hold it took, and took every one
+  // that fitted, so opening up more of the map sent a trader across it for a shipment whose price did
+  // not pay for the voyage. Measured as Risky earning half of Safe.
+  await check('RANK-TIME letting a trader go further cannot make her choose a worse day\'s pay than she could have had', async () => {
+    await fresh('play-rank-time');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.planFleetTradeCircuit !== 'function') return { ranked: false, reason: 'there is no circuit to plan' };
+      // Only this world's prices are known, so no commodity lot exists to blur the comparison.
+      window.__tradeSetup({ learn: 1 });
+      window.__tradeShip('gate-rank-1', { big: true });
+      const f = s.playerFleet.find((x) => x.id === 'gate-rank-1');
+      const trade = t.ensureFleetTradeState(f, 'safe');
+      trade.active = true;
+      const from = Number(s.currentPlanet);
+      const daysTo = (i) => { const route = t.getPlottedRoute(from, i); return route ? Math.max(1, t.Fleet.travelDays(route.distance)) : null; };
+      const worlds = [];
+      for (let i = 0; i < s.planets.length; i++) {
+        if (i === from || !t.worldTrades(i) || t.serviceRefusal(t.getSystemFaction(i))) continue;
+        const d = daysTo(i); if (d) worlds.push({ i, d });
+      }
+      worlds.sort((a, b) => a.d - b.d);
+      const near = worlds[0], far = worlds[worlds.length - 1];
+      if (!near || !far || far.d < near.d * 4) return { ranked: true, found: false, near, far };
+      // The near route is reported quiet; the far one crosses something nobody has reported on.
+      const nearPath = t.plannedRouteRisk(from, near.i).path;
+      const quiet = { source: 'local', traffic: { band: 0, why: 'quiet' }, protection: { band: 2, why: 'patrolled' }, disruption: { band: 0, why: 'none' }, threat: null };
+      for (const k of nearPath) t.recordConditionObservation(k, quiet);
+      const farPath = t.plannedRouteRisk(from, far.i).path;
+      for (const k of farPath) if (!nearPath.includes(k) && s.conditionLog) delete s.conditionLog[k];
+      const okSafe = { near: Boolean(t.fleetTradeDeliverable(f, trade, from, near.i)), far: Boolean(t.fleetTradeDeliverable(f, trade, from, far.i)) };
+      const goods = t.getPlanetMarket(from)[0].goods;
+      const post = () => {
+        const base = { goods, originIndex: from, originName: s.planets[from]?.name, employerName: s.planets[from]?.name,
+          employerType: 'planet', employerFaction: 'neutral', hazardPay: 0, hazards: [], negotiated: false, createdAt: Date.now(), createdDay: s.day };
+        s.worldJobs = { [from]: { day: s.day, seq: 2, jobs: [
+          { ...base, id: 'rank-near', tons: 50, targetIndex: near.i, targetName: s.planets[near.i]?.name, fee: 2000, payPerTon: 20 },
+          { ...base, id: 'rank-far', tons: 1, targetIndex: far.i, targetName: s.planets[far.i]?.name, fee: 1500, payPerTon: 20, courier: true },
+        ] } };
+      };
+      const rateOf = (p) => { const d = Number(p.plan.days) || (p.plan.legDays || []).reduce((n, x) => n + x, 0); return d > 0 ? p.plan.expected / d : 0; };
+      post();
+      trade.risk = 'safe';
+      const ps = t.planFleetTradeCircuit(f, trade, s.day);
+      const safe = ps.ok && !ps.repositioning ? { stops: ps.plan.stops.slice(), rate: rateOf(ps), expected: ps.plan.expected,
+        days: Number(ps.plan.days) || (ps.plan.legDays || []).reduce((n, x) => n + x, 0) } : { note: ps.note };
+      post();
+      trade.risk = 'any';
+      const pa = t.planFleetTradeCircuit(f, trade, s.day);
+      const any = pa.ok && !pa.repositioning ? { stops: pa.plan.stops.slice(), rate: rateOf(pa), expected: pa.plan.expected,
+        days: Number(pa.plan.days) || (pa.plan.legDays || []).reduce((n, x) => n + x, 0) } : { note: pa.note };
+      return { ranked: true, found: true, from, near, far, nearName: s.planets[near.i]?.name, farName: s.planets[far.i]?.name, okSafe, safe, any };
+    });
+    assert.ok(r.ranked, `${r.reason}`);
+    assert.ok(r.found, `precondition: no pair of worlds far enough apart (${JSON.stringify(r.near)} / ${JSON.stringify(r.far)})`);
+    assert.ok(r.okSafe.near && !r.okSafe.far, `precondition: under Safe the near world is ${r.okSafe.near ? '' : 'not '}reachable and the far one ${r.okSafe.far ? 'is' : 'is not'}`);
+    assert.ok(r.safe.stops, `under Safe no circuit was planned: ${r.safe.note}`);
+    assert.ok(r.safe.stops.includes(r.near.i) && r.safe.rate > 0, `under Safe the trader did not take the ${r.nearName} shipment: ${JSON.stringify(r.safe)}`);
+    assert.ok(r.any.stops, `under Any no circuit was planned: ${r.any.note}`);
+    assert.ok(r.any.rate >= r.safe.rate - 1e-6,
+      `letting her go anywhere, the trader chose a circuit worth ${Math.round(r.any.rate)} latinum a day (${r.any.days} days, ${JSON.stringify(r.any.stops)}) when the ${r.nearName} shipment alone was worth ${Math.round(r.safe.rate)} a day (${r.safe.days} days) and was still on the board`);
+    assert.ok(r.any.stops.includes(r.near.i), `letting her go anywhere, the trader left the ${r.nearName} shipment on the board`);
+  });
+
   // JOB-ROLLBACK-AGE — a shipment claimed during planning and then put back was rebuilt without its
   // date, so an aborted plan made an old posting new again.
   await check('JOB-ROLLBACK-AGE a shipment put back after planning is as old as it was', async () => {
@@ -3387,6 +3539,47 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.ok(r.legs > 0, 'the move has no route to fly');
     assert.ok(r.wanted > 0,
       `she was sent to system ${r.stops[0]}, which is buying ${r.wanted} tons of the ${r.goods} filling her hold`);
+  });
+
+  // CIRCUIT-8 — a hold full of a shipment still to be delivered was treated as a hold full of cargo
+  // nobody had bought: the planner asked where to sell it instead of taking it where it was going, and
+  // a five-ton hull with a five-ton courier lot aboard bounced between buyers of a cargo that was never
+  // for sale, for two thousand days.
+  await check('CIRCUIT a hold full of a shipment is a delivery to fly, not cargo to get rid of', async () => {
+    await fresh('play-circuit-full-shipment');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (typeof t.planFleetTradeCircuit !== 'function') return { flies: false, reason: 'there is no circuit to plan' };
+      window.__tradeSetup({});
+      window.__tradeShip('gate-fullship-1', { hold: 25 });
+      const f = s.playerFleet.find((x) => x.id === 'gate-fullship-1');
+      const trade = t.ensureFleetTradeState(f, 'any');
+      trade.active = true;
+      const at = Number(s.currentPlanet);
+      const hold = t.fleetTradeCapacity(f);
+      // Somewhere she may deliver to.
+      let to = null;
+      for (let i = 0; i < s.planets.length; i++) {
+        if (i === at || !t.worldTrades(i) || t.serviceRefusal(t.getSystemFaction(i))) continue;
+        if (t.fleetTradeDeliverable(f, trade, at, i)) { to = i; break; }
+      }
+      if (to == null) return { flies: true, found: false };
+      const goods = t.getPlanetMarket(at)[0].goods;
+      // Every ton of her is one shipment, addressed there.
+      trade.manifest = [{ kind: 'job', jobId: `job-${at}-9`, goods, tons: hold, to, from: at, owner: s.planets[at]?.name,
+        createdDay: s.day, fee: 800, payPerTon: 20, paid: 0 }];
+      const plan = t.planFleetTradeCircuit(f, trade, s.day);
+      return { flies: true, found: true, at, to, toName: s.planets[to]?.name, hold, load: t.fleetTradeLoad(trade),
+        ok: Boolean(plan.ok), repositioning: Boolean(plan.repositioning), note: String(plan.note || ''),
+        stops: plan.ok ? plan.plan.stops.map(Number) : [] };
+    });
+    assert.ok(r.flies, `${r.reason}`);
+    assert.ok(r.found, 'precondition: nowhere the trader may deliver to');
+    assert.equal(r.load, r.hold, `precondition: the ${r.hold}-ton hold carries ${r.load} tons, so it is not full`);
+    assert.ok(r.ok, `with a full hold of a shipment for ${r.toName}, the planner gave up: ${r.note}`);
+    assert.equal(r.repositioning, false,
+      `with a full hold of a shipment for ${r.toName}, the trader is repositioning ("${r.note}") instead of delivering it`);
+    assert.ok(r.stops.includes(r.to), `the circuit calls at ${JSON.stringify(r.stops)} and not at ${r.toName}, where the shipment aboard is going`);
   });
 
   // FAILED-CARGO-OWNER — freight from a failed contract was carried as unaddressed stock and sold at

@@ -104,7 +104,7 @@ const money = (n) => Number(n).toLocaleString('en-US');
             else if (recorded != null && t.serviceRefusal(recorded)) reason = 'refusal';
             else if (risk.unreported.length && !unreportedOk(risk.unreported)) {
               reason = 'unreported';
-              // Under the proposed reading, which of the captain's doubts stopped it.
+              // Under Cautious, which of the captain's doubts stopped it.
               if (rule.acceptUnreported === 'charted-quiet' && typeof t.unreportedSystemDoubt === 'function') {
                 const doubt = risk.unreported.map((k) => t.unreportedSystemDoubt(k)).find(Boolean);
                 if (doubt) out.doubts[doubt] = (out.doubts[doubt] || 0) + 1;
@@ -128,8 +128,6 @@ const money = (n) => Number(n).toLocaleString('en-US');
         const t = testBM1, s = t.state;
         t.startWithFaction('terran');
         const p = t.ensurePlaytestState(); delete p.diplomacy; delete p.campaign;
-        // The measurement-only reading of the danger settings, selected here and nowhere else.
-        if (rules === 'proposed') p.tradeRuleSet = 'proposed'; else delete p.tradeRuleSet;
         t.fleetBook().campaignId = seed; t.campaign();
         const home = window.__econ.setup(learn);
         const ships = [];
@@ -280,15 +278,6 @@ const money = (n) => Number(n).toLocaleString('en-US');
       repair: true, learn: LEARN, seed: `econ-risk-small-${risk}`,
     });
   }
-  // the proposed reading of the four settings, for comparison only: same hull, same seeds
-  const byRuleProposed = {};
-  for (const risk of ['safe', 'cautious', 'risky', 'any']) {
-    await fresh(`econ-risk-${risk}`);
-    byRuleProposed[risk] = await ev((arg) => window.__econ.run(arg), {
-      shipId: cast[cast.length - 1].hull.id, count: 1, risk, days: MAX_DAYS, marks: HORIZONS,
-      repair: true, learn: LEARN, seed: `econ-risk-${risk}`, rules: 'proposed',
-    });
-  }
   // several traders on one economy
   const competition = {};
   for (const count of [1, 2, 4]) {
@@ -396,15 +385,15 @@ const money = (n) => Number(n).toLocaleString('en-US');
         last ? `${Math.round((last.traders[0].idle / HORIZONS[HORIZONS.length - 1]) * 100)}%` : '-'];
     })));
 
-  L.push(table('The four settings as shipped and as proposed, one maintained heavy freighter, same seeds (comparison only; the game uses the shipped rules)',
-    ['setting', 'rules', ...HORIZONS.map((d) => `${d}d net L`), 'circuits at 5000', 'shipments delivered', 'times disabled', 'idle at 5000'],
-    ['safe', 'cautious', 'risky', 'any'].flatMap((risk) => [['shipped', byRisk[risk]], ['proposed', byRuleProposed[risk]]].map(([label, snaps]) => {
+  L.push(table('Danger setting, one maintained heavy freighter — shipments and cripplings',
+    ['setting', ...HORIZONS.map((d) => `${d}d net L`), 'circuits at 5000', 'shipments delivered', 'times crippled', 'idle at 5000'],
+    Object.entries(byRisk).map(([risk, snaps]) => {
       const last = snaps[HORIZONS[HORIZONS.length - 1]];
-      return [risk, label, ...HORIZONS.map((d) => snaps[d] ? money(snaps[d].traders[0].cumulative) : '-'),
+      return [risk, ...HORIZONS.map((d) => snaps[d] ? money(snaps[d].traders[0].cumulative) : '-'),
         last ? last.traders[0].circuits : '-', last ? last.traders[0].deliveries : '-',
         last ? last.traders[0].disabled : '-',
         last ? `${Math.round((last.traders[0].idle / HORIZONS[HORIZONS.length - 1]) * 100)}%` : '-'];
-    }))));
+    })));
 
   L.push(table(`Danger setting, one maintained ${cast[0].label} (${cast[0].hull.hold} t)`,
     ['setting', ...HORIZONS.map((d) => `${d}d net L`), 'circuits at 5000', 'shipments delivered', 'hull left', 'idle at 5000'],
@@ -422,7 +411,7 @@ const money = (n) => Number(n).toLocaleString('en-US');
   const BOOK_HORIZONS = HORIZONS.filter((d) => d <= 3000);
   const reasonKeys = ['ok', 'danger', 'unreported', 'no-route', 'refusal', 'too-big', 'no-room'];
   const bookRows = [];
-  for (const [label, source] of [['heavy freighter', byRisk], [cast[0].label, byRiskSmall], ['heavy freighter (proposed rules)', byRuleProposed]])
+  for (const [label, source] of [['heavy freighter', byRisk], [cast[0].label, byRiskSmall]])
     for (const [risk, snaps] of Object.entries(source))
       for (const d of BOOK_HORIZONS) {
         const snap = snaps[d];
@@ -438,7 +427,7 @@ const money = (n) => Number(n).toLocaleString('en-US');
       }
   L.push(table('The books of work, by danger setting (seeded worlds only; a world nobody has looked at is not seeded)',
     ['hull', 'setting', 'day', 'seeded/trading', 'occupancy', 'full', 'empty', 'open', 'age med / p90 / max',
-      ...reasonKeys.map((k) => `${k}`), 'why unreported (proposed)', 'aboard/hold', 'delivered', 'last delivery'],
+      ...reasonKeys.map((k) => `${k}`), 'why unreported', 'aboard/hold', 'delivered', 'last delivery'],
     bookRows));
 
   L.push(table('Several heavy freighters on one economy',
@@ -453,7 +442,7 @@ const money = (n) => Number(n).toLocaleString('en-US');
 
   fs.mkdirSync(outDir, { recursive: true });
   fs.writeFileSync(path.join(outDir, 'economy-measurements.json'),
-    JSON.stringify({ horizons: HORIZONS, learn: LEARN, worlds, cast, runs, unmaintained, byRisk, byRiskSmall, byRuleProposed, competition }, null, 1) + '\n');
+    JSON.stringify({ horizons: HORIZONS, learn: LEARN, worlds, cast, runs, unmaintained, byRisk, byRiskSmall, competition }, null, 1) + '\n');
   console.log(L.join('\n'));
   console.log(`\nWritten to ${path.join(outDir, 'economy-measurements.json')}`);
   if (probe.errors.length) { console.log(`page errors: ${probe.errors.slice(0, 4).join(' | ')}`); process.exitCode = 1; }

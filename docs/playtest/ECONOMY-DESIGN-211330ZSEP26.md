@@ -1,18 +1,19 @@
 # Finite commodity and cargo economy — design
 
-DTG 210824ZSEP26 · supersedes `ECONOMY-DESIGN-202006ZSEP26.md` · **built**
+DTG 211330ZSEP26 · supersedes `ECONOMY-DESIGN-210824ZSEP26.md` · **built**
 
-Changed in this revision: **an unaccepted shipment has a lifetime** — a hundred and fifty campaign days
-to start with, a named number to test rather than a locked one — after which it leaves the board
-without a word, its slot is free, and the ordinary twelve-day generation fills it in time (§C). A
-shipment claimed by the planner and put back is **as old as it was** (§C). And the four danger settings
-have a **second, measurement-only reading** that the game does not use, so review can see the shipped
-and proposed meanings side by side in the same engine before anything changes (§F).
+Changed in this revision: **the four danger settings mean what review approved** (§F) — Cautious may
+cross charted space nobody has reported on unless what the captain *knows* says it is hostile, judged
+from the flag the captain has on record or was charted with and never from the live truth; and a
+trader reports who she finds holding a system when she is there. **The trade planner is time-aware**
+(§G): a circuit is built one call at a time by what each call earns per day it adds, so a shipment
+whose price does not pay for its voyage is not taken over one that does.
 
 Unchanged and still in force: the payout, a route and hazard fee once plus twenty latinum a ton; every
-hold, the Concord's 1,320 included; the twelve-day regeneration; freight from a failed contract is the
-shipper's and goes home for nothing; only an installation that does economic, commercial or logistics
-work gives a world an economy; every dead end in the trade planner is a move, with a reason, or a hold.
+hold, the Concord's 1,320 included; the twelve-day regeneration; the 150-day lifetime of an unaccepted
+shipment, approved and named for later playtesting; freight from a failed contract is the shipper's and
+goes home for nothing; only an installation that does economic, commercial or logistics work gives a
+world an economy; every dead end in the trade planner is a move, with a reason, or a hold.
 
 The previous proposal recommended price slippage — a world absorbing `market × 25` tons at its posted
 price and moving a latinum against you per further block. **Review rejected it** as more complicated
@@ -34,7 +35,7 @@ honestly while repairs are free (see §6).
 
 ## A. Cargo capacity — the fourteen reductions, applied
 
-`CARGO-CAPACITY-210824ZSEP26.md`. Derived from the catalogue's own `shipClass` and `role`, never from a hull's
+`CARGO-CAPACITY-211330ZSEP26.md`. Derived from the catalogue's own `shipClass` and `role`, never from a hull's
 name. Fighters and scouts tiny, escorts small, cruisers moderate, large combat ships larger but below
 freighter capacity, freighters substantially larger, and the heavy dedicated freighters largest of all.
 
@@ -94,7 +95,7 @@ A job says what it is:
   a book that was full of work a trader could never take turns over into work it might. A shipment
   that has been **accepted** — by the captain or a trader — is a contract, and this rule never touches
   it. The instrumentation that found the problem measured books 92–100% full at three thousand days
-  with a median posting from around day one hundred; the tables in `ECONOMY-MEASUREMENTS-210824ZSEP26.md`
+  with a median posting from around day one hundred; the tables in `ECONOMY-MEASUREMENTS-211330ZSEP26.md`
   show what the same boards look like now.
 - **A shipment put back is as old as it was.** The planner claims shipments as it plans and puts them
   back when it abandons a plan; rebuilding them without their date made every abandoned plan a fresh
@@ -129,7 +130,7 @@ only past 1,533 units. What a shipment is worth is now `fee + 20 x tons`, in one
 the shipment occupies (`jobPayPerHoldTon`), which is the question a hauler actually asks.
 
 **This is a first measurement pass, not a locked number.** The five constants are named in
-`TRADE_ECONOMY` and the resulting tables are in `ECONOMY-MEASUREMENTS-210824ZSEP26.md`.
+`TRADE_ECONOMY` and the resulting tables are in `ECONOMY-MEASUREMENTS-211330ZSEP26.md`.
 
 ## D. Uninhabited worlds trade only where something there does economic work
 
@@ -224,28 +225,64 @@ shelf in the same breath. That is deliberate — it is how two traders cannot ta
 but it means a planner call is not a query, and anything that wants to compare two plans has to do it
 against the same world twice, not once after the other.
 
-## F. The four danger settings, as shipped and as proposed — measured, not changed
+## F. The four danger settings
 
-The instrumentation says why Safe and Cautious traders run out of shipments after about a year: they
-fly only routes the captain has reports on, and 93–97% of the work on the boards they can reach is on a
-route with a system nobody has reported. Review asked to see the alternative before deciding anything.
+| setting | meaning |
+| --- | --- |
+| **Safe** | reported routes only: refuses any route with a system nobody has reported on |
+| **Cautious** | may cross charted space nobody has reported on, **unless what the captain knows says it is hostile**: the flag the system is known under is hostile to or at war with the captain, or an operation the captain has heard of is aimed at it; accepts known danger up to band 1 |
+| **Risky** | accepts known danger up to band 2, and unreported space |
+| **Any** | accepts anything |
 
-The game uses `TRADE_RISK_RULES`, unchanged. Beside it is `TRADE_RISK_RULES_PROPOSED`, which nothing
-selects but a playtest flag the measurement script sets. The two differ in one setting:
+**What the captain knows** is `knownSystemController`: the controller written on the last conditions
+record of the system if there is one, and otherwise the flag the system was **charted with** when the
+campaign began — never the live controller. A conquest nobody has seen does not change what a trader
+is allowed to assume. The first build of this rule read `getSystemFaction`, which is the live truth,
+and so a Cautious trader's plans changed the day a system was secretly taken; review caught it and
+`CAUTIOUS-STALE-FLAG` holds it.
 
-| setting | shipped | proposed |
-| --- | --- | --- |
-| Safe | refuses any route with an unreported system | the same |
-| Cautious | refuses any route with an unreported system | may cross an unreported system that is **charted**, whose flag on the chart is **not hostile to or at war with** the captain, and against which **no operation the captain has heard of** is under way |
-| Risky | accepts known danger up to its band | the same |
-| Any | accepts anything | the same |
+**What the trader finds is written down.** Arriving in a system — every leg's end, a crossing or a call
+— a trader files the same dated, sourced conditions record the captain's own bridge files
+(`fleetTradeObserve`, through the same `readLiveConditions` the captain's readout uses), and the
+controller she found is on it. So the plan she flies is made on the flag the captain knew, she meets
+whatever is actually there when she crosses, and the next plan knows what she saw. Prices are still not
+recorded until the port deals with her. The chart's own "surveyed" marking is not touched by this: her
+record feeds the planner and the conditions readout, not the survey status of the map.
 
-Under the proposed reading a Cautious trader can still meet what nobody told her about: the crossing is
-rolled against what is actually there on the day, as it has been since `54cd501`. The comparison in
-`ECONOMY-MEASUREMENTS-210824ZSEP26.md` runs the same hull on the same seeds under both readings and reports
-net, circuits, shipments delivered and how many times she was crippled — and, for the proposed Cautious,
-which of the captain's doubts (`uncharted`, `hostile-flag`, `known-operation`) still stopped each
-shipment.
+Measured under these rules on the same hull and seeds, Cautious opens three times as many worlds'
+books as before, delivers nearly twice the shipments, and is crippled on a crossing nearly twice as
+often — the uncertainty being real. The tables are in `ECONOMY-MEASUREMENTS-211330ZSEP26.md`.
+
+## G. A circuit is built by what each call earns per day
+
+The planner ranked a shipment by its price over the hold it occupied and took every deliverable one
+that fitted. With dead boards that never mattered; with live boards it sent a Risky trader across the
+map for a shipment whose price did not pay for the voyage, and the loose settings earned half what the
+tight ones did.
+
+A circuit is now built one call at a time. Every call the cargo already aboard obliges her to make —
+the shipper's freight going home, a shipment still to be delivered — goes in first, at the cheapest
+point in the route, whatever it is worth. Then, repeatedly, the planner asks of every world she may go
+to: what would a call there load, within the room and purse left — shipments to it, whole or not at
+all, then commodity lots for it at known prices — and how many days would it add, inserted where it
+fits best? The call's **incremental net** is those payouts and margins less the upkeep of the added
+days; its worth is that net **per added day**. The call that most raises the circuit's earnings per
+day is made, and **no call that would lower them is made** — a shipment that pays less per day than
+the circuit already earns is left on the board for somebody else, or for later.
+
+```
+score(circuit)        = expected net / total circuit days
+expected net          = known shipment payouts + known commodity margin − upkeep × days
+add a call only if    incremental net / added days  ≥  circuit net / circuit days
+```
+
+Nothing is claimed or bought until the circuit is decided, so an abandoned plan has nothing to put
+back. Danger is not priced: the setting already says what the captain permits, and a Risky trader's
+losses can legitimately leave her behind a Safe one over a campaign. `RANK-TIME` holds the property
+that matters: letting a trader go further can never make her choose a circuit worth less per day than
+one she could already have had. On `372f8a5` it reports *"the trader chose a circuit worth 24 latinum
+a day (149 days) when the Alpha Centauri shipment alone was worth 327 a day (9 days) and was still on
+the board."*
 
 ## Validation
 
@@ -263,11 +300,14 @@ shipment.
 | `FAILED-CARGO-OWNER` | the shipper's freight sold at the next port that is buying, or not routed home, or paid for on return |
 | `JOB-TURNOVER` | a shipment nobody takes holding its slot for the rest of the campaign |
 | `JOB-ROLLBACK-AGE` | a shipment claimed by the planner and put back coming back without its date |
+| `CAUTIOUS-STALE-FLAG` | a Cautious trader's plans changing the day a system is secretly taken, or a trader crossing a system and reporting nothing about who holds it |
+| `RANK-TIME` | a wider permitted route set making a trader choose a circuit worth less per day than one still available to her |
+| `CIRCUIT-FULL-OF-SHIPMENT` | a trader whose hold is full of a shipment still to be delivered repositioning to sell it instead of flying it |
 | `CIRCUIT-IDLE` | a trader left standing at a world that will deal with her and has nothing for her to do |
 | `CIRCUIT-FULL-HOLD` | a trader stopped for good by a hold full of cargo nobody nearby is buying |
 | `JOB-FEE` | a shipment costing twice as much for twice the load, so the voyage is charged again on every ton |
 
-Seventeen checks are in the suite, covering those eight plus the circuit behaviour review asked for: two
+Twenty checks are in the suite, covering those eight plus the circuit behaviour review asked for: two
 traders cannot take the same tons or the same shipment; cargo stays addressed and comes off only at its
 own call; freed hold goes back to work later in the circuit; and a reload resumes the route, the leg,
 the manifest, the shelves and the books of work exactly. Intermediate danger and a stopped trader never
