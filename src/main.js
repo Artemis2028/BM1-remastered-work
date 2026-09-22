@@ -25748,7 +25748,7 @@ function renderFleetManager(open = false) {
         ? btn('recall', 'Recall to captain', f.id) + btn('rendezvous', 'Change rendezvous', f.id) + btn('cancel-passage', 'Cancel', f.id)
         : btn('recall', 'Recall to captain', f.id) + btn('rendezvous', 'Rendezvous at system', f.id)}
       <p>${escapeHtml(fleetTradeStatusLine(f) || 'Not trading')}</p>
-      ${(() => { const q = queuedFleetCommand(f); return q ? `<p>Queued: ${escapeHtml(fleetCommandLabel(q))} · no relay link to ${escapeHtml(state.planets[q.systemIndex]?.name || '?')} · day ${q.queuedDay}</p>` : ''; })()}
+      ${(() => { const q = queuedFleetCommands(f); return q.length ? `<p>Queued: ${q.map((o) => `${escapeHtml(fleetCommandLabel(o))} (day ${o.queuedDay})`).join(' · ')} · no relay link to ${escapeHtml(state.planets[q[0].systemIndex]?.name || '?')}</p>` : ''; })()}
       <p>Hold ${trade ? fleetTradeLoad(trade) : 0}/${fleetTradeCapacity(f)} t${trade?.paid ? ` · paid ${trade.paid} L for cargo` : ''}</p>
       ${trade?.manifest?.length ? `<p>Manifest: ${escapeHtml(fleetTradeManifestLine(trade))}</p>` : ''}
       ${trade?.stops?.length ? `<p>Calls: ${escapeHtml(trade.stops.map((i) => state.planets[i]?.name || '?').join(' → '))} · circuit ends day ${trade.etaDay}</p>` : ''}
@@ -27244,6 +27244,18 @@ function setFleetTradeRisk(id, risk) {
 // older inconsistency and not a reason for recall and rendezvous to bypass it too. This is the only
 // way an order is given; the functions it executes are what an acknowledged order does. [playtest]
 const FLEET_COMMANDS = Object.freeze(['recall', 'rendezvous', 'cancel', 'trade-start', 'trade-stop', 'trade-risk']);
+// Commands are in domains, and a newer untransmitted command supersedes only an older one in its own
+// domain: a change of her danger setting does not delete a queued recall, and a recall does not delete
+// a queued danger change. Different domains coexist in the queue and are delivered in the order they
+// were given. [playtest]
+const FLEET_COMMAND_DOMAINS = Object.freeze({
+  recall: 'passage', rendezvous: 'passage', cancel: 'passage',
+  'trade-start': 'trade-mode', 'trade-stop': 'trade-mode',
+  'trade-risk': 'trade-risk',
+});
+function fleetCommandDomain(command) {
+  return FLEET_COMMAND_DOMAINS[command && command.command] || null;
+}
 function fleetCommandSystem(f) {
   return fleetShipSystem(f);
 }
@@ -27251,8 +27263,13 @@ function fleetCommandReachable(f) {
   const here = fleetCommandSystem(f);
   return here === Number(state.currentPlanet) || isSystemRelayConnected(here);
 }
+// Every command still waiting for a link to her, oldest first — the order they will be delivered in.
+function queuedFleetCommands(f, domain = null) {
+  return campaign().orders.filter((o) => o.status === 'queued' && o.order === 'fleet' && o.fleetId === f.id
+    && (!domain || fleetCommandDomain(o) === domain));
+}
 function queuedFleetCommand(f) {
-  return campaign().orders.find((o) => o.status === 'queued' && o.order === 'fleet' && o.fleetId === f.id) || null;
+  return queuedFleetCommands(f)[0] || null;
 }
 function fleetCommandLabel(command) {
   const where = state.planets[command.destination]?.name || '?';
@@ -27283,13 +27300,17 @@ function sendFleetCommand(id, command, { fromRelay = false } = {}) {
   const order = { command: command.command };
   if (command.destination !== undefined) order.destination = Number(command.destination);
   if (command.risk !== undefined) order.risk = normalizeTradeRisk(command.risk);
-  if (fromRelay || fleetCommandReachable(f)) return executeFleetCommand(f, order);
   const book = campaign();
+  const domain = fleetCommandDomain(order);
+  // The newer command in a domain is the one that stands. A stale one still queued from before a link
+  // existed is dropped before the new one is executed, so the next day's acknowledgement cannot fire
+  // it over the order the captain just gave.
+  const stale = queuedFleetCommands(f, domain);
+  if (stale.length) book.orders = book.orders.filter((o) => !stale.includes(o));
+  if (fromRelay || fleetCommandReachable(f)) return executeFleetCommand(f, order);
   const here = fleetCommandSystem(f);
-  const prior = queuedFleetCommand(f);
-  if (prior) book.orders = book.orders.filter((o) => o !== prior);
   Campaign.queueDistantOrder(book, { order: 'fleet', fleetId: f.id, systemIndex: here, label: f.name, ...order }, state.day, false);
-  setLog(`No relay link to ${state.planets[here]?.name || 'her position'}: ${fleetCommandLabel(order).toLowerCase()} for ${f.name} is queued${prior ? ` in place of ${fleetCommandLabel(prior).toLowerCase()}` : ''} and will be acknowledged when a link exists.`);
+  setLog(`No relay link to ${state.planets[here]?.name || 'her position'}: ${fleetCommandLabel(order).toLowerCase()} for ${f.name} is queued${stale.length ? ` in place of ${stale.map((o) => fleetCommandLabel(o).toLowerCase()).join(', ')}` : ''} and will be acknowledged when a link exists.`);
   return false;
 }
 

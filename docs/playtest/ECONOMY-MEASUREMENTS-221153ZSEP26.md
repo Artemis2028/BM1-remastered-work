@@ -2,19 +2,17 @@
 
 DTG 221014ZSEP26 · against this candidate · **driven through the engine, not modelled**
 
-Review: *"One repair before §5 closes: remote fleet commands must respect the communications/relay
-system. … Do not retune §4 or the economy."*
+Review: *"§5 needs one narrow command-queue repair before closure. … Do not change passage movement,
+relay reach, automatic repair resume, §4, or the economy."*
 
 Everything below is what the engine did. The script starts a campaign, learns thirty worlds, puts fleet
 traders to work and advances the calendar day by day, reading the same shelves, the same books of work
 and the same danger the captain would. `scripts/economy-measure.cjs`; the suite runs it to 1,200 days
 for time, and the tables here are the full 5,000-day pass.
 
-**What changed since the last tables:** nothing in the economy, the planner or the passage. The
-harness's captain now gives the rendezvous through command delivery, as acknowledged — she does not fly
-out to the trader and builds no relays — and the last table gains a column saying whether a relay link
-would have reached the trader where she stood when the order was given. Every figure is expected to
-read as it did on `31f40bc`.
+**What changed since the last tables:** nothing that the tables can see — the command queue's
+domains do not touch the economy, the planner, the passage or the harness's one order. Every figure
+reads as it did on `895c6f5` and `31f40bc`.
 
 ---
 
@@ -145,8 +143,8 @@ Shipments on the board (n / min / p25 / median / p75 / max): tonnage **136 / 1 /
 
 ### 1–5. Nothing moved
 
-Every table is identical to the `31f40bc` pass to the latinum, and every table above the last to the
-`e9be30b` pass: the same seeds, the same planner, the same economy, the same passage. §4 is closed and
+Every table is identical to the `895c6f5` and `31f40bc` passes to the latinum, and every table above
+the last to the `e9be30b` pass: the same seeds, the same planner, the same economy, the same passage. §4 is closed and
 this candidate does not touch it. The readings of those tables are in
 `ECONOMY-MEASUREMENTS-211624ZSEP26.md` and are not repeated.
 
