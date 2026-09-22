@@ -71,6 +71,8 @@ const { startProbe } = require('./probe-harness.cjs');
       for (let i = 0; i < n; i++) {
         s.day += 1;
         t.completeFleetJourneys();
+        // The calendar acknowledges queued orders after the day's arrivals and before the traders move.
+        if (typeof t.acknowledgeCampaignOrders === 'function') t.acknowledgeCampaignOrders();
         if (typeof t.advanceFleetTrading === 'function') t.advanceFleetTrading(s.day);
       }
     };
@@ -4269,6 +4271,112 @@ const { startProbe } = require('./probe-harness.cjs');
       `under way, the row does not offer to change or cancel the rendezvous: ${JSON.stringify(r.underWay.buttons)}`);
     assert.ok(!/\. [A-Z]/.test(r.underWay.status) && r.underWay.status.length < 140,
       `the row explains instead of stating: "${r.underWay.status}"`);
+  });
+
+  // PASSAGE-RELAY — relays are the command link for distant fleets, and a formation dispatch already
+  // waits for one; the trade orders and the passage orders bypassed it. An order to a ship beyond
+  // reach is queued, visibly, and acknowledged against where she actually is when a link reaches her;
+  // a ship with the captain, or under a relay, takes it at once.
+  await check('PASSAGE-RELAY an order to a ship beyond relay reach waits for a link, and reaches her where she then is', async () => {
+    await fresh('play-passage-relay');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({ learn: 24 });
+      if (typeof t.orderFleetRecall !== 'function') return { delivers: false, reason: 'there is no order that brings a trader to the captain' };
+      // Give an order the way the panel does on this tree: through command delivery where the tree
+      // has it, and straight to the ship where it does not.
+      const send = typeof t.sendFleetCommand === 'function' ? (id, c) => t.sendFleetCommand(id, c) : (id, c) => {
+        if (c.command === 'recall') return t.orderFleetRecall(id);
+        if (c.command === 'rendezvous') return t.orderFleetRendezvous(id, c.destination);
+        if (c.command === 'cancel') return t.cancelFleetPassage(id);
+        if (c.command === 'trade-start') return t.startFleetTrading(id, c.risk);
+        if (c.command === 'trade-stop') return t.stopFleetTrading(id);
+        return t.setFleetTradeRisk(id, c.risk);
+      };
+      const queuedFor = (id) => (t.campaign().orders || []).filter((o) => o.status === 'queued' && o.order === 'fleet' && o.fleetId === id).map((o) => ({ command: o.command, destination: o.destination, systemIndex: o.systemIndex, day: o.queuedDay }));
+      const home = Number(s.currentPlanet);
+      const connected = (i) => Boolean(t.isSystemRelayConnected(i));
+      // A remote system with no link to it, two or more legs from the captain.
+      const R = [...Array(s.planets.length).keys()].find((i) => i !== home && t.isChartSystemVisible(i) && !connected(i) && (t.getPlottedRoute(i, home)?.systems || []).length >= 3);
+      if (R == null) return { delivers: true, found: false };
+      const X = [...Array(s.planets.length).keys()].find((i) => i !== home && i !== R && t.isChartSystemVisible(i) && t.getPlottedRoute(home, i) && t.getPlottedRoute(R, i));
+      window.__tradeShip('gate-relay-remote', { big: true, at: R });
+      window.__tradeShip('gate-relay-local', { big: true });
+      window.__tradeShip('gate-relay-lost', { big: true, at: R, seed: 9 });
+      const B = s.playerFleet.find((x) => x.id === 'gate-relay-remote');
+      const A = s.playerFleet.find((x) => x.id === 'gate-relay-local');
+      const C = s.playerFleet.find((x) => x.id === 'gate-relay-lost');
+      // 1. remote Start trading
+      send('gate-relay-remote', { command: 'trade-start', risk: 'any' });
+      const start = { active: Boolean(B.trade?.active), queued: queuedFor('gate-relay-remote') };
+      // 2. remote recall replaces it; nothing happens for days
+      send('gate-relay-remote', { command: 'recall', destination: home });
+      const recall = { stage: B.trade?.stage, order: B.trade?.order || null, active: Boolean(B.trade?.active), queued: queuedFor('gate-relay-remote') };
+      window.__tradeDays(3);
+      const later = { at: Number(B.systemIndex), transit: Boolean(B.transit), stage: B.trade?.stage, order: B.trade?.order || null, queued: queuedFor('gate-relay-remote') };
+      // 3. the panel says so
+      t.renderFleetManager(true);
+      const dlg = document.querySelector('dialog.fleet-manager');
+      const row = [...dlg.querySelectorAll('details')].find((d) => d.querySelector('summary')?.textContent.includes('gate-relay-remote'));
+      const rowText = row ? row.querySelector('.fleet-trade')?.textContent || '' : '';
+      dlg.close();
+      // 4. a ship with the captain takes the order at once
+      send('gate-relay-local', { command: 'rendezvous', destination: X });
+      const local = { stage: A.trade?.stage, to: A.trade?.order?.to, queued: queuedFor('gate-relay-local') };
+      // 5. a newer command replaces the queued one
+      send('gate-relay-remote', { command: 'rendezvous', destination: X });
+      const replaced = queuedFor('gate-relay-remote');
+      // 6. a ship that is lost drops hers
+      send('gate-relay-lost', { command: 'recall', destination: home });
+      const lostBefore = queuedFor('gate-relay-lost');
+      C.destroyed = true;
+      window.__tradeDays(1);
+      const lostAfter = queuedFor('gate-relay-lost');
+      // 7. meanwhile she goes about her business (a standing trade order she already had), and the
+      //    queued command follows her; the captain comes to where she then is, and it is acknowledged
+      //    against that position.
+      t.startFleetTrading('gate-relay-remote', 'any');
+      let moved = null;
+      for (let d = 0; d < 60 && moved === null; d++) {
+        window.__tradeDays(1);
+        if (Number(B.systemIndex) !== R) moved = { day: s.day, at: Number(B.systemIndex), transitTo: B.transit ? Number(B.transit.to) : null };
+      }
+      const followed = queuedFor('gate-relay-remote');
+      const position = Number(B.systemIndex);
+      s.currentPlanet = position;
+      window.__tradeDays(1);
+      const acked = { queued: queuedFor('gate-relay-remote'), order: B.trade?.order || null, stage: B.trade?.stage, origin: B.trade?.origin, active: Boolean(B.trade?.active) };
+      s.currentPlanet = home;
+      let arrived = null;
+      for (let d = 0; d < 400 && !arrived; d++) {
+        window.__tradeDays(1);
+        if (B.trade?.order?.arrivedDay != null) arrived = { day: s.day, at: Number(B.systemIndex) };
+      }
+      return { delivers: true, found: true, home, R, X, start, recall, later, rowText, local, replaced, lostBefore, lostAfter, moved, followed, position, acked, arrived };
+    });
+    assert.ok(r.delivers, `${r.reason}`);
+    assert.ok(r.found, 'precondition: no charted system beyond relay reach two or more legs from the captain');
+    assert.equal(r.start.active, false, `Start trading reached a ship at system ${r.R} with no relay link at once: the trade orders bypass the command link`);
+    assert.ok(r.start.queued.length === 1 && r.start.queued[0].command === 'trade-start', `the remote Start trading was not queued: ${JSON.stringify(r.start.queued)}`);
+    assert.notEqual(r.recall.stage, 'passage', `a recall reached a ship at system ${r.R} with no relay link at once`);
+    assert.equal(r.recall.order, null, `the recall was written on a ship it could not reach: ${JSON.stringify(r.recall.order)}`);
+    assert.ok(r.recall.queued.length === 1 && r.recall.queued[0].command === 'recall', `the recall did not replace the queued Start trading: ${JSON.stringify(r.recall.queued)}`);
+    assert.ok(r.later.at === r.R && !r.later.transit && r.later.order === null && r.later.queued.length === 1,
+      `three days on, with no link, she reacted anyway: ${JSON.stringify(r.later)}`);
+    assert.ok(/queued/i.test(r.rowText) && /relay/i.test(r.rowText), `her row does not show the queued order: "${r.rowText.slice(0, 160)}"`);
+    assert.equal(r.local.stage, 'passage', `a ship standing with the captain did not take the order at once (${r.local.stage}, queued ${JSON.stringify(r.local.queued)})`);
+    assert.equal(r.local.to, r.X, `the local ship is bound for ${r.local.to}, not ${r.X}`);
+    assert.ok(r.replaced.length === 1 && r.replaced[0].command === 'rendezvous' && r.replaced[0].destination === r.X,
+      `a newer command did not replace the queued one: ${JSON.stringify(r.replaced)}`);
+    assert.equal(r.lostBefore.length, 1, 'precondition: the order for the ship about to be lost was not queued');
+    assert.equal(r.lostAfter.length, 0, `a ship that was lost still has an order queued for her: ${JSON.stringify(r.lostAfter)}`);
+    assert.ok(r.moved, `precondition: with a standing trade order she never reached another system from ${r.R} in sixty days, so there is no later position to acknowledge against`);
+    assert.ok(r.followed.length === 1 && r.followed[0].systemIndex === r.position,
+      `she is at system ${r.position} and the queued command is still addressed to system ${r.followed[0]?.systemIndex}: it did not follow her`);
+    assert.equal(r.acked.queued.length, 0, `the captain came to where she was and the order stayed queued: ${JSON.stringify(r.acked.queued)}`);
+    assert.ok(r.acked.order && r.acked.order.to === r.X, `acknowledged, she is not under the order she was sent: ${JSON.stringify(r.acked.order)}`);
+    assert.notEqual(r.acked.order.from, r.R, `acknowledged where she then was, the order was executed from system ${r.R} where it was given`);
+    assert.ok(r.arrived && r.arrived.at === r.X, `she never arrived at ${r.X}: ${JSON.stringify(r.arrived)}`);
   });
 
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);

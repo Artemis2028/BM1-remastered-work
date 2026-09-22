@@ -1,10 +1,12 @@
 # Finite commodity and cargo economy — design
 
-DTG 211926ZSEP26 · supersedes `ECONOMY-DESIGN-211624ZSEP26.md` · **built**
+DTG 221014ZSEP26 · supersedes `ECONOMY-DESIGN-211926ZSEP26.md` · **built**
 
-Changed in this revision: **§H, recall and rendezvous** — the captain's two movement orders for a
-trader, as review specified them. Nothing in the economy itself changes: A–G are as `e9be30b` left
-them, and §4 is closed.
+Changed in this revision: **§H, command delivery** — every order to a fleet ship, recall and
+rendezvous included and Start, Stop and the danger setting brought with them, has to reach her
+through the relay system, and is queued and acknowledged against her actual position when it cannot.
+The movement behaviour of §H is as review accepted it. Nothing in the economy changes: A–G are as
+`31f40bc` left them, §4 is closed, and §5 closes on this revision.
 
 Unchanged and still in force: the four danger settings as review approved them (§F), judged from the
 flag the captain knows and never the live truth; the time-aware planner (§G); the payout, a route and
@@ -325,9 +327,22 @@ whoever holds it. Both:
   which ends the passage at the end of the leg she is on.
 
 The panel shows the destination and the day she arrives, and the controls: Recall to captain,
-Rendezvous at system, Change rendezvous, Cancel. The order reaches her the way her trade orders do,
-without a relay link; the formation dispatch's relay rule is not applied, and that is named for
-review. A formation dispatch no longer moves a trader who is under way on a route of her own.
+Rendezvous at system, Change rendezvous, Cancel. A formation dispatch no longer moves a trader who is
+under way on a route of her own.
+
+**The order has to reach her.** Relays are the command link for distant fleets, as they already are
+for a formation dispatch. Every order to a fleet ship — recall, rendezvous, change, cancel, and Start
+trading, Stop trading and the danger setting, which bypassed the rule before and were an older
+inconsistency rather than a precedent — goes through one delivery: a ship in the captain's system, or
+in a system a relay connects, takes it at once; otherwise it is queued in the campaign book beside the
+formation orders, shown on her row and in the Empire panel's relay orders, and acknowledged when a link
+reaches her — a relay, or the captain arriving where she is — against her actual position and state on
+that day. A queued command follows the ship, not the system she was in. A newer untransmitted command
+replaces the older queued one; a ship that is lost drops hers. An unresolved order on a ship that was
+stopped remains authoritative until completed or cancelled, and resumes on its own once she can fly.
+
+**Recorded, not done:** the formation dispatch still moves a held fleet in one jump of
+`Fleet.travelDays(route.distance)`; an existing fleet-movement debt, separate from §5.
 
 ## Validation
 
@@ -351,12 +366,13 @@ review. A formation dispatch no longer moves a trader who is under way on a rout
 | `RECALL` ×2 | a trader with nowhere her setting lets her go and no order that moves her; a recall that follows a captain who moved on |
 | `RENDEZVOUS` | no order to a chosen system; a hold sold or a shipment taken on the way; days reckoned other than by the legs |
 | `PASSAGE` ×6 | an order turning her round in warp or not breaking off her circuit; a passage made safe by the order, or a stopped ship's order dropped; a save losing the leg, the cargo or the order; a change plotted from her departure rather than where she is; a formation dispatch moving a trader off her route in one jump; a panel with no way to move her |
+| `PASSAGE-RELAY` | an order reaching a ship beyond relay reach at once — Start trading, recall or rendezvous — or not being queued visibly, or a queued command not replaced by a newer one, not dropped for a lost ship, or acknowledged against the system it was given in rather than where she then is; a ship with the captain not taking an order at once |
 | `CIRCUIT-FULL-OF-SHIPMENT` | a trader whose hold is full of a shipment still to be delivered repositioning to sell it instead of flying it |
 | `CIRCUIT-IDLE` | a trader left standing at a world that will deal with her and has nothing for her to do |
 | `CIRCUIT-FULL-HOLD` | a trader stopped for good by a hold full of cargo nobody nearby is buying |
 | `JOB-FEE` | a shipment costing twice as much for twice the load, so the voyage is charged again on every ton |
 
-Thirty checks are in the suite, covering those eight plus the circuit behaviour review asked for: two
+Thirty-one checks are in the suite, covering those eight plus the circuit behaviour review asked for: two
 traders cannot take the same tons or the same shipment; cargo stays addressed and comes off only at its
 own call; freed hold goes back to work later in the circuit; and a reload resumes the route, the leg,
 the manifest, the shelves and the books of work exactly. Intermediate danger and a stopped trader never

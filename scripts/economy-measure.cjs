@@ -128,7 +128,9 @@ const money = (n) => Number(n).toLocaleString('en-US');
       // do for `orders.idleDays` days is sent to rendezvous at the home world, and put back to work
       // when she arrives. It is a policy the harness plays, stated here and nowhere else in the game;
       // it exists to show what the recall order does to the one case the tables kept finding, a
-      // trader parked where her setting gives her nowhere to go. [playtest]
+      // trader parked where her setting gives her nowhere to go. The order is given as acknowledged —
+      // the harness's captain does not fly out to her and builds no relays — and whether a link
+      // would have reached her where she stood is recorded beside it. [playtest]
       run({ shipId, count, risk, days, marks, repair, learn, seed, rules, orders }) {
         const t = testBM1, s = t.state;
         t.startWithFaction('terran');
@@ -147,7 +149,7 @@ const money = (n) => Number(n).toLocaleString('en-US');
         const purse0 = s.latinum;
         const upkeepPerDay = ships.reduce((n, f) => n + t.upkeepPerDay(f.shipId), 0);
         const stats = ships.map(() => ({ idle: 0, stoppedDay: null, loadSum: 0, loadSamples: 0,
-          contractSeen: 0, deliveries: 0, lastDeliveryDay: null, disabled: 0, down: false, idleRun: 0, ordered: 0, passageDays: 0 }));
+          contractSeen: 0, deliveries: 0, lastDeliveryDay: null, disabled: 0, down: false, idleRun: 0, ordered: 0, orderedInReach: 0, passageDays: 0 }));
         const snapshots = {};
         for (let d = 1; d <= days; d++) {
           s.day += 1;
@@ -163,8 +165,13 @@ const money = (n) => Number(n).toLocaleString('en-US');
             if (orders && typeof t.orderFleetRendezvous === 'function') {
               stats[k].idleRun = tr.active && tr.stage === 'idle' ? stats[k].idleRun + 1 : 0;
               if (stats[k].idleRun >= orders.idleDays && Number(f.systemIndex) !== home) {
-                if (t.orderFleetRendezvous(f.id, home)) { stats[k].ordered += 1; stats[k].idleRun = 0; }
+                const reach = typeof t.fleetCommandReachable === 'function' ? t.fleetCommandReachable(f) : null;
+                const given = typeof t.sendFleetCommand === 'function'
+                  ? t.sendFleetCommand(f.id, { command: 'rendezvous', destination: home }, { fromRelay: true })
+                  : t.orderFleetRendezvous(f.id, home);
+                if (given) { stats[k].ordered += 1; if (reach) stats[k].orderedInReach += 1; stats[k].idleRun = 0; }
               }
+              // She has arrived and is holding for orders, with the captain at home: back to work.
               if (!tr.active && tr.stage === 'holding' && tr.order && tr.order.arrivedDay != null) t.startFleetTrading(f.id, risk);
             }
             // Every time she is crippled on a crossing, once per crippling.
@@ -229,6 +236,7 @@ const money = (n) => Number(n).toLocaleString('en-US');
                 lastDeliveryDay: stats[k].lastDeliveryDay,
                 disabled: stats[k].disabled,
                 ordered: stats[k].ordered,
+                orderedInReach: stats[k].orderedInReach,
                 passageDays: stats[k].passageDays,
               };
             });
@@ -470,10 +478,10 @@ const money = (n) => Number(n).toLocaleString('en-US');
     const last = snaps && snaps[HORIZONS[HORIZONS.length - 1]];
     if (!last) continue;
     last.traders.forEach((tr, k) => orderRows.push([label, `Trader ${k + 1}`, money(tr.cumulative), tr.circuits, tr.deliveries,
-      `${Math.round((tr.idle / HORIZONS[HORIZONS.length - 1]) * 100)}%`, tr.ordered ?? 0, tr.passageDays ?? 0, tr.disabled]));
+      `${Math.round((tr.idle / HORIZONS[HORIZONS.length - 1]) * 100)}%`, tr.ordered ?? 0, tr.ordered ? `${tr.orderedInReach ?? 0}/${tr.ordered}` : '-', tr.passageDays ?? 0, tr.disabled]));
   }
   L.push(table('Two heavy freighters on one economy, with and without the captain moving an idle one',
-    ['captain', 'trader', '5000d net L', 'circuits', 'shipments', 'idle', 'times ordered home', 'days on passage', 'times crippled'], orderRows));
+    ['captain', 'trader', '5000d net L', 'circuits', 'shipments', 'idle', 'times ordered home', 'in relay reach when ordered', 'days on passage', 'times crippled'], orderRows));
 
   fs.mkdirSync(outDir, { recursive: true });
   fs.writeFileSync(path.join(outDir, 'economy-measurements.json'),

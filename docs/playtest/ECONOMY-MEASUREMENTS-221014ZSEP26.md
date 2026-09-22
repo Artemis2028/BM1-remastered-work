@@ -1,23 +1,20 @@
 # Finite economy — long-horizon measurements
 
-DTG 211926ZSEP26 · against this candidate · **driven through the engine, not modelled**
+DTG 221014ZSEP26 · against this candidate · **driven through the engine, not modelled**
 
-Review: *"The existing Promelli Drift case is exactly the behavior §5 needs to solve: an autonomous
-trader may rationally have nowhere profitable/allowed to go, but the captain must be able to order her
-somewhere else."*
+Review: *"One repair before §5 closes: remote fleet commands must respect the communications/relay
+system. … Do not retune §4 or the economy."*
 
 Everything below is what the engine did. The script starts a campaign, learns thirty worlds, puts fleet
 traders to work and advances the calendar day by day, reading the same shelves, the same books of work
 and the same danger the captain would. `scripts/economy-measure.cjs`; the suite runs it to 1,200 days
 for time, and the tables here are the full 5,000-day pass.
 
-**What changed since the last tables:** nothing in the economy or the planner — §4 is closed and this
-candidate is §5. The tables above the last one are the `e9be30b` tables rerun and should read the
-same. **The last table is new**: the same two heavy freighters on the same seeds, once as before and
-once with the captain playing one policy — a trader that has stood idle with nothing to do for sixty
-days is sent to rendezvous at the home world, and put back to work when she arrives. The policy is the
-harness's, stated there and nowhere in the game; it exists to show what the order does to the one case
-these tables kept finding.
+**What changed since the last tables:** nothing in the economy, the planner or the passage. The
+harness's captain now gives the rendezvous through command delivery, as acknowledged — she does not fly
+out to the trader and builds no relays — and the last table gains a column saying whether a relay link
+would have reached the trader where she stood when the order was given. Every figure is expected to
+read as it did on `31f40bc`.
 
 ---
 
@@ -137,20 +134,21 @@ Shipments on the board (n / min / p25 / median / p75 / max): tonnage **136 / 1 /
 
 ### Two heavy freighters on one economy, with and without the captain moving an idle one
 
-| captain                      | trader   | 5000d net L | circuits | shipments | idle | times ordered home | days on passage | times crippled |
-| ---------------------------- | -------- | ----------- | -------- | --------- | ---- | ------------------ | --------------- | -------------- |
-| nobody moves her             | Trader 1 | 172,525     | 300      | 49        | 0%   | 0                  | 0               | 3              |
-| nobody moves her             | Trader 2 | 40,824      | 48       | 19        | 80%  | 0                  | 0               | 1              |
-| sent home after 60 idle days | Trader 1 | 159,750     | 306      | 54        | 0%   | 0                  | 0               | 3              |
-| sent home after 60 idle days | Trader 2 | 201,605     | 264      | 22        | 3%   | 1                  | 91              | 4              |
+| captain                      | trader   | 5000d net L | circuits | shipments | idle | times ordered home | in relay reach when ordered | days on passage | times crippled |
+| ---------------------------- | -------- | ----------- | -------- | --------- | ---- | ------------------ | --------------------------- | --------------- | -------------- |
+| nobody moves her             | Trader 1 | 172,525     | 300      | 49        | 0%   | 0                  | -                           | 0               | 3              |
+| nobody moves her             | Trader 2 | 40,824      | 48       | 19        | 80%  | 0                  | -                           | 0               | 1              |
+| sent home after 60 idle days | Trader 1 | 159,750     | 306      | 54        | 0%   | 0                  | -                           | 0               | 3              |
+| sent home after 60 idle days | Trader 2 | 201,605     | 264      | 22        | 3%   | 1                  | 0/1                         | 91              | 4              |
 
 ## What the numbers say
 
 ### 1–5. Nothing moved
 
-Every table above the last is identical to the `e9be30b` pass to the latinum: the same seeds, the
-same planner, the same economy. §4 is closed and this candidate does not touch it. The readings of
-those tables are in `ECONOMY-MEASUREMENTS-211624ZSEP26.md` and are not repeated.
+Every table is identical to the `31f40bc` pass to the latinum, and every table above the last to the
+`e9be30b` pass: the same seeds, the same planner, the same economy, the same passage. §4 is closed and
+this candidate does not touch it. The readings of those tables are in
+`ECONOMY-MEASUREMENTS-211624ZSEP26.md` and are not repeated.
 
 ### 6. The boxed-in trader, with the captain able to move her
 
@@ -161,12 +159,12 @@ trader may fly to and nothing at either — and ends with 40,824. In the second 
 one policy for the captain: a trader that has stood idle with nothing to do for sixty days is sent to
 rendezvous at the home world, and put back to work when she arrives.
 
-| captain | trader | 5,000-day net | circuits | idle | ordered home | days on passage |
-| --- | --- | --- | --- | --- | --- | --- |
-| nobody moves her | Trader 1 | 172,525 | 300 | 0% | – | – |
-| nobody moves her | Trader 2 | **40,824** | 48 | **80%** | – | – |
-| sent home after 60 idle days | Trader 1 | 159,750 | 306 | 0% | 0 | 0 |
-| sent home after 60 idle days | Trader 2 | **201,605** | 264 | **3%** | 1 | 91 |
+| captain | trader | 5,000-day net | circuits | idle | ordered home | in relay reach when ordered | days on passage |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| nobody moves her | Trader 1 | 172,525 | 300 | 0% | – | – | – |
+| nobody moves her | Trader 2 | **40,824** | 48 | **80%** | – | – | – |
+| sent home after 60 idle days | Trader 1 | 159,750 | 306 | 0% | 0 | – | 0 |
+| sent home after 60 idle days | Trader 2 | **201,605** | 264 | **3%** | 1 | **0 of 1** | 91 |
 
 She was ordered once. She had stood sixty days with nothing to do, before day 1,000; the passage home
 was 91 days, leg by leg through the space that had boxed her in; she arrived holding, was sent back
@@ -180,10 +178,18 @@ harness's — sixty days, home, straight back to work — and nothing in the gam
 captain; what the table shows is the order doing what it is for, on the case the earlier passes
 found.
 
+**The new column is the relay rule's part of it.** The harness gives the order as acknowledged; in
+the game it has to reach her. When she was ordered she was **not** in relay reach — the campaign has
+no relay of the captain's, and she was in a pocket two legs or more from the home world — so the
+captain would have had to fly to her, or put a relay within reach of her, before the order was
+acknowledged; the table's 91-day passage would have begun on the day that happened, from wherever she
+then was. The tables do not model the captain's own travel.
+
 ---
 
 ## What I would ask
 
-1. The order moves the trader the tables kept finding parked, and nothing else in the tables moved.
-2. Whether an unresolved order should resume on its own after repair, or wait for the captain, is
-   named in the change document; the tables do not bear on it.
+1. Nothing in the tables moved; the relay repair is a delivery rule, not a tuning.
+2. The one recall the harness gave would have needed the captain to go to her. That is the rule doing
+   what it says, and it is worth knowing when playtesting how often a boxed-in trader sits out of
+   reach.
