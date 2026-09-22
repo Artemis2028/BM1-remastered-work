@@ -1,12 +1,11 @@
 # Finite commodity and cargo economy — design
 
-DTG 221153ZSEP26 · supersedes `ECONOMY-DESIGN-221014ZSEP26.md` · **built**
+DTG 221332ZSEP26 · supersedes `ECONOMY-DESIGN-221153ZSEP26.md` · **built**
 
-Changed in this revision: **§H, command domains** — a queued command supersedes only an older one of
-its own kind (passage; start and stop; the danger setting), the kinds coexist and are delivered in the
-order given, and a command delivered at once drops the stale one of its kind still queued. Nothing
-else in §H moves, and nothing in the economy: A–G are as `895c6f5` left them, §4 is closed, and §5
-closes on this revision.
+Changed in this revision: **§H, two cross-domain rules** — Stop trading controls autonomous trading
+only and leaves a movement order whole, and an order received by a ship that cannot fly is hers,
+unresolved, and resumes after repair. Nothing else in §H moves, and nothing in the economy: A–G are as
+`ab7d775` left them, §4 is closed, and §5 closes on this revision.
 
 Unchanged and still in force: the four danger settings as review approved them (§F), judged from the
 flag the captain knows and never the live truth; the time-aware planner (§G); the payout, a route and
@@ -341,7 +340,11 @@ that day. A queued command follows the ship, not the system she was in. Commands
 passage (recall, rendezvous, cancel), trade-mode (start, stop), trade-risk (the setting) — and a newer
 untransmitted command supersedes only an older one in its own domain; the domains coexist and are
 delivered in the order they were given, and a command that can be delivered at once drops the stale
-one of its domain still queued before it executes. A ship that is lost drops hers. An unresolved order on a ship that was
+one of its domain still queued before it executes. A ship that is lost drops hers. Stop trading
+controls autonomous trading only: a ship under a movement order keeps it, with its stage, transit
+and ETA, and only trading is off. An order that reaches a ship that cannot fly — queued and finally
+delivered, or given to her where she lies — has been received: it is hers, unresolved, and resumes
+from her system after repair under the rule above. An unresolved order on a ship that was
 stopped remains authoritative until completed or cancelled, and resumes on its own once she can fly.
 
 **Recorded, not done:** the formation dispatch still moves a held fleet in one jump of
@@ -372,12 +375,14 @@ stopped remains authoritative until completed or cancelled, and resumes on its o
 | `PASSAGE-RELAY` | an order reaching a ship beyond relay reach at once — Start trading, recall or rendezvous — or not being queued visibly, or a queued command not replaced by a newer one, not dropped for a lost ship, or acknowledged against the system it was given in rather than where she then is; a ship with the captain not taking an order at once |
 | `COMMAND-DOMAINS` | a queued danger change deleting a queued recall or the reverse; a newer rendezvous not replacing a queued recall, or replacing the queued danger change with it; the two not both delivered when a link reaches her |
 | `COMMAND-OVERTAKE` | a stale queued recall firing on the next tick over a rendezvous given the moment a link returned |
+| `COMMAND-CROSS-DOMAIN` | a Stop trading delivered with a recall turning the passage into holding under a live transit and order, in either order of delivery, or putting her back to trading on arrival |
+| `COMMAND-DISABLED-RECEIPT` | a queued recall that reaches a disabled ship being refused and lost, or moving her, or not flying from her system after repair |
 | `CIRCUIT-FULL-OF-SHIPMENT` | a trader whose hold is full of a shipment still to be delivered repositioning to sell it instead of flying it |
 | `CIRCUIT-IDLE` | a trader left standing at a world that will deal with her and has nothing for her to do |
 | `CIRCUIT-FULL-HOLD` | a trader stopped for good by a hold full of cargo nobody nearby is buying |
 | `JOB-FEE` | a shipment costing twice as much for twice the load, so the voyage is charged again on every ton |
 
-Thirty-three checks are in the suite, covering those eight plus the circuit behaviour review asked for: two
+Thirty-five checks are in the suite, covering those eight plus the circuit behaviour review asked for: two
 traders cannot take the same tons or the same shipment; cargo stays addressed and comes off only at its
 own call; freed hold goes back to work later in the circuit; and a reload resumes the route, the leg,
 the manifest, the shelves and the books of work exactly. Intermediate danger and a stopped trader never

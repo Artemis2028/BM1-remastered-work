@@ -4472,6 +4472,118 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.ok(r.arrived && r.arrived.at === r.X, `she ended at ${r.arrived?.at}, not the rendezvous at ${r.X}`);
   });
 
+  // COMMAND-CROSS-DOMAIN — Stop trading turned any stage but outbound into holding, so a Stop delivered
+  // after a recall left the passage's transit and order alive under a stage that never flew the next
+  // leg. Stop controls autonomous trading only; a passage under way, pending or unresolved is kept.
+  await check('COMMAND-CROSS-DOMAIN a recall and a Stop trading delivered together leave the passage whole, in either order', async () => {
+    await fresh('play-command-cross');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({ learn: 24 });
+      if (typeof t.orderFleetRecall !== 'function') return { delivers: false, reason: 'there is no order that brings a trader to the captain' };
+      if (typeof t.sendFleetCommand !== 'function') return { delivers: false, reason: 'there is no command queue for a recall and a Stop trading to wait in' };
+      const queuedFor = (id) => (t.campaign().orders || []).filter((o) => o.status === 'queued' && o.order === 'fleet' && o.fleetId === id).map((o) => o.command);
+      const home = Number(s.currentPlanet);
+      const R = [...Array(s.planets.length).keys()].find((i) => i !== home && t.isChartSystemVisible(i) && !t.isSystemRelayConnected(i) && (t.getPlottedRoute(i, home)?.systems || []).length >= 3);
+      if (R == null) return { delivers: true, found: false };
+      // One run for each order of delivery: the recall first, then the stop; and the stop first.
+      const run = (id, first, second) => {
+        window.__tradeShip(id, { big: true, at: R });
+        const B = s.playerFleet.find((x) => x.id === id);
+        // a standing trade order she already has, so Stop trading has something to stop
+        t.startFleetTrading(id, 'any');
+        const trading = Boolean(B.trade?.active);
+        t.sendFleetCommand(id, first);
+        s.day += 1;
+        t.sendFleetCommand(id, second);
+        const queued = queuedFor(id);
+        // the captain comes to where she is: both are delivered, in the order given
+        s.currentPlanet = Number(B.systemIndex);
+        window.__tradeDays(1);
+        s.currentPlanet = home;
+        const delivered = { queued: queuedFor(id), active: Boolean(B.trade?.active), stage: B.trade?.stage, order: B.trade?.order ? { kind: B.trade.order.kind, to: B.trade.order.to, pending: B.trade.order.pending } : null,
+          transit: B.transit ? { ...B.transit } : null, eta: B.trade?.etaDay, line: t.fleetTradeStatusLine(B) };
+        let arrived = null;
+        for (let d = 0; d < 400 && !arrived; d++) { window.__tradeDays(1); if (B.trade?.order?.arrivedDay != null) arrived = { day: s.day, at: Number(B.systemIndex), active: Boolean(B.trade?.active), stage: B.trade?.stage }; }
+        return { trading, queued, delivered, arrived };
+      };
+      const recallThenStop = run('gate-cross-1', { command: 'recall', destination: home }, { command: 'trade-stop' });
+      const stopThenRecall = run('gate-cross-2', { command: 'trade-stop' }, { command: 'recall', destination: home });
+      return { delivers: true, found: true, home, R, recallThenStop, stopThenRecall };
+    });
+    assert.ok(r.delivers, `${r.reason}`);
+    assert.ok(r.found, 'precondition: no charted system beyond relay reach two or more legs from the captain');
+    for (const [name, x] of [['recall then Stop trading', r.recallThenStop], ['Stop trading then recall', r.stopThenRecall]]) {
+      assert.equal(x.trading, true, `precondition (${name}): she was not trading before the orders`);
+      assert.equal(x.queued.length, 2, `precondition (${name}): both commands were not queued: ${JSON.stringify(x.queued)}`);
+      assert.equal(x.delivered.queued.length, 0, `${name}: the captain came to her and commands stayed queued: ${JSON.stringify(x.delivered.queued)}`);
+      assert.equal(x.delivered.active, false, `${name}: Stop trading was delivered and she is still trading`);
+      assert.ok(x.delivered.order && x.delivered.order.kind === 'recall' && x.delivered.order.to === r.home, `${name}: the recall did not survive delivery: ${JSON.stringify(x.delivered.order)}`);
+      assert.ok(x.delivered.stage === 'passage' || (x.delivered.order.pending && x.delivered.transit),
+        `${name}: Stop trading turned her passage into ${x.delivered.stage} while she is still booked to ${x.delivered.transit?.to ?? 'nowhere'} under a recall (${x.delivered.line})`);
+      assert.ok(x.arrived && x.arrived.at === r.home, `${name}: she never arrived at ${r.home}: ${JSON.stringify(x.arrived)}`);
+      assert.equal(x.arrived.active, false, `${name}: arrival put her back to trading`);
+    }
+  });
+
+  // COMMAND-DISABLED-RECEIPT — a queued recall that finally reached a disabled ship was refused and
+  // lost. An order received by a ship that cannot fly is hers, unresolved, and resumes after repair
+  // under the rule that already governs an order she was stopped in the middle of.
+  await check('COMMAND-DISABLED-RECEIPT a recall that reaches a disabled ship is received and unresolved, and flies after repair', async () => {
+    await fresh('play-command-disabled');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__tradeSetup({ learn: 24 });
+      if (typeof t.orderFleetRecall !== 'function') return { delivers: false, reason: 'there is no order that brings a trader to the captain' };
+      if (typeof t.sendFleetCommand !== 'function') return { delivers: false, reason: 'there is no command queue for a recall to wait in' };
+      const queuedFor = (id) => (t.campaign().orders || []).filter((o) => o.status === 'queued' && o.order === 'fleet' && o.fleetId === id).map((o) => o.command);
+      const home = Number(s.currentPlanet);
+      const R = [...Array(s.planets.length).keys()].find((i) => i !== home && t.isChartSystemVisible(i) && !t.isSystemRelayConnected(i) && (t.getPlottedRoute(i, home)?.systems || []).length >= 3);
+      if (R == null) return { delivers: true, found: false };
+      window.__tradeShip('gate-disabled', { big: true, at: R });
+      const B = s.playerFleet.find((x) => x.id === 'gate-disabled');
+      t.ensureFleetTradeState(B, 'cautious');
+      t.sendFleetCommand('gate-disabled', { command: 'recall', destination: home });
+      const queued = queuedFor('gate-disabled');
+      // she is disabled before any link reaches her
+      const v = t.ensureFleetVesselSnapshot(B);
+      v.hull = Math.max(1, Math.round(t.Fleet.disableThreshold(v.maxHull) * 0.5)); v.condition = 'disabled';
+      const actor = t.fleetLocalActor(B.id); if (actor) { actor.combatHull = v.hull; actor.condition = 'disabled'; }
+      window.__tradeDays(2);
+      const stillQueued = queuedFor('gate-disabled');
+      // the link returns: the captain comes to her
+      s.currentPlanet = R;
+      window.__tradeDays(1);
+      s.currentPlanet = home;
+      const received = { queued: queuedFor('gate-disabled'), order: B.trade?.order ? { kind: B.trade.order.kind, to: B.trade.order.to, pending: B.trade.order.pending } : null,
+        stage: B.trade?.stage, transit: Boolean(B.transit), at: Number(B.systemIndex), line: t.fleetTradeStatusLine(B) };
+      window.__tradeDays(3);
+      const waiting = { at: Number(B.systemIndex), transit: Boolean(B.transit), order: B.trade?.order ? { to: B.trade.order.to, pending: B.trade.order.pending } : null };
+      // repaired where she lies
+      v.hull = v.maxHull; v.condition = 'operational';
+      if (actor) { actor.combatHull = actor.maxCombatHull; actor.condition = 'operational'; }
+      window.__tradeDays(1);
+      const resumed = { stage: B.trade?.stage, origin: B.trade?.origin, to: B.trade?.order?.to, transitFrom: B.transit?.from, line: t.fleetTradeStatusLine(B) };
+      let arrived = null;
+      for (let d = 0; d < 400 && !arrived; d++) { window.__tradeDays(1); if (B.trade?.order?.arrivedDay != null) arrived = { day: s.day, at: Number(B.systemIndex) }; }
+      return { delivers: true, found: true, home, R, queued, stillQueued, received, waiting, resumed, arrived };
+    });
+    assert.ok(r.delivers, `${r.reason}`);
+    assert.ok(r.found, 'precondition: no charted system beyond relay reach two or more legs from the captain');
+    assert.deepEqual(r.queued, ['recall'], `precondition: the recall was not queued: ${JSON.stringify(r.queued)}`);
+    assert.deepEqual(r.stillQueued, ['recall'], `precondition: the recall did not wait while she lay disabled with no link: ${JSON.stringify(r.stillQueued)}`);
+    assert.equal(r.received.queued.length, 0, `the link returned and the recall stayed queued: ${JSON.stringify(r.received.queued)}`);
+    assert.ok(r.received.order && r.received.order.kind === 'recall' && r.received.order.to === r.home,
+      `the recall reached her while she was disabled and vanished: no order on her (${r.received.line})`);
+    assert.equal(r.received.order.pending, true, `received while disabled, the recall is not held as unresolved: ${JSON.stringify(r.received.order)}`);
+    assert.ok(!r.received.transit && r.received.at === r.R, `disabled, she was moved anyway: ${JSON.stringify(r.received)}`);
+    assert.ok(/unresolved/i.test(r.received.line), `her row does not say the recall is unresolved: "${r.received.line}"`);
+    assert.ok(!r.waiting.transit && r.waiting.at === r.R && r.waiting.order && r.waiting.order.pending, `still disabled days later, the order did not wait on her: ${JSON.stringify(r.waiting)}`);
+    assert.equal(r.resumed.stage, 'passage', `repaired, she is ${r.resumed.stage} rather than on her passage (${r.resumed.line})`);
+    assert.equal(r.resumed.origin, r.R, `repaired, she flies from ${r.resumed.origin}, not from ${r.R} where she lay`);
+    assert.ok(r.arrived && r.arrived.at === r.home, `she never arrived at ${r.home}: ${JSON.stringify(r.arrived)}`);
+  });
+
   console.log(`${checks - failures.length}/${checks} playtest reproductions no longer reproduce.`);
   if (failures.length) { console.log(`${failures.length} still reproduce:`); for (const f of failures) console.log(`  - ${f.name}: ${f.message.split('\n')[0]}`); process.exitCode = 1; }
   if (errors.length) { console.log(`page errors: ${errors.join(' | ')}`); process.exitCode = 1; }

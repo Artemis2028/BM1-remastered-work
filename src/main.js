@@ -27217,6 +27217,15 @@ function stopFleetTrading(id) {
   const t = f && fleetTradeState(f);
   if (!t) return false;
   t.active = false;
+  // Stop trading controls autonomous trading and nothing else. A ship under the captain's movement
+  // order — on a passage, with one pending, unresolved where she was stopped, or holding at the end of
+  // one — keeps its stage, order, transit, ETA and status exactly; only trading is off. Turning her
+  // stage to holding here left a passage's transit and order alive under a stage that never flew the
+  // next leg. [playtest]
+  if (t.order) {
+    setLog(`${f.name}: trading is off; ${fleetPassageOrderLabel(t.order).toLowerCase()} stands.`);
+    return true;
+  }
   // Stopping does not abandon a circuit already paid for. The ship finishes it, delivers, and holds.
   if (t.stage !== 'outbound') {
     t.stage = 'holding';
@@ -27371,11 +27380,21 @@ function orderFleetPassage(id, to, kind = 'rendezvous') {
     return false;
   }
   const condition = fleetVesselCondition(f);
-  if (condition === 'disabled' || condition === 'destroyed') {
-    setLog(`${f.name} is ${condition} and cannot make the passage; repair her first.`);
-    return false;
-  }
+  if (condition === 'destroyed') return false;
   const t = ensureFleetTradeState(f);
+  // An order that reaches a ship that cannot fly has still been received. It is hers, unresolved,
+  // exactly as an order she was stopped in the middle of; she flies it from where she lies once she
+  // is repaired, under the rule that already governs that. Refusing it lost a command that had waited
+  // for a link and finally arrived. [playtest]
+  if (condition === 'disabled') {
+    const wasActive = t.order ? Boolean(t.order.wasActive) : Boolean(t.active);
+    t.order = { kind, to: dest, from: fleetShipSystem(f), day: Number(state.day), pending: true, wasActive, arrivedDay: null };
+    t.active = false;
+    t.stage = 'holding';
+    t.note = `Disabled; ${fleetPassageOrderLabel(t.order)} unresolved.`;
+    setLog(`${f.name} is disabled and cannot make the passage yet; ${fleetPassageOrderLabel(t.order).toLowerCase()} is hers, unresolved, until she is repaired.`);
+    return true;
+  }
   const label = kind === 'recall' ? `recall to ${state.planets[dest]?.name}` : `rendezvous at ${state.planets[dest]?.name}`;
   // An escort is with the captain; a passage releases her at the captain's system.
   if (f.assignment === 'escort') {
