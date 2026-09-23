@@ -337,6 +337,22 @@ test('LATE a campaign that starts on an old save still gets the whole Dominion a
 // patch itself introduced or left, found by an adversarial pass over the repair, and kept here so they
 // cannot come back.
 
+// The order book's bounds, as they now read: an order still waiting for a link is never evicted, however
+// many are written after it; acknowledged history is bounded by maxOrders; and a new waiting order beyond
+// maxQueuedOrders is refused rather than an old one dropped. These asserted, until the §5 command-queue
+// repair, that a hundred WAITING orders were cut to forty — the eviction that could lose a queued recall.
+function orderBoundsHold(book, tag, day, why) {
+  const waiting = () => book.orders.filter((o) => o.status === 'queued').length;
+  for (let i = 0; i < 100; i++) C.queueDistantOrder(book, { systemIndex: 0, label: `${tag}${i}` }, day, false);
+  for (let i = 0; i < 100; i++) C.queueDistantOrder(book, { systemIndex: 0, label: `${tag}-history${i}` }, day, true);
+  assert.equal(waiting(), 100, `${why}: ${100 - waiting()} of a hundred orders still waiting for a link were evicted`);
+  const history = book.orders.filter((o) => o.status !== 'queued').length;
+  assert.ok(history <= book.config.maxOrders, `${why}: ${history} acknowledged orders kept, over ${book.config.maxOrders}`);
+  for (let i = 0; i < 1000; i++) C.queueDistantOrder(book, { systemIndex: 0, label: `${tag}-flood${i}` }, day, false);
+  assert.equal(waiting(), book.config.maxQueuedOrders, `${why}: ${waiting()} waiting orders, bound ${book.config.maxQueuedOrders}`);
+  assert.ok(book.orders.some((o) => o.label === `${tag}0` && o.status === 'queued'), `${why}: the oldest waiting order was evicted to make room`);
+}
+
 // A book is persisted with its rule set inline and the version is only bumped when the book must be
 // rebuilt, so a save written by an older build arrived with none of the keys added since — which
 // removed four bounds and two repairs at once.
@@ -344,16 +360,15 @@ test('OLD a book written before these rules still gets them', () => {
   const { world } = makeWorld({ localSystem: null });
   const book = C.createCampaignBook('old', 1); C.initializeCampaign(book, world);
   // Exactly what an fa7de12 save looks like on load: its own config, round-tripped through storage.
-  for (const key of ['maxLiveRecoveries', 'maxLiveMissions', 'maxOrders', 'maxCatchUpDays', 'foreignDesignShare']) delete book.config[key];
+  for (const key of ['maxLiveRecoveries', 'maxLiveMissions', 'maxOrders', 'maxQueuedOrders', 'maxCatchUpDays', 'foreignDesignShare']) delete book.config[key];
   const reloaded = JSON.parse(JSON.stringify(book));
   C.upgradeCampaignBook(reloaded);
-  for (const key of ['maxLiveRecoveries', 'maxLiveMissions', 'maxOrders', 'maxCatchUpDays', 'foreignDesignShare']) {
+  for (const key of ['maxLiveRecoveries', 'maxLiveMissions', 'maxOrders', 'maxQueuedOrders', 'maxCatchUpDays', 'foreignDesignShare']) {
     assert.equal(reloaded.config[key], C.CAMPAIGN_RULES[key], `${key} was lost on an older save`);
   }
   for (let i = 0; i < 200; i++) C.offerMission(reloaded, { key: `old${i}`, kind: 'relief', systemIndex: 0 }, 2);
   assert.ok(C.liveMissions(reloaded).length <= reloaded.config.maxLiveMissions, 'the mission bound did not survive the reload');
-  for (let i = 0; i < 100; i++) C.queueDistantOrder(reloaded, { systemIndex: 0, label: `o${i}` }, 2, false);
-  assert.ok(reloaded.orders.length <= reloaded.config.maxOrders, 'the order bound did not survive the reload');
+  orderBoundsHold(reloaded, 'o', 2, 'the order bound did not survive the reload');
   C.advanceCampaignDay(reloaded, world, 40);
   assert.equal(reloaded.settled, 40);
   assert.equal(reloaded.history.some((h) => h.kind === 'calendar'), false, 'a 39-day gap was recorded as unobserved instead of being stepped');
@@ -409,7 +424,7 @@ test('PARENT a real fa7de12 save gets the rules it predates, and they work', () 
   const book = JSON.parse(JSON.stringify(PARENT_BOOK));
   assert.equal(book.version, C.CAMPAIGN_VERSION, 'precondition: the parent save has the same schema version, so nothing rebuilds it');
   assert.equal(book.initialized, true, 'precondition: it is an initialized campaign, not a fresh book');
-  for (const key of ['maxLiveRecoveries', 'maxLiveMissions', 'maxOrders', 'maxCatchUpDays', 'foreignDesignShare']) {
+  for (const key of ['maxLiveRecoveries', 'maxLiveMissions', 'maxOrders', 'maxQueuedOrders', 'maxCatchUpDays', 'foreignDesignShare']) {
     assert.equal(book.config[key], undefined, `precondition: the parent save predates ${key}`);
   }
   C.upgradeCampaignBook(book);
@@ -424,8 +439,7 @@ test('PARENT a real fa7de12 save gets the rules it predates, and they work', () 
   // All four bounds.
   for (let i = 0; i < 200; i++) C.offerMission(book, { key: `parent-m${i}`, kind: 'relief', systemIndex: 0 }, book.settled);
   assert.ok(C.liveMissions(book).length <= book.config.maxLiveMissions, `${C.liveMissions(book).length} open missions`);
-  for (let i = 0; i < 100; i++) C.queueDistantOrder(book, { systemIndex: 0, label: `parent-o${i}` }, book.settled, false);
-  assert.ok(book.orders.length <= book.config.maxOrders, `${book.orders.length} queued orders`);
+  orderBoundsHold(book, 'parent-o', book.settled, 'the order bounds do not hold on a real parent save');
   for (let i = 0; i < 120; i++) { book.designs[`pd${i}`] = { sources: [`pst${i}`], lost: [], relocatedTo: null }; C.recordStationLoss(book, world, `pst${i}`, 0, book.settled); }
   const live = book.recoveries.filter((r) => r.status === 'available' || r.status === 'active');
   assert.ok(live.length <= book.config.maxLiveRecoveries, `${live.length} open recovery contracts`);

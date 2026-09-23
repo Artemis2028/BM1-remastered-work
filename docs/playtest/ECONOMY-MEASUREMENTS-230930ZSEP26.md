@@ -2,17 +2,18 @@
 
 DTG 221014ZSEP26 · against this candidate · **driven through the engine, not modelled**
 
-Review: *"One final cross-domain repair before §5 closes. … Do not change command domains, relay
-reach, §4, economy, passage routing, or automatic resume."*
+Review: *"Before starting §6, do one consolidated §5 interaction repair; do not change §4/economy or
+redesign passage movement."*
 
 Everything below is what the engine did. The script starts a campaign, learns thirty worlds, puts fleet
 traders to work and advances the calendar day by day, reading the same shelves, the same books of work
 and the same danger the captain would. `scripts/economy-measure.cjs`; the suite runs it to 1,200 days
 for time, and the tables here are the full 5,000-day pass.
 
-**What changed since the last tables:** nothing that the tables can see — Stop trading and the
-receipt of an order by a disabled ship do not touch the economy, the planner, the passage or the
-harness's one order. Every figure reads as it did on `ab7d775`, `895c6f5` and `31f40bc`.
+**What changed since the last tables:** nothing that the tables can see — the transit address, the
+order book's bounds, the dispatch refusal and the supersession rule do not touch the economy, the
+planner, the passage or the harness's one order (given to a ship standing idle, not in warp). Every
+figure reads as it did on `cf52b49`, `ab7d775`, `895c6f5` and `31f40bc`.
 
 ---
 
@@ -143,8 +144,8 @@ Shipments on the board (n / min / p25 / median / p75 / max): tonnage **136 / 1 /
 
 ### 1–5. Nothing moved
 
-Every table is identical to the `ab7d775`, `895c6f5` and `31f40bc` passes to the latinum, and every
-table above the last to the `e9be30b` pass: the same seeds, the same planner, the same economy, the same passage. §4 is closed and
+Every table is identical to the `cf52b49`, `ab7d775`, `895c6f5` and `31f40bc` passes to the latinum,
+and every table above the last to the `e9be30b` pass: the same seeds, the same planner, the same economy, the same passage. §4 is closed and
 this candidate does not touch it. The readings of those tables are in
 `ECONOMY-MEASUREMENTS-211624ZSEP26.md` and are not repeated.
 

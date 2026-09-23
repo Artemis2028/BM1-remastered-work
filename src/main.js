@@ -24904,11 +24904,10 @@ function advanceRecoveryMissions() {
 // ---- relays and distant orders ----
 function campaignRelayCoverage() { return Campaign.relayConnectivity(buildCampaignWorld(), 'player'); }
 function isSystemRelayConnected(systemIndex) { return campaignRelayCoverage().has(Number(systemIndex)) || Number(systemIndex) === Number(state.currentPlanet); }
-function acknowledgeCampaignOrders() {
-  const book = campaignBook();
-  // A queued command to a fleet ship is addressed to the ship, not to the system she was in when it
-  // was given: it is acknowledged wherever she actually is when a link reaches her, and executed
-  // against her state then. A ship that is lost drops what was queued for her. [playtest]
+// Every queued command follows its ship: re-addressed to where she can be reached now, and dropped if
+// she is lost. Run at acknowledgement and again once the day's movement is done, so the address the
+// book shows between days is the one a link would have to reach. [playtest]
+function readdressFleetCommands(book = campaignBook()) {
   book.orders = book.orders.filter((o) => {
     if (o.status !== 'queued' || o.order !== 'fleet') return true;
     const f = state.playerFleet.find((x) => x.id === o.fleetId);
@@ -24916,11 +24915,26 @@ function acknowledgeCampaignOrders() {
     o.systemIndex = fleetCommandSystem(f);
     return true;
   });
+}
+function acknowledgeCampaignOrders() {
+  const book = campaignBook();
+  // A queued command to a fleet ship is addressed to the ship, not to the system she was in when it
+  // was given: it is acknowledged wherever she actually is when a link reaches her, and executed
+  // against her state then. A ship that is lost drops what was queued for her. [playtest]
+  readdressFleetCommands(book);
   // The captain's own system is a link: an order to a ship standing where the captain is needs no
   // relay, which is the same rule `isSystemRelayConnected` applies when the order is given.
   const connected = new Set(campaignRelayCoverage());
   connected.add(Number(state.currentPlanet));
-  const acked = Campaign.acknowledgeQueuedOrders(book, state.day, connected);
+  // A ship still in warp is addressed to where her leg ends and receives nothing until she is there,
+  // however well that system is connected. The calendar runs this after the day's arrivals, so a ship
+  // that reached the end of her leg today is standing there.
+  const receivable = (o) => {
+    if (o.order !== 'fleet') return true;
+    const f = state.playerFleet.find((x) => x.id === o.fleetId);
+    return !fleetCommandInWarp(f);
+  };
+  const acked = Campaign.acknowledgeQueuedOrders(book, state.day, connected, receivable);
   for (const o of acked) {
     if (o.order === 'dispatch') dispatchFleetFormation(o.formationId, { fromRelay: true });
     if (o.order === 'fleet') {
@@ -25748,7 +25762,7 @@ function renderFleetManager(open = false) {
         ? btn('recall', 'Recall to captain', f.id) + btn('rendezvous', 'Change rendezvous', f.id) + btn('cancel-passage', 'Cancel', f.id)
         : btn('recall', 'Recall to captain', f.id) + btn('rendezvous', 'Rendezvous at system', f.id)}
       <p>${escapeHtml(fleetTradeStatusLine(f) || 'Not trading')}</p>
-      ${(() => { const q = queuedFleetCommands(f); return q.length ? `<p>Queued: ${q.map((o) => `${escapeHtml(fleetCommandLabel(o))} (day ${o.queuedDay})`).join(' · ')} · no relay link to ${escapeHtml(state.planets[q[0].systemIndex]?.name || '?')}</p>` : ''; })()}
+      ${(() => { const q = queuedFleetCommands(f); return q.length ? `<p>Queued: ${q.map((o) => `${escapeHtml(fleetCommandLabel(o))} (day ${o.queuedDay})`).join(' · ')} · ${fleetCommandInWarp(f) ? 'in warp to' : 'no relay link to'} ${escapeHtml(state.planets[fleetCommandSystem(f)]?.name || '?')}</p>` : ''; })()}
       <p>Hold ${trade ? fleetTradeLoad(trade) : 0}/${fleetTradeCapacity(f)} t${trade?.paid ? ` · paid ${trade.paid} L for cargo` : ''}</p>
       ${trade?.manifest?.length ? `<p>Manifest: ${escapeHtml(fleetTradeManifestLine(trade))}</p>` : ''}
       ${trade?.stops?.length ? `<p>Calls: ${escapeHtml(trade.stops.map((i) => state.planets[i]?.name || '?').join(' → '))} · circuit ends day ${trade.etaDay}</p>` : ''}
@@ -26182,12 +26196,16 @@ function dispatchFleetFormation(id, { fromRelay = false } = {}) {
   // A member on a trade circuit or a passage is somewhere in particular on a route of her own, leg by
   // leg; a dispatch that put her in one jump to the formation's destination left her circuit still
   // pointing at systems she was no longer in. She is stopped, recalled or held first. [playtest]
+  // An unresolved movement order counts too: one pending on a ship not yet under way — repaired where
+  // she was stopped and not yet departed, or received while disabled — is still hers, and a dispatch
+  // would move her in one jump away from the system it is to be flown from. [playtest]
   const underWay = members.filter((f) => {
     const t = fleetTradeState(f);
-    return t && (t.stage === 'outbound' || t.stage === 'passage' || (t.active && f.transit));
+    return t && (t.stage === 'outbound' || t.stage === 'passage' || (t.active && f.transit)
+      || Boolean(t.order && t.order.arrivedDay == null));
   });
   if (underWay.length) {
-    setLog(`${underWay.map((f) => f.name).join(', ')} ${underWay.length === 1 ? 'is' : 'are'} under way on ${underWay.length === 1 ? 'her' : 'their'} own route; stop, hold or recall ${underWay.length === 1 ? 'her' : 'them'} before dispatching ${g.name}.`);
+    setLog(`${underWay.map((f) => f.name).join(', ')} ${underWay.length === 1 ? 'is' : 'are'} under way on ${underWay.length === 1 ? 'her' : 'their'} own route or under orders; stop or cancel before dispatching ${g.name}.`);
     return false;
   }
   // Relays are command links: an order to ships in another system needs a relay link to reach them.
@@ -26196,8 +26214,9 @@ function dispatchFleetFormation(id, { fromRelay = false } = {}) {
   if (distant.length && !fromRelay) {
     const book = campaign();
     if (!book.orders.some((o) => o.status === 'queued' && o.formationId === id)) {
-      Campaign.queueDistantOrder(book, { order: 'dispatch', formationId: id, systemIndex: distant[0], destination: g.destination, label: g.name }, state.day, false);
-      setLog(`No relay link to ${state.planets[distant[0]]?.name}: the dispatch order for ${g.name} is queued and will be acknowledged when a link exists.`);
+      const queued = Campaign.queueDistantOrder(book, { order: 'dispatch', formationId: id, systemIndex: distant[0], destination: g.destination, label: g.name }, state.day, false);
+      if (!queued) setLog(`${g.name}: dispatch refused — the relay queue is full.`);
+      else setLog(`No relay link to ${state.planets[distant[0]]?.name}: the dispatch order for ${g.name} is queued and will be acknowledged when a link exists.`);
     } else setLog(`${g.name}: dispatch order already queued, awaiting a relay link.`);
     return false;
   }
@@ -27129,6 +27148,8 @@ function advanceFleetTrading(day = state.day) {
     }
     beginFleetTradeCircuit(f, t, run.plan, day);
   }
+  // The day's movement may have put a ship in warp or set her down: queued commands follow her.
+  if (campaignBook().orders.some((o) => o.status === 'queued' && o.order === 'fleet')) readdressFleetCommands();
 }
 // Fleet ids carry colons, so the risk control is found by reading the selects rather than by building
 // an attribute selector out of one.
@@ -27244,14 +27265,14 @@ function setFleetTradeRisk(id, risk) {
 }
 
 // ---------- fleet command delivery ----------
-// Relays are command links, and an order to a fleet ship in another system has to reach her, as a
-// formation dispatch has to. Same system: immediate. Remote and relay-connected: immediate. Otherwise
-// the command is queued in the campaign book beside the formation orders and acknowledged when a link
-// exists or the captain is with her — against her actual position and state on that day. A newer
-// command to a ship with one still untransmitted replaces it; a ship that is lost drops hers. Start,
-// Stop and the danger setting go the same way: they bypassed the relay rule before, which was an
-// older inconsistency and not a reason for recall and rendezvous to bypass it too. This is the only
-// way an order is given; the functions it executes are what an acknowledged order does. [playtest]
+// Relays are command links, and every order to a fleet ship — recall, rendezvous, cancel, start and
+// stop trading, the danger setting — has to reach her, as a formation dispatch has to. A ship standing
+// in the captain's system, or in one a relay connects, receives it at once. A ship in warp receives
+// nothing until her leg ends: an order to her is addressed to the system where it ends, which is where
+// a mid-leg order takes effect anyway. Anything that cannot be received now is queued in the campaign
+// book beside the formation orders and acknowledged when a link reaches the ship's address — against
+// her position and state on that day. A ship that is lost drops what was queued for her. This is the
+// only way an order is given; the functions it executes are what a received order does. [playtest]
 const FLEET_COMMANDS = Object.freeze(['recall', 'rendezvous', 'cancel', 'trade-start', 'trade-stop', 'trade-risk']);
 // Commands are in domains, and a newer untransmitted command supersedes only an older one in its own
 // domain: a change of her danger setting does not delete a queued recall, and a recall does not delete
@@ -27265,12 +27286,30 @@ const FLEET_COMMAND_DOMAINS = Object.freeze({
 function fleetCommandDomain(command) {
   return FLEET_COMMAND_DOMAINS[command && command.command] || null;
 }
+// Where an order to her is received: the system she stands in, or — in warp — the system where the
+// leg she is flying ends. Her departure system is not her address once she has left it: a captain who
+// stays behind there has no line to a ship already in warp. [playtest]
+function fleetCommandInWarp(f) {
+  return Boolean(f && f.transit && Number.isFinite(Number(f.transit.to)));
+}
 function fleetCommandSystem(f) {
-  return fleetShipSystem(f);
+  return fleetCommandInWarp(f) ? Number(f.transit.to) : fleetShipSystem(f);
 }
 function fleetCommandReachable(f) {
+  if (fleetCommandInWarp(f)) return false;
   const here = fleetCommandSystem(f);
   return here === Number(state.currentPlanet) || isSystemRelayConnected(here);
+}
+// What can be known about a command before it reaches her: that it names a system on the chart, and
+// that a start is to a ship with a hold. A command that fails this never displaces one already queued.
+function fleetCommandValidity(f, order) {
+  if (order.command === 'recall' || order.command === 'rendezvous') {
+    const dest = Number(order.destination);
+    if (!Number.isFinite(dest) || !state.planets[dest]) return 'there is no such system';
+    if (!isChartSystemVisible(dest)) return `${state.planets[dest]?.name || 'that system'} is not on the chart; there is no route to plot`;
+  }
+  if (order.command === 'trade-start' && fleetTradeCapacity(f) < 1) return 'she has no cargo hold';
+  return null;
 }
 // Every command still waiting for a link to her, oldest first — the order they will be delivered in.
 function queuedFleetCommands(f, domain = null) {
@@ -27309,17 +27348,40 @@ function sendFleetCommand(id, command, { fromRelay = false } = {}) {
   const order = { command: command.command };
   if (command.destination !== undefined) order.destination = Number(command.destination);
   if (command.risk !== undefined) order.risk = normalizeTradeRisk(command.risk);
+  const invalid = fleetCommandValidity(f, order);
+  if (invalid) {
+    setLog(`${f.name}: ${fleetCommandLabel(order).toLowerCase()} refused — ${invalid}.`);
+    return false;
+  }
   const book = campaign();
   const domain = fleetCommandDomain(order);
-  // The newer command in a domain is the one that stands. A stale one still queued from before a link
-  // existed is dropped before the new one is executed, so the next day's acknowledgement cannot fire
-  // it over the order the captain just gave.
+  // The newer command in a domain is the one that stands, once it is known to stand. An older one still
+  // queued is removed only when the new one has been accepted — executed, or taken into the queue — so a
+  // replacement that is refused leaves the older command authoritative, and a replacement executed at
+  // once removes it before the next day's acknowledgement could fire it over the captain's new order.
   const stale = queuedFleetCommands(f, domain);
-  if (stale.length) book.orders = book.orders.filter((o) => !stale.includes(o));
-  if (fromRelay || fleetCommandReachable(f)) return executeFleetCommand(f, order);
+  const drop = () => { if (stale.length) book.orders = book.orders.filter((o) => !stale.includes(o)); };
+  if (fromRelay || fleetCommandReachable(f)) {
+    const executed = Boolean(executeFleetCommand(f, order));
+    // A cancel with nothing yet on her still cancels what was queued for her, and a Stop to a ship that
+    // has never traded still stands — she is not trading — over a Start still queued for her.
+    const accepted = executed || (order.command === 'cancel' && stale.length > 0)
+      || (order.command === 'trade-stop' && !fleetTradeState(f)?.active);
+    if (accepted) drop();
+    if (!executed && accepted) setLog(`${f.name}: ${stale.map((o) => fleetCommandLabel(o).toLowerCase()).join(', ')} withdrawn.`);
+    return accepted;
+  }
   const here = fleetCommandSystem(f);
+  // Freeing the stale command's place first means a replacement can never be refused for room.
+  const room = stale.length > 0 || Campaign.queuedOrderCount(book) < Number(book.config?.maxQueuedOrders ?? Infinity);
+  if (!room) {
+    setLog(`${f.name}: ${fleetCommandLabel(order).toLowerCase()} refused — the relay queue is full.`);
+    return false;
+  }
+  drop();
   Campaign.queueDistantOrder(book, { order: 'fleet', fleetId: f.id, systemIndex: here, label: f.name, ...order }, state.day, false);
-  setLog(`No relay link to ${state.planets[here]?.name || 'her position'}: ${fleetCommandLabel(order).toLowerCase()} for ${f.name} is queued${stale.length ? ` in place of ${stale.map((o) => fleetCommandLabel(o).toLowerCase()).join(', ')}` : ''} and will be acknowledged when a link exists.`);
+  const where = fleetCommandInWarp(f) ? `${f.name} is in warp to ${state.planets[here]?.name || 'the end of her leg'}` : `No relay link to ${state.planets[here]?.name || 'her position'}`;
+  setLog(`${where}: ${fleetCommandLabel(order).toLowerCase()} for ${f.name} is queued${stale.length ? ` in place of ${stale.map((o) => fleetCommandLabel(o).toLowerCase()).join(', ')}` : ''} and will be acknowledged when a link reaches her.`);
   return false;
 }
 
@@ -27331,10 +27393,7 @@ function sendFleetCommand(id, command, { fromRelay = false } = {}) {
 // what is in her hold, and flies the plotted route leg by leg — through the same crossings, rolled
 // against the same truth, filing the same conditions records — as a trading run does. The danger
 // setting is not consulted: the order is the captain's, and the captain can read what the route
-// crosses before giving it. The order reaches her the way every trade order does — start, stop and
-// the danger setting need no relay link, and neither does this. The formation dispatch's relay rule is
-// not applied here: a change of rendezvous given to a ship crossing unreported space would otherwise
-// wait until she came back into reach, and a ship out of reach is the case this exists for. [playtest]
+// crosses before giving it. How the order reaches her is fleet command delivery, above. [playtest]
 const FLEET_PASSAGE_KINDS = Object.freeze(['recall', 'rendezvous', 'hold']);
 function normalizeFleetPassageOrder(order) {
   if (!order || typeof order !== 'object') return null;
@@ -27410,10 +27469,14 @@ function orderFleetPassage(id, to, kind = 'rendezvous') {
   const wasActive = t.order ? Boolean(t.order.wasActive) : Boolean(t.active);
   t.order = { kind, to: dest, from: here, day: Number(state.day), pending: true, wasActive, arrivedDay: null };
   t.active = false;
-  if (f.transit) {
-    // She is between systems and cannot turn round in warp; the order takes effect where the leg
-    // ends, and a changed rendezvous is replotted from there.
-    setLog(`${f.name} acknowledges ${label}; ${t.stage === 'passage' ? 'she replots' : 'she will break off'} at ${state.planets[f.transit.to]?.name} on day ${f.transit.arrivalDay}.`);
+  // She is between systems and cannot turn round in warp; the order takes effect where the leg ends,
+  // and a changed rendezvous is replotted from there. The same holds on the day the leg ends, before
+  // the system she has reached is crossed: an order received on arrival — a queued one, now that
+  // orders to a ship in warp wait for her there — is flown after that crossing is observed and
+  // rolled and any call there is made, not instead of it. [playtest]
+  const legEnd = f.transit ? Number(f.transit.to) : (t.stage === 'outbound' || t.stage === 'passage') ? Number(t.path[t.legIndex]) : null;
+  if (legEnd !== null && Number.isFinite(legEnd)) {
+    setLog(`${f.name} acknowledges ${label}; ${t.stage === 'passage' ? 'she replots' : 'she will break off'} at ${state.planets[legEnd]?.name}${f.transit ? ` on day ${f.transit.arrivalDay}` : ''}.`);
     return true;
   }
   return beginFleetTradePassage(f, t, from, Number(state.day));
@@ -27433,13 +27496,16 @@ function cancelFleetPassage(id) {
   const f = state.playerFleet.find((x) => x.id === id && !x.destroyed);
   const t = f && fleetTradeState(f);
   if (!t || !t.order) return false;
-  if (t.stage === 'passage' && f.transit) {
-    t.order = { ...t.order, to: Number(f.transit.to), kind: 'hold', pending: false };
-    t.destination = Number(f.transit.to);
+  // Under way — in warp, or at the end of a leg not yet crossed — the passage ends where that leg ends.
+  const legEnd = t.stage === 'passage' ? (f.transit ? Number(f.transit.to) : Number(t.path[t.legIndex])) : null;
+  if (legEnd !== null && Number.isFinite(legEnd)) {
+    const day = f.transit ? f.transit.arrivalDay : Number(state.day);
+    t.order = { ...t.order, to: legEnd, kind: 'hold', pending: false };
+    t.destination = legEnd;
     t.path = t.path.slice(0, t.legIndex + 1);
     t.legDays = t.legDays.slice(0, t.legIndex + 1);
-    t.etaDay = f.transit.arrivalDay;
-    setLog(`${f.name} will hold at ${state.planets[f.transit.to]?.name} on day ${f.transit.arrivalDay}.`);
+    t.etaDay = day;
+    setLog(`${f.name} will hold at ${state.planets[legEnd]?.name} on day ${day}.`);
     return true;
   }
   const wasActive = Boolean(t.order.wasActive);

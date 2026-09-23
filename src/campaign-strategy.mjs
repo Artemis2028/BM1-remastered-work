@@ -133,7 +133,8 @@ export const CAMPAIGN_RULES = Object.freeze({
   maxHullsPerPolity: 120,          // standing hulls, not hulls ever built: losses free capacity
   maxLiveRecoveries: 40,           // open recovery contracts; the bound is enforced at creation, not by deleting offers
   maxLiveMissions: 60,             // open (offered or active) contracts; likewise enforced at creation
-  maxOrders: 40,
+  maxOrders: 40,                   // acknowledged order history kept; an order still queued is never evicted
+  maxQueuedOrders: 500,            // orders waiting for a link: beyond this a NEW one is refused, never an old one dropped
   // A power can exist without ruling anything: an isolated garrison holding an outpost in somebody
   // else's sky. It has no worlds, so the opening pass that builds forces from controlled worlds gives
   // it nothing; these are its authored hulls and where they stand. It rules no ground, so the world
@@ -1572,16 +1573,41 @@ export function relayConnectivity(world, polityId) {
   for (const hub of sector) for (const n of world.neighbours(hub)) connected.add(n);
   return connected;
 }
+// The order book is two things with two bounds. Orders already acknowledged are history, and only the
+// newest `maxOrders` of them are kept. An order still waiting for a link is a live command: it is never
+// evicted to make room, however many newer orders are created — the book used to be cut to its newest
+// forty entries whatever their status, so a queued recall could vanish because forty newer orders were
+// written after it. Waiting orders are bounded by refusing a new one beyond `maxQueuedOrders`, never by
+// dropping an old one; in play they are bounded long before that, one per ship per kind of order and
+// one per formation. [playtest]
+function trimOrderHistory(book) {
+  const cap = Math.max(0, Number(book.config?.maxOrders ?? CAMPAIGN_RULES.maxOrders) || 0);
+  const history = book.orders.filter((o) => o.status !== 'queued');
+  if (history.length <= cap) return;
+  const drop = new Set(history.slice(0, history.length - cap));
+  book.orders = book.orders.filter((o) => !drop.has(o));
+}
+export function queuedOrderCount(book) {
+  return book.orders.filter((o) => o.status === 'queued').length;
+}
 export function queueDistantOrder(book, order, day, connected) {
+  if (!connected && queuedOrderCount(book) >= Number(book.config?.maxQueuedOrders ?? CAMPAIGN_RULES.maxQueuedOrders)) return null;
   const o = { id: nextCampaignId(book, 'order'), ...order, queuedDay: day, acknowledgedDay: null, status: 'queued' };
   if (connected) { o.status = 'acknowledged'; o.acknowledgedDay = day; }
   book.orders.push(o);
-  if (book.orders.length > book.config.maxOrders) book.orders = book.orders.slice(-book.config.maxOrders);
+  trimOrderHistory(book);
   return o;
 }
-export function acknowledgeQueuedOrders(book, day, connectedSystems) {
+// `deliverable(order)`, when given, can hold back an order whose system is connected: a command to a
+// ship in warp is addressed to where her leg ends and is not received until she is there. [playtest]
+export function acknowledgeQueuedOrders(book, day, connectedSystems, deliverable = null) {
   const acked = [];
-  for (const o of book.orders) if (o.status === 'queued' && connectedSystems.has(Number(o.systemIndex))) { o.status = 'acknowledged'; o.acknowledgedDay = day; acked.push(o); }
+  for (const o of book.orders) {
+    if (o.status !== 'queued' || !connectedSystems.has(Number(o.systemIndex))) continue;
+    if (deliverable && !deliverable(o)) continue;
+    o.status = 'acknowledged'; o.acknowledgedDay = day; acked.push(o);
+  }
+  if (acked.length) trimOrderHistory(book);
   return acked;
 }
 

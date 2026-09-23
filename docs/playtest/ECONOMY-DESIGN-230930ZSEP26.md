@@ -1,11 +1,12 @@
 # Finite commodity and cargo economy — design
 
-DTG 221332ZSEP26 · supersedes `ECONOMY-DESIGN-221153ZSEP26.md` · **built**
+DTG 230930ZSEP26 · supersedes `ECONOMY-DESIGN-221332ZSEP26.md` · **built**
 
-Changed in this revision: **§H, two cross-domain rules** — Stop trading controls autonomous trading
-only and leaves a movement order whole, and an order received by a ship that cannot fly is hers,
-unresolved, and resumes after repair. Nothing else in §H moves, and nothing in the economy: A–G are as
-`ab7d775` left them, §4 is closed, and §5 closes on this revision.
+Changed in this revision: **§H, four delivery interactions** — a ship in warp is addressed to where her
+leg ends and receives nothing until she is there; an order waiting for a link is never evicted from the
+order book; a formation dispatch refuses a ship with an unresolved movement order; and a replacement
+command removes the older queued one only once it is accepted. Nothing in the economy: A–G are as
+`cf52b49` left them, and §4 is closed.
 
 Unchanged and still in force: the four danger settings as review approved them (§F), judged from the
 flag the captain knows and never the live truth; the time-aware planner (§G); the payout, a route and
@@ -344,7 +345,23 @@ one of its domain still queued before it executes. A ship that is lost drops her
 controls autonomous trading only: a ship under a movement order keeps it, with its stage, transit
 and ETA, and only trading is off. An order that reaches a ship that cannot fly — queued and finally
 delivered, or given to her where she lies — has been received: it is hers, unresolved, and resumes
-from her system after repair under the rule above. An unresolved order on a ship that was
+from her system after repair under the rule above.
+
+**Where an order reaches her.** A ship standing in a system is addressed there. A ship in warp is
+addressed to the system where the leg she is flying ends — where a mid-leg order takes effect — and
+receives nothing until she is there, however well that system is connected; a captain who stays behind
+at the system she left has no line to her. Received on the day her leg ends, an order is flown after
+the crossing of that system, not instead of it.
+
+**The queue keeps what it holds.** An order waiting for a link is never evicted to make room; only
+acknowledged history is bounded (the newest forty). A new waiting order beyond five hundred is refused
+rather than an old one dropped; in play the queue is bounded long before that, one per ship per kind of
+order and one per formation. A replacement removes the older command of its kind only once it is
+accepted — executed, standing (a Cancel over a queued recall, a Stop to a ship not trading), or taken
+into the queue; a command that fails validation displaces nothing.
+
+**A formation dispatch** refuses any member with an unresolved movement order, including one pending on
+a ship repaired where she was stopped and not yet departed. An unresolved order on a ship that was
 stopped remains authoritative until completed or cancelled, and resumes on its own once she can fly.
 
 **Recorded, not done:** the formation dispatch still moves a held fleet in one jump of
@@ -377,12 +394,17 @@ stopped remains authoritative until completed or cancelled, and resumes on its o
 | `COMMAND-OVERTAKE` | a stale queued recall firing on the next tick over a rendezvous given the moment a link returned |
 | `COMMAND-CROSS-DOMAIN` | a Stop trading delivered with a recall turning the passage into holding under a live transit and order, in either order of delivery, or putting her back to trading on arrival |
 | `COMMAND-DISABLED-RECEIPT` | a queued recall that reaches a disabled ship being refused and lost, or moving her, or not flying from her system after repair |
+| `COMMAND-IN-TRANSIT` | a captain at the system a ship has just left changing her orders in warp at once; an order reaching her in warp before her leg ends; an order received on arrival skipping the crossing there |
+| `COMMAND-RETENTION` | a queued recall evicted from the order book by newer orders; acknowledged history growing without bound |
+| `PASSAGE-FORMATION-PENDING` | a formation dispatch moving a repaired ship whose recall or rendezvous is pending and not yet flown |
+| `COMMAND-FAILED-SUPERSESSION` | a refused replacement taking the older queued command with it; a Stop to a ship not trading failing to stand over a queued Start |
+| `COMMAND-QUEUE-SAVE` | commands waiting in several domains changed by a save, or delivered differently after it (coverage) |
 | `CIRCUIT-FULL-OF-SHIPMENT` | a trader whose hold is full of a shipment still to be delivered repositioning to sell it instead of flying it |
 | `CIRCUIT-IDLE` | a trader left standing at a world that will deal with her and has nothing for her to do |
 | `CIRCUIT-FULL-HOLD` | a trader stopped for good by a hold full of cargo nobody nearby is buying |
 | `JOB-FEE` | a shipment costing twice as much for twice the load, so the voyage is charged again on every ton |
 
-Thirty-five checks are in the suite, covering those eight plus the circuit behaviour review asked for: two
+Forty checks are in the suite, covering those eight plus the circuit behaviour review asked for: two
 traders cannot take the same tons or the same shipment; cargo stays addressed and comes off only at its
 own call; freed hold goes back to work later in the circuit; and a reload resumes the route, the leg,
 the manifest, the shelves and the books of work exactly. Intermediate danger and a stopped trader never
