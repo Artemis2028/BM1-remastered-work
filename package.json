@@ -49,7 +49,9 @@
     "test:campaign:ingame": "node scripts/campaign-probe.cjs",
     "test:campaign:balance": "node scripts/campaign-balance-run.cjs",
     "test:campaign:blockers": "node scripts/campaign-blocker-gate.mjs",
-    "test:campaign:blockers:ingame": "node scripts/campaign-blocker-probe.cjs"
+    "test:campaign:blockers:ingame": "node scripts/campaign-blocker-probe.cjs",
+    "test:playtest:gate": "node scripts/playtest-gate.cjs",
+    "test:fleet-state-ui": "node scripts/fleet-state-ui-gate.cjs"
   },
   "license": "SEE LICENSE IN LICENSE.md",
   "devDependencies": {

@@ -1256,6 +1256,22 @@ function applyFactionUiTheme() {
   document.body.dataset.uiFaction = theme;
 }
 
+// The chart is text-heavy, so its canvas is backed at the display's real pixel density: on a laptop at
+// 150–200% scaling a canvas sized in CSS pixels is upscaled by the browser and every label goes soft.
+// Everything is still drawn in CSS-pixel coordinates (the same ones the game canvas and the pointer
+// handlers use); drawInterstellarMapOverlay applies the density as a transform.
+function interstellarMapPixelRatio() {
+  const dpr = Number(window.devicePixelRatio) || 1;
+  return clamp(dpr, 1, 3);
+}
+function syncInterstellarMapResolution() {
+  if (!interstellarMapCanvas) return 1;
+  const ratio = interstellarMapPixelRatio();
+  const w = Math.round(canvas.width * ratio), h = Math.round(canvas.height * ratio);
+  if (interstellarMapCanvas.width !== w) interstellarMapCanvas.width = w;
+  if (interstellarMapCanvas.height !== h) interstellarMapCanvas.height = h;
+  return ratio;
+}
 function resizeCanvasDisplay() {
   canvas.style.width = '100vw';
   canvas.style.height = '100vh';
@@ -1264,8 +1280,7 @@ function resizeCanvasDisplay() {
   if (interstellarMapCanvas) {
     interstellarMapCanvas.style.width = '100vw';
     interstellarMapCanvas.style.height = '100vh';
-    interstellarMapCanvas.width = canvas.width;
-    interstellarMapCanvas.height = canvas.height;
+    syncInterstellarMapResolution();
   }
   state.ship.x = canvas.width * 0.5;
   state.ship.y = canvas.height * 0.5;
@@ -8527,8 +8542,7 @@ function renderOpenContractsPanel() {
   }
   const rows = contracts.map((contract) => `<div class="contract-cardline">
     <div class="contract-route">${escapeHtml(contract.originName)} → ${escapeHtml(chartSystemLabel(getContractTargetIndex(contract)))}</div>
-    <div class="meta">World drop-off within ${WORLD_CARGO_DROPOFF_RANGE} units. Delivery is automatic after clearance, or while cloaked.</div>
-    ${getContractTargetIndex(contract) === state.currentPlanet ? '<button data-cargo-drop>Deliver cargo at this world</button>' : ''}
+    ${getContractTargetIndex(contract) === state.currentPlanet ? '<button data-cargo-drop>Beam cargo down</button>' : ''}
     <div class="contract-load">${escapeHtml(contract.tons)}t ${escapeHtml(contract.goods)} | ${escapeHtml(getContractTotal(contract))}L</div><button data-contract-marker="${escapeHtml(contract.id)}" aria-pressed="${contract.showMarker}">${contract.showMarker ? 'Hide' : 'Show'} destination marker</button>
   </div>`).join('');
   return `<div class="contracts"><div class="panel-head">Contracts</div>${rows}</div>`;
@@ -9038,7 +9052,17 @@ function chartSystemLabel(index) {
     : 'Uncharted system';
 }
 document.addEventListener('click', (e) => {
-  if (e.target.closest('[data-cargo-drop]')) { deliverDestinationCargoAtCurrentPlanet({manual:true}); return; }
+  if (e.target.closest('[data-cargo-drop]')) { deliverDestinationCargoAtCurrentPlanet({manual:true}); if (state.topLeftPanelOpen) renderTopLeftPanel(); return; }
+  if (e.target.closest('[data-cargo-beam]')) { beamDownBlockedCargo(); if (state.topLeftPanelOpen) renderTopLeftPanel(); return; }
+  const dump = e.target.closest('[data-cargo-dump]');
+  if (dump) { dumpCargoPod(Number(dump.dataset.cargoDump)); return; }
+  const abandon = e.target.closest('[data-contract-abandon]');
+  if (abandon) {
+    const key = `contract:${abandon.dataset.contractAbandon}`;
+    if (state.cargoDumpArmed !== key) { state.cargoDumpArmed = key; setLog('Dumping this cargo fails the shipment: no pay, and the employer remembers. Click again to confirm.'); renderTopLeftPanel(); }
+    else abandonCargoContract(abandon.dataset.contractAbandon);
+    return;
+  }
   const button = e.target.closest('[data-contract-marker]');
   if (!button) return;
   const contract = getOpenContracts().find((c) => c.id === button.dataset.contractMarker);
@@ -9582,34 +9606,58 @@ function isPersonalGalaxyReport(report) {
 function visibleGalaxyReports() {
   return galaxyNewsBook().items.filter(r=>r.systemIndex==null || isReportSystemKnown(r.systemIndex));
 }
+// The jump briefing's Campaign section is the Dominion story and nothing else. Like the captain's own
+// affairs it is uncapped — there are only a handful of these in a whole game — and it is taken out of
+// the other two lists first, so a Dominion report is never shown twice or crowded out by border news.
 function selectJumpBriefingReports() {
   const book = galaxyNewsBook();
   if (!state.warp.briefingReports) {
     const unread = visibleGalaxyReports().filter(r=>!book.readIds.includes(r.id)).reverse();
+    const rest = unread.filter(r=>!isDominionCampaignReport(r));
     state.warp.briefingReports = {
-      personal:unread.filter(isPersonalGalaxyReport).map(r=>r.id),
-      galaxy:unread.filter(r=>!isPersonalGalaxyReport(r)).slice(0,JUMP_BACKGROUND_REPORT_LIMIT).map(r=>r.id),
+      campaign:unread.filter(isDominionCampaignReport).map(r=>r.id),
+      personal:rest.filter(isPersonalGalaxyReport).map(r=>r.id),
+      galaxy:rest.filter(r=>!isPersonalGalaxyReport(r)).slice(0,JUMP_BACKGROUND_REPORT_LIMIT).map(r=>r.id),
     };
   }
   const visible = visibleGalaxyReports();
   const resolve = ids=>(ids || []).map(id=>visible.find(r=>r.id===id)).filter(Boolean);
-  return {personal:resolve(state.warp.briefingReports.personal),galaxy:resolve(state.warp.briefingReports.galaxy).slice(0,JUMP_BACKGROUND_REPORT_LIMIT)};
+  return {campaign:resolve(state.warp.briefingReports.campaign),personal:resolve(state.warp.briefingReports.personal),galaxy:resolve(state.warp.briefingReports.galaxy).slice(0,JUMP_BACKGROUND_REPORT_LIMIT)};
 }
+// A Dominion report is one about the expedition: its warnings, its convoys, or an account that names the
+// Dominion as the power involved. What decides it is what the report itself says — an account that blames
+// someone else for a Dominion attack is filed where its claim puts it, as the captain would file it.
+function isDominionCampaignReport(report) {
+  const id = String(report?.id || '');
+  if (id.startsWith('dominion:') || id.startsWith('convoy:')) return true;
+  if ((report?.category || '') !== CAMPAIGN_REPORT_KIND) return false;
+  return report.claimedAttacker === 'dominion' || (report.factions || []).includes('dominion');
+}
+// The old single Campaign folder held every strategic event. It is now split by what the event is about.
+const CAMPAIGN_CONTRACT_REPORT_PREFIXES = Object.freeze(['recovery:', 'recovery-reopen:', 'recovered:', 'mission-done:']);
 function galaxyReportCategory(report) {
-  return report.category || (report.id.startsWith('diplomacy:')?'diplomacy':report.id.startsWith('intel:')?'intel':'combat');
+  const category = report.category || (report.id.startsWith('diplomacy:')?'diplomacy':report.id.startsWith('intel:')?'intel':'combat');
+  if (category !== CAMPAIGN_REPORT_KIND) return category;
+  if (isDominionCampaignReport(report)) return 'campaign';
+  const id = String(report.id || '');
+  if (id.startsWith('fleet-losses:')) return 'combat';
+  if (CAMPAIGN_CONTRACT_REPORT_PREFIXES.some((p)=>id.startsWith(p))) return 'contracts';
+  return 'fronts';
 }
+const GALAXY_REPORT_FOLDERS = Object.freeze([['personal',"Captain's log"],['campaign','Campaign report'],['fronts','Wars & fronts'],['combat','Battles & losses'],['diplomacy','Diplomacy'],['intel','Field reports'],['contracts','Contracts & yards'],['all','All reports']]);
 function renderGalaxyReports() {
   const book = galaxyNewsBook();
   const all = visibleGalaxyReports().slice().reverse();
   const transit = state.warp.active && state.warp.briefingOpen;
-  const folders = [['personal','Your affairs'],['diplomacy','Diplomacy'],['combat','Battles & losses'],['campaign','Campaign'],['intel','Field reports'],['all','All reports']];
+  const folders = GALAXY_REPORT_FOLDERS;
   const inFolder = (r,folder)=>folder==='all' || (folder==='personal'?isPersonalGalaxyReport(r):galaxyReportCategory(r)===folder);
-  const cards = rows=>rows.map(r=>`<article class="galaxy-report" data-report-id="${escapeHtml(r.id)}"><div class="meta">Day ${r.day} · ${escapeHtml(r.confidence)}</div><h3>${escapeHtml(r.kind)}</h3><p>${escapeHtml(r.text)}</p></article>`).join('');
+  const folderLabel = Object.fromEntries(folders);
+  const cards = rows=>rows.map(r=>`<article class="galaxy-report" data-report-id="${escapeHtml(r.id)}" data-report-category="${escapeHtml(galaxyReportCategory(r))}"><div class="meta">Day ${r.day} · ${escapeHtml(folderLabel[galaxyReportCategory(r)] || '')}${folderLabel[galaxyReportCategory(r)] ? ' · ' : ''}${escapeHtml(r.confidence)}</div><h3>${escapeHtml(r.kind)}</h3><p>${escapeHtml(r.text)}</p></article>`).join('');
   let rows = [],content;
   if (transit && reportFolder==='briefing') {
     const selected = selectJumpBriefingReports();
-    rows = [...selected.personal,...selected.galaxy];
-    content = `<details class="report-section" open><summary>Your affairs (${selected.personal.length})</summary><div class="report-list" data-report-personal>${cards(selected.personal) || '<p>No new reports involving you.</p>'}</div></details><details class="report-section" open><summary>Wider galaxy (${selected.galaxy.length} / ${JUMP_BACKGROUND_REPORT_LIMIT})</summary><div class="report-list" data-report-background>${cards(selected.galaxy) || '<p>No new background reports received.</p>'}</div></details>`;
+    rows = [...selected.campaign,...selected.personal,...selected.galaxy];
+    content = `${selected.campaign.length ? `<details class="report-section report-section-campaign" open><summary>Campaign report (${selected.campaign.length})</summary><div class="report-list" data-report-campaign>${cards(selected.campaign)}</div></details>` : ''}<details class="report-section" open><summary>Captain's log (${selected.personal.length})</summary><div class="report-list" data-report-personal>${cards(selected.personal) || '<p>No new reports involving you.</p>'}</div></details><details class="report-section" open><summary>Subspace news (${selected.galaxy.length} / ${JUMP_BACKGROUND_REPORT_LIMIT})</summary><div class="report-list" data-report-background>${cards(selected.galaxy) || '<p>No new background reports received.</p>'}</div></details>`;
   } else {
     const filtered = all.filter(r=>inFolder(r,reportFolder));
     reportPage = Math.min(reportPage,Math.max(0,Math.ceil(filtered.length/6)-1));
@@ -9617,7 +9665,7 @@ function renderGalaxyReports() {
     content = `<div class="report-list">${cards(rows) || '<p>No reports in this folder.</p>'}</div><div class="report-pages"><button data-report-page="-1" ${reportPage===0?'disabled':''}>Previous</button><span>Page ${reportPage+1} / ${Math.max(1,Math.ceil(filtered.length/6))}</span><button data-report-page="1" ${(reportPage+1)*6>=filtered.length?'disabled':''}>Next</button></div>`;
   }
   const el = document.getElementById('galaxy-reports');
-  el.innerHTML = `<div class="debug-heading"><h2>${transit ? 'Subspace briefing — in transit' : 'Galactic reports'}</h2><button data-report-close>${transit ? 'Continue jump' : 'Close'}</button></div><p>${transit ? `En route to ${escapeHtml(state.planets[state.warp.to]?.name || 'destination')}. ` : ''}Campaign day ${state.day}. ${transit?'Your affairs are uncapped; up to six new wider-galaxy reports per jump. ':''}Reports may be delayed or incomplete.${transit ? '' : ' Reports shown here count as read: they will not be repeated in your next jump briefing.'}</p><nav class="report-folders" aria-label="Report folders">${transit?`<button data-report-folder="briefing" aria-pressed="${reportFolder==='briefing'}">This jump</button>`:''}${folders.map(([key,label])=>`<button data-report-folder="${key}" aria-pressed="${reportFolder===key}">${label} (${all.filter(r=>inFolder(r,key)).length})</button>`).join('')}</nav>${content}${transit ? '<button data-report-save>Save in transit</button><p data-report-save-status role="status"></p><button data-report-close>Continue jump</button>' : ''}`;
+  el.innerHTML = `<div class="debug-heading"><h2>${transit ? 'Subspace briefing — in transit' : 'Galactic reports'}</h2><button data-report-close>${transit ? 'Continue jump' : 'Close'}</button></div><p>${transit ? `En route to ${escapeHtml(state.planets[state.warp.to]?.name || 'destination')}. ` : ''}Campaign day ${state.day}.</p><nav class="report-folders" aria-label="Report folders">${transit?`<button data-report-folder="briefing" aria-pressed="${reportFolder==='briefing'}">This jump</button>`:''}${folders.map(([key,label])=>`<button data-report-folder="${key}" aria-pressed="${reportFolder===key}">${label} (${all.filter(r=>inFolder(r,key)).length})</button>`).join('')}</nav>${content}${transit ? '<button data-report-save>Save in transit</button><p data-report-save-status role="status"></p><button data-report-close>Continue jump</button>' : ''}`;
   book.readIds = [...new Set([...book.readIds,...rows.map(r=>r.id)])].slice(-120);
 }
 
@@ -10103,7 +10151,7 @@ function renderTopLeftPanel() {
     const destinationName = tons > 0 ? getCargoDestinationName(pod) : '';
     const destination = destinationName ? ` -> ${destinationName}` : '';
     const payout = destinationName ? ` (${pod.payout}L)` : '';
-    return `<span class="pod ${tons > 0 ? 'filled' : 'empty'}">${index + 1}: ${tons}t ${escapeHtml(item)}${escapeHtml(destination)}${escapeHtml(payout)}</span>`;
+    return `<span class="pod ${tons > 0 ? 'filled' : 'empty'}">${index + 1}: ${tons}t ${escapeHtml(item)}${escapeHtml(destination)}${escapeHtml(payout)}${cargoDumpButton(index)}</span>`;
   }).join('');
   const contract = renderOpenContractsPanel();
   const slotLine = state.weaponSlots.map((weaponId, index) => {
@@ -13672,24 +13720,95 @@ function removeCargoFromPods(item, tons = 1) {
   return 0;
 }
 
+// Jettisoning cargo. Ordinary goods simply go out of the airlock. Contract cargo cannot be jettisoned
+// on its own — the hold would be refilled from the contract — so dumping it abandons the contract: the
+// shipment is lost, nothing is paid, and the employer remembers. The second click confirms. [playtest]
+const CARGO_ABANDON_STANDING = -3;
+function cargoPodContract(pod) {
+  if (!pod || !(Number(pod.tons) > 0)) return null;
+  return getOpenContracts().find((c) => isCargoPodForContract(pod, c)) || null;
+}
+function abandonCargoContract(contractId) {
+  const contract = getOpenContracts().find((c) => String(c.id) === String(contractId));
+  if (!contract) return false;
+  let tons = 0;
+  for (const pod of state.cargoArray) {
+    if (isCargoPodForContract(pod, contract)) { tons += Number(pod.tons || 0); clearCargoPod(pod); }
+  }
+  state.openContracts = getOpenContracts().filter((c) => String(c.id) !== String(contract.id));
+  state.activeContract = state.openContracts[0] || null;
+  recalcCargoFromPods();
+  const employer = normalizeFactionKey(contract.employerFaction);
+  if (isRecognizedFactionKey(employer)) adjustFactionStanding(employer, CARGO_ABANDON_STANDING);
+  state.cargoDumpArmed = null;
+  setLog(`Jettisoned ${tons} tons of ${contract.goods}. Shipment for ${contract.employerName} failed — no payment${isRecognizedFactionKey(employer) ? `; ${formatFaction(employer)} standing ${CARGO_ABANDON_STANDING}` : ''}.`);
+  updateStats();
+  if (state.topLeftPanelOpen) renderTopLeftPanel();
+  return true;
+}
+function dumpCargoPod(index) {
+  if (state.gameOver || !state.gameStarted) return false;
+  const pod = state.cargoArray?.[Number(index)];
+  if (!pod || !(Number(pod.tons) > 0)) return false;
+  const contract = cargoPodContract(pod);
+  const key = contract ? `contract:${contract.id}` : `pod:${index}`;
+  if (state.cargoDumpArmed !== key) {
+    state.cargoDumpArmed = key;
+    setLog(contract
+      ? `Dumping this cargo fails the ${contract.tons}t ${contract.goods} shipment for ${contract.employerName}: no pay, and the employer remembers. Click again to confirm.`
+      : `Jettison ${pod.tons} tons of ${pod.item}? Click again to confirm.`);
+    if (state.topLeftPanelOpen) renderTopLeftPanel();
+    return false;
+  }
+  if (contract) return abandonCargoContract(contract.id);
+  const tons = Number(pod.tons || 0), item = pod.item;
+  clearCargoPod(pod);
+  recalcCargoFromPods();
+  state.cargoDumpArmed = null;
+  setLog(`Jettisoned ${tons} tons of ${item}.`);
+  updateStats();
+  if (state.topLeftPanelOpen) renderTopLeftPanel();
+  return true;
+}
+function cargoDumpButton(index) {
+  const pod = state.cargoArray?.[index];
+  if (!pod || !(Number(pod.tons) > 0)) return '';
+  const contract = cargoPodContract(pod);
+  const armed = state.cargoDumpArmed === (contract ? `contract:${contract.id}` : `pod:${index}`);
+  const label = armed ? (contract ? 'Confirm: dump & fail shipment' : 'Confirm jettison') : (contract ? 'Dump (fails shipment)' : 'Dump');
+  return `<button class="cargo-dump${armed ? ' armed' : ''}" data-cargo-dump="${index}">${label}</button>`;
+}
 function hasWorldCargoToDeliver() {
   return (state.cargoArray || []).some(isCargoDueAtCurrentPlanet)
     || (state.openContracts || []).some(c=>getContractTargetIndex(c)===state.currentPlanet);
 }
+// Planetary cargo is delivered by transporter. What it takes is the right world, the cargo, and
+// transporter range of the world — not docking permission, not the market, not a cloak. A checkpoint
+// that has not cleared the captain does not make an accepted contract impossible: the captain can still
+// order it beamed down (and may be shot at for being there). What the checkpoint does decide is whether
+// the drop happens by itself on approach; without clearance, or a cloak, it waits for the order. [playtest]
+const CARGO_TRANSPORT_RANGE = TRANSPORTER_RANGE;
 function getWorldCargoDeliveryStatus() {
   if (!state.gameStarted || state.gameOver || state.warp.active || isWormholeTransitActive() || !state.systemPlanet)
     return {ok:false,reason:'Cargo delivery requires being in the destination system.'};
   const distance = Math.ceil(distanceToPlayer(state.systemPlanet));
-  if (distanceToPlayer(state.systemPlanet) > WORLD_CARGO_DROPOFF_RANGE)
-    return {ok:false,distance,reason:`Approach the destination world: ${distance.toLocaleString()} / ${WORLD_CARGO_DROPOFF_RANGE} units for cargo drop-off.`};
+  if (distanceToPlayer(state.systemPlanet) > CARGO_TRANSPORT_RANGE)
+    return {ok:false,distance,reason:`Out of transporter range: ${distance.toLocaleString()} / ${CARGO_TRANSPORT_RANGE.toLocaleString()} units.`};
   const covert = isPlayerCloaked();
   const block = !covert && getSecurityDockingBlock();
-  return block ? {ok:false,distance,reason:`${block} A cloaked cargo drop-off is possible at the world.`}
-    : {ok:true,distance,covert,reason:covert?'Covert drop-off ready.':'World drop-off ready.'};
+  return block ? {ok:false,distance,blocked:true,reason:`${block} Deliver to beam the cargo down without clearance.`}
+    : {ok:true,distance,covert,reason:covert?'Covert transport ready.':'Transport ready.'};
+}
+// Kept as the name the contract rows' button calls: an explicit order to transport, clearance or not.
+function beamDownBlockedCargo() {
+  if (state.gameOver || !state.gameStarted) return false;
+  return deliverDestinationCargoAtCurrentPlanet({ manual: true });
 }
 function deliverDestinationCargoAtCurrentPlanet({manual=false} = {}) {
   const delivery = getWorldCargoDeliveryStatus();
-  if (!delivery.ok) { if (manual) setLog(delivery.reason); return false; }
+  // An order from the captain beams it down past a checkpoint; the automatic approach never does.
+  const beaming = Boolean(manual && delivery.blocked);
+  if (!delivery.ok && !beaming) { if (manual) setLog(delivery.reason); return false; }
   const planet = state.planets[state.currentPlanet];
   restoreMissingContractCargo({ onlyCurrentDestination: true });
   let delivered = 0;
@@ -13746,16 +13865,17 @@ function deliverDestinationCargoAtCurrentPlanet({manual=false} = {}) {
   };
   for (const contract of completedContracts) {
     const destinationFaction = getTradeStandingFaction(state.currentPlanet);
-    awardStanding(destinationFaction, 5);
+    if (!beaming) awardStanding(destinationFaction, 5);
     if (contract.employerFaction !== destinationFaction) awardStanding(contract.employerFaction, 2);
   }
+
 
   checkWinLose();
   playGameSound('cargo', { cooldownKey: `delivery:${state.currentPlanet}` });
   const milestone = !restoredBefore && state.tradeLaneRestored
     ? ' Trade lane restored; you can keep taking contracts and spend your latinum.'
     : '';
-  setLog(`${delivery.covert ? 'Covertly delivered' : 'Delivered'} ${delivered} tons of ${goods.join(', ')} at ${planet.name} for ${payout} latinum.${milestone}`);
+  setLog(`${beaming ? 'Beamed down' : delivery.covert ? 'Covertly delivered' : 'Delivered'} ${delivered} tons of ${goods.join(', ')} at ${planet.name} for ${payout} latinum.${milestone}`);
   showTradeMissionComplete({
     planetName: planet.name,
     delivered,
@@ -15290,11 +15410,11 @@ securityOrderPanelEl?.addEventListener('click', (e) => {
 function drawWorldCargoDropoff() {
   if (!state.gameStarted || state.warp.active || !state.systemPlanet || !hasWorldCargoToDeliver()) return;
   const centre = worldToScreen(state.systemPlanet);
-  const edge = worldToScreen({x:state.systemPlanet.x+WORLD_CARGO_DROPOFF_RANGE,y:state.systemPlanet.y});
+  const edge = worldToScreen({x:state.systemPlanet.x+CARGO_TRANSPORT_RANGE,y:state.systemPlanet.y});
   const radius = Math.abs(edge.x-centre.x);
   ctx.save();ctx.strokeStyle='#7ce8c0';ctx.fillStyle='#7ce8c0';ctx.lineWidth=2;ctx.setLineDash([7,7]);
   ctx.beginPath();ctx.arc(centre.x,centre.y,radius,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
-  ctx.font='13px system-ui';ctx.textAlign='center';ctx.fillText('Cargo drop-off · 600 units',centre.x,centre.y-radius-10);ctx.restore();
+  ctx.font='13px system-ui';ctx.textAlign='center';ctx.fillText(`Transporter range · ${CARGO_TRANSPORT_RANGE.toLocaleString()} units`,centre.x,centre.y-radius-10);ctx.restore();
 }
 function drawSecurityZoneMarkers(now = gameNow()) {
   const zone = getSecurityZone(state.currentPlanet);
@@ -19599,14 +19719,49 @@ function getStarChartPanelRect() {
   };
 }
 
+// The chart window. On a wide screen the chart itself keeps a bounded aspect ratio — it is a map, not a
+// strip — and the horizontal space left over becomes the side rails: DOM panels for the overlay key and
+// the selected system, set in ordinary page text at a readable size rather than painted small into the
+// canvas. A narrower panel has one rail on the right; a panel too narrow for any rail keeps the old
+// corner boxes on the chart. Space beyond what the rails can use is left as frame on both sides.
+const STAR_CHART_MAX_ASPECT = 1.6;
+const MAP_RAIL_MIN = 230;
+const MAP_RAIL_MAX = 380;
+const MAP_CHART_MIN_WIDTH = 420;
+function getStarChartLayout(panel = getStarChartPanelRect()) {
+  const gap = panel.pad;
+  const innerLeft = panel.left + panel.railW + panel.pad;
+  const innerRight = panel.right - panel.pad;
+  const top = panel.top + panel.headerH + panel.pad;
+  const bottom = panel.bottom - panel.pad;
+  const avail = Math.max(1, innerRight - innerLeft);
+  const ideal = Math.max(1, (bottom - top) * STAR_CHART_MAX_ASPECT);
+  const box = (left, width) => ({ left, right: left + width, top, bottom, width });
+  // Two rails: the chart at its bounded width, each rail taking half of what is left, up to its cap.
+  if (avail - ideal >= 2 * (MAP_RAIL_MIN + gap)) {
+    const side = Math.min(MAP_RAIL_MAX, (avail - ideal) / 2 - gap);
+    const used = ideal + 2 * (side + gap);
+    const x = innerLeft + (avail - used) / 2;
+    const left = box(x, side);
+    const chart = box(left.right + gap, ideal);
+    const right = box(chart.right + gap, side);
+    return { mode: 'two', chart, left, right };
+  }
+  // One rail, on the right.
+  const side = Math.round(clamp(avail * 0.3, MAP_RAIL_MIN, MAP_RAIL_MAX));
+  if (avail - side - gap >= MAP_CHART_MIN_WIDTH) {
+    const chartW = Math.min(ideal, avail - side - gap);
+    const used = chartW + side + gap;
+    const x = innerLeft + (avail - used) / 2;
+    const chart = box(x, chartW);
+    const right = box(chart.right + gap, side);
+    return { mode: 'one', chart, left: null, right };
+  }
+  return { mode: 'none', chart: box(innerLeft, avail), left: null, right: null };
+}
 function getStarChartViewport() {
-  const panel = getStarChartPanelRect();
-  return {
-    left: panel.left + panel.railW + panel.pad,
-    top: panel.top + panel.headerH + panel.pad,
-    right: panel.right - panel.pad,
-    bottom: panel.bottom - panel.pad,
-  };
+  const { chart } = getStarChartLayout();
+  return { left: chart.left, top: chart.top, right: chart.right, bottom: chart.bottom };
 }
 
 function getStarChartBounds() {
@@ -22627,6 +22782,86 @@ function drawMapObjectiveOverlay() {
 }
 // The legend doubles as the layer picker: it says what each colour means and which layers are on, and
 // the numbers beside each are how many objectives that layer is currently showing.
+function mapOverlayLegendCounts() {
+  const layers = mapOverlayState();
+  const objectives = mapObjectives();
+  const counts = Object.fromEntries(MAP_OVERLAY_LAYERS.map((l) => [l.key, objectives.filter((o) => o.kind === l.key).length]));
+  counts.routes = new Set(objectives.filter((o) => layers[o.kind]).map((o) => o.index)).size;
+  let known = 0, unknown = 0;
+  for (let i = 0; i < state.planets.length; i++) {
+    if (!isChartSystemVisible(i)) continue;
+    if (conditionsFor(i)?.source === 'none') unknown++; else known++;
+  }
+  counts.lanes = known;
+  counts.security = known;
+  return { layers, counts, unknown };
+}
+// The rails' contents. Rebuilt as HTML and written only when it changes, so a button is never replaced
+// between the press and the click. Each line the rails print carries data-map-line, which is what the
+// gates read, as they read the painted chart.
+let mapRailsSignature = '';
+function mapRailsMarkup() {
+  const { layers, counts, unknown } = mapOverlayLegendCounts();
+  const key = `<section class="map-rail-section"><h3 data-map-line>Overlays — click to toggle</h3>${MAP_OVERLAY_LAYERS.map((layer) => {
+    const on = Boolean(layers[layer.key]);
+    return `<button type="button" class="map-overlay-toggle" data-map-overlay="${escapeHtml(layer.key)}" aria-pressed="${on}" style="--layer:${escapeHtml(layer.color)}"><span class="map-overlay-dot" aria-hidden="true"></span><span data-map-line>${escapeHtml(`${layer.label} (${counts[layer.key] || 0})`)}</span></button>`;
+  }).join('')}${(layers.lanes || layers.security) && unknown ? `<p class="map-rail-unknown" data-map-line>${unknown} unreported system${unknown === 1 ? '' : 's'}</p>` : ''}</section>`;
+  const lines = (layers.lanes || layers.security) ? conditionsReadout(state.selectedPlanet) : [];
+  let selected = '';
+  if (lines.length) {
+    const [head, ...rest] = lines;
+    const split = String(head).split(' — ');
+    const readings = split.length > 1 ? split.slice(1).join(' — ').split(' · ') : [];
+    selected = `<section class="map-rail-section"><h3 data-map-line>Selected system</h3><p class="map-rail-title" data-map-line>${escapeHtml(split[0])}</p><dl class="map-rail-readings">${readings.map((r) => { const [k, ...v] = r.split(': '); return `<div data-map-line>${escapeHtml(k)}: ${escapeHtml(v.join(': '))}</div>`; }).join('')}</dl>${rest.map((line, n) => `<p class="${n === 0 ? 'map-rail-source' : 'map-rail-note'}" data-map-line>${escapeHtml(line)}</p>`).join('')}</section>`;
+  }
+  return { key, selected };
+}
+function renderMapRails() {
+  const layout = getStarChartLayout();
+  const leftEl = document.getElementById('map-rail-left');
+  const rightEl = document.getElementById('map-rail-right');
+  if (!leftEl || !rightEl) return layout;
+  const rect = canvas.getBoundingClientRect();
+  const sx = rect.width / canvas.width, sy = rect.height / canvas.height;
+  const place = (el, box) => {
+    el.classList.toggle('hidden', !box);
+    if (!box) return;
+    el.style.left = `${rect.left + box.left * sx}px`;
+    el.style.top = `${rect.top + box.top * sy}px`;
+    el.style.width = `${box.width * sx}px`;
+    el.style.height = `${(box.bottom - box.top) * sy}px`;
+  };
+  place(leftEl, layout.left);
+  place(rightEl, layout.right);
+  const { key, selected } = layout.mode === 'none' ? { key: '', selected: '' } : mapRailsMarkup();
+  const leftHtml = layout.mode === 'two' ? key : '';
+  const rightHtml = layout.mode === 'two' ? selected : layout.mode === 'one' ? key + selected : '';
+  const sig = `${layout.mode}|${leftHtml}|${rightHtml}`;
+  if (sig !== mapRailsSignature) {
+    mapRailsSignature = sig;
+    leftEl.innerHTML = leftHtml;
+    rightEl.innerHTML = rightHtml;
+  }
+  return layout;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('[data-map-overlay]');
+  if (!b) return;
+  toggleMapOverlay(b.dataset.mapOverlay);
+  if (state.mapOpen) drawInterstellarMapOverlay();
+});
+// Where a click lands to toggle one layer, in canvas coordinates — for the pointer and for the gates.
+function mapOverlayLegendRowPoint(key) {
+  const button = [...document.querySelectorAll('[data-map-overlay]')].find((el) => el.dataset.mapOverlay === key && el.offsetParent);
+  if (button) {
+    const b = button.getBoundingClientRect(), rect = canvas.getBoundingClientRect();
+    return { x: (b.left + b.width / 2 - rect.left) * (canvas.width / rect.width), y: (b.top + b.height / 2 - rect.top) * (canvas.height / rect.height) };
+  }
+  const r = mapOverlayLegendRect;
+  const n = MAP_OVERLAY_LAYERS.findIndex((l) => l.key === key);
+  if (!r || n < 0) return null;
+  return { x: r.x + 40, y: (r.rowTop ?? r.rowY - 12) + (n + 0.5) * r.rowH };
+}
 function drawMapOverlayLegend() {
   const layers = mapOverlayState();
   const objectives = mapObjectives();
@@ -22677,14 +22912,14 @@ function drawMapOverlayLegend() {
     ctx.fillText(`${layer.label} (${counts[layer.key] || 0})`, x + 18, ly);
   });
   ctx.restore();
-  return { x: x - 8, y: y - 20, w, h, rowY: y + 9, rowH: 18 };
+  return { x: x - 8, y: y - 20, w, h, rowY: y + 9, rowH: 18, rowTop: y + 9 - 12 };
 }
 let mapOverlayLegendRect = null;
 function handleMapOverlayLegendClick(mx, my) {
   const r = mapOverlayLegendRect;
   if (!r) return false;
   if (mx < r.x || mx > r.x + r.w || my < r.y || my > r.y + r.h) return false;
-  const n = Math.floor((my - (r.rowY - 12)) / r.rowH);
+  const n = Math.floor((my - (r.rowTop ?? r.rowY - 12)) / r.rowH);
   const layer = MAP_OVERLAY_LAYERS[n];
   if (layer) toggleMapOverlay(layer.key);
   return true;
@@ -22735,17 +22970,20 @@ function renderContractsPanel() {
   }).join('');
   const cargoRows = cargo.map((c) => {
     const i = getContractTargetIndex(c);
+    const here = i === Number(state.currentPlanet) && !state.warp.active;
+    const armed = state.cargoDumpArmed === `contract:${c.id}`;
     return row(`${c.tons}t ${c.goods || 'cargo'}`, contractDestinationLabel(i),
       getContractTotal(c) ? `${getContractTotal(c)} L` : '',
-      `<button data-contract-marker="${escapeHtml(c.id)}">${c.showMarker === false ? 'Show' : 'Hide'} marker</button>`
-      + `<button data-contract-show="${escapeHtml(String(i))}">Show on map</button>`, c.employerName || '');
+      (here ? '<button data-cargo-drop>Beam cargo down</button>' : '')
+      + `<button data-contract-marker="${escapeHtml(c.id)}">${c.showMarker === false ? 'Show' : 'Hide'} marker</button>`
+      + `<button data-contract-show="${escapeHtml(String(i))}">Show on map</button>`
+      + `<button class="cargo-dump${armed ? ' armed' : ''}" data-contract-abandon="${escapeHtml(c.id)}">${armed ? 'Confirm: dump & fail shipment' : 'Dump (fails shipment)'}</button>`, c.employerName || '');
   }).join('');
   const accepted = live.filter((m) => m.status === 'active').length;
   return `<div class="panel-head panel-subhead">Station contracts (${accepted} accepted)</div>`
     + (missionRows || '<div class="meta">No station contracts open. Dock or hail a station to ask for work.</div>')
     + `<div class="panel-head panel-subhead">Cargo deliveries (${cargo.length})</div>`
     + (cargoRows || '<div class="meta">No delivery cargo aboard.</div>')
-    + `<div class="meta">Accepted contracts and delivery cargo are marked on the interstellar map. Toggle the layers from the legend at the foot of the chart.</div>`
     + `<div class="ship-actions"><button data-contract-ask>Ask for a contract here</button><button data-top-action="close-panel">Close</button></div>`;
 }
 function drawInterstellarMapOverlay() {
@@ -22753,6 +22991,9 @@ function drawInterstellarMapOverlay() {
   clearInterstellarMapOverlay();
   const previousCtx = ctx;
   ctx = interstellarMapCtx;
+  // Browser zoom changes the density without always firing a resize, so it is re-read every frame.
+  const ratio = syncInterstellarMapResolution();
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   try {
     drawStarChartBackground();
     ctx.save();
@@ -22768,9 +23009,13 @@ function drawInterstellarMapOverlay() {
     }
     ctx.restore();
     drawWorldPops();
-    mapOverlayLegendRect = drawMapOverlayLegend();
-    drawConditionsPanel();
+    const layout = renderMapRails();
+    if (layout.mode === 'none') {
+      mapOverlayLegendRect = drawMapOverlayLegend();
+      drawConditionsPanel();
+    } else mapOverlayLegendRect = null;
   } finally {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx = previousCtx;
   }
   return true;
@@ -24492,7 +24737,19 @@ function applyPlayerDefenderLosses(effect, day) {
     if (!record || fleetLocalActor(record.id)) continue;
     record.vessel ||= { hull: finiteNumber(rec.maxHull, 100), maxHull: finiteNumber(rec.maxHull, 100) };
     record.vessel.hull = clamp(finiteNumber(rec.hull, 0), 0, finiteNumber(record.vessel.maxHull, finiteNumber(rec.maxHull, 100)));
-    if (!rec.destroyed) { hurt.push(record.name || 'a vessel'); continue; }
+    if (!rec.destroyed) {
+      // The hull the strategic battle left her with decides her condition, as it does after any other
+      // hit: a defender knocked into the disabled band is disabled, and stops. The hull used to be
+      // written and the condition left 'operational', so she went on trading at a tenth of her hull. [§6]
+      const was = record.vessel.condition || 'operational';
+      record.vessel.condition = Fleet.classifyDamage(record.vessel.hull, finiteNumber(record.vessel.maxHull, 100));
+      if (record.vessel.condition === 'disabled' && was !== 'disabled') {
+        const t = fleetTradeState(record);
+        if (t) { ensureFleetTradeState(record); markFleetShipDisabled(record, t, Number(effect.systemIndex)); }
+        hurt.push(`${record.name || 'a vessel'} (disabled)`);
+      } else hurt.push(record.name || 'a vessel');
+      continue;
+    }
     record.destroyed = true;
     record.vessel.condition = 'destroyed';
     record.vessel.hull = 0;
@@ -24932,7 +25189,12 @@ function acknowledgeCampaignOrders() {
   const receivable = (o) => {
     if (o.order !== 'fleet') return true;
     const f = state.playerFleet.find((x) => x.id === o.fleetId);
-    return !fleetCommandInWarp(f);
+    if (fleetCommandInWarp(f)) return false;
+    // A Start that reaches a disabled ship cannot be carried out and would be lost if acknowledged; it
+    // stays queued, marked as waiting for her repair, and is received the day she is operational. A
+    // Stop given after it replaces it in the queue, as any newer trade-mode command does. [§6]
+    if (o.command === 'trade-start' && f && fleetVesselCondition(f) === 'disabled') return false;
+    return true;
   };
   const acked = Campaign.acknowledgeQueuedOrders(book, state.day, connected, receivable);
   for (const o of acked) {
@@ -25067,6 +25329,35 @@ function campaignKnownOperations(filter = () => true) {
     .map((op) => ({ op, known: campaignOperationKnowledge(op, ctx) }))
     .filter((x) => x.known.level !== 'none' && filter(x.known, x.op));
 }
+// The powers table's operation count opens onto the operations themselves: the same knowledge record
+// the Fleets & battles tab reads, one line each — where, what stage, how many hulls where that is known,
+// and the account it rests on. Nothing here is read off the operation beyond what that record allows.
+let campaignPowerOpsOpen = null;
+// Status is read from the knowledge record's phase — the stage the latest account (or the captain's own
+// eyes) put it at — never from the operation. "Quiet" is an operation whose last word is old.
+const CAMPAIGN_OP_STALE_DAYS = 14;
+function campaignOperationStatus(known) {
+  if (known.phase === 'resolved') return 'over';
+  if (known.level === 'direct') return known.phase === 'engaged' ? 'engaged' : 'under way';
+  const age = Number(state.day) - finiteNumber(known.latest?.day, state.day);
+  const stage = known.phase === 'arrived' ? 'engaged' : 'under way';
+  return age > CAMPAIGN_OP_STALE_DAYS ? `${stage} · no word for ${age} days` : stage;
+}
+// One line per known operation. What is shown is what the record allows: type and strength only when
+// the captain is watching it; otherwise the target, the stage, the dates, and the account itself with
+// its own confidence.
+function campaignOperationDetail({ op, known }) {
+  const where = escapeHtml(campaignSystemName(op.targetSystem));
+  const status = escapeHtml(campaignOperationStatus(known));
+  if (known.level === 'direct') {
+    const type = op.kind ? ` · ${escapeHtml(String(op.kind))}` : '';
+    return `<li><b>${where}</b>${type} · ${status} · ${Campaign.operationHulls(campaign(), op).length} hulls present, ${op.losses} lost · observed day ${state.day}</li>`;
+  }
+  const latest = known.latest;
+  const first = known.reports[0];
+  const since = first && first.day !== latest.day ? ` · first word day ${first.day}` : '';
+  return `<li><b>${where}</b> · ${status} · last report day ${latest.day}${since}<br>${escapeHtml(campaignMaskText(latest.text))} <span class="meta">(${escapeHtml(latest.confidence)})</span></li>`;
+}
 function renderCampaignPanel() {
   const el = document.getElementById('campaign-panel');
   if (!el) return;
@@ -25086,28 +25377,28 @@ function renderCampaignPanel() {
       : `<li>Order for ${escapeHtml(o.label || o.formationId)} to ${escapeHtml(state.planets[o.systemIndex]?.name || '')} queued — no relay link (queued day ${o.queuedDay}).</li>`).join('');
     body = `<section><h3>Economy</h3><p>Treasury ${Math.round(state.latinum).toLocaleString()} L · duranium ${Math.round(state.duranium)} · income ${econ.revenue} L/day from ${econ.worlds} world${econ.worlds === 1 ? '' : 's'} · fleet upkeep ${econ.expense} L/day · supply ${Math.round(econ.supply * 100)}%</p></section>
       <section><h3>Production</h3><p>${prod.yards} operational yards · ${prod.berths} standard berths · ${prod.heavyBerths} heavy berths · workforce ${prod.workforce} · repair ${prod.repairCapacity} hull points/day</p><ul>${queue}</ul></section>
-      <section><h3>Military readiness</h3><p>${ready.hulls} fleet hulls (${ready.ready} ready, ${ready.repairing} repairing) · strength ${ready.strength} · ${(state.playerFleet || []).filter((f) => f.assignment === 'transit').length} in transit</p><p class="meta">Readiness is derived from your real fleet records; damaged, disabled or unsupplied ships count for less.</p></section>
+      <section><h3>Military readiness</h3><p>${ready.hulls} fleet hulls (${ready.ready} ready, ${ready.repairing} repairing) · strength ${ready.strength} · ${(state.playerFleet || []).filter((f) => f.assignment === 'transit').length} in transit</p></section>
       <section><h3>Worlds and integration</h3><ul>${worlds}</ul><ul>${integrations}</ul><p class="meta">Major world: population ≥ ${book.config.majorWorldPopulation} or ≥ ${book.config.majorWorldStations} operational stations. Qualification opens a route to native designs; hulls still need plans, a yard, resources and time.</p></section>
       <section><h3>Relay orders</h3><p>Connected systems: ${[...campaignRelayCoverage()].map((i) => escapeHtml(state.planets[i]?.name || '')).filter(Boolean).join(', ') || 'none beyond your current system'}.</p><ul>${orders || '<li>No queued orders.</li>'}</ul></section>`;
   } else if (campaignPanelTab === 'powers') {
     // Read once, not once per power: the knowledge record is the only thing this table may count.
     const afoot = campaignKnownOperations((k) => k.phase !== 'resolved');
-    const rows = Object.keys(book.polities).filter((id) => id !== 'player' && world.isFaction(id) && campaignPowerContact(id)).map((id) => { const a = campaignAssessment(id); const est = a.estimate; const seen = afoot.filter((x) => x.known.claimant === campaignFactionKeyFor(id)).length; const worlds = est.atLeast ? `at least ${est.worlds}` : `${est.worlds}${est.charted ? '+' : ''}`; const strength = est.strength > 0 ? `${Math.round(est.strength * (1 - est.band)).toLocaleString()}–${Math.round(est.strength * (1 + est.band)).toLocaleString()}${est.confidence === 'low' ? ' (low confidence)' : ''}` : 'none seen'; return `<tr><td>${escapeHtml(formatFaction(id))}</td><td>${worlds}</td><td>${strength}</td><td>${seen}</td><td>day ${est.day} · ${escapeHtml(est.source)}</td></tr>`; }).join('') || '<tr><td colspan="5">No other power has come to your attention yet.</td></tr>';
+    const rows = Object.keys(book.polities).filter((id) => id !== 'player' && world.isFaction(id) && campaignPowerContact(id)).map((id) => { const a = campaignAssessment(id); const est = a.estimate; const mine = afoot.filter((x) => x.known.claimant === campaignFactionKeyFor(id)); const seen = mine.length; const worlds = est.atLeast ? `at least ${est.worlds}` : `${est.worlds}${est.charted ? '+' : ''}`; const strength = est.strength > 0 ? `${Math.round(est.strength * (1 - est.band)).toLocaleString()}–${Math.round(est.strength * (1 + est.band)).toLocaleString()}${est.confidence === 'low' ? ' (low confidence)' : ''}` : 'none seen'; const open = campaignPowerOpsOpen === id && seen > 0; const cell = seen ? `<button class="campaign-ops-toggle" data-campaign-power-ops="${escapeHtml(id)}" aria-expanded="${open}">${seen} ${open ? '▾' : '▸'}</button>` : '0'; const detail = open ? `<tr class="campaign-ops-detail"><td colspan="5"><ul>${mine.map(campaignOperationDetail).join('')}</ul></td></tr>` : ''; return `<tr><td>${escapeHtml(formatFaction(id))}</td><td>${worlds}</td><td>${strength}</td><td>${cell}</td><td>day ${est.day} · ${escapeHtml(est.source)}</td></tr>${detail}`; }).join('') || '<tr><td colspan="5">No other power has come to your attention yet.</td></tr>';
     const d = book.dominion;
     // The phase is read from the warnings that reached the captain, not from the expedition's own
     // state; the interdiction line needs someone at the entry to see it.
     const heard = new Set(d.warnings.map((w) => w.id));
-    const posture = heard.has('invasion') ? 'an expedition is transiting the wormhole'
-      : heard.has('unfamiliar-signatures') ? 'unfamiliar warships and supply movements beyond the wormhole'
-      : heard.has('missing-patrols') ? 'patrols near the wormhole have stopped reporting'
-      : 'no indications';
+    const posture = heard.has('invasion') ? 'Expedition transiting.'
+      : heard.has('unfamiliar-signatures') ? 'Unfamiliar warships and supply movements beyond the wormhole.'
+      : heard.has('missing-patrols') ? 'Patrols near the wormhole silent.'
+      : 'No indications.';
     const atEntry = d.entrySystem != null && (watchesReportLocation(d.entrySystem) || hasIntelShips(Number(d.entrySystem)));
     // The section is headed with the power's name only once the captain has met it. Before that the
     // warnings are what they are — unfamiliar signatures, patrols that stopped reporting — and there is
     // no section at all until one of them arrives. [playtest]
     const dominionKnown = campaignPowerContact('dominion');
-    body = `<section><h3>Known and estimated strength</h3><table class="campaign-table"><thead><tr><th>Power</th><th>Worlds</th><th>Ready strength (estimate)</th><th>Active operations</th><th>Source / date</th></tr></thead><tbody>${rows}</tbody></table><p class="meta">Estimates carry an error band and a date; partner data is tighter. Holdings are the worlds you have seen in that power's hands, each as of the day something of yours last watched it — a power may hold more than you have seen, which is what the <b>+</b> means. A world you passed through once is not a listening post; until you look again, it reads as you left it. Any active power can rise.</p></section>
-      ${dominionKnown ? `<section><h3>Dominion</h3>` : d.warnings.length ? `<section><h3>Unexplained reports</h3>` : '<section class="hidden">'}<p>What you have heard: <b>${escapeHtml(posture)}</b>.${atEntry ? ` ${d.reinforcementCut ? 'Your forces at the entry are interdicting the reinforcement convoys.' : d.phase === 'invasion' ? 'Reinforcement convoys are getting through.' : ''}` : ''}</p><ul>${d.warnings.map((w) => `<li>Day ${w.day}: ${escapeHtml(campaignMaskText(w.text))}</li>`).join('') || '<li>No warnings received.</li>'}</ul><p class="meta">This section reports what reached you. The expedition's own timetable is not visible from here.</p></section>`;
+    body = `<section><h3>Known and estimated strength</h3><table class="campaign-table"><thead><tr><th>Power</th><th>Known worlds</th><th>Ready strength (estimate)</th><th>Active operations</th><th>Source / date</th></tr></thead><tbody>${rows}</tbody></table></section>
+      ${dominionKnown || d.warnings.length ? `<section class="campaign-wormhole"><h3>Bajoran Wormhole</h3>` : '<section class="hidden">'}<p><b>${escapeHtml(posture)}</b>${atEntry ? ` ${d.reinforcementCut ? 'Convoys interdicted by your forces.' : d.phase === 'invasion' ? 'Reinforcement convoys getting through.' : ''}` : ''}</p><ul>${d.warnings.map((w) => `<li>Day ${w.day}: ${escapeHtml(campaignMaskText(w.text))}</li>`).join('') || '<li>No warnings received.</li>'}</ul></section>`;
   } else if (campaignPanelTab === 'operations') {
     const line = ({ op, known }) => {
       if (known.level === 'direct') {
@@ -25123,7 +25414,7 @@ function renderCampaignPanel() {
       const latest = known.latest;
       return `<li>Day ${latest.day}: ${escapeHtml(campaignMaskText(latest.text))} <span class="meta">(${escapeHtml(latest.confidence)})</span></li>`;
     }).join('') || '<li>No battles recorded.</li>';
-    body = `<section><h3>Fleets in motion</h3><ul>${ops}</ul></section><section><h3>Recent battles</h3><ul>${recent}</ul><p class="meta">This panel shows what you have observed or been told, with the date and confidence of the account. Fleets you have had no word of do not appear here, and a report can be wrong. A battle is still resolved exactly once: in the loaded scene when you are present, otherwise offscreen with the same persistent hulls.</p></section>`;
+    body = `<section><h3>Fleets in motion</h3><ul>${ops}</ul></section><section><h3>Recent battles</h3><ul>${recent}</ul></section>`;
   } else if (campaignPanelTab === 'missions') {
     const recoveries = book.recoveries.filter((r) => r.status !== 'failed').map((r) => `<li>${escapeHtml(state.shipStatsById[r.shipId]?.name || r.shipId)} — original yard ${escapeHtml((state.stationDefinitions || []).find((d) => d.id === r.lostStationId)?.name || r.lostStationId)} lost at ${escapeHtml(campaignSystemName(r.systemIndex))}; ${r.status === 'available' ? `<button data-campaign-recover="${escapeHtml(r.id)}">Start ${escapeHtml(r.kind)} recovery</button>` : r.status === 'completed' ? `recovered (${escapeHtml(r.relocatedTo || '')})` : 'in progress'}</li>`).join('') || '<li>No designs at risk.</li>';
     const missions = book.missions.filter((m) => ['offered', 'active'].includes(m.status)).map((m) => `<li><b>${escapeHtml(m.kind)}</b>: ${escapeHtml(m.text || m.key)} — ${m.status}${m.step ? ` (${escapeHtml(m.step)})` : ''}${m.deadlineDay ? `, deadline day ${m.deadlineDay}` : ''}${m.status === 'offered' ? ` <button data-campaign-accept="${escapeHtml(m.id)}">Accept</button>` : ''}</li>`).join('') || '<li>No open contracts.</li>';
@@ -25132,7 +25423,7 @@ function renderCampaignPanel() {
   } else {
     body = `<section><h3>Campaign log</h3><ul>${book.history.slice(-30).reverse().map((h) => `<li>Day ${h.day} · ${escapeHtml(h.kind)}: ${escapeHtml(campaignMaskText(h.text))}</li>`).join('') || '<li>Nothing recorded yet.</li>'}</ul></section>`;
   }
-  el.innerHTML = `<div class="debug-heading"><h2>Empire &amp; campaign</h2><button data-campaign-close>Close</button></div><p>Campaign day ${state.day}. Flag: ${escapeHtml(formatFaction(getPlayerFlag()))} — your holdings are counted once under your own empire, never merged into a faction's books.</p><nav class="report-folders" aria-label="Campaign sections">${tabs.map(([k, l]) => `<button data-campaign-tab="${k}" aria-pressed="${campaignPanelTab === k}">${l}</button>`).join('')}</nav><div class="campaign-body">${body}</div>`;
+  el.innerHTML = `<div class="debug-heading"><h2>Empire &amp; campaign</h2><button data-campaign-close>Close</button></div><p>Campaign day ${state.day}. Flag: ${escapeHtml(formatFaction(getPlayerFlag()))}.</p><nav class="report-folders" aria-label="Campaign sections">${tabs.map(([k, l]) => `<button data-campaign-tab="${k}" aria-pressed="${campaignPanelTab === k}">${l}</button>`).join('')}</nav><div class="campaign-body">${body}</div>`;
 }
 function openCampaignPanel(tab = campaignPanelTab) {
   if (!state.gameStarted) return;
@@ -25151,7 +25442,9 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('[data-campaign-open]')) { openCampaignPanel(); return; }
   if (e.target.closest('[data-campaign-close]')) { closeCampaignPanel(); return; }
   const tab = e.target.closest('[data-campaign-tab]');
-  if (tab) { campaignPanelTab = tab.dataset.campaignTab; renderCampaignPanel(); return; }
+  if (tab) { campaignPanelTab = tab.dataset.campaignTab; campaignPowerOpsOpen = null; renderCampaignPanel(); return; }
+  const ops = e.target.closest('[data-campaign-power-ops]');
+  if (ops) { const id = ops.dataset.campaignPowerOps; campaignPowerOpsOpen = campaignPowerOpsOpen === id ? null : id; renderCampaignPanel(); return; }
   const rec = e.target.closest('[data-campaign-recover]');
   if (rec) { startDesignRecovery(rec.dataset.campaignRecover); renderCampaignPanel(); return; }
   const acc = e.target.closest('[data-campaign-accept]');
@@ -25761,11 +26054,11 @@ function renderFleetManager(open = false) {
       )}</select></label>${trade?.stage === 'passage' || trade?.order?.pending
         ? btn('recall', 'Recall to captain', f.id) + btn('rendezvous', 'Change rendezvous', f.id) + btn('cancel-passage', 'Cancel', f.id)
         : btn('recall', 'Recall to captain', f.id) + btn('rendezvous', 'Rendezvous at system', f.id)}
-      <p>${escapeHtml(fleetTradeStatusLine(f) || 'Not trading')}</p>
-      ${(() => { const q = queuedFleetCommands(f); return q.length ? `<p>Queued: ${q.map((o) => `${escapeHtml(fleetCommandLabel(o))} (day ${o.queuedDay})`).join(' · ')} · ${fleetCommandInWarp(f) ? 'in warp to' : 'no relay link to'} ${escapeHtml(state.planets[fleetCommandSystem(f)]?.name || '?')}</p>` : ''; })()}
+      <p class="fleet-status${fleetVesselCondition(f) === 'disabled' ? ' fleet-status-disabled' : ''}">${escapeHtml(fleetTradeStatusLine(f) || 'Not trading')}</p>
+      ${(() => { const q = queuedFleetCommands(f); if (!q.length) return ''; const disabled = fleetVesselCondition(f) === 'disabled'; const reachable = fleetCommandReachable(f); return `<p class="fleet-queued">Queued, not yet received: ${q.map((o) => `${escapeHtml(fleetCommandLabel(o))} (day ${o.queuedDay})${disabled && reachable && o.command === 'trade-start' ? ' — waiting for repair' : ''}`).join(' · ')}${reachable ? '' : ` · ${fleetCommandInWarp(f) ? 'in warp to' : 'no relay link to'} ${escapeHtml(state.planets[fleetCommandSystem(f)]?.name || '?')}`}</p>`; })()}
       <p>Hold ${trade ? fleetTradeLoad(trade) : 0}/${fleetTradeCapacity(f)} t${trade?.paid ? ` · paid ${trade.paid} L for cargo` : ''}</p>
       ${trade?.manifest?.length ? `<p>Manifest: ${escapeHtml(fleetTradeManifestLine(trade))}</p>` : ''}
-      ${trade?.stops?.length ? `<p>Calls: ${escapeHtml(trade.stops.map((i) => state.planets[i]?.name || '?').join(' → '))} · circuit ends day ${trade.etaDay}</p>` : ''}
+      ${trade?.stops?.length && fleetVesselCondition(f) === 'operational' ? `<p>Calls: ${escapeHtml(trade.stops.map((i) => state.planets[i]?.name || '?').join(' → '))} · circuit ends day ${trade.etaDay}</p>` : ''}
       <p>${trade?.expectedProfit != null ? `This circuit ${trade.expectedProfit} L expected` : `Last circuit ${trade?.tripProfit ?? 0} L`} · Total ${trade?.cumulative ?? 0} L over ${trade?.circuits ?? 0} circuits</p>
       <p>Shipments ${trade?.contractIncome ?? 0} L · Commodities ${trade?.commodityIncome ?? 0} L</p></div>`;
       return `<details><summary>${escapeHtml(f.name)} · ${v ? Math.round((v.hull / v.maxHull) * 100) + '% hull' : 'Ready'} · ${escapeHtml(v?.condition || 'operational')} · ${upkeepPerDay(f.shipId)} L/day · ${escapeHtml(state.planets[f.assignment === 'escort' ? state.currentPlanet : f.systemIndex]?.name || 'Transit')}${tradeLine}</summary>
@@ -26231,6 +26524,10 @@ function dispatchFleetFormation(id, { fromRelay = false } = {}) {
   for (const f of members) {
     const from = f.assignment === 'escort' ? state.currentPlanet : f.systemIndex,
       route = getPlottedRoute(from, g.destination);
+    // The dispatch is the captain's newest word for her: trading she would have resumed after a repair
+    // does not start again under it, and her row stops saying she was ever disabled. [§6]
+    const mt = fleetTradeState(f);
+    if (mt) { mt.resumeTrade = false; mt.disabledAt = null; if (!mt.active && !mt.order) mt.note = `Dispatched with ${g.name}.`; }
     f.assignment = 'transit';
     f.transit = {
       from,
@@ -26374,7 +26671,29 @@ function ensureFleetTradeState(f, risk) {
   t.commodityIncome = Math.round(finiteNumber(t.commodityIncome, 0));
   t.circuits = Math.max(0, Math.round(finiteNumber(t.circuits, 0)));
   t.note = typeof t.note === 'string' ? t.note : '';
+  // §6: what disablement interrupted and where. `resumeTrade` is the captain's standing wish that she
+  // trade — she was trading when she was stopped — and it is carried out the day she is operational
+  // again, as an unresolved movement order is. A Stop, a movement order, a new Start or a dispatch
+  // replace it. `disabledAt` is where she was disabled; it is what lets her row say "Repaired" rather
+  // than go on repeating what was true while she lay there.
+  t.resumeTrade = Boolean(t.resumeTrade);
+  t.disabledAt = Number.isFinite(Number(t.disabledAt)) && t.disabledAt !== null ? Number(t.disabledAt) : null;
   return t;
+}
+// Everything disablement does to her trading, in one place, whichever way it happened: a crossing, a
+// world she was defending, a fight in the captain's system. She stops where she is; a movement order
+// she was flying stays hers, unresolved; trading she was doing is remembered, not forgotten.
+function markFleetShipDisabled(f, t, at) {
+  const where = state.planets[at]?.name || 'open space';
+  if (t.active) t.resumeTrade = true;
+  t.active = false;
+  t.stage = 'holding';
+  t.disabledAt = Number(at);
+  t.stops = [];
+  t.etaDay = null;
+  t.legEtaDay = null;
+  t.expectedProfit = null;
+  t.note = `Disabled at ${where}.`;
 }
 function fleetTradeCapacity(f) {
   return Math.max(0, Math.floor(finiteNumber(getShipStats(f.shipId).cargoCapacity, 0)));
@@ -26890,9 +27209,7 @@ function resolveFleetTradeLegRisk(f, t, at, day = state.day) {
     return 'destroyed';
   }
   if (v.condition === 'disabled') {
-    t.active = false;
-    t.stage = 'holding';
-    t.note = `Disabled at ${where}; repair before trading again.`;
+    markFleetShipDisabled(f, t, at);
     setLog(`${f.name} was attacked at ${where} and is disabled, holding with ${aboard} tons aboard.`);
     return 'disabled';
   }
@@ -26919,7 +27236,13 @@ function crossFleetTradeSystem(f, t, day = state.day) {
   if (!Number.isFinite(at) || !state.planets[at]) return null;
   if (!t.crossed.includes(at)) t.crossed.push(at);
   fleetTradeObserve(f, at);
-  const outcome = resolveFleetTradeLegRisk(f, t, at, day);
+  let outcome = resolveFleetTradeLegRisk(f, t, at, day);
+  // A ship that reaches the end of a leg already disabled — however that happened — goes no further:
+  // the next leg is not booked on a hull that cannot fly it. [§6]
+  if (outcome !== 'destroyed' && outcome !== 'disabled' && fleetVesselCondition(f) === 'disabled') {
+    markFleetShipDisabled(f, t, at);
+    outcome = 'disabled';
+  }
   if (outcome === 'destroyed' || outcome === 'disabled') {
     f.systemIndex = at;
     f.assignment = 'defense';
@@ -27094,6 +27417,13 @@ function advanceFleetTrading(day = state.day) {
     if (f.destroyed) { t.active = false; continue; }
     ensureFleetTradeState(f);
     if (f.transit) continue; // still on this leg; the calendar moves it
+    // Disabled standing still, however it happened (a fight in the captain's system, a world she was
+    // defending): she is marked where she lies, so her row can say what she is and, later, that she
+    // was repaired. A ship at the end of a leg is marked by the crossing instead. [§6]
+    if (t.disabledAt === null && t.stage !== 'outbound' && t.stage !== 'passage' && fleetVesselCondition(f) === 'disabled') {
+      if (t.active) markFleetShipDisabled(f, t, fleetShipSystem(f));
+      else t.disabledAt = fleetShipSystem(f);
+    }
     if (t.stage === 'passage') { advanceFleetTradePassage(f, t, day); continue; }
     if (t.stage === 'outbound') {
       const outcome = crossFleetTradeSystem(f, t, day);
@@ -27122,14 +27452,28 @@ function advanceFleetTrading(day = state.day) {
       else if (t.stage !== 'holding') { t.stage = 'holding'; t.note = `${condition === 'disabled' ? 'Disabled' : 'Lost'}; ${fleetPassageOrderLabel(t.order)} unresolved.`; }
       continue;
     }
+    // Trading that disablement interrupted resumes the day she is operational again, from where she
+    // lies — the same rule an unresolved movement order follows. [§6]
+    if (!t.active && t.resumeTrade) {
+      if (fleetVesselCondition(f) !== 'operational') continue;
+      t.active = true;
+      t.resumeTrade = false;
+      t.disabledAt = null;
+      t.stage = 'idle';
+      t.note = '';
+      setLog(`${f.name} is repaired and resumes trading at ${TRADE_RISK_LABELS[t.risk]} risk.`);
+    }
     if (!t.active) { if (t.stage !== 'holding') { t.stage = 'holding'; t.note = t.note || 'Stopped; holding position.'; } continue; }
     const condition = fleetVesselCondition(f);
     if (condition !== 'operational') {
-      t.stage = 'holding';
-      t.note = `${condition === 'disabled' ? 'Disabled' : 'Lost'}; repair before trading again.`;
-      t.active = false;
+      if (condition === 'disabled') markFleetShipDisabled(f, t, fleetShipSystem(f));
+      else { t.stage = 'holding'; t.note = 'Lost.'; t.active = false; }
       continue;
     }
+    // Trading and operational: whatever brought her back to work, she is no longer "repaired and
+    // resuming", and nothing about the disablement is left on her to show later. [§6]
+    t.resumeTrade = false;
+    t.disabledAt = null;
     const run = planFleetTradeCircuit(f, t, day);
     if (run.ok && run.repositioning) {
       if (t.note !== run.note) setLog(`${f.name}: ${run.note} Moving on to ${state.planets[run.plan.stops[0]]?.name || 'the nearest port'}.`);
@@ -27180,8 +27524,23 @@ function fleetPassageOrderLabel(order) {
 }
 function fleetTradeStatusLine(f) {
   const t = fleetTradeState(f);
+  const condition = f && !f.destroyed ? fleetVesselCondition(f) : 'destroyed';
+  // A ship that cannot fly says so first and says nothing about routes, calls or arrival days: none
+  // of those are true while she lies there. What will happen when she is repaired is the rest. [§6]
+  if (condition === 'disabled') {
+    const parts = ['Disabled — awaiting repair'];
+    if (t?.order && t.order.pending) parts.push(`${fleetPassageOrderLabel(t.order)} unresolved`);
+    else if (t?.resumeTrade) parts.push(`trading (${TRADE_RISK_LABELS[t.risk]}) resumes when repaired`);
+    return parts.join(' · ');
+  }
   if (!t) return '';
   const order = t.order ? fleetPassageOrderLabel(t.order) : '';
+  // Repaired, and not yet moved on from where she lay.
+  if (t.disabledAt !== null && !f.transit && t.stage !== 'passage' && t.stage !== 'outbound') {
+    if (t.order && t.order.pending) return `Repaired — ${order} · leaving`;
+    if (t.resumeTrade) return `Repaired — resuming trading (${TRADE_RISK_LABELS[t.risk]})`;
+    return 'Repaired — holding';
+  }
   if (t.stage === 'passage') {
     const next = f.transit ? state.planets[f.transit.to]?.name || '?' : null;
     if (t.order && t.order.pending) return `${order} · ${fleetTradeLoad(t)} t aboard · replotting at ${next || '?'} day ${t.legEtaDay}`;
@@ -27228,6 +27587,8 @@ function startFleetTrading(id, risk) {
   }
   t.active = true;
   t.order = null;
+  t.resumeTrade = false;
+  t.disabledAt = null;
   if (t.stage === 'holding') t.stage = 'idle';
   t.note = '';
   setLog(`${f.name} begins trading at ${TRADE_RISK_LABELS[t.risk]} risk.`);
@@ -27238,6 +27599,9 @@ function stopFleetTrading(id) {
   const t = f && fleetTradeState(f);
   if (!t) return false;
   t.active = false;
+  // An intentional hold: trading she would have gone back to after repair is off too. [§6]
+  const wasResuming = t.resumeTrade;
+  t.resumeTrade = false;
   // Stop trading controls autonomous trading and nothing else. A ship under the captain's movement
   // order — on a passage, with one pending, unresolved where she was stopped, or holding at the end of
   // one — keeps its stage, order, transit, ETA and status exactly; only trading is off. Turning her
@@ -27248,6 +27612,10 @@ function stopFleetTrading(id) {
     return true;
   }
   // Stopping does not abandon a circuit already paid for. The ship finishes it, delivers, and holds.
+  if (wasResuming || t.disabledAt !== null) {
+    setLog(`${f.name}: trading is off; she holds when repaired.`);
+    return true;
+  }
   if (t.stage !== 'outbound') {
     t.stage = 'holding';
     t.note = 'Stopped; holding position.';
@@ -27441,6 +27809,8 @@ function orderFleetPassage(id, to, kind = 'rendezvous') {
   const condition = fleetVesselCondition(f);
   if (condition === 'destroyed') return false;
   const t = ensureFleetTradeState(f);
+  // The captain's movement order replaces trading she would have gone back to after repair.
+  t.resumeTrade = false;
   // An order that reaches a ship that cannot fly has still been received. It is hers, unresolved,
   // exactly as an order she was stopped in the middle of; she flies it from where she lies once she
   // is repaired, under the rule that already governs that. Refusing it lost a command that had waited
@@ -27450,6 +27820,7 @@ function orderFleetPassage(id, to, kind = 'rendezvous') {
     t.order = { kind, to: dest, from: fleetShipSystem(f), day: Number(state.day), pending: true, wasActive, arrivedDay: null };
     t.active = false;
     t.stage = 'holding';
+    if (t.disabledAt === null) t.disabledAt = fleetShipSystem(f);
     t.note = `Disabled; ${fleetPassageOrderLabel(t.order)} unresolved.`;
     setLog(`${f.name} is disabled and cannot make the passage yet; ${fleetPassageOrderLabel(t.order).toLowerCase()} is hers, unresolved, until she is repaired.`);
     return true;
@@ -27537,6 +27908,8 @@ function beginFleetTradePassage(f, t, from, day = state.day) {
     return false;
   }
   t.order = { ...order, from: Number(from), pending: false };
+  t.disabledAt = null;
+  t.resumeTrade = false;
   t.origin = Number(from);
   t.stops = [];
   t.path = (route.systems || []).map(Number).slice(1);

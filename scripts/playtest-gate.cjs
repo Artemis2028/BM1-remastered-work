@@ -1566,7 +1566,7 @@ const { startProbe } = require('./probe-harness.cjs');
           return st.apply(this, a);
         };
       }
-      t.drawInterstellarMapOverlay();
+      t.drawInterstellarMapOverlay(); /* the key and readout moved to DOM rails: read their lines as painted text */ window.__painted.push(...[...document.querySelectorAll('[data-map-line]')].filter((e) => e.offsetParent).map((e) => e.textContent));
       const painted = window.__painted.slice();
       return { fail: null, target, hidden, targetName: s.planets[target].name, hiddenName: s.planets[hidden].name,
         painted, dashed: window.__dashed,
@@ -1594,10 +1594,13 @@ const { startProbe } = require('./probe-harness.cjs');
       const t = testBM1;
       const r = t.getStarChartPanelRect();
       const n = t.MAP_OVERLAY_LAYERS.findIndex((l) => l.key === 'cargo');
-      const y = r.bottom - 18 - t.MAP_OVERLAY_LAYERS.length * 18 + 9 + n * 18 - 4;
       const c = document.getElementById('game');
       const rect = c.getBoundingClientRect();
-      return { clientX: rect.left + (r.left + 40) * (rect.width / c.width), clientY: rect.top + y * (rect.height / c.height) };
+      // A tree that moved the key into the chart's side column says where its rows are; an older tree
+      // keeps the key in the bottom-left corner, where this formula has always found it.
+      const at = t.mapOverlayLegendRowPoint ? t.mapOverlayLegendRowPoint('cargo')
+        : { x: r.left + 40, y: r.bottom - 18 - t.MAP_OVERLAY_LAYERS.length * 18 + 9 + n * 18 - 4 };
+      return { clientX: rect.left + at.x * (rect.width / c.width), clientY: rect.top + at.y * (rect.height / c.height) };
     });
     await page.mouse.click(box.clientX, box.clientY);
     await page.waitForTimeout(120);
@@ -1605,13 +1608,13 @@ const { startProbe } = require('./probe-harness.cjs');
       const t = testBM1;
       window.__painted = [];
       window.__dashed = 0;
-      t.drawInterstellarMapOverlay();
+      t.drawInterstellarMapOverlay(); /* the key and readout moved to DOM rails: read their lines as painted text */ window.__painted.push(...[...document.querySelectorAll('[data-map-line]')].filter((e) => e.offsetParent).map((e) => e.textContent));
       const cargoOff = { on: t.mapOverlayState().cargo, painted: window.__painted.slice() };
       // Negative control for the route count above: with the route layer off, nothing may be stroked
       // in its colour, so a passing count cannot have come from the chart's own lines.
       t.toggleMapOverlay('routes');
       window.__dashed = 0;
-      t.drawInterstellarMapOverlay();
+      t.drawInterstellarMapOverlay(); /* the key and readout moved to DOM rails: read their lines as painted text */ window.__painted.push(...[...document.querySelectorAll('[data-map-line]')].filter((e) => e.offsetParent).map((e) => e.textContent));
       return { ...cargoOff, dashedWithRoutesOff: window.__dashed };
     });
     assert.equal(afterToggle.on, false,
@@ -2014,7 +2017,7 @@ const { startProbe } = require('./probe-harness.cjs');
           const st = C.stroke;
           C.stroke = function (...a) { window.__strokes.push(String(this.strokeStyle).toLowerCase()); return st.apply(this, a); };
         }
-        t.drawInterstellarMapOverlay();
+        t.drawInterstellarMapOverlay(); /* the key and readout moved to DOM rails: read their lines as painted text */ window.__painted.push(...[...document.querySelectorAll('[data-map-line]')].filter((e) => e.offsetParent).map((e) => e.textContent));
         return { painted: window.__painted.slice(), strokes: window.__strokes.slice() };
       };
       const on = paint();

@@ -4719,6 +4719,10 @@ button:disabled {
 #campaign-panel .campaign-table {width:100%;border-collapse:collapse;font-size:15px;}
 #campaign-panel .campaign-table th,#campaign-panel .campaign-table td {text-align:left;padding:6px 8px;border-bottom:1px solid #3a3550;vertical-align:top;}
 #campaign-panel .campaign-body button {min-height:34px;padding:4px 10px;margin:2px 0;}
+#campaign-panel .campaign-ops-toggle {min-width:52px;font-weight:bold;cursor:pointer;}
+#campaign-panel .campaign-ops-detail td {background:#141a28;border-left:3px solid #e8bb6c;}
+#campaign-panel .campaign-ops-detail ul {margin:4px 0;}
+#campaign-panel .campaign-ops-detail li {margin:8px 0;}
 @media (max-width: 640px) {
   #campaign-panel .campaign-table thead {display:none;}
   #campaign-panel .campaign-table tr {display:block;border-bottom:1px solid #565064;padding:6px 0;}
@@ -4772,3 +4776,72 @@ button:disabled {
   .top-left-tabs button { min-height: 40px; }
   .security-order-body > button { min-height: 44px; }
 }
+
+/* Cargo jettison: one button per filled pod, and on contract rows; armed = waiting for the confirming click. */
+.pod .cargo-dump { margin-left: 8px; padding: 2px 8px; font-size: 12px; min-height: 0; }
+.cargo-dump.armed { background: #7a2a1e; color: #ffe2d6; border-color: #ff8a6a; }
+#galaxy-reports .report-section-campaign .galaxy-report { border-left-color: #b494ff; }
+
+/* Interstellar map side rails: page text, not canvas text, so they stay crisp and readable at any
+   scaling. Positioned each frame from getStarChartLayout(). */
+.map-rail {
+  position: fixed;
+  z-index: 76;
+  pointer-events: auto;
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 0 0 12px;
+  background: rgba(4, 8, 16, 0.92);
+  border: 1px solid rgba(255, 214, 164, 0.22);
+  border-radius: 10px;
+  color: #dbe6f7;
+  font-size: 15px;
+  line-height: 1.4;
+}
+.map-rail.hidden { display: none; }
+.map-rail h3 {
+  margin: 0 0 8px;
+  padding: 6px 14px;
+  background: var(--lcars-amber, #ffb454);
+  color: #000;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.map-rail-section + .map-rail-section { margin-top: 14px; }
+.map-overlay-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% - 16px);
+  margin: 2px 8px;
+  padding: 6px 8px;
+  min-height: 34px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #7d8ca3;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.map-overlay-toggle:hover { border-color: rgba(255, 214, 164, 0.3); }
+.map-overlay-toggle[aria-pressed="true"] { color: #eef4ff; }
+.map-overlay-dot {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--layer);
+  box-sizing: border-box;
+}
+.map-overlay-toggle[aria-pressed="true"] .map-overlay-dot { background: radial-gradient(circle, var(--layer) 45%, transparent 50%); }
+.map-rail-unknown { margin: 6px 16px 0; color: #a79cc6; font-size: 14px; }
+.map-rail-title { margin: 4px 14px 6px; font-size: 18px; font-weight: 700; color: #eef4ff; }
+.map-rail-readings { margin: 0 14px 8px; }
+.map-rail-readings div { padding: 2px 0; }
+.map-rail-source { margin: 6px 14px; color: #9fb2d0; font-size: 14px; }
+.map-rail-note { margin: 6px 14px; color: #c9d6ea; font-size: 14px; }
+.fleet-trade .fleet-queued { color: #c7b8ff; font-style: italic; border-left: 3px solid #8a7fa8; padding-left: 8px; }
+.fleet-trade .fleet-status-disabled { color: #ffb08a; font-weight: 700; }

@@ -503,7 +503,7 @@ const EXPORTS = 'window.testBM1={state,startWithFaction,advanceFleetCalendar,fle
       return { tabs: Object.fromEntries(Object.entries(tabs).map(([k, v]) => [k, v.length])), empireText: tabs.empire.slice(0, 300), leaks, hiddenCount: hiddenNames.length, open, results, bad };
     });
     for (const [tab, len] of Object.entries(r.tabs)) assert.ok(len > 100, `${tab} renders`);
-    assert.match(r.empireText, /your own empire/); assert.deepEqual(r.leaks, []); assert.ok(r.hiddenCount > 0, 'the Dominion region is hidden in a fresh game'); assert.ok(r.open);
+    assert.match(r.empireText, /Your empire/); /* the tab; the sentence restating it was removed as UI prose */ assert.deepEqual(r.leaks, []); assert.ok(r.hiddenCount > 0, 'the Dominion region is hidden in a fresh game'); assert.ok(r.open);
     assert.equal(r.results.day, 74); assert.equal(r.results.treasuryValue, 777000); assert.equal(r.results.romulanReady, 12); assert.ok(r.results.damaged >= 0.5); assert.ok(r.results.restored);
     assert.equal(r.results.depleted, 0); assert.match(r.results.missing, /stock/); assert.ok(r.results.missionOffered); assert.match(r.results.phase, /Forced override/); assert.ok(r.results.gorn); assert.match(r.bad, /campaign: phase|treasury/);
     await ev(() => testBM1.openCampaignPanel('empire'));
