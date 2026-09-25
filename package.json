@@ -51,7 +51,10 @@
     "test:campaign:blockers": "node scripts/campaign-blocker-gate.mjs",
     "test:campaign:blockers:ingame": "node scripts/campaign-blocker-probe.cjs",
     "test:playtest:gate": "node scripts/playtest-gate.cjs",
-    "test:fleet-state-ui": "node scripts/fleet-state-ui-gate.cjs"
+    "test:fleet-state-ui": "node scripts/fleet-state-ui-gate.cjs",
+    "test:section6:verify": "node scripts/section6-verification-gate.cjs",
+    "bench:map": "node scripts/map-render-bench.cjs",
+    "screens:section6": "node scripts/section6-screens.cjs"
   },
   "license": "SEE LICENSE IN LICENSE.md",
   "devDependencies": {

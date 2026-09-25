@@ -5,6 +5,8 @@ import * as Campaign from './campaign-strategy.mjs';
 const TRANSPORTER_RANGE = 2500;
 const WORLD_CARGO_DROPOFF_RANGE = 600;
 const JUMP_BACKGROUND_REPORT_LIMIT = 6;
+// The storyline section is bounded too: newest three per jump; anything more waits for the next.
+const JUMP_CAMPAIGN_REPORT_LIMIT = 3;
 const PLAYER_DISABLE_GRACE_MS = 3000;
 import * as Fleet from './ship-fleet.mjs';
 import { HOJ_WEAPON_ID, createHojFlight, stepHojFlight, sampleHojIfDue } from './ship-hoj.mjs';
@@ -8505,6 +8507,9 @@ function getContractTargetIndex(contract = {}) {
 function isCargoPodForContract(pod = {}, contract = {}) {
   if (Number(pod.tons || 0) <= 0) return false;
   if (contract.id && pod.contractId && String(pod.contractId) === String(contract.id)) return true;
+  // A pod written for another contract is that contract's. Matching it by goods and destination made two
+  // shipments of the same goods to the same world look loaded when only one was. [§6 review]
+  if (contract.id && pod.contractId && String(pod.contractId) !== String(contract.id)) return false;
   if (String(pod.item || '') !== String(contract.goods || '')) return false;
   const targetIndex = getContractTargetIndex(contract);
   const contractKey = getCargoDestinationKeyFromValues(contract.targetName, targetIndex);
@@ -9056,10 +9061,13 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('[data-cargo-beam]')) { beamDownBlockedCargo(); if (state.topLeftPanelOpen) renderTopLeftPanel(); return; }
   const dump = e.target.closest('[data-cargo-dump]');
   if (dump) { dumpCargoPod(Number(dump.dataset.cargoDump)); return; }
+  if (e.target.closest('[data-cargo-dump-cancel]')) { cancelCargoDump(); return; }
   const abandon = e.target.closest('[data-contract-abandon]');
   if (abandon) {
     const key = `contract:${abandon.dataset.contractAbandon}`;
-    if (state.cargoDumpArmed !== key) { state.cargoDumpArmed = key; setLog('Dumping this cargo fails the shipment: no pay, and the employer remembers. Click again to confirm.'); renderTopLeftPanel(); }
+    const contract = getOpenContracts().find((c) => String(c.id) === String(abandon.dataset.contractAbandon));
+    if (!contract) return;
+    if (state.cargoDumpArmed !== key) { state.cargoDumpArmed = key; setLog(`${cargoAbandonConsequences(contract)} Confirm to dump.`); renderTopLeftPanel(); }
     else abandonCargoContract(abandon.dataset.contractAbandon);
     return;
   }
@@ -9477,6 +9485,8 @@ function addGalaxyReport(report) {
   // The power this account blames, carried through delivery. A reader that counts fleets by power has
   // to read the claim rather than the fleet, and the claim only survives if it is stored. [fifth review]
   if (isRecognizedFactionKey(report.claimedAttacker)) item.claimedAttacker = report.claimedAttacker;
+  // Storyline membership is decided when the account is composed and travels with it. [§6 review]
+  if (report.storyline === 'dominion') item.storyline = 'dominion';
   item.playerRelated ||= isPersonalGalaxyReport(item);
   book.items.push(item);
   book.items = book.items.slice(-120);
@@ -9606,32 +9616,33 @@ function isPersonalGalaxyReport(report) {
 function visibleGalaxyReports() {
   return galaxyNewsBook().items.filter(r=>r.systemIndex==null || isReportSystemKnown(r.systemIndex));
 }
-// The jump briefing's Campaign section is the Dominion story and nothing else. Like the captain's own
-// affairs it is uncapped — there are only a handful of these in a whole game — and it is taken out of
-// the other two lists first, so a Dominion report is never shown twice or crowded out by border news.
+// The jump briefing's Campaign Report is the Dominion storyline and nothing else, bounded to the newest
+// JUMP_CAMPAIGN_REPORT_LIMIT per jump (the rest wait, unread, for the next). It is taken out of the
+// other two lists first, so a storyline report is never shown twice or crowded out by border news.
 function selectJumpBriefingReports() {
   const book = galaxyNewsBook();
   if (!state.warp.briefingReports) {
     const unread = visibleGalaxyReports().filter(r=>!book.readIds.includes(r.id)).reverse();
     const rest = unread.filter(r=>!isDominionCampaignReport(r));
     state.warp.briefingReports = {
-      campaign:unread.filter(isDominionCampaignReport).map(r=>r.id),
+      campaign:unread.filter(isDominionCampaignReport).slice(0,JUMP_CAMPAIGN_REPORT_LIMIT).map(r=>r.id),
       personal:rest.filter(isPersonalGalaxyReport).map(r=>r.id),
       galaxy:rest.filter(r=>!isPersonalGalaxyReport(r)).slice(0,JUMP_BACKGROUND_REPORT_LIMIT).map(r=>r.id),
     };
   }
   const visible = visibleGalaxyReports();
   const resolve = ids=>(ids || []).map(id=>visible.find(r=>r.id===id)).filter(Boolean);
-  return {campaign:resolve(state.warp.briefingReports.campaign),personal:resolve(state.warp.briefingReports.personal),galaxy:resolve(state.warp.briefingReports.galaxy).slice(0,JUMP_BACKGROUND_REPORT_LIMIT)};
+  return {campaign:resolve(state.warp.briefingReports.campaign).slice(0,JUMP_CAMPAIGN_REPORT_LIMIT),personal:resolve(state.warp.briefingReports.personal),galaxy:resolve(state.warp.briefingReports.galaxy).slice(0,JUMP_BACKGROUND_REPORT_LIMIT)};
 }
-// A Dominion report is one about the expedition: its warnings, its convoys, or an account that names the
-// Dominion as the power involved. What decides it is what the report itself says — an account that blames
-// someone else for a Dominion attack is filed where its claim puts it, as the captain would file it.
+// The Campaign Report is the Dominion storyline: the expedition's warnings, its convoys, and accounts of
+// the expedition itself that name it. The tag is written onto the received report when it is composed
+// (see campaignStorylineTag), so the section an account is filed in says nothing its text does not.
+// Ordinary Dominion incidents are news like any other. Saves from before the tag keep their warnings
+// and convoys here by id; nothing else is inferred.
 function isDominionCampaignReport(report) {
+  if (report?.storyline === 'dominion') return true;
   const id = String(report?.id || '');
-  if (id.startsWith('dominion:') || id.startsWith('convoy:')) return true;
-  if ((report?.category || '') !== CAMPAIGN_REPORT_KIND) return false;
-  return report.claimedAttacker === 'dominion' || (report.factions || []).includes('dominion');
+  return id.startsWith('dominion:') || id.startsWith('convoy:');
 }
 // The old single Campaign folder held every strategic event. It is now split by what the event is about.
 const CAMPAIGN_CONTRACT_REPORT_PREFIXES = Object.freeze(['recovery:', 'recovery-reopen:', 'recovered:', 'mission-done:']);
@@ -9657,7 +9668,7 @@ function renderGalaxyReports() {
   if (transit && reportFolder==='briefing') {
     const selected = selectJumpBriefingReports();
     rows = [...selected.campaign,...selected.personal,...selected.galaxy];
-    content = `${selected.campaign.length ? `<details class="report-section report-section-campaign" open><summary>Campaign report (${selected.campaign.length})</summary><div class="report-list" data-report-campaign>${cards(selected.campaign)}</div></details>` : ''}<details class="report-section" open><summary>Captain's log (${selected.personal.length})</summary><div class="report-list" data-report-personal>${cards(selected.personal) || '<p>No new reports involving you.</p>'}</div></details><details class="report-section" open><summary>Subspace news (${selected.galaxy.length} / ${JUMP_BACKGROUND_REPORT_LIMIT})</summary><div class="report-list" data-report-background>${cards(selected.galaxy) || '<p>No new background reports received.</p>'}</div></details>`;
+    content = `${selected.campaign.length ? `<details class="report-section report-section-campaign" open><summary>Campaign report (${selected.campaign.length} / ${JUMP_CAMPAIGN_REPORT_LIMIT})</summary><div class="report-list" data-report-campaign>${cards(selected.campaign)}</div></details>` : ''}<details class="report-section" open><summary>Captain's log (${selected.personal.length})</summary><div class="report-list" data-report-personal>${cards(selected.personal) || '<p>No new reports involving you.</p>'}</div></details><details class="report-section" open><summary>Subspace news (${selected.galaxy.length} / ${JUMP_BACKGROUND_REPORT_LIMIT})</summary><div class="report-list" data-report-background>${cards(selected.galaxy) || '<p>No new background reports received.</p>'}</div></details>`;
   } else {
     const filtered = all.filter(r=>inFolder(r,reportFolder));
     reportPage = Math.min(reportPage,Math.max(0,Math.ceil(filtered.length/6)-1));
@@ -13667,7 +13678,8 @@ function addCargoToPods(item, tons = 1, destination = undefined, payout = 0, opt
   const destinationKey = getCargoDestinationKeyFromValues(destinationName, destinationIndex);
 
   for (const pod of state.cargoArray) {
-    if (pod.item === item && getCargoDestinationKey(pod) === destinationKey) {
+    // Merge only into a pod carrying the same contract (or none): each shipment keeps its own tonnage.
+    if (pod.item === item && getCargoDestinationKey(pod) === destinationKey && String(pod.contractId || '') === String(options.contractId || '')) {
       pod.tons += amount;
       pod.destination = destinationName;
       if (destinationIndex >= 0) pod.destinationIndex = destinationIndex;
@@ -13726,23 +13738,61 @@ function removeCargoFromPods(item, tons = 1) {
 const CARGO_ABANDON_STANDING = -3;
 function cargoPodContract(pod) {
   if (!pod || !(Number(pod.tons) > 0)) return null;
-  return getOpenContracts().find((c) => isCargoPodForContract(pod, c)) || null;
+  // A pod written for one contract belongs to that contract; only an unmarked pod is matched by goods
+  // and destination.
+  const open = getOpenContracts();
+  if (pod.contractId) return open.find((c) => String(c.id) === String(pod.contractId)) || open.find((c) => isCargoPodForContract(pod, c)) || null;
+  return open.find((c) => isCargoPodForContract(pod, c)) || null;
+}
+// Exactly what failing a shipment costs, stated before the captain confirms it. [§6 review]
+function cargoAbandonConsequences(contract) {
+  const employer = normalizeFactionKey(contract.employerFaction);
+  const standing = isRecognizedFactionKey(employer) ? `; ${formatFaction(employer)} standing ${CARGO_ABANDON_STANDING}` : '';
+  const total = getContractTotal(contract);
+  return `Dump ${contract.tons} t ${contract.goods} bound for ${contractDestinationLabel(getContractTargetIndex(contract))}? The shipment for ${contract.employerName} fails: the ${total.toLocaleString()} L payment is forfeit${standing}.`;
+}
+// Takes this shipment's tonnage out of the hold and nothing else. Two shipments of the same goods to the
+// same world share a pod (addCargoToPods merges them); only this one's tons and pay come out of it, and
+// ordinary cargo of the same commodity, which carries no destination, is never matched. [§6 review]
+function removeContractCargo(contract) {
+  let remaining = Math.max(0, Number(contract.tons || 0));
+  let pay = getContractTotal(contract);
+  const pods = [
+    ...state.cargoArray.filter((pod) => Number(pod.tons) > 0 && pod.contractId && String(pod.contractId) === String(contract.id)),
+    ...state.cargoArray.filter((pod) => Number(pod.tons) > 0 && !(pod.contractId && String(pod.contractId) === String(contract.id)) && pod.destination !== undefined && isCargoPodForContract({ ...pod, contractId: undefined }, contract)),
+  ];
+  let removed = 0;
+  for (const pod of pods) {
+    if (remaining <= 0) break;
+    const take = Math.min(remaining, Number(pod.tons));
+    pod.tons = Number(pod.tons) - take;
+    remaining -= take; removed += take;
+    const payTake = Math.min(Number(pod.payout || 0), pay);
+    pod.payout = Number(pod.payout || 0) - payTake; pay -= payTake;
+    if (pod.tons <= 0) clearCargoPod(pod);
+  }
+  recalcCargoFromPods();
+  return removed;
 }
 function abandonCargoContract(contractId) {
   const contract = getOpenContracts().find((c) => String(c.id) === String(contractId));
-  if (!contract) return false;
-  let tons = 0;
-  for (const pod of state.cargoArray) {
-    if (isCargoPodForContract(pod, contract)) { tons += Number(pod.tons || 0); clearCargoPod(pod); }
-  }
+  if (!contract) { state.cargoDumpArmed = null; return false; }
+  // The contract leaves the books first, so nothing that re-renders the hold can reload its cargo.
   state.openContracts = getOpenContracts().filter((c) => String(c.id) !== String(contract.id));
   state.activeContract = state.openContracts[0] || null;
-  recalcCargoFromPods();
+  const tons = removeContractCargo(contract);
   const employer = normalizeFactionKey(contract.employerFaction);
   if (isRecognizedFactionKey(employer)) adjustFactionStanding(employer, CARGO_ABANDON_STANDING);
   state.cargoDumpArmed = null;
-  setLog(`Jettisoned ${tons} tons of ${contract.goods}. Shipment for ${contract.employerName} failed — no payment${isRecognizedFactionKey(employer) ? `; ${formatFaction(employer)} standing ${CARGO_ABANDON_STANDING}` : ''}.`);
+  setLog(`Jettisoned ${tons} t ${contract.goods}. Shipment for ${contract.employerName} failed — ${getContractTotal(contract).toLocaleString()} L forfeit${isRecognizedFactionKey(employer) ? `; ${formatFaction(employer)} standing ${CARGO_ABANDON_STANDING}` : ''}.`);
   updateStats();
+  if (state.topLeftPanelOpen) renderTopLeftPanel();
+  return true;
+}
+function cancelCargoDump() {
+  if (!state.cargoDumpArmed) return false;
+  state.cargoDumpArmed = null;
+  setLog('Jettison cancelled.');
   if (state.topLeftPanelOpen) renderTopLeftPanel();
   return true;
 }
@@ -13754,9 +13804,7 @@ function dumpCargoPod(index) {
   const key = contract ? `contract:${contract.id}` : `pod:${index}`;
   if (state.cargoDumpArmed !== key) {
     state.cargoDumpArmed = key;
-    setLog(contract
-      ? `Dumping this cargo fails the ${contract.tons}t ${contract.goods} shipment for ${contract.employerName}: no pay, and the employer remembers. Click again to confirm.`
-      : `Jettison ${pod.tons} tons of ${pod.item}? Click again to confirm.`);
+    setLog(contract ? `${cargoAbandonConsequences(contract)} Confirm to dump.` : `Jettison ${pod.tons} t ${pod.item}? Confirm to dump.`);
     if (state.topLeftPanelOpen) renderTopLeftPanel();
     return false;
   }
@@ -13765,18 +13813,24 @@ function dumpCargoPod(index) {
   clearCargoPod(pod);
   recalcCargoFromPods();
   state.cargoDumpArmed = null;
-  setLog(`Jettisoned ${tons} tons of ${item}.`);
+  setLog(`Jettisoned ${tons} t ${item}.`);
   updateStats();
   if (state.topLeftPanelOpen) renderTopLeftPanel();
   return true;
+}
+// The pending confirmation, shown where the button was pressed: what it costs, Confirm, Cancel.
+function cargoDumpConfirmation(contract, podIndex = null) {
+  const confirm = contract ? `data-contract-abandon="${escapeHtml(contract.id)}"` : `data-cargo-dump="${podIndex}"`;
+  const text = contract ? cargoAbandonConsequences(contract) : `Jettison ${state.cargoArray[podIndex].tons} t ${state.cargoArray[podIndex].item}?`;
+  return `<div class="cargo-dump-confirm" role="alertdialog"><p data-cargo-dump-text>${escapeHtml(text)}</p><button class="cargo-dump armed" ${confirm}>Confirm dump</button><button data-cargo-dump-cancel>Cancel</button></div>`;
 }
 function cargoDumpButton(index) {
   const pod = state.cargoArray?.[index];
   if (!pod || !(Number(pod.tons) > 0)) return '';
   const contract = cargoPodContract(pod);
   const armed = state.cargoDumpArmed === (contract ? `contract:${contract.id}` : `pod:${index}`);
-  const label = armed ? (contract ? 'Confirm: dump & fail shipment' : 'Confirm jettison') : (contract ? 'Dump (fails shipment)' : 'Dump');
-  return `<button class="cargo-dump${armed ? ' armed' : ''}" data-cargo-dump="${index}">${label}</button>`;
+  if (armed) return cargoDumpConfirmation(contract, index);
+  return `<button class="cargo-dump" data-cargo-dump="${index}">${contract ? 'Dump (fails shipment)' : 'Dump'}</button>`;
 }
 function hasWorldCargoToDeliver() {
   return (state.cargoArray || []).some(isCargoDueAtCurrentPlanet)
@@ -19757,7 +19811,10 @@ function getStarChartLayout(panel = getStarChartPanelRect()) {
     const right = box(chart.right + gap, side);
     return { mode: 'one', chart, left: null, right };
   }
-  return { mode: 'none', chart: box(innerLeft, avail), left: null, right: null };
+  // Too narrow for a rail beside the chart: the chart takes the full width and the same DOM panel sits
+  // over its right edge, still page text at a readable size. The chart pans under it. [§6 review]
+  const overlay = Math.round(clamp(avail * 0.42, 200, 260));
+  return { mode: 'overlay', chart: box(innerLeft, avail), left: null, right: box(innerLeft + avail - overlay, overlay) };
 }
 function getStarChartViewport() {
   const { chart } = getStarChartLayout();
@@ -22833,9 +22890,10 @@ function renderMapRails() {
   };
   place(leftEl, layout.left);
   place(rightEl, layout.right);
-  const { key, selected } = layout.mode === 'none' ? { key: '', selected: '' } : mapRailsMarkup();
+  const { key, selected } = mapRailsMarkup();
   const leftHtml = layout.mode === 'two' ? key : '';
-  const rightHtml = layout.mode === 'two' ? selected : layout.mode === 'one' ? key + selected : '';
+  const rightHtml = layout.mode === 'two' ? selected : key + selected;
+  rightEl.classList.toggle('map-rail-overlay', layout.mode === 'overlay');
   const sig = `${layout.mode}|${leftHtml}|${rightHtml}`;
   if (sig !== mapRailsSignature) {
     mapRailsSignature = sig;
@@ -22977,7 +23035,9 @@ function renderContractsPanel() {
       (here ? '<button data-cargo-drop>Beam cargo down</button>' : '')
       + `<button data-contract-marker="${escapeHtml(c.id)}">${c.showMarker === false ? 'Show' : 'Hide'} marker</button>`
       + `<button data-contract-show="${escapeHtml(String(i))}">Show on map</button>`
-      + `<button class="cargo-dump${armed ? ' armed' : ''}" data-contract-abandon="${escapeHtml(c.id)}">${armed ? 'Confirm: dump & fail shipment' : 'Dump (fails shipment)'}</button>`, c.employerName || '');
+      + (armed ? '' : `<button class="cargo-dump" data-contract-abandon="${escapeHtml(c.id)}">Dump (fails shipment)</button>`), c.employerName || '')
+      // The confirmation takes the full width under its row, so the whole consequence is readable.
+      + (armed ? cargoDumpConfirmation(c) : '');
   }).join('');
   const accepted = live.filter((m) => m.status === 'active').length;
   return `<div class="panel-head panel-subhead">Station contracts (${accepted} accepted)</div>`
@@ -23009,11 +23069,8 @@ function drawInterstellarMapOverlay() {
     }
     ctx.restore();
     drawWorldPops();
-    const layout = renderMapRails();
-    if (layout.mode === 'none') {
-      mapOverlayLegendRect = drawMapOverlayLegend();
-      drawConditionsPanel();
-    } else mapOverlayLegendRect = null;
+    renderMapRails();
+    mapOverlayLegendRect = null;
   } finally {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx = previousCtx;
@@ -24674,6 +24731,8 @@ function reportCampaignEvent(spec) {
       // transponder are the two tiers entitled to be right about it. [fifth review]
       claimedAttacker: isRecognizedFactionKey(spec.attacker) ? spec.attacker : null,
       playerRelated: personal, text };
+    const beat = campaignStorylineTag(spec, report.claimedAttacker);
+    if (beat) report.storyline = beat;
     if (source === 'local') return campaignReport({ ...report, day: spec.day });
     const news = galaxyNewsBook();
     news.pending.push({ ...report, day: spec.day + CAMPAIGN_RELAY_REPORT_DELAY_DAYS });
@@ -24696,11 +24755,27 @@ function reportCampaignEvent(spec) {
     // must count this one — not the fleet's real owner. [fifth review]
     claimedAttacker: isRecognizedFactionKey(estimate.attacker) ? estimate.attacker : null,
     playerRelated: personal, text };
+  const beat = campaignStorylineTag(spec, report.claimedAttacker);
+  if (beat) report.storyline = beat;
   news.pending.push(report);
   news.pending = news.pending.slice(-120);
   return true;
 }
 const CAMPAIGN_RELAY_REPORT_DELAY_DAYS = 2;
+// Which received accounts belong to the Dominion storyline. The expedition's warnings and its convoys
+// through the wormhole always do: the wormhole is in every version of those accounts. The expedition's
+// own operation does only when the account the captain received names the Dominion — filing an account
+// that blames someone else under the storyline would tell the captain who it really was. Every other
+// Dominion incident is ordinary news. [§6 review]
+function campaignStorylineTag(spec, claimedAttacker) {
+  if (spec.storyline !== 'dominion') return null;
+  if (spec.storylineAlways) return 'dominion';
+  return claimedAttacker === 'dominion' ? 'dominion' : null;
+}
+function isDominionExpeditionOp(opId) {
+  const id = campaignBook().dominion?.expeditionOpId;
+  return id != null && opId != null && String(id) === String(opId);
+}
 // Who a campaign event happens *to*, read at the moment it happens. Control can change before a
 // delayed account is classified, so the stake has to be captured with the event and not looked up
 // again later — that is how a report about a world the captain has just lost stopped counting as theirs.
@@ -24786,7 +24861,7 @@ function applyCampaignEffects(effects, day = state.day) {
         try { if (e.by === 'player') transferSystemControlToPlayer(i); else transferSystemControlToFaction(i, e.by); } finally { book.suppressCaptureHook = false; }
         if (i === Number(state.currentPlanet) && !state.warp.active) { state.systemFaction = campaignFactionKeyFor(e.by); state.systemAttitude = getFactionAttitude(state.systemFaction); }
         reportCampaignEvent({
-          id: `capture:${e.opId || i}:${e.day ?? day}`, systemIndex: i, day: e.day ?? day, kind: 'World captured',
+          id: `capture:${e.opId || i}:${e.day ?? day}`, systemIndex: i, day: e.day ?? day, kind: 'World captured', storyline: isDominionExpeditionOp(e.opId) ? 'dominion' : null,
           factions: [by, from].filter(isRecognizedFactionKey), involved: stake.involved, attacker: by, observationKind: 'battle',
           playerRelated: stake.personal || e.by === 'player' || e.from === 'player',
           direct: `${formatFaction(by)} forces took control of ${state.planets[i]?.name}${from ? ` from ${formatFaction(from)}` : ''} after defeating its defenders.`,
@@ -24816,7 +24891,7 @@ function applyCampaignEffects(effects, day = state.day) {
         const place = state.planets[e.targetSystem]?.name;
         const stake = campaignEventStake(e.targetSystem);
         reportCampaignEvent({
-          id: `op-launch:${e.opId}`, systemIndex: e.targetSystem, day: e.day ?? day, kind: 'Fleet movement',
+          id: `op-launch:${e.opId}`, systemIndex: e.targetSystem, day: e.day ?? day, kind: 'Fleet movement', storyline: isDominionExpeditionOp(e.opId) ? 'dominion' : null,
           factions: [attacker], involved: stake.involved, attacker, observationKind: e.hulls >= 7 ? 'battle' : e.hulls >= 4 ? 'raid' : 'skirmish',
           playerRelated: stake.personal,
           direct: `${formatFaction(attacker)} forces, about ${e.hulls} hulls, are moving on ${place} (${e.kind}).`,
@@ -24834,7 +24909,7 @@ function applyCampaignEffects(effects, day = state.day) {
         const place = state.planets[e.targetSystem]?.name;
         const stake = campaignEventStake(e.targetSystem);
         reportCampaignEvent({
-          id: `op-arrive:${e.opId}`, systemIndex: e.targetSystem, day: e.day ?? day, kind: 'Fleet engagement',
+          id: `op-arrive:${e.opId}`, systemIndex: e.targetSystem, day: e.day ?? day, kind: 'Fleet engagement', storyline: isDominionExpeditionOp(e.opId) ? 'dominion' : null,
           factions: [attacker], involved: stake.involved, attacker, observationKind: e.hulls >= 7 ? 'battle' : 'raid',
           playerRelated: stake.personal,
           direct: `${formatFaction(attacker)} forces engaged the defences of ${place}.`,
@@ -24858,7 +24933,7 @@ function applyCampaignEffects(effects, day = state.day) {
             : `${formatFaction(attacker)} forces withdrew from ${place} without a fight.`;
         const stake = campaignEventStake(e.targetSystem);
         reportCampaignEvent({
-          id: `op-done:${e.opId}`, systemIndex: e.targetSystem, day: e.day ?? day, kind,
+          id: `op-done:${e.opId}`, systemIndex: e.targetSystem, day: e.day ?? day, kind, storyline: isDominionExpeditionOp(e.opId) ? 'dominion' : null,
           factions: [attacker], involved: stake.involved, attacker, observationKind: e.outcome === 'stood-down' ? 'quiet' : 'battle',
           playerRelated: stake.personal,
           direct: settled || `${formatFaction(attacker)} forces at ${place} ${outcome} (${e.losses} attacking hulls lost, ${e.defenderLosses} defending hulls lost).`,
@@ -24874,7 +24949,7 @@ function applyCampaignEffects(effects, day = state.day) {
         // having visited it, so every captain gets the two warnings before the expedition moves.
         // A galaxy-wide warning is background news and competes for the background slots like any
         // other. It is personal only when it names a power the captain belongs to or a place they hold.
-        campaignReport({ id: `dominion:${e.id}`, systemIndex: null, day, kind: 'Strategic warning', confidence: e.id === 'invasion' ? 'Campaign record' : 'Unconfirmed civilian report', factions: e.id === 'invasion' ? ['dominion'] : [], text: campaignMaskText(e.text) });
+        campaignReport({ id: `dominion:${e.id}`, storyline: 'dominion', systemIndex: null, day, kind: 'Strategic warning', confidence: e.id === 'invasion' ? 'Campaign record' : 'Unconfirmed civilian report', factions: e.id === 'invasion' ? ['dominion'] : [], text: campaignMaskText(e.text) });
         break;
       }
       case 'dominionConvoy': {
@@ -24883,7 +24958,7 @@ function applyCampaignEffects(effects, day = state.day) {
         // convoy visible and countable.
         const place = state.planets[e.systemIndex]?.name;
         reportCampaignEvent({
-          id: `convoy:${e.systemIndex}:${e.day ?? day}`, systemIndex: e.systemIndex, day: e.day ?? day, kind: 'Reinforcement convoy',
+          id: `convoy:${e.systemIndex}:${e.day ?? day}`, systemIndex: e.systemIndex, day: e.day ?? day, kind: 'Reinforcement convoy', storyline: 'dominion', storylineAlways: true,
           factions: ['dominion'], involved: campaignEventStake(e.systemIndex).involved, attacker: 'dominion', observationKind: 'raid',
           playerRelated: campaignEventStake(e.systemIndex).personal,
           direct: `A Dominion reinforcement convoy of about ${e.hulls} hulls arrived at ${place} through the wormhole.`,
@@ -25301,9 +25376,33 @@ function campaignReportPhase(report) {
   if (id.startsWith('op-arrive:')) return 'arrived';
   return 'launched';
 }
+// What the captain saw with their own eyes is a dated record, not a window left open on the truth.
+// A sighting is written each day the captain watches an engaged operation; once they leave, the panel
+// reads the sighting — its day, target, strength and losses as they were — and later changes to the
+// operation, even its disappearance from the books, do not reach it. Bounded to the newest sixty.
+const CAMPAIGN_SIGHTINGS_MAX = 60;
+function campaignSightings(book = campaign()) {
+  if (!book.opSightings || typeof book.opSightings !== 'object') book.opSightings = {};
+  return book.opSightings;
+}
+function recordOperationSighting(op, book = campaign()) {
+  const sightings = campaignSightings(book);
+  sightings[op.id] = {
+    opId: op.id, day: Number(state.day), systemIndex: Number(op.targetSystem),
+    faction: campaignFactionKeyFor(op.faction), kind: op.kind || null,
+    hulls: Campaign.operationHulls(book, op).length, losses: finiteNumber(op.losses, 0), status: op.status,
+  };
+  const ids = Object.keys(sightings);
+  if (ids.length > CAMPAIGN_SIGHTINGS_MAX) {
+    ids.sort((x, y) => sightings[x].day - sightings[y].day);
+    for (const id of ids.slice(0, ids.length - CAMPAIGN_SIGHTINGS_MAX)) delete sightings[id];
+  }
+  return sightings[op.id];
+}
+const CAMPAIGN_SIGHTING_PHASE = Object.freeze({ moving: 'launched', engaged: 'arrived', resolved: 'resolved' });
 function campaignOperationKnowledge(op, ctx = null) {
-  const index = Number(op.targetSystem);
-  if (!isReportSystemKnown(index)) return { level: 'none' };
+  const book = campaign();
+  const sighting = campaignSightings(book)[op.id] || null;
   const ids = new Set([`op-launch:${op.id}`, `op-arrive:${op.id}`, `op-done:${op.id}`]);
   // Newest account last: by the day it was written, then by how far along it says the operation is, so
   // a completion that overtakes an arrival account still reads as the later word.
@@ -25315,17 +25414,34 @@ function campaignOperationKnowledge(op, ctx = null) {
   // not eyes: what they know is what they have sent, and what they have sent is a delivered report.
   // Nor does standing on a world show you a fleet still in transit towards it — that is a dispatch too.
   // An operation nobody has reported does not appear at all. [fourth review]
-  if (campaignIntelSource(index, ctx) === 'local' && op.status === 'engaged') {
-    return { level: 'direct', reports, latest, phase: op.status, claimant: campaignFactionKeyFor(op.faction) };
+  const live = Number(op.targetSystem);
+  if (op.status === 'engaged' && isReportSystemKnown(live) && campaignIntelSource(live, ctx) === 'local') {
+    const seen = recordOperationSighting(op, book);
+    return { level: 'direct', reports, latest, sighting: seen, systemIndex: live, phase: op.status, claimant: campaignFactionKeyFor(op.faction) };
   }
-  if (!latest) return { level: 'none' };
-  return { level: 'reported', reports, latest, phase: campaignReportPhase(latest), claimant: latest.claimedAttacker ?? null };
+  // Away from it: the newest of what was seen and what was sent. Where it is, who it belongs to and how
+  // far along it is all come from that record, never from the operation. [§6 review]
+  const reportIndex = latest && latest.systemIndex != null ? Number(latest.systemIndex) : null;
+  const sightingNewer = sighting && (!latest || finiteNumber(sighting.day, 0) > finiteNumber(latest.day, 0)
+    || (finiteNumber(sighting.day, 0) === finiteNumber(latest.day, 0) && campaignReportPhase(latest) !== 'resolved'));
+  if (sightingNewer) {
+    return { level: 'observed', reports, latest, sighting, systemIndex: sighting.systemIndex,
+      phase: CAMPAIGN_SIGHTING_PHASE[sighting.status] || 'arrived', claimant: sighting.faction };
+  }
+  if (!latest || reportIndex == null || !isReportSystemKnown(reportIndex)) return { level: 'none' };
+  return { level: 'reported', reports, latest, sighting, systemIndex: reportIndex, phase: campaignReportPhase(latest), claimant: latest.claimedAttacker ?? null };
 }
 // The filter runs on the knowledge record, never on the operation: filtering the operations first is
 // what let an unreported resolution move a fleet between two lists in the panel. [fifth review]
+// An operation the captain watched stays in their books after it leaves the strategic record (resolved
+// operations are pruned); it is listed from the sighting, as a stub carrying only what was seen.
 function campaignKnownOperations(filter = () => true) {
   const ctx = campaignIntelContext(); // one source map for the whole sweep, not one per operation
-  return campaign().operations
+  const book = campaign();
+  const present = new Set(book.operations.map((op) => op.id));
+  const gone = Object.values(campaignSightings(book)).filter((x) => !present.has(x.opId))
+    .map((x) => ({ id: x.opId, faction: x.faction, targetSystem: x.systemIndex, status: x.status, kind: x.kind, losses: x.losses, hullIds: [], sightingOnly: true }));
+  return [...book.operations, ...gone]
     .map((op) => ({ op, known: campaignOperationKnowledge(op, ctx) }))
     .filter((x) => x.known.level !== 'none' && filter(x.known, x.op));
 }
@@ -25339,24 +25455,30 @@ const CAMPAIGN_OP_STALE_DAYS = 14;
 function campaignOperationStatus(known) {
   if (known.phase === 'resolved') return 'over';
   if (known.level === 'direct') return known.phase === 'engaged' ? 'engaged' : 'under way';
-  const age = Number(state.day) - finiteNumber(known.latest?.day, state.day);
+  const age = Number(state.day) - finiteNumber(known.level === 'observed' ? known.sighting?.day : known.latest?.day, state.day);
   const stage = known.phase === 'arrived' ? 'engaged' : 'under way';
   return age > CAMPAIGN_OP_STALE_DAYS ? `${stage} · no word for ${age} days` : stage;
 }
 // One line per known operation. What is shown is what the record allows: type and strength only when
 // the captain is watching it; otherwise the target, the stage, the dates, and the account itself with
 // its own confidence.
+function campaignSightingText(x) {
+  return `observed day ${x.day}${x.kind ? ` · ${escapeHtml(String(x.kind))}` : ''} · ${x.hulls} hulls present, ${x.losses} lost`;
+}
 function campaignOperationDetail({ op, known }) {
-  const where = escapeHtml(campaignSystemName(op.targetSystem));
+  const where = escapeHtml(campaignSystemName(known.systemIndex));
   const status = escapeHtml(campaignOperationStatus(known));
   if (known.level === 'direct') {
-    const type = op.kind ? ` · ${escapeHtml(String(op.kind))}` : '';
-    return `<li><b>${where}</b>${type} · ${status} · ${Campaign.operationHulls(campaign(), op).length} hulls present, ${op.losses} lost · observed day ${state.day}</li>`;
+    return `<li><b>${where}</b> · ${status} · ${campaignSightingText(known.sighting)}</li>`;
+  }
+  if (known.level === 'observed') {
+    return `<li><b>${where}</b> · ${status} · ${campaignSightingText(known.sighting)}</li>`;
   }
   const latest = known.latest;
   const first = known.reports[0];
   const since = first && first.day !== latest.day ? ` · first word day ${first.day}` : '';
-  return `<li><b>${where}</b> · ${status} · last report day ${latest.day}${since}<br>${escapeHtml(campaignMaskText(latest.text))} <span class="meta">(${escapeHtml(latest.confidence)})</span></li>`;
+  const seen = known.sighting ? `<br><span class="meta">Last ${campaignSightingText(known.sighting)}</span>` : '';
+  return `<li><b>${where}</b> · ${status} · last report day ${latest.day}${since}<br>${escapeHtml(campaignMaskText(latest.text))} <span class="meta">(${escapeHtml(latest.confidence)})</span>${seen}</li>`;
 }
 function renderCampaignPanel() {
   const el = document.getElementById('campaign-panel');
@@ -25401,14 +25523,15 @@ function renderCampaignPanel() {
       ${dominionKnown || d.warnings.length ? `<section class="campaign-wormhole"><h3>Bajoran Wormhole</h3>` : '<section class="hidden">'}<p><b>${escapeHtml(posture)}</b>${atEntry ? ` ${d.reinforcementCut ? 'Convoys interdicted by your forces.' : d.phase === 'invasion' ? 'Reinforcement convoys getting through.' : ''}` : ''}</p><ul>${d.warnings.map((w) => `<li>Day ${w.day}: ${escapeHtml(campaignMaskText(w.text))}</li>`).join('') || '<li>No warnings received.</li>'}</ul></section>`;
   } else if (campaignPanelTab === 'operations') {
     const line = ({ op, known }) => {
-      if (known.level === 'direct') {
-        return `<li>${escapeHtml(formatFaction(campaignFactionKeyFor(op.faction)))} → ${escapeHtml(campaignSystemName(op.targetSystem))}: ${op.status}${op.status === 'moving' ? `, arriving day ${op.arriveDay}` : ''} · ${Campaign.operationHulls(book, op).length} hulls present, ${op.losses} lost <span class="meta">(observed in your space)</span></li>`;
+      if (known.level === 'direct' || known.level === 'observed') {
+        const x = known.sighting;
+        return `<li>${escapeHtml(formatFaction(x.faction))} → ${escapeHtml(campaignSystemName(x.systemIndex))}: ${escapeHtml(campaignOperationStatus(known))} · ${campaignSightingText(x)}</li>`;
       }
       const latest = known.latest;
       return `<li>${escapeHtml(campaignMaskText(latest.text))} <span class="meta">(day ${latest.day} · ${escapeHtml(latest.confidence)})</span></li>`;
     };
     const ops = campaignKnownOperations((k) => k.phase !== 'resolved').map(line).join('') || '<li>No fleets on the move that you know of.</li>';
-    const recent = campaignKnownOperations((k) => k.phase === 'resolved').slice(-8).reverse().map(({ known }) => {
+    const recent = campaignKnownOperations((k) => k.phase === 'resolved' && k.latest).slice(-8).reverse().map(({ known }) => {
       // A finished battle is always read from the account of it, even one fought in front of you: the
       // local account is the campaign record, and one written for a battle elsewhere is what it is.
       const latest = known.latest;
@@ -27528,7 +27651,10 @@ function fleetTradeStatusLine(f) {
   // A ship that cannot fly says so first and says nothing about routes, calls or arrival days: none
   // of those are true while she lies there. What will happen when she is repaired is the rest. [§6]
   if (condition === 'disabled') {
-    const parts = ['Disabled — awaiting repair'];
+    // Repairs paid for, and the recovery timer running: she is still disabled until it ends.
+    const actor = fleetLocalActor(f.id);
+    const recovering = actor ? Number(actor.recoveryAt) > 0 : Number(f.vessel?.recoveryMs) > 0;
+    const parts = [recovering ? 'Disabled — repaired, recovering' : 'Disabled — awaiting repair'];
     if (t?.order && t.order.pending) parts.push(`${fleetPassageOrderLabel(t.order)} unresolved`);
     else if (t?.resumeTrade) parts.push(`trading (${TRADE_RISK_LABELS[t.risk]}) resumes when repaired`);
     return parts.join(' · ');

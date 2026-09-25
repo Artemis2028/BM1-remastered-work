@@ -4845,3 +4845,8 @@ button:disabled {
 .map-rail-note { margin: 6px 14px; color: #c9d6ea; font-size: 14px; }
 .fleet-trade .fleet-queued { color: #c7b8ff; font-style: italic; border-left: 3px solid #8a7fa8; padding-left: 8px; }
 .fleet-trade .fleet-status-disabled { color: #ffb08a; font-weight: 700; }
+.cargo-dump-confirm { box-sizing: border-box; width: 100%; white-space: normal; overflow-wrap: anywhere; margin: 6px 0; padding: 8px 10px; border: 1px solid #ff8a6a; border-radius: 6px; background: rgba(122, 42, 30, 0.35); }
+.cargo-dump-confirm p { margin: 0 0 6px; color: #ffe2d6; }
+.cargo-dump-confirm button { margin-right: 6px; }
+.map-rail.map-rail-overlay { background: rgba(4, 8, 16, 0.86); font-size: 14px; }
+.map-rail.map-rail-overlay h3 { font-size: 13px; }

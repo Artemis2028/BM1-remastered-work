@@ -21,8 +21,10 @@ const { startProbe } = require('./probe-harness.cjs');
   const out = process.env.BM1_TEST_OUTPUT || '/tmp';
   let checks = 0;
   const failures = [];
+  const window_names = [];
   async function check(name, fn) {
     checks++;
+    window_names.push(name);
     try { await fn(); console.log('PASS', name); }
     catch (err) { failures.push({ name, message: String(err?.message || err) }); console.log('FAIL', name, '\n      ', String(err?.message || err).split('\n')[0]); }
   }
@@ -416,7 +418,7 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.equal(r.firstPlain, false, 'a single click jettisoned cargo without confirmation');
     assert.equal(r.secondPlain, true);
     assert.equal(r.firstContract, false);
-    assert.match(r.warning, /fails the .* shipment/, `no warning before dumping contract cargo: "${r.warning}"`);
+    assert.match(r.warning, /shipment for .* fails/, `no warning before dumping contract cargo: "${r.warning}"`);
     assert.equal(r.stillOpen, 1);
     assert.equal(r.secondContract, true);
     assert.equal(r.contracts, 0, 'the contract survived its cargo being dumped');
@@ -575,6 +577,15 @@ const { startProbe } = require('./probe-harness.cjs');
   });
 
   console.log(`${checks - failures.length}/${checks} checks pass.`);
+  // Categories, fixed per check (see section6-verification-gate.cjs for the definitions). Measured
+  // against 416f1c0, the tree this gate was written for.
+  const CATEGORY = [[/^FLEET-WARP-LEG/, 'synthetic-guard'], [/^FLEET-DISPATCH/, 'new-feature'], [/^FLEET-/, 'baseline-defect'],
+    [/^MAP-/, 'new-feature'], [/^CARGO-CLOAK/, 'preservation'], [/^CARGO-/, 'baseline-defect'], [/^OPS-/, 'new-feature'],
+    [/^REPORTS-/, 'baseline-defect'], [/^PROSE/, 'baseline-defect']];
+  const failed = new Set(failures.map((f) => f.name));
+  const tally = {};
+  for (const name of window_names) { const cat = (CATEGORY.find(([re]) => re.test(name)) || [null, 'uncategorised'])[1]; (tally[cat] ||= { pass: 0, fail: 0 })[failed.has(name) ? 'fail' : 'pass']++; }
+  for (const [k, v] of Object.entries(tally)) console.log(`  ${k}: ${v.pass} pass, ${v.fail} fail`);
   if (failures.length) { for (const f of failures) console.log(`  - ${f.name}: ${f.message.split('\n')[0]}`); process.exitCode = 1; }
   if (errors.length) { console.log(`page errors: ${errors.join(' | ')}`); process.exitCode = 1; }
   await Promise.race([probe.close(), new Promise((r) => setTimeout(r, 15000))]);
