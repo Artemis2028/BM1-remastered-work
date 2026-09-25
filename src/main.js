@@ -25415,7 +25415,10 @@ function campaignOperationKnowledge(op, ctx = null) {
   // Nor does standing on a world show you a fleet still in transit towards it — that is a dispatch too.
   // An operation nobody has reported does not appear at all. [fourth review]
   const live = Number(op.targetSystem);
-  if (op.status === 'engaged' && isReportSystemKnown(live) && campaignIntelSource(live, ctx) === 'local') {
+  // A sighting-only stub is what the captain remembers of an operation that has left the strategic
+  // books. It is history, never a live operation: returning to where it was seen shows nothing new
+  // and must not write a new sighting over the one recorded. [§6 review]
+  if (!op.sightingOnly && op.status === 'engaged' && isReportSystemKnown(live) && campaignIntelSource(live, ctx) === 'local') {
     const seen = recordOperationSighting(op, book);
     return { level: 'direct', reports, latest, sighting: seen, systemIndex: live, phase: op.status, claimant: campaignFactionKeyFor(op.faction) };
   }

@@ -310,6 +310,48 @@ const { startProbe } = require('./probe-harness.cjs');
     }
   });
 
+  await check('baseline-defect', 'OPS-RETURN-AFTER-PRUNE returning to where a pruned operation was watched leaves the dated sighting as it was: same day, target, 5 hulls / 1 lost; never direct, never rewritten', async () => {
+    await fresh('ops-return');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      const book = t.campaign();
+      const here = Number(s.currentPlanet);
+      const hulls = book.polities.klingon.hulls.filter((h) => h.status !== 'lost').slice(0, 5);
+      const op = { id: 'gate-return', faction: 'klingon', kind: 'raid', targetSystem: here, status: 'engaged', launchedDay: s.day - 2, arriveDay: s.day, losses: 1, hullIds: hulls.map((h) => h.id) };
+      book.operations.push(op);
+      const panel = () => { t.openCampaignPanel('operations'); const text = document.getElementById('campaign-panel').textContent; t.closeCampaignPanel(); return text; };
+      const levelOf = () => { const x = t.campaignKnownOperations().find((k) => k.op.id === 'gate-return'); return x ? x.known.level : 'none'; };
+      panel();
+      const seen = { ...t.campaignSightings(book)['gate-return'] };
+      // Leave; change it behind the captain's back; resolve and prune it.
+      const away = s.planets.findIndex((p, i) => i !== here && t.isChartSystemVisible(i) && !t.isSystemRelayConnected(i));
+      s.currentPlanet = away;
+      s.day += 3;
+      op.hullIds = book.polities.klingon.hulls.filter((h) => h.status !== 'lost').slice(0, 11).map((h) => h.id);
+      op.losses = 9;
+      op.targetSystem = s.planets.findIndex((p, i) => i !== here && i !== away && t.isChartSystemVisible(i));
+      op.status = 'resolved';
+      book.operations = book.operations.filter((o) => o !== op);
+      const awayText = panel();
+      const awayLevel = levelOf();
+      // Return to the system where it was watched.
+      s.currentPlanet = here;
+      s.day += 2;
+      const backText = panel();
+      const backLevel = levelOf();
+      const after = { ...t.campaignSightings(book)['gate-return'] };
+      return { seen, after, awayText, awayLevel, backText, backLevel, name: s.planets[here].name };
+    });
+    assert.equal(r.seen.hulls, 5, `precondition: the watched operation was not recorded: ${JSON.stringify(r.seen)}`);
+    assert.equal(r.awayLevel, 'observed');
+    assert.match(r.awayText, new RegExp(`observed day ${r.seen.day}[^]*5 hulls present, 1 lost`), `away: ${r.awayText.slice(0, 300)}`);
+    assert.equal(r.backLevel, 'observed', `back at ${r.name} the pruned operation became "${r.backLevel}"`);
+    assert.deepEqual(r.after, r.seen, `returning rewrote the sighting: ${JSON.stringify(r.seen)} -> ${JSON.stringify(r.after)}`);
+    assert.match(r.backText, new RegExp(`observed day ${r.seen.day}[^]*5 hulls present, 1 lost`), `back: ${r.backText.slice(0, 300)}`);
+    assert.ok(r.backText.includes(r.name));
+    assert.doesNotMatch(r.backText, /0 hulls present|11 hulls|9 lost/, `back: ${r.backText.slice(0, 300)}`);
+  });
+
   // ------------------------------------------------------------ cargo
   const cargoFixture = () => ev(() => {
     const t = testBM1, s = t.state;
