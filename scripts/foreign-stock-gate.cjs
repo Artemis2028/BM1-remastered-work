@@ -100,6 +100,27 @@ const { startProbe } = require('./probe-harness.cjs');
       s.planetMenuOpen = true; s.dockMenuTab = 'ships';
       t.renderPlanetMenu();
     };
+    // The captain builds a real shipyard at a held world, through the real construction path.
+    window.__buildYard = (systemIndex) => {
+      const s = t.state;
+      s.currentPlanet = systemIndex; s.myplanet = systemIndex + 1; t.applySystemState(systemIndex);
+      const anchor = s.stations.find((st) => !st.destroyed && t.getStationOwner(st) === 'player');
+      window.__dockAt(anchor.id);
+      const type = t.getBuildableStationTypes().find((x) => /^Human Shipyard$/.test(x.name || ''));
+      s.stationPlans = [...new Set([...(s.stationPlans || []), Number(type.id)])];
+      s.latinum = 1e8; s.mylatinum = s.latinum; s.duranium = 1e6; s.myduranium = s.duranium;
+      const planet = s.systemPlanet || { x: 0, y: 0 };
+      s.pendingStationBuild = { stationTypeId: Number(type.id), point: { x: planet.x + 1400, y: planet.y + 300 } };
+      const before = s.playerBuiltStations.length;
+      t.confirmPendingStationBuild();
+      const built = s.playerBuiltStations[before];
+      if (!built) return null;
+      s.day += (built.constructionDays || 7) + 1;
+      t.completeDueStationConstructions();
+      s.docked = false; s.dockedStationId = null;
+      t.applySystemState(systemIndex);
+      return s.stations.find((st) => st.id === built.id) || null;
+    };
     window.__closeMarket = () => { const s = t.state; s.planetMenuOpen = false; t.renderPlanetMenu(); };
   });
   const idx = (name) => ev((name) => testBM1.getSystemIndexByName(name), name);
@@ -452,6 +473,135 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.equal(r.after, r.before);
   });
 
+
+  // ---------------- holder-built yards in an occupied system (5a96c1d correction) ----------------
+  await check('baseline-defect', 'FS-HOLDER-YARD a yard the Terran captain built at occupied Romulus sells its normal Terran pool; the captured Romulan yards beside it sell neither Romulan nor Terran warships', async () => {
+    await fresh('fs-holder-yard');
+    const r = await ev(() => {
+      const t = testBM1, romulus = t.getSystemIndexByName('Romulus');
+      t.transferSystemControlToPlayer(romulus);
+      const yard = window.__buildYard(romulus);
+      if (!yard) return { fail: 'precondition: the shipyard was not built' };
+      const vendors = window.__vendors(romulus);
+      const built = vendors.find((v) => v.vendor === yard.id);
+      const captured = vendors.filter((v) => v.vendor !== yard.id && v.vendor !== 'planet' && v.sell);
+      const terranWar = (ids) => window.__military(ids, 'terran');
+      return { fail: null, built: { ids: built.ids, terran: built.ids.filter((id) => t.getShipFaction(id) === 'terran'), foreign: window.__foreign(built.ids, ['terran']), culture: t.holderBuiltCulture ? t.holderBuiltCulture(yard) : 'n/a' },
+        captured: captured.map((v) => ({ name: v.name, owner: v.owner, romulanWar: window.__military(v.ids, 'romulan'), terranWar: terranWar(v.ids) })),
+        planet: { romulanWar: window.__military(vendors[0].ids, 'romulan'), terranWar: terranWar(vendors[0].ids) } };
+    });
+    assert.ok(!r.fail, r.fail);
+    assert.ok(r.built.terran.length > 0, `the Terran-built yard sells no Terran hulls: ${r.built.ids}`);
+    assert.deepEqual(r.built.foreign, [], `the Terran-built yard sells foreign hulls ${r.built.foreign}`);
+    assert.ok(r.captured.length > 0, 'precondition: no captured Romulan yard sells ships');
+    for (const v of r.captured) {
+      assert.deepEqual(v.romulanWar, [], `captured ${v.name} sells Romulan warships ${v.romulanWar} before integration`);
+      assert.deepEqual(v.terranWar, [], `captured ${v.name} sells Terran warships ${v.terranWar}`);
+    }
+    assert.deepEqual(r.planet, { romulanWar: [], terranWar: [] });
+    assert.equal(r.built.culture, 'terran', 'the yard does not record who built it');
+  });
+
+  await check('preservation', 'FS-HOLDER-FLAG a flag change does not turn a captured Romulan yard into Terran (or Romulan) infrastructure, and does not move a built yard\'s pool', async () => {
+    await fresh('fs-holder-flag');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state, romulus = t.getSystemIndexByName('Romulus');
+      t.transferSystemControlToPlayer(romulus);
+      const yard = window.__buildYard(romulus);
+      if (!yard) return { fail: 'precondition: the shipyard was not built' };
+      const read = () => window.__vendors(romulus).map((v) => ({ vendor: v.vendor, ids: v.ids }));
+      const before = read();
+      s.playerFlags = [...new Set([...(s.playerFlags || []), 'romulan'])];
+      t.raisePlayerFlag('romulan');
+      const romFlag = read();
+      t.raisePlayerFlag('terran');
+      const back = read();
+      const captured = s.stations.filter((st) => !st.destroyed && st.id !== yard.id && t.getStationOwner(st, romulus) === 'player');
+      return { fail: null, flag: s.playerFaction, before, romFlag, back, capturedCultures: t.holderBuiltCulture ? captured.map((st) => t.holderBuiltCulture(st, romulus)) : null, builtCulture: t.holderBuiltCulture ? t.holderBuiltCulture(s.stations.find((st) => st.id === yard.id), romulus) : null,
+        builtRecord: s.playerBuiltStations.find((st) => st.id === yard.id)?.builtCulture, romWar: romFlag.flatMap((v) => window.__military(v.ids, 'romulan')) };
+    });
+    assert.ok(!r.fail, r.fail);
+    assert.deepEqual(r.romWar, [], `the Romulan flag unlocked Romulan warships at Romulus ${r.romWar}`);
+    assert.deepEqual(r.romFlag, r.before, 'a flag change changed a shelf at Romulus');
+    assert.deepEqual(r.back, r.before);
+    if (r.capturedCultures) {
+      assert.ok(r.capturedCultures.length > 0);
+      assert.ok(r.capturedCultures.every((c) => c === null), `a captured yard counts as built infrastructure: ${r.capturedCultures}`);
+      assert.equal(r.builtRecord, 'terran');
+      assert.equal(r.builtCulture, 'terran', 'the built yard\'s culture moved with the flag');
+    }
+  });
+
+  await check('baseline-defect', 'FS-HOLDER-INTEGRATED after integration Romulan designs appear at the captured local vendors only, and the Terran-built yard keeps its own Terran stock', async () => {
+    await fresh('fs-holder-integrated');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state, book = t.campaign(), romulus = t.getSystemIndexByName('Romulus');
+      t.transferSystemControlToPlayer(romulus);
+      const yard = window.__buildYard(romulus);
+      if (!yard) return { fail: 'precondition: the shipyard was not built' };
+      const pick = () => { const v = window.__vendors(romulus); return { built: v.find((x) => x.vendor === yard.id).ids, local: v.filter((x) => x.vendor !== yard.id).flatMap((x) => x.ids) }; };
+      const before = pick();
+      window.__integrate(book.config.integrationDays + 3);
+      const after = pick();
+      const designs = book.polities.player.integrations[romulus]?.designs || [];
+      return { fail: null, held: t.getSystemControl(romulus).playerControlled, completed: book.polities.player.integrations[romulus]?.completedDay || null,
+        builtBefore: before.built, builtAfter: after.built, builtRomulanWar: window.__military(after.built, 'romulan'),
+        localRomulanWar: window.__military(after.local, 'romulan'), outside: window.__military(after.local, 'romulan').filter((id) => !designs.includes(id)) };
+    });
+    assert.ok(!r.fail, r.fail);
+    assert.ok(r.held && r.completed, 'precondition: Romulus was not held and integrated');
+    assert.ok(r.builtBefore.length > 0, 'the Terran-built yard sells nothing at occupied Romulus, before or after integration');
+    assert.ok(r.builtAfter.filter((id) => r.builtBefore.includes(id)).length === r.builtBefore.length, `integration erased the built yard's stock: ${r.builtBefore} -> ${r.builtAfter}`);
+    assert.deepEqual(r.builtRomulanWar, [], `Romulan designs appeared at the Terran-built yard ${r.builtRomulanWar}`);
+    assert.ok(r.localRomulanWar.length > 0, 'no Romulan design at the integrated local vendors');
+    assert.deepEqual(r.outside, [], `Romulan designs outside the integration ${r.outside}`);
+  });
+
+  // ---------------- prize physical state ----------------
+  await check('preservation', 'PRIZE-PHYSICAL a captured hull rebuilt from its saved record (not the scene it was taken in) is sold and bought back with hull, weapons, cargo and equipment exactly preserved', async () => {
+    await fresh('prize-physical');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      if (!t.prizeShelf) return { fail: 'no prize shelf' };
+      const cap = window.__capturePrize('klingon');
+      if (!cap) return { fail: 'precondition: no capture' };
+      const vid = cap.record.identity.vid;
+      // Give her a distinctive physical state on the live actor, as a fight and a refit would.
+      const a0 = t.fleetLocalActor(cap.record.id);
+      a0.combatHull = Math.round(a0.maxCombatHull * 0.37 * 100) / 100;
+      a0.weaponSlots = [a0.weaponSlots?.[1] ?? null, null, a0.weaponSlots?.[0] ?? null];
+      a0.weaponInventory = [...(a0.weaponInventory || [])].reverse();
+      a0.cargoArray = [{ item: 'Dilithium', tons: 7, destination: undefined, payout: 0 }, { item: 'Nothing', tons: 0 }];
+      a0.equipment = [null, 3];
+      a0.jammerInventory = ['test-jammer'];
+      t.captureShipPowerState();
+      // Save and reload: the vessel now exists only as its fleet record until the scene rebuilds it.
+      t.saveGame(10); t.startWithFaction('ferengi'); t.loadGame(10);
+      const rec = s.playerFleet.find((f) => f.identity?.vid === vid);
+      const persisted = JSON.parse(JSON.stringify(rec.vessel || null));
+      const yard = s.stations.find((st) => /Human Shipyard/.test(t.getShipStats(st.stationTypeId)?.name || '') && t.getStationOwner(st) === 'terran');
+      window.__dockAt(yard.id, rec.id);
+      const live = t.fleetLocalActor(rec.id);
+      if (!live) return { fail: 'the sale path found no actor for a record-only vessel' };
+      const sold = t.sellFleetVessel(rec.id, false);
+      const entry = t.prizeShelf(yard).find((p) => p.vid === vid);
+      s.latinum = 1e8;
+      t.buyPrize(entry.id);
+      const back = s.playerFleet.find((f) => f.identity?.vid === vid);
+      const actor = t.fleetLocalActor(back.id);
+      const fields = ['hull', 'maxHull', 'weaponSlots', 'weaponInventory', 'cargoArray', 'equipment', 'jammerInventory', 'sensorInventory', 'crewSkill'];
+      const pickV = (v) => JSON.stringify(Object.fromEntries(fields.map((k) => [k, v?.[k] ?? null])));
+      const now = t.Fleet.snapshotVessel(actor, { hull: actor.maxCombatHull, shields: actor.maxCombatShields, weapons: [] }, t.gameNow());
+      return { fail: null, sold, persisted: pickV(persisted), shelf: pickV(entry.vessel), after: pickV(now), count: window.__vidCount(vid) };
+    });
+    assert.ok(!r.fail, r.fail);
+    assert.ok(r.sold);
+    assert.equal(r.shelf, r.persisted, 'the shelf snapshot differs from the persisted record');
+    assert.equal(r.after, r.persisted, 'the bought-back hull differs from the one that was sold');
+    assert.match(r.persisted, /Dilithium/);
+    assert.equal(r.count, 1);
+  });
+
   // ---------------- screenshots ----------------
   await check('new-feature', 'FS-SHOTS normal faction market, captured-major-world market and a prize hull offered and transferred', async () => {
     await fresh('fs-shots');
@@ -494,6 +644,17 @@ const { startProbe } = require('./probe-harness.cjs');
       t.transferSystemControlToPlayer(romulus);
     });
     const pending = await romulusShot('market-captured-major-romulus-pending.png');
+    const builtYard = await ev(() => {
+      const t = testBM1, romulus = t.getSystemIndexByName('Romulus');
+      const yard = window.__buildYard(romulus);
+      if (!yard) return null;
+      window.__openMarket(yard.id);
+      document.querySelector('.market-section .occupied-market')?.scrollIntoView({ block: 'start' });
+      return { id: yard.id, terran: t.getShipyardStock(yard).filter((x) => t.getShipFaction(x.id) === 'terran').length };
+    });
+    await page.screenshot({ path: path.join(out, 'market-romulus-terran-built-yard.png') });
+    await ev(() => { window.__closeMarket(); const s = testBM1.state; s.docked = false; s.dockedStationId = null; });
+    assert.ok(builtYard && builtYard.terran > 0, 'the Terran-built yard at Romulus shows no Terran stock');
     await ev(() => {
       const t = testBM1, s = t.state, romulus = t.getSystemIndexByName('Romulus');
       window.__integrate(t.campaign().config.integrationDays + 3);

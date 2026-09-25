@@ -9397,6 +9397,8 @@ function advanceFactionReconstruction(day) {
         constructionStartedDay: day,
         constructionDays: 7,
         builtByPlayer: false,
+        // Built by whoever paid for the replacement, recorded once. [foreign-stock]
+        builtBy: isRecognizedFactionKey(order.owner) ? order.owner : null,
       };
       state.stationOwners[order.newDefinition.id] = order.owner;
       changed = true;
@@ -10771,7 +10773,25 @@ function occupiedMarketAllows(market, ship) {
   if (faction !== market.origin) return false;
   return isLocalCivilianDesign(id) || market.designs.has(id);
 }
-function occupiedMarketLine(market) {
+// Holder-built infrastructure in an occupied system: a yard the current holder actually built there —
+// the captain's own construction, or a replacement a faction paid for — sells its builder's normal
+// pool, not the captured local industry's. Read from what was recorded when it was built
+// (builtByPlayer + builtCulture, or builtBy), never from the flag: a captured and reflagged yard
+// records neither and stays local industry. It must still belong to its builder. [foreign-stock]
+function holderBuiltCulture(station, systemIndex = station?.systemIndex ?? state.currentPlanet) {
+  if (!station) return null;
+  const def = getStationDefinitionRecord(station) || station;
+  const owner = getStationOwner(station, Number(systemIndex));
+  if (def.builtByPlayer) {
+    const culture = def.builtCulture ? normalizeFactionKey(def.builtCulture) : null;
+    return owner === PLAYER_SIDE && isRecognizedFactionKey(culture) ? culture : null;
+  }
+  if (def.builtBy && isRecognizedFactionKey(def.builtBy) && owner === def.builtBy) return def.builtBy;
+  return null;
+}
+function occupiedMarketLine(market, station = null) {
+  const builder = holderBuiltCulture(station);
+  if (market && builder) return `${formatFaction(builder)}-built yard on an occupied ${formatFaction(market.origin)} world · sells the ${formatFaction(builder)} pool; captured ${formatFaction(market.origin)} industry is sold by the local yards.`;
   if (!market) return '';
   const holder = market.holder === PLAYER_SIDE ? 'your' : `${formatFaction(market.holder)}`;
   return market.integratedDay
@@ -10809,8 +10829,12 @@ function getUnfilteredShipyardStock(station = getCurrentServiceStation()) {
   const stockEligible = (ship) => !state.shipCatalog || state.shipCatalog.eligibleForStock(ship.id, purchaseContext);
   // Every vendor in an occupied system answers to the same rule: the planet market, the holder's
   // stations and any private yard that survived the change of hands. [foreign-stock]
-  const occupied = occupiedMarket(Number(station?.systemIndex ?? state.currentPlanet));
-  const factionEligible = (ship, localFaction) => (occupied ? occupiedMarketAllows(occupied, ship) : isFactionShipStockEligible(getShipFaction(ship.id), localFaction));
+  const occupiedWorld = occupiedMarket(Number(station?.systemIndex ?? state.currentPlanet));
+  // A holder-built yard in an occupied system is not captured industry: it sells its builder's pool.
+  const builtCulture = occupiedWorld ? holderBuiltCulture(station) : null;
+  const occupied = builtCulture ? null : occupiedWorld;
+  const standingFaction = builtCulture || getTradeStandingFaction(state.currentPlanet, station);
+  const factionEligible = (ship, localFaction) => (occupied ? occupiedMarketAllows(occupied, ship) : isFactionShipStockEligible(getShipFaction(ship.id), builtCulture || localFaction));
   const ships = Object.values(state.shipStatsById)
     .filter((ship) => ship && ship.assetType === 'ship')
     .filter((ship) => ship.rosterState !== 'retired' && ship.rosterState !== 'prototype' && !isUnbalancedPrototype(ship))
@@ -10830,7 +10854,7 @@ function getUnfilteredShipyardStock(station = getCurrentServiceStation()) {
       .filter((ship) => ship.rosterState !== 'retired' && ship.rosterState !== 'prototype' && !isUnbalancedPrototype(ship))
       .filter(stockEligible);
     const localStock = sellable
-      .filter(ship => purchaseContext.vendor || getTradeStandingFaction(state.currentPlanet,station)==='neutral' || isFactionShipStockEligible(ship.faction,getTradeStandingFaction(state.currentPlanet,station)) || (!station && getCurrentSystemName().toLowerCase()==='blender' && ship.faction==='dominion'));
+      .filter(ship => purchaseContext.vendor || standingFaction==='neutral' || isFactionShipStockEligible(ship.faction,standingFaction) || (!station && getCurrentSystemName().toLowerCase()==='blender' && ship.faction==='dominion'));
     // The faction rule shapes a world's shelf; it was never meant to close the shop. A hand-written
     // planet lot that is entirely foreign hulls — a Son'a refinery retailing a Neg'Var, a Breen
     // anchorage retailing a Cardassian Behemoth — is the author saying this is a grey market, and
@@ -10862,6 +10886,7 @@ function getUnfilteredShipyardStock(station = getCurrentServiceStation()) {
   // Licensed lots and attached depots sell only their authored offers; no price-ranked fallback.
   if (stationServices?.licensedOnly) return [];
   const context = getShipyardStockContext(station);
+  if (builtCulture) context.localFaction = builtCulture;
   let stock = ships
     .filter((ship) => {
       const price = getShipPrice(ship);
@@ -10869,7 +10894,7 @@ function getUnfilteredShipyardStock(station = getCurrentServiceStation()) {
       const faction = getShipFaction(ship.id);
       return price <= context.maxPrice
         && mass <= context.maxMass
-        && (occupied ? occupiedMarketAllows(occupied, ship) : isFactionShipStockEligible(faction, context.localFaction));
+        && factionEligible(ship, context.localFaction);
     });
   if (stock.length < 4) {
     stock = ships
@@ -11523,6 +11548,9 @@ function confirmPendingStationBuild() {
     constructionDays,
     completedDay: null,
     faction: state.playerFaction,
+    // Who built it, recorded once. `faction` follows the captain's flag (realignPlayerAssetsToFaction);
+    // this does not, and it is what the yard's stock pool is read from in an occupied system. [foreign-stock]
+    builtCulture: normalizeFactionKey(state.playerFaction),
   };
   state.latinum -= status.price;
   state.mylatinum = state.latinum;
@@ -12443,7 +12471,7 @@ function renderPlanetMenu() {
   const stock = getShipyardStock(station);
   const shipyardContext = getShipyardStockContext(station);
   const occupiedNow = occupiedMarket(state.currentPlanet);
-  const occupiedLine = occupiedNow ? `<div class="meta occupied-market">${escapeHtml(occupiedMarketLine(occupiedNow))}</div>` : '';
+  const occupiedLine = occupiedNow ? `<div class="meta occupied-market">${escapeHtml(occupiedMarketLine(occupiedNow, station))}</div>` : '';
   const prizeShelfMarkup = renderPrizeShelf(station);
   const localFleetCount = getPlayerFleetShips(state.currentPlanet).length;
   const escortFleetCount = getPlayerEscortFleetShips().length;
@@ -13557,6 +13585,9 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   state.stationPlans = Array.isArray(s.stationPlans) ? s.stationPlans : [];
   normalizeStationPlans();
   state.playerBuiltStations = Array.isArray(s.playerBuiltStations) ? s.playerBuiltStations : [];
+  // Saves from before the builder was recorded: the yard's own record is the best evidence left, and
+  // it is written once, so later flag changes cannot move it. [foreign-stock]
+  for (const station of state.playerBuiltStations) if (!station.builtCulture) station.builtCulture = normalizeFactionKey(station.faction || s.playerFaction || state.playerFaction);
   state.playerWormholes = Array.isArray(s.playerWormholes)
     ? s.playerWormholes.map(normalizeWormholeLink).filter(Boolean)
     : [];

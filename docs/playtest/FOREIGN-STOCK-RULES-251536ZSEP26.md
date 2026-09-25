@@ -48,6 +48,19 @@ It does **not** sell:
 
 The market's **controller** (whose standing, licence, prestige and security rules apply, and whose own-holding waiver applies) is the holder, exactly as before.
 
+### 2a. Holder-built yards (correction, DTG 251930ZSEP26)
+
+The occupied-market rule covers the **local and captured industry** of the system: the planet market, the former government's yards, and surviving local or private yards. It does **not** cover infrastructure the current holder built there. That kind of yard sells its **builder's normal pool**, under its usual vendor size, price, standing and security limits.
+
+What counts as holder-built comes from stable records, never from the flag:
+
+* **the captain's own construction:** `builtByPlayer`, plus `builtCulture`, the captain's flag at the moment construction was ordered. It is written once. `faction` on the same record follows later flag changes (`realignPlayerAssetsToFaction`), but `builtCulture` does not. It counts only while the yard still belongs to the captain;
+* **a faction's paid replacement:** `builtBy`, the faction that paid for a reconstruction order. It counts only while that faction still owns the yard.
+
+A captured and reflagged yard records neither, so it stays local industry: independent hulls, local civilian designs, and integrated designs once integrated. A holder-built yard is not where captured industry is sold. After integration, the former owner's designs appear at the local vendors, and the holder-built yard's own stock is unchanged. The captain's plans-and-build route (`campaignIntegrationOffers`) at the captain's own yards is unaffected.
+
+Legacy saves: a player-built station saved before `builtCulture` existed gets it on load, once, from its own `faction` record.
+
 ## 3. Captured industry: the threshold
 
 Captured industry reuses the campaign's existing rule; it defines no new one:
@@ -75,6 +88,7 @@ When integration completes, those designs become available at vendors **in that 
    There is no `consumeStock`, and stock doesn't resupply it. The captain gets that ship in the condition it was sold in.
 4. **One place at a time.** A vid is in the fleet, on one shelf, in the registry as retired, or nowhere. The shelf refuses a vid that is already active or retired.
 5. **Bounds.** At most 6 prizes per vendor. The oldest pushed off is retired `sold-on`, meaning sold to someone the books don't follow. A prize whose vendor is destroyed is retired `lost-with-yard`. Neither is ever `destroyed`.
+5a. **Physical state is always the vessel's own.** `sellFleetVessel` refuses a sale unless the vessel has a live actor alongside (`fleetLocalActor` plus `fleetServiceAllowed`). A vessel that exists only as its fleet record is materialised from its persisted `record.vessel` (`Fleet.restoreVessel`) before it can be sold. The shelf snapshot is therefore always taken from the live vessel. `PRIZE-PHYSICAL` checks that hull, weapons, cargo, equipment and jammers are identical from saved record to shelf to the hull bought back.
 6. **Durability.** Prizes live in the campaign book beside `designs` and `recoveries`, not in history, the ledger or stock, so nothing trims or regrows them. They round-trip through save/load.
 7. **Provenance.** `findStrategicVessel(vid)` reports a shelved prize as active, kind `prize`, held by the vendor's current owner. `vesselProvenance(vid)` reads it like any other active vessel.
 8. **Standing.** No new standing deltas. The spec's §4 table belongs to the NPC-run markets and waits for them. Buying at a vendor uses that vendor's existing access, standing and security tests.
