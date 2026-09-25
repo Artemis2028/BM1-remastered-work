@@ -68,4 +68,18 @@ test('a hull taken out of its books leaves with its identity and a capture entry
   assert.equal(Campaign.transferHullOut(book, 's:hull:7', { day: 13 }), null, 'a hull can be taken once');
 });
 
+test('the retired registry is bounded: the oldest entries drop out, the newest and active ids are unaffected', () => {
+  const book = {};
+  const first = Identity.makeIdentity({ vid: 'old:0', shipId: 1 });
+  Identity.retireVessel(book, first, { cause: 'sold' });
+  for (let i = 1; i <= Identity.RETIRED_LIMIT; i++) Identity.retireVessel(book, Identity.makeIdentity({ vid: `old:${i}`, shipId: 1 }), { cause: 'destroyed' });
+  // The oldest entry is gone: a lookup of a long-retired vid may return null, by contract.
+  assert.equal(Identity.retiredVessel(book, 'old:0'), null);
+  assert.equal(Identity.retiredVessel(book, `old:${Identity.RETIRED_LIMIT}`).cause, 'destroyed');
+  assert.equal(book.vesselRegistry.order.length, Identity.RETIRED_LIMIT);
+  // Pruning does not free a vid: nothing in the module mints ids from the registry, and retiring the
+  // pruned id again is a new entry for the same vessel, not a new vessel.
+  assert.equal(Identity.retireVessel(book, first, { cause: 'sold' }).vid, 'old:0');
+});
+
 console.log(`${passed} vessel identity unit groups passed.`);

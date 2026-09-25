@@ -7266,12 +7266,12 @@ They stayed out of the Imperial War and will trade with any side.`,
   },
   vulcan: {
     label: 'Vulcan Explorer',
-    desc: 'Emissary of Vulcan logic, exiled from the Empire and disarmed.',
+    desc: 'Emissary of Vulcan logic, exiled from the Empire; armed, but slow to fire first.',
     loreTitle: 'Vulcan Explorer',
-    profile: 'Vulcans: former co-founders of the Empire, now disarmed isolationists devoted to peace, diplomacy and education.',
+    profile: 'Vulcans: former co-founders of the Empire, now isolationists devoted to peace, diplomacy and education, who keep their ships and stations armed for defence.',
     lore: `The Vulcans have long been the close allies of the humans. In 2125 they helped found the Earth Empire. But a new faction emerged that emphasized peace and passivity, and a new age was declared.
 
-The humans, who still wanted power above all else, exiled the Vulcans from Imperial territory. The Vulcans chose to disarm completely and isolate themselves on their homeworld, devoted to diplomacy and education. They do not equip ships or stations with weapons.`,
+The humans, who still wanted power above all else, exiled the Vulcans from Imperial territory. The Vulcans withdrew to their homeworld, devoted to diplomacy and education. They are reluctant to be the first to fire, but their ships and stations remain armed, and they will defend Vulcan and the traffic under its protection decisively.`,
     faction: 'vulcan',
     playership: 25,
     myplanet: 12,
@@ -7318,7 +7318,9 @@ Since they bowed out of the arms race with the Klingons against the humans and s
 
 In 2357 the Klingons launched the first attack. With 8 years of war now behind them and half their territory lost to the Klingon Empire, the humans are utterly desperate to survive. No longer is it a matter of sustaining their imperial reign, it is now a struggle to escape total enslavement.`,
     faction: 'terran',
-    playership: 3,
+    // Canonical catalog id (Saber Planetary Defender). The old value 3 was a legacy alias that the
+    // catalog resolves to the Miranda Long-Range Frigate.
+    playership: 307,
     myplanet: 1,
     myantimatter: 5,
     mylatinum: 900,
@@ -7361,9 +7363,11 @@ The fate of the wider Dominion is uncertain. Rumors of distant strength offer ho
     desc: 'A ship designer rebuilding a civilian trade network after Imperial funding collapsed.',
     loreTitle: 'Tholian Web Captain',
     profile: 'Tholian shipbuilding and commerce.',
-    lore: `Tholia preserved its independence through the skill of its ship designers. With Earth no longer funding their technology, its yards now concentrate on the Isaac-class trader, widely used across the civilian market. Your command begins in this trading tradition, with a galaxy divided by war beyond the shipyards.`,
+    lore: `Tholia preserved its independence through the skill of its ship designers. With Earth no longer funding their technology, its yards now build for the civilian market, from light shuttles and cargo ships up to the great Isaac-class freighters. You begin with a small Tholian shuttle and a trader's instincts; the larger hulls of your people's yards are something you will have to earn, with a galaxy divided by war beyond the shipyards.`,
     faction: 'tholian',
-    playership: 20,
+    // Canonical catalog id (Tholian Shuttle). The old value 20 resolved to the Isaac Freighter, a
+    // mass-6 cruiser with 3,500 t of cargo — a destination, not a first ship.
+    playership: 222,
     myplanet: 18,
     myantimatter: 7,
     mylatinum: 1750,
@@ -23390,7 +23394,10 @@ function restartGame() {
 
 function restartInEscapePod() {
   if(fleetBook().boarding)return;
-  if (fleetBook().personalIdentity?.vid) fleetBook().personalRetireCause = 'destroyed';
+  // The ship the captain ejects from leaves the books here. It is retired as destroyed only when the game
+  // actually destroyed it (the game-over path, hull at zero); any other ejection abandons a ship that was
+  // still afloat. Fleet ships are not touched by the pod: they stay active under the captain's command.
+  if (fleetBook().personalIdentity?.vid) fleetBook().personalRetireCause = state.gameOver && state.hull <= 0 ? 'destroyed' : 'abandoned';
   fleetBook().personalId=Fleet.nextId(fleetBook(),'pod');fleetBook().personalCondition='operational';
   const currentPlanet = Math.max(0, Math.min(state.planets.length - 1, state.currentPlanet));
   const faction = state.playerFaction || 'ferengi';
@@ -23804,7 +23811,7 @@ function ensurePersonalIdentity({ legacy = false } = {}) {
   if (b.personalIdentity?.vid) {
     retireStrategicVessel(b.personalIdentity, b.personalRetireCause || 'replaced', state.currentPlanet);
   }
-  const via = b.personalRetireCause === 'destroyed' ? 'escape-pod' : b.personalIdentity?.vid ? 'purchased' : legacy ? 'legacy' : 'commissioned';
+  const via = ['destroyed', 'abandoned'].includes(b.personalRetireCause) ? 'escape-pod' : b.personalIdentity?.vid ? 'purchased' : legacy ? 'legacy' : 'commissioned';
   b.personalIdentity = Identity.makeIdentity({ vid: `${legacy ? 'legacy' : 'vsl'}:${b.personalId}`, shipId: state.playership, name: state.shipName || null,
     seed: hashString(b.personalId), builder: getShipFaction(state.playership) || null, via, day: legacy ? null : Number(state.day) || null,
     systemIndex: Number(state.currentPlanet), legacy });

@@ -17,8 +17,15 @@
 //   history   bounded provenance log: { day, event, from, to, systemIndex }
 //
 // Vessels that leave the books (destroyed, scuttled, sold, replaced) are *retired* in a registry kept
-// in the campaign book, so an id is never reused and a later reader — foreign markets, next round — can
-// tell a destroyed hull from a captured one without guessing.
+// in the campaign book. The contract:
+//   - a vid is never reused (it is derived from ids that are unique by construction, not from this
+//     registry, so pruning the registry cannot free one);
+//   - an active vessel's identity is persistent for as long as it is active;
+//   - retired history is BOUNDED: only the newest RETIRED_LIMIT entries are kept, oldest dropped
+//     first. A lookup of a long-retired vid can return null;
+//   - later readers (foreign markets) must not rely on very old retired entries still being there.
+//     Anything that must outlive that window has to be pinned in its own record (e.g. a prize record
+//     that copies the identity it needs) rather than looked up here later.
 export const IDENTITY_VERSION = 1;
 export const HISTORY_LIMIT = 24;
 export const RETIRED_LIMIT = 600;
