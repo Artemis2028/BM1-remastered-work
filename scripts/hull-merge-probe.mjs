@@ -66,7 +66,7 @@ const shim=`window.__merge={state,startWithFaction,createNpcShip,getNpcSideId,ge
  getShipyardStock,fleetShipStock,getShipPurchaseStatus,completeShipPurchase,canBuyEscortShip,canBuyFleetShip,
  buyEscortShip,buyFleetShip,getGodModeShips,getOriginalShipWeaponSlots,getDefaultWeaponId,
  applyShipDefaultWeapons,getWeapon,getShipVisualProfile,getScaledWeaponDamage,getScaledWeaponCooldown,
- getStationOwner,getSystemIndexByName,applySystemState,transferSystemControlToPlayer,playerWorldPosition,render,renderPlanetMenu,NPC_WEAPON_COOLDOWN_SCALE,NPC_WEAPON_FLOOR_SCALE,
+ getStationOwner,getSystemIndexByName,applySystemState,transferSystemControlToPlayer,campaign,playerWorldPosition,render,renderPlanetMenu,NPC_WEAPON_COOLDOWN_SCALE,NPC_WEAPON_FLOOR_SCALE,
  freeze:()=>new Promise(resolve=>{const t=setTimeout(()=>resolve(false),3000);requestAnimationFrame=cb=>{if(cb.name==='loop'){clearTimeout(t);resolve(true);}return 0;};})};`;
 const mime={'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.json':'application/json','.css':'text/css','.png':'image/png','.gif':'image/gif','.webp':'image/webp'};
 const server=http.createServer((req,res)=>{
@@ -113,6 +113,10 @@ try{
   // of the alias and the canonical hull alike. [playtest]
   B.transferSystemControlToPlayer(s.currentPlanet);
   if(B.getStationOwner(station)!=='player')throw Error('Missing player-owned station fixture');
+  // A captain holding a Terran world holds it as the captain's own polity, so its yards sell Terran
+  // warships once that industry is integrated (docs/playtest/FOREIGN-STOCK-RULES-251536ZSEP26.md §2-3).
+  // The fixture completes that integration; what is under test here is alias handling at the yard.
+  {const book=B.campaign(),integ=book.polities.player.integrations[s.currentPlanet]||(book.polities.player.integrations[s.currentPlanet]={sourceFaction:'terran',startedDay:s.day,progress:0,qualification:{qualifies:true}});integ.completedDay=s.day;integ.designs=[326,2,47];}
   s.docked=true;s.dockedStationId=station.id;
   test('a captain\'s own yard asks neither the alias nor the canonical hull for standing',
     [34,326].every(id=>!/refuse|standing/i.test(String(B.getShipPurchaseStatus(id).reason||''))),

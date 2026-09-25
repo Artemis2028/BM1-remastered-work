@@ -56,6 +56,7 @@
     "test:vessel-identity": "node scripts/vessel-identity-test.mjs",
     "test:vessel-identity:ingame": "node scripts/vessel-identity-gate.cjs",
     "test:starting-ships": "node scripts/starting-ships-gate.cjs",
+    "test:foreign-stock": "node scripts/foreign-stock-gate.cjs",
     "bench:map": "node scripts/map-render-bench.cjs",
     "screens:section6": "node scripts/section6-screens.cjs"
   },

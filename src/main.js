@@ -10725,6 +10725,59 @@ function getShipyardStockContext(station = getCurrentServiceStation()) {
   };
 }
 
+// ---- Foreign stock: occupied worlds and captured industry [foreign-stock] ----
+// docs/playtest/FOREIGN-STOCK-RULES-251536ZSEP26.md. A yard sells its world's own industry. A world
+// held by someone other than its own people's government is *occupied*: it keeps selling independent
+// hulls and its people's civilian designs, and sells the former owner's other designs only once the
+// current holder has integrated a qualifying major world (the campaign's existing threshold and
+// exception list). The occupier's own hulls are not local production. A prize hull is a different
+// thing entirely (see the prize shelf below): a specific vessel, never a design licence.
+const LOCAL_CIVILIAN_ROLE = /freight|hauler|cargo|shuttle|transport|courier|tender|tug|liner|yacht|utility|runabout|civilian/i;
+const MILITARY_ROLE = /warbird|military|miltek|strike|attack|assault|patrol|defen|destroyer|battle|raider|interceptor|gunship|dreadn|carrier|fighter|scout|escort|frigate|cruiser|warship|capital/i;
+const LOCAL_CIVILIAN_MAX_MASS = 4;
+function isLocalCivilianDesign(shipId) {
+  const ship = state.shipStatsById[Number(shipId)];
+  if (!ship || ship.assetType !== 'ship') return false;
+  const role = String(ship.role || '');
+  return finiteNumber(ship.mass, 1) <= LOCAL_CIVILIAN_MAX_MASS && LOCAL_CIVILIAN_ROLE.test(role) && !MILITARY_ROLE.test(role);
+}
+// Who holds a world, as a campaign polity: the player's polity or a faction key. The player always
+// holds as the player's polity, whatever flag is raised: a flag is not a government.
+function systemHolderPolity(systemIndex = state.currentPlanet) {
+  const control = getSystemControl(systemIndex);
+  if (control.playerControlled) return PLAYER_SIDE;
+  return isRecognizedFactionKey(control.controller) ? control.controller : null;
+}
+// The market rule for an occupied world, or null where the world is held by its own government (or
+// has none). Read from who holds the world now, so losing it ends the access at once and a retaken
+// world is a normal market again; the campaign replaces the integration record on a fresh capture.
+function occupiedMarket(systemIndex = state.currentPlanet) {
+  const i = Number(systemIndex);
+  const control = getSystemControl(i);
+  const origin = control.origin;
+  if (!isRecognizedFactionKey(origin) || origin === 'neutral') return null;
+  const holder = systemHolderPolity(i);
+  if (!holder || holder === origin) return null;
+  const integ = ensurePlaytestState().campaign?.polities?.[holder]?.integrations?.[i] || null;
+  const integratedDay = integ?.completedDay || null;
+  const designs = new Set(integratedDay ? (integ.designs || []).map(Number).filter((id) => isRecoverableIndustrialDesign(id)) : []);
+  return { systemIndex: i, origin, holder, integratedDay, designs, qualification: integ?.qualification || null };
+}
+function occupiedMarketAllows(market, ship) {
+  if (!market) return true;
+  const id = Number(ship?.id ?? ship);
+  const faction = getShipFaction(id);
+  if (!faction || faction === 'neutral') return true;
+  if (faction !== market.origin) return false;
+  return isLocalCivilianDesign(id) || market.designs.has(id);
+}
+function occupiedMarketLine(market) {
+  if (!market) return '';
+  const holder = market.holder === PLAYER_SIDE ? 'your' : `${formatFaction(market.holder)}`;
+  return market.integratedDay
+    ? `Occupied ${formatFaction(market.origin)} world under ${holder} control · yards integrated day ${market.integratedDay}: ${market.designs.size} ${formatFaction(market.origin)} designs in production.`
+    : `Occupied ${formatFaction(market.origin)} world under ${holder} control · local civilian and independent hulls only${market.qualification?.qualifies ? ' until the yards are integrated' : ' (not a major world: its military production does not pass to the holder)'}.`;
+}
 function isFactionShipStockEligible(shipFaction, localFaction) {
   return !shipFaction || shipFaction === 'neutral' || shipFaction === localFaction;
 }
@@ -10754,6 +10807,10 @@ function getUnfilteredShipyardStock(station = getCurrentServiceStation()) {
     ? { ...getCurrentPurchaseVendor(station), standings: purchaseStandings(station), tierThresholds: getConfiguredPurchaseTierThresholds() }
     : getCurrentPurchaseVendor(station));
   const stockEligible = (ship) => !state.shipCatalog || state.shipCatalog.eligibleForStock(ship.id, purchaseContext);
+  // Every vendor in an occupied system answers to the same rule: the planet market, the holder's
+  // stations and any private yard that survived the change of hands. [foreign-stock]
+  const occupied = occupiedMarket(Number(station?.systemIndex ?? state.currentPlanet));
+  const factionEligible = (ship, localFaction) => (occupied ? occupiedMarketAllows(occupied, ship) : isFactionShipStockEligible(getShipFaction(ship.id), localFaction));
   const ships = Object.values(state.shipStatsById)
     .filter((ship) => ship && ship.assetType === 'ship')
     .filter((ship) => ship.rosterState !== 'retired' && ship.rosterState !== 'prototype' && !isUnbalancedPrototype(ship))
@@ -10785,7 +10842,10 @@ function getUnfilteredShipyardStock(station = getCurrentServiceStation()) {
     // turn on whether one compatible hull happened to survive the filter. Two worlds say it in their
     // own text; everywhere else the rule stands, and a lot it empties falls through to the ordinary
     // price-ranked shelf below, which stocks what that government would actually sell. [playtest]
-    const kept = (!station && WORLD_FOREIGN_STOCK[getCurrentSystemName()]) ? sellable : localStock;
+    // A design recovered to this yard from an engineering archive is a named campaign reason in its own
+    // right, and stays on sale here whoever holds the world. [foreign-stock]
+    const recoveredHere = (ship) => Boolean(station && effectiveOffers?.provenance?.[`ship:${Number(ship.id)}`] === 'recovered-archive');
+    const kept = ((!station && WORLD_FOREIGN_STOCK[getCurrentSystemName()]) ? sellable : localStock).filter((ship) => occupiedMarketAllows(occupied, ship) || recoveredHere(ship));
     const authored = [...new Map(kept.map(ship => [ship.id, ship])).values()].filter(ship => !station || stationCanSellHull(station, ship));
     if (!station && authored.length) return authored;
     if (!station) {
@@ -10809,12 +10869,12 @@ function getUnfilteredShipyardStock(station = getCurrentServiceStation()) {
       const faction = getShipFaction(ship.id);
       return price <= context.maxPrice
         && mass <= context.maxMass
-        && isFactionShipStockEligible(faction, context.localFaction);
+        && (occupied ? occupiedMarketAllows(occupied, ship) : isFactionShipStockEligible(faction, context.localFaction));
     });
   if (stock.length < 4) {
     stock = ships
       .filter((ship) => getShipPrice(ship) <= context.maxPrice * 1.25 && Math.max(1, finiteNumber(ship.mass, 1)) <= context.maxMass + 1
-        && isFactionShipStockEligible(getShipFaction(ship.id), context.localFaction));
+        && factionEligible(ship, context.localFaction));
   }
   return stock
     .sort((a, b) => scoreShipyardStock(a, context) - scoreShipyardStock(b, context))
@@ -12382,6 +12442,9 @@ function renderPlanetMenu() {
   normalizePlayerFlags();
   const stock = getShipyardStock(station);
   const shipyardContext = getShipyardStockContext(station);
+  const occupiedNow = occupiedMarket(state.currentPlanet);
+  const occupiedLine = occupiedNow ? `<div class="meta occupied-market">${escapeHtml(occupiedMarketLine(occupiedNow))}</div>` : '';
+  const prizeShelfMarkup = renderPrizeShelf(station);
   const localFleetCount = getPlayerFleetShips(state.currentPlanet).length;
   const escortFleetCount = getPlayerEscortFleetShips().length;
   const shipCards = stock.map((ship) => {
@@ -12542,7 +12605,9 @@ function renderPlanetMenu() {
     ? `<div class="market-section">
       <div class="panel-head">${escapeHtml(serviceName)} Ship Market</div>
       <div class="meta">${formatFaction(shipyardContext.localFaction)} stock | Market ${Math.round(shipyardContext.market)} | Vendor ceiling ${shipyardContext.maxPrice}L | Defense ${localFleetCount} | Escort ${escortFleetCount}</div>
+      ${occupiedLine}
       <div class="shipyard">${shipCards || '<div class="meta">No local ship stock available.</div>'}</div>
+      ${prizeShelfMarkup}
     </div>`
     : '';
   const marketPlans = station
@@ -12584,7 +12649,9 @@ function renderPlanetMenu() {
     ships: `<div class="panel-head">${station ? `${escapeHtml(serviceName)} Stock` : 'Shipyard'}</div>
       <div class="meta">Ship access follows faction standing across regions. Complete contracts or defend faction forces to earn trust. Routine trade builds familiarity up to 15.</div>
       <div class="meta">${formatFaction(shipyardContext.localFaction)} stock | Market ${Math.round(shipyardContext.market)} | Vendor ceiling ${shipyardContext.maxPrice}L | Defense ${localFleetCount} | Escort ${escortFleetCount}</div>
-      <div class="shipyard">${shipCards || '<div class="meta">No local shipyard stock available.</div>'}</div>`,
+      ${occupiedLine}
+      <div class="shipyard">${shipCards || '<div class="meta">No local shipyard stock available.</div>'}</div>
+      ${prizeShelfMarkup}`,
     construction: `<div class="panel-head">Station Construction</div>
       <div class="meta">${escapeHtml(buildStatus)}</div>
       <div class="panel-head">Rebuild Ruins</div>
@@ -16077,6 +16144,8 @@ planetMenuEl?.addEventListener('click', (e) => {
   }
   const commission = e.target.closest('[data-ship-commission]');
   if (commission) { commissionShip(Number(commission.dataset.shipCommission)); renderPlanetMenu(); return; }
+  const prizeBuy = e.target.closest('[data-prize-buy]');
+  if (prizeBuy) { buyPrize(prizeBuy.dataset.prizeBuy); return; }
   const ship = e.target.closest('[data-ship-buy]');
   if (ship) {
     buyShip(Number(ship.dataset.shipBuy));
@@ -23854,6 +23923,8 @@ function findStrategicVessel(vid) {
   const f = (state.playerFleet || []).find((x) => !x.destroyed && x.identity?.vid === vid);
   if (f) return { vid, status: 'active', holder: PLAYER_SIDE, kind: 'fleet', record: f, identity: f.identity };
   const book = campaignBook();
+  const prize = (book.prizes || []).find((x) => x.vid === vid);
+  if (prize) return { vid, status: 'active', holder: prizeHolder(prize), kind: 'prize', record: prize, identity: prize.identity };
   for (const [polityId, p] of Object.entries(book.polities || {})) {
     if (polityId === 'player') continue;
     const h = (p.hulls || []).find((x) => x.id === vid && x.status !== 'lost');
@@ -24355,8 +24426,13 @@ function sellFleetVessel(id, confirm = true) {
     )
   )
     return false;
-  // Sale is a sink: never refill retail stock with a repaired copy of this vessel.
-  retireStrategicVessel(ensureFleetVesselIdentity(record), 'sold', state.currentPlanet);
+  // Sale is a sink for retail stock: never refill a design's stock with a repaired copy of this vessel.
+  // A captured hull is the exception that proves it: it is not a design, it is that ship, and it goes
+  // onto this vendor's prize shelf as itself rather than out of the books. [foreign-stock]
+  const identity = ensureFleetVesselIdentity(record);
+  const shelf = prizeShelfDecision(record, getCurrentServiceStation());
+  if (shelf.ok) shelvePrize(record, npc, identity, getCurrentServiceStation());
+  else retireStrategicVessel(identity, 'sold', state.currentPlanet);
   state.playerFleet = state.playerFleet.filter((f) => f !== record);
   state.npcShips = state.npcShips.filter((n) => n !== npc);
   Fleet.removeVessel(fleetBook(), id);
@@ -24365,9 +24441,170 @@ function sellFleetVessel(id, confirm = true) {
   sensorWorld.contacts.delete(sensorKey(npc));
   state.latinum += amount;
   syncLegacyState();
-  setLog(`Sold ${record.name} for ${amount} latinum.`);
+  setLog(shelf.ok ? `Sold ${record.name} for ${amount} latinum. She is on this yard's prize shelf now, as herself.` : `Sold ${record.name} for ${amount} latinum.`);
   updateStats();
   return true;
+}
+// ---- Prize shelf: specific captured vessels held by a vendor [foreign-stock] ----
+// A prize is one vessel — its vid, name, seed, origin, provenance and physical state — never a design.
+// It lives in the campaign book (not history, the ledger or stock, so nothing trims or regrows it), is
+// bought by its record rather than by design, and is in exactly one place at a time.
+const PRIZE_SHELF_LIMIT = 6;
+function campaignPrizes() {
+  const book = campaignBook();
+  if (!Array.isArray(book.prizes)) book.prizes = [];
+  return book.prizes;
+}
+function prizeVendorKey(station, systemIndex = state.currentPlanet) {
+  return station ? `station:${station.id}` : `planet:${Number(systemIndex)}`;
+}
+function prizeVendorSellsShips(station, systemIndex = state.currentPlanet) {
+  if (station) return Boolean(fleetStationServices(station).sell);
+  return Number(systemIndex) === Number(state.currentPlanet) && getShipyardStock(null).length > 0;
+}
+// The same design restrictions as any shelf: nothing the ordinary market refuses, and no Borg hull.
+function isPrizeShelfDesign(shipId) {
+  const ship = state.shipStatsById[Number(shipId)];
+  if (!ship || ship.assetType !== 'ship' || getShipPrice(ship) <= 0) return false;
+  if (ship.rosterState === 'retired' || ship.rosterState === 'prototype' || isUnbalancedPrototype(ship)) return false;
+  if (isNamedDesignException(ship)) return false;
+  if ((state.shipCatalog?.getShip?.(Number(shipId)) || ship).specialVendor) return false;
+  return getShipFaction(shipId) !== 'borg';
+}
+function prizeShelfDecision(record, station = getCurrentServiceStation()) {
+  const identity = record?.identity;
+  const takenFrom = (identity && Identity.takenFrom(identity)) || record?.takenFrom || null;
+  if (!identity?.vid || !takenFrom) return { ok: false, reason: 'not a captured vessel' };
+  if (!isPrizeShelfDesign(record.shipId)) return { ok: false, reason: 'design is not sold on any shelf' };
+  if (!prizeVendorSellsShips(station)) return { ok: false, reason: 'this vendor does not deal in ships' };
+  if (Identity.retiredVessel(campaignBook(), identity.vid)) return { ok: false, reason: 'already retired' };
+  if (campaignPrizes().some((p) => p.vid === identity.vid)) return { ok: false, reason: 'already on a shelf' };
+  return { ok: true, takenFrom };
+}
+function prizeHolder(entry) {
+  if (entry.stationId != null) {
+    const def = (state.stationDefinitions || []).find((d) => d.id === entry.stationId);
+    if (def) return getStationOwner(def, entry.systemIndex);
+  }
+  return getSystemControl(entry.systemIndex).polityId;
+}
+function shelvePrize(record, npc, identity, station = getCurrentServiceStation()) {
+  const book = campaignBook();
+  const vendorKey = prizeVendorKey(station);
+  const entry = {
+    id: Campaign.nextCampaignId ? Campaign.nextCampaignId(book, 'prize') : `prize:${Fleet.nextId(fleetBook(), 'prize')}`,
+    vid: identity.vid, identity, shipId: Number(record.shipId), name: identity.name ?? record.name, seed: identity.seed ?? record.seed,
+    takenFrom: Identity.takenFrom(identity) || record.takenFrom || null,
+    vessel: npc ? Fleet.snapshotVessel(npc, vesselDefaults(npc.shipId), gameNow()) : (record.vessel || null),
+    systemIndex: Number(state.currentPlanet), stationId: station?.id ?? null, vendorKey, shelvedDay: state.day,
+  };
+  Identity.recordProvenance(identity, { day: state.day, event: 'sold', from: PLAYER_SIDE, to: prizeHolder(entry), systemIndex: state.currentPlanet });
+  const prizes = campaignPrizes();
+  prizes.push(entry);
+  // Bounded per vendor. The oldest is sold on to someone the books do not follow: it leaves the books,
+  // and is retired as such — never as destroyed.
+  const here = prizes.filter((p) => p.vendorKey === vendorKey);
+  for (const old of here.slice(0, Math.max(0, here.length - PRIZE_SHELF_LIMIT))) {
+    retireStrategicVessel(old.identity, 'sold-on', old.systemIndex);
+    prizes.splice(prizes.indexOf(old), 1);
+  }
+  return entry;
+}
+// A prize whose yard is gone is gone with it. Swept whenever a shelf is read.
+function sweepPrizeShelves() {
+  const prizes = campaignPrizes();
+  for (const entry of prizes.slice()) {
+    if (entry.stationId == null) continue;
+    const def = (state.stationDefinitions || []).find((d) => d.id === entry.stationId);
+    const gone = !def || def.destroyed || state.destroyedStations?.[entry.stationId];
+    if (!gone) continue;
+    retireStrategicVessel(entry.identity, 'lost-with-yard', entry.systemIndex);
+    prizes.splice(prizes.indexOf(entry), 1);
+  }
+  return prizes;
+}
+function prizeShelf(station = getCurrentServiceStation(), systemIndex = state.currentPlanet) {
+  if (!state.gameStarted) return [];
+  const key = prizeVendorKey(station, systemIndex);
+  return sweepPrizeShelves().filter((p) => p.vendorKey === key).sort((a, b) => (b.shelvedDay || 0) - (a.shelvedDay || 0));
+}
+function prizeCondition(entry) {
+  const v = entry.vessel || {};
+  const max = finiteNumber(v.maxHull, 0) || vesselDefaults(entry.shipId).hull || 1;
+  return clamp(finiteNumber(v.hull, max) / max, 0, 1);
+}
+function prizePrice(entry) {
+  const price = getShipPrice(getShipStats(entry.shipId));
+  return Math.round(price * Math.max(Fleet.FLEET_RULES.resaleBasis, prizeCondition(entry)));
+}
+function prizePurchaseStatus(prizeId, station = getCurrentServiceStation()) {
+  const entry = campaignPrizes().find((p) => p.id === prizeId);
+  if (!entry) return { ok: false, reason: 'That hull is no longer here.' };
+  if (entry.vendorKey !== prizeVendorKey(station)) return { ok: false, reason: `${entry.name} is held at another yard.`, entry };
+  if (fleetBook().debt > 0) return { ok: false, reason: 'Settle arrears', entry };
+  if (!hasServiceConnection()) return { ok: false, reason: getServiceTransferBlock(), entry };
+  const block = getSecurityDockingBlock(station ? getStationOwner(station) : getSystemControl(state.currentPlanet).polityId)
+    || vendorRefusal(station, station?.faction || getSystemFaction(state.currentPlanet));
+  if (block) return { ok: false, reason: block, entry };
+  const price = prizePrice(entry);
+  if (state.latinum < price) return { ok: false, reason: 'Need latinum', entry, price };
+  return { ok: true, reason: null, entry, price };
+}
+// Buying a prize moves that exact hull: the shelf record is removed and a fleet record carrying the
+// same identity object and the same physical snapshot takes its place. No stock is consumed or regrown.
+function buyPrize(prizeId, station = getCurrentServiceStation()) {
+  if (state.gameOver || !state.gameStarted) return false;
+  const status = prizePurchaseStatus(prizeId, station);
+  if (!status.ok) { setLog(status.reason); return false; }
+  const { entry, price } = status;
+  const prizes = campaignPrizes();
+  prizes.splice(prizes.indexOf(entry), 1);
+  state.latinum -= price;
+  state.mylatinum = state.latinum;
+  const id = Fleet.nextId(fleetBook(), 'prize');
+  Identity.recordProvenance(entry.identity, { day: state.day, event: 'purchased', from: prizeHolder(entry), to: PLAYER_SIDE, systemIndex: state.currentPlanet });
+  const record = { id, shipId: entry.shipId, name: entry.name, seed: entry.seed, identity: entry.identity, takenFrom: entry.takenFrom,
+    assignment: 'escort', systemIndex: state.currentPlanet, faction: state.playerFaction, vessel: entry.vessel || undefined, builtAt: Date.now() };
+  if (!record.vessel) delete record.vessel;
+  state.playerFleet.push(record);
+  state.npcShips.push(...getPlayerEscortNpcShips().filter((npc) => npc.fleetId === id));
+  for (const r of state.playerFleet) if (!r.destroyed && !fleetBook().formations.some((g) => g.members.includes(r.id))) autoAssignFleet(r);
+  playGameSound('purchase', { cooldownKey: `purchase:prize:${entry.vid}` });
+  setLog(`${entry.name} (${getShipStats(entry.shipId)?.name}, taken from ${formatFaction(entry.takenFrom)}) bought for ${price} latinum. She joins your escort as she is.`);
+  syncLegacyState();
+  renderPlanetMenu();
+  updateStats();
+  return record;
+}
+function renderPrizeShelf(station = getCurrentServiceStation()) {
+  const shelf = prizeShelf(station);
+  if (!shelf.length) return '';
+  const cards = shelf.map((entry) => {
+    const status = prizePurchaseStatus(entry.id, station);
+    const ship = getShipStats(entry.shipId);
+    const condition = Math.round(prizeCondition(entry) * 100);
+    const weapons = (entry.vessel?.weaponSlots || []).filter(Boolean).map((w) => getWeapon(w).name).join(', ') || 'no weapons fitted';
+    const line = vesselIdentityLine(entry.identity);
+    return `<div class="ship-card prize-card" data-prize="${escapeHtml(entry.id)}">
+      <div class="ship-card-head">
+        <img class="ship-preview ship-preview-${escapeHtml(getShipVisualClass(entry.shipId))}" src="${escapeHtml(getShipPreviewSrc(entry.shipId))}" alt="">
+        <div class="ship-card-title">
+          <div class="name">${escapeHtml(entry.name)}</div>
+          <div class="ship-faction">${escapeHtml(ship?.name || '')} · ${formatFaction(getShipFaction(entry.shipId))} build</div>
+        </div>
+      </div>
+      <div class="stats icon-row">
+        ${iconStat('latinum', `${prizePrice(entry)}L`, 'Latinum')}
+        ${iconStat('hull', `${condition}%`, 'Hull condition')}
+      </div>
+      <div class="meta prize-identity">${escapeHtml(line)}</div>
+      <div class="meta">Held here since day ${entry.shelvedDay} · ${escapeHtml(weapons)} · sold as she is</div>
+      <div class="ship-actions"><button data-prize-buy="${escapeHtml(entry.id)}" ${status.ok ? '' : `disabled title="${escapeHtml(status.reason || '')}"`}>${status.ok ? 'Buy this hull' : escapeHtml(status.reason || 'Unavailable')}</button></div>
+    </div>`;
+  }).join('');
+  return `<div class="panel-head prize-head">Prize hulls</div>
+    <div class="meta">Specific captured vessels held by this yard. Each is one ship, with her own registry and history; buying her moves that hull to your fleet.</div>
+    <div class="shipyard prize-shelf">${cards}</div>`;
 }
 // ---- Campaign: strategic accounts, operations, captured industry, Dominion, recovery, relays ----
 // The pure model lives in campaign-strategy.mjs; everything here is the adapter between it and the
