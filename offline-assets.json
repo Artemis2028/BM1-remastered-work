@@ -489,6 +489,7 @@
     "./src/ship-catalog-integration.mjs",
     "./src/ship-economy.mjs",
     "./src/station-roles.mjs",
+    "./src/vessel-identity.mjs",
     "./styles.css",
     "./sw.js"
   ]

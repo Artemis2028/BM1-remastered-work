@@ -9,6 +9,7 @@ const JUMP_BACKGROUND_REPORT_LIMIT = 6;
 const JUMP_CAMPAIGN_REPORT_LIMIT = 3;
 const PLAYER_DISABLE_GRACE_MS = 3000;
 import * as Fleet from './ship-fleet.mjs';
+import * as Identity from './vessel-identity.mjs';
 import { HOJ_WEAPON_ID, createHojFlight, stepHojFlight, sampleHojIfDue } from './ship-hoj.mjs';
 import { EW_MODULES, sanitizeEW, snapshotEW, stopEW, rollEW, manageEW, fundElectronics } from './ship-ew.mjs';
 import { SENSOR_RULES, SENSOR_SUITES, SensorWorld, sensorProfile, ensureSensorEquipment, defaultTransponder, fundSensors, sensorDistance, visualReach, freshTrack, receivedDeclaration, pointImpact } from './ship-sensors.mjs';
@@ -11511,23 +11512,21 @@ function getPlayerEscortFleetShips() {
   return (state.playerFleet || []).filter((ship) => ship.assignment === 'escort' && !ship.destroyed);
 }
 
+// Names are part of a vessel's identity. A vessel that has one keeps its name through every change of
+// flag; only a record with no identity yet — a legacy save — has a broken, system-derived name repaired
+// once, before its identity is written. Records are updated in place: a fleet ship is never swapped for
+// a new object (holders of a reference to her keep holding her). [identity]
 function normalizePlayerFleetNames() {
-  state.playerFleet = (Array.isArray(state.playerFleet) ? state.playerFleet : []).map((fleetShip, index) => {
+  if (!Array.isArray(state.playerFleet)) state.playerFleet = [];
+  state.playerFleet.forEach((fleetShip, index) => {
     const shipId = Number(fleetShip.shipId);
-    const faction = fleetShip.faction || state.playerFaction || getShipFaction(shipId);
-    const seed = finiteNumber(fleetShip.seed, hashString(`${fleetShip.id || index}-${shipId}-${fleetShip.assignment || 'defense'}`));
-    return {
-      ...fleetShip,
-      seed,
-      faction,
-      name: fleetShip.name && !isSystemDerivedShipName(fleetShip.name) && !isCrossFactionShipName(fleetShip.name, faction) ? fleetShip.name : generateShipName({
-        shipId,
-        faction,
-        seed,
-        role: fleetShip.assignment === 'escort' ? 'playerEscort' : 'playerFleet',
-        id: fleetShip.id || `fleet-${index}`,
-      }),
-    };
+    fleetShip.faction = fleetShip.faction || state.playerFaction || getShipFaction(shipId);
+    if (fleetShip.identity?.vid) { ensureFleetVesselIdentity(fleetShip); return; }
+    fleetShip.seed = finiteNumber(fleetShip.seed, hashString(`${fleetShip.id || index}-${shipId}-${fleetShip.assignment || 'defense'}`));
+    if (!fleetShip.name || isSystemDerivedShipName(fleetShip.name)) {
+      fleetShip.name = generateShipName({ shipId, faction: fleetShip.faction, seed: fleetShip.seed,
+        role: fleetShip.assignment === 'escort' ? 'playerEscort' : 'playerFleet', id: fleetShip.id || `fleet-${index}` });
+    }
   });
 }
 
@@ -11597,9 +11596,9 @@ function getPlayerFleetNpcShips(systemIndex = state.currentPlanet, now = gameNow
       destinationName: 'fleet patrol',
       role: 'playerFleet',
       fleetId: fleetShip.id,
-      name: fleetShip.name && !isCrossFactionShipName(fleetShip.name, state.playerFaction)
-        ? fleetShip.name
-        : generateShipName({ shipId: fleetShip.shipId, faction: state.playerFaction, seed, role: 'playerFleet', id: fleetShip.id }),
+      // The vessel's own name, whatever flag she flies now. [identity]
+      name: ensureFleetVesselIdentity(fleetShip).name
+        || generateShipName({ shipId: fleetShip.shipId, faction: state.playerFaction, seed, role: 'playerFleet', id: fleetShip.id }),
     });
     restoreFleetPower(ship, fleetShip);
     if (!fleetShip.vessel) ship.lastShotAt = now + 300 + seeded(seed + 13) * 900;
@@ -11645,9 +11644,9 @@ function getPlayerEscortNpcShips(now = gameNow()) {
       destinationName: 'player escort',
       role: 'playerEscort',
       fleetId: fleetShip.id,
-      name: fleetShip.name && !isCrossFactionShipName(fleetShip.name, state.playerFaction)
-        ? fleetShip.name
-        : generateShipName({ shipId: fleetShip.shipId, faction: state.playerFaction, seed, role: 'playerEscort', id: fleetShip.id }),
+      // The vessel's own name, whatever flag she flies now. [identity]
+      name: ensureFleetVesselIdentity(fleetShip).name
+        || generateShipName({ shipId: fleetShip.shipId, faction: state.playerFaction, seed, role: 'playerEscort', id: fleetShip.id }),
     });
     restoreFleetPower(ship, fleetShip);
     ship.escortIndex = index;
@@ -12251,8 +12250,8 @@ function realignPlayerAssetsToFaction(faction = state.playerFaction) {
     .map((station) => ({ ...station, faction: key }));
   state.playerWormholes = (Array.isArray(state.playerWormholes) ? state.playerWormholes : [])
     .map((link) => (link.builtByPlayer ? { ...link, faction: key } : link));
-  state.playerFleet = (Array.isArray(state.playerFleet) ? state.playerFleet : [])
-    .map((fleetShip) => ({ ...fleetShip, faction: key }));
+  // Allegiance changes on the records in place; identity — name, origin, provenance — does not. [identity]
+  for (const fleetShip of Array.isArray(state.playerFleet) ? state.playerFleet : []) fleetShip.faction = key;
   normalizePlayerFleetNames();
   syncPlayerBuiltStationDefinitions();
 
@@ -12967,6 +12966,8 @@ function completeShipPurchase(shipId) {
   const ship = status.ship;
   const price = status.price;
   if (!Fleet.consumeStock(fleetBook(),state.currentPlanet,resolveShipId(shipId))) return;
+  ensurePersonalIdentity(); // the ship being traded in has one before it leaves the books
+  fleetBook().personalRetireCause = 'replaced';
   fleetBook().personalId=Fleet.nextId(fleetBook(),'personal');fleetBook().personalCondition='operational';
   const discarded = EW_MODULES[ensureActorEW().module];
   state.latinum -= price;
@@ -12975,6 +12976,7 @@ function completeShipPurchase(shipId) {
   state.hull = 100;
   applyCurrentShipStats(true);
   applyShipDefaultWeapons(state.playership, true);
+  ensurePersonalIdentity(); // a new vessel: new identity, the old one retired as replaced
   state.pendingShipPurchase = null;
   playGameSound('shipLaunch', { cooldownKey: `purchase:ship:${shipId}`, volume: 0.88 });
   setLog(`Purchased ${ship.name} for ${price} latinum. Warp range ${getShipWarpRange()}.${discarded ? ` Installed ${discarded.name} was discarded.` : ''}`);
@@ -13166,6 +13168,7 @@ function buyFleetShip(shipId, systemIndex = state.currentPlanet) {
     faction: state.playerFaction,
     seed,
     builtAt: Date.now(),
+    identity: mintVesselIdentity({ vid: `vsl:${id}`, shipId: Number(shipId), name: fleetName, seed, builder: getShipFaction(Number(shipId)), via: 'purchased', systemIndex: state.currentPlanet, event: 'purchased', from: getCurrentPurchaseVendor().standingFaction }),
   });
   if (targetSystemIndex === state.currentPlanet) {
     state.npcShips.push(...getPlayerFleetNpcShips(targetSystemIndex).filter((npc) => npc.fleetId === id));
@@ -13217,6 +13220,7 @@ function buyEscortShip(shipId) {
     assignment: 'escort',
     seed,
     builtAt: Date.now(),
+    identity: mintVesselIdentity({ vid: `vsl:${id}`, shipId: Number(shipId), name: fleetName, seed, builder: getShipFaction(Number(shipId)), via: 'purchased', systemIndex: state.currentPlanet, event: 'purchased', from: getCurrentPurchaseVendor().standingFaction }),
   });
   state.npcShips.push(...getPlayerEscortNpcShips().filter((npc) => npc.fleetId === id));
   for(const record of state.playerFleet)if(!record.destroyed&&!fleetBook().formations.some(g=>g.members.includes(record.id)))autoAssignFleet(record);
@@ -13487,6 +13491,9 @@ function loadGame(slot = state.currentSaveSlot || 1) {
     : [];
   state.playerFleet = Array.isArray(s.playerFleet) ? s.playerFleet : [];
   normalizePlayerFleetNames();
+  // Before anything spawns a scene from these records: a legacy save's vessels get their identities
+  // here, marked legacy, rather than being minted as new on first sight. [identity]
+  migrateVesselIdentities();
   state.factionSystemOverrides = s.factionSystemOverrides && typeof s.factionSystemOverrides === 'object' ? s.factionSystemOverrides : {};
   state.destroyedStations = s.destroyedStations && typeof s.destroyedStations === 'object' ? s.destroyedStations : {};
   state.depletedAsteroids = s.depletedAsteroids && typeof s.depletedAsteroids === 'object' ? s.depletedAsteroids : {};
@@ -17871,7 +17878,7 @@ function destroyNpcShip(npc) {
   if (systemShip) systemShip.destroyed = true;
   if (npc.fleetId) {
     const fleetShip = state.playerFleet.find((ship) => ship.id === npc.fleetId);
-    if (fleetShip) {fleetShip.destroyed=true;fleetShip.vessel=Fleet.snapshotVessel(npc,vesselDefaults(npc.shipId),gameNow());Fleet.removeVessel(fleetBook(),fleetShip.id);}
+    if (fleetShip) {fleetShip.destroyed=true;fleetShip.vessel=Fleet.snapshotVessel(npc,vesselDefaults(npc.shipId),gameNow());Fleet.removeVessel(fleetBook(),fleetShip.id);retireStrategicVessel(ensureFleetVesselIdentity(fleetShip),'destroyed',state.currentPlanet);}
     const isEscort = fleetShip?.assignment === 'escort' || isPlayerEscortNpc(npc);
     setLog(isEscort
       ? `${getShipDisplayName(npc)} lost from your travelling escort.`
@@ -23383,6 +23390,7 @@ function restartGame() {
 
 function restartInEscapePod() {
   if(fleetBook().boarding)return;
+  if (fleetBook().personalIdentity?.vid) fleetBook().personalRetireCause = 'destroyed';
   fleetBook().personalId=Fleet.nextId(fleetBook(),'pod');fleetBook().personalCondition='operational';
   const currentPlanet = Math.max(0, Math.min(state.planets.length - 1, state.currentPlanet));
   const faction = state.playerFaction || 'ferengi';
@@ -23746,7 +23754,115 @@ function physicalNpcId(npc) {
   npc.physicalStamp = stamp;
   return npc.physicalId;
 }
+// ---------- persistent strategic vessel identity ----------
+// Every vessel the game keeps between scenes carries one identity (vessel-identity.mjs) from the moment
+// it enters the books: a faction hull in the campaign, a ship in the captain's fleet, the captain's own
+// ship. Capture, command transfer, formation assignment, travel, disablement, repair, save/load and a
+// change of flag move or annotate that identity; none of them mints a new one or rewrites where the
+// hull came from. Owner and allegiance are facts about the record holding the vessel, not about the
+// vessel. [identity]
+function mintVesselIdentity({ vid, shipId, name, seed, builder, via, systemIndex = null, event, from = null, to = PLAYER_SIDE }) {
+  const identity = Identity.makeIdentity({ vid, shipId, name, seed, builder: builder == null ? null : normalizeFactionKey(builder), via, day: Number(state.day) || null, systemIndex });
+  if (event) Identity.recordProvenance(identity, { day: state.day, event, from: from == null ? null : String(from), to, systemIndex });
+  return identity;
+}
+// The identity of a fleet record, creating one for a record that never had it (a legacy save, or a
+// record made by an older code path). Deterministic from the record's own id, never random.
+function ensureFleetVesselIdentity(f, { legacy = false } = {}) {
+  if (!f) return null;
+  if (f.identity?.vid) {
+    // Mirrors kept for the code that reads them; the identity is the authority.
+    if (f.identity.name == null) f.identity.name = f.name || generateShipName({ shipId: Number(f.shipId), faction: f.faction || state.playerFaction, seed: f.identity.seed, role: f.assignment === 'escort' ? 'playerEscort' : 'playerFleet', id: f.id });
+    if (f.identity.name != null) f.name = f.identity.name;
+    if (Number.isFinite(Number(f.identity.seed))) f.seed = f.identity.seed;
+    return f.identity;
+  }
+  f.identity = Identity.makeIdentity({ vid: `${legacy ? 'legacy' : 'vsl'}:${f.id}`, shipId: f.shipId, name: f.name || null,
+    seed: Number.isFinite(Number(f.seed)) ? Number(f.seed) : null, builder: f.faction ? normalizeFactionKey(f.faction) : null,
+    via: legacy ? 'legacy' : 'unrecorded', day: legacy ? null : Number(state.day) || null, systemIndex: Number.isFinite(Number(f.systemIndex)) ? Number(f.systemIndex) : null, legacy });
+  if (Number.isFinite(Number(f.identity.seed))) f.seed = f.identity.seed;
+  return ensureFleetVesselIdentity(f);
+}
+// One line for the fleet row: which vessel this is and where she came from. [identity]
+function vesselIdentityLine(identity) {
+  if (!identity?.vid) return '';
+  const o = identity.origin || {};
+  const built = o.builder ? (o.builder === PLAYER_SIDE ? 'your yards' : formatFaction(o.builder)) : 'unrecorded';
+  const via = { purchased: 'bought', built: 'built', captured: 'captured', initial: 'in service', expedition: 'in service', commissioned: 'commissioned', 'escape-pod': 'escape pod', legacy: 'from an older save', unrecorded: 'unrecorded' }[o.via] || o.via;
+  const taken = [...(identity.history || [])].reverse().find((h) => h.event === 'captured');
+  const design = formatShipDesignName(identity.shipId);
+  return `Registry ${Identity.registryMark(identity.vid)}${design !== identity.name ? ` · ${design}` : ''} · origin ${built} (${via}${o.day ? `, day ${o.day}` : ''})${taken ? ` · taken from ${formatFaction(taken.from)}${taken.day ? ` day ${taken.day}` : ''}` : ''}`;
+}
+function formatShipDesignName(shipId) {
+  return getShipStats(shipId)?.name || `design ${shipId}`;
+}
+// The captain's own ship. Its identity is bound to the personal id; a new personal id without a
+// transfer — a purchase, an escape pod — is a new vessel, and the old one leaves the books.
+function ensurePersonalIdentity({ legacy = false } = {}) {
+  const b = fleetBook();
+  if (b.personalIdentity?.vid && b.personalIdentityFor === b.personalId) return b.personalIdentity;
+  if (b.personalIdentity?.vid) {
+    retireStrategicVessel(b.personalIdentity, b.personalRetireCause || 'replaced', state.currentPlanet);
+  }
+  const via = b.personalRetireCause === 'destroyed' ? 'escape-pod' : b.personalIdentity?.vid ? 'purchased' : legacy ? 'legacy' : 'commissioned';
+  b.personalIdentity = Identity.makeIdentity({ vid: `${legacy ? 'legacy' : 'vsl'}:${b.personalId}`, shipId: state.playership, name: state.shipName || null,
+    seed: hashString(b.personalId), builder: getShipFaction(state.playership) || null, via, day: legacy ? null : Number(state.day) || null,
+    systemIndex: Number(state.currentPlanet), legacy });
+  if (!legacy) Identity.recordProvenance(b.personalIdentity, { day: state.day, event: via === 'purchased' ? 'purchased' : 'commissioned', to: PLAYER_SIDE, systemIndex: state.currentPlanet });
+  b.personalIdentityFor = b.personalId;
+  b.personalRetireCause = null;
+  return b.personalIdentity;
+}
+function retireStrategicVessel(identity, cause, systemIndex = null) {
+  if (!identity?.vid) return null;
+  Identity.recordProvenance(identity, { day: state.day, event: cause, systemIndex });
+  return Identity.retireVessel(campaignBook(), identity, { day: state.day, cause, holder: PLAYER_SIDE, systemIndex });
+}
+// A faction hull's identity, naming it the first time anyone needs its name. The name is stored, so
+// the same hull is the same ship every time it is seen.
+function factionHullIdentity(h, polityId) {
+  if (!h) return null;
+  h.identity ||= Identity.makeIdentity({ vid: h.id, shipId: h.shipId, seed: Identity.vesselHash(`${campaignBook().seed}:${h.id}`), builder: polityId, via: 'legacy', systemIndex: h.systemIndex, legacy: true });
+  if (h.identity.name == null) h.identity.name = generateShipName({ shipId: h.shipId, faction: campaignFactionKeyFor(polityId), seed: h.identity.seed, role: 'fleetAttack', id: h.id });
+  return h.identity;
+}
+// A save from before identities: every vessel in it gets one, deterministically from its own record,
+// marked legacy. Names already shown to the captain are kept; nothing is renamed or replaced. The
+// campaign's hulls are migrated by the campaign book itself (Campaign.migrateHullIdentities).
+function migrateVesselIdentities() {
+  let migrated = 0;
+  for (const f of state.playerFleet || []) if (!f.identity?.vid) { ensureFleetVesselIdentity(f, { legacy: true }); migrated++; }
+  const b = fleetBook();
+  if (!b.personalIdentity?.vid) { ensurePersonalIdentity({ legacy: true }); migrated++; }
+  Campaign.migrateHullIdentities(campaignBook());
+  return migrated;
+}
+// ---- hooks for the next round (foreign markets): read-only views of identity and provenance ----
+// Where a vessel is now, by vid: a living record (captain's fleet, captain's own ship, a faction's
+// hull) or its retirement entry. Never guessed from a design or a name.
+function findStrategicVessel(vid) {
+  if (!vid) return null;
+  const b = fleetBook();
+  if (b.personalIdentity?.vid === vid) return { vid, status: 'active', holder: PLAYER_SIDE, kind: 'personal', identity: b.personalIdentity };
+  const f = (state.playerFleet || []).find((x) => !x.destroyed && x.identity?.vid === vid);
+  if (f) return { vid, status: 'active', holder: PLAYER_SIDE, kind: 'fleet', record: f, identity: f.identity };
+  const book = campaignBook();
+  for (const [polityId, p] of Object.entries(book.polities || {})) {
+    if (polityId === 'player') continue;
+    const h = (p.hulls || []).find((x) => x.id === vid && x.status !== 'lost');
+    if (h) return { vid, status: 'active', holder: polityId, kind: 'faction-hull', record: h, identity: h.identity };
+  }
+  const retired = Identity.retiredVessel(book, vid);
+  return retired ? { vid, status: 'retired', holder: retired.holder, kind: 'retired', retired } : null;
+}
+function vesselProvenance(vid) {
+  const found = findStrategicVessel(vid);
+  if (!found) return null;
+  const identity = found.identity || found.retired;
+  return { vid, status: found.status, holder: found.holder, origin: identity?.origin || null, history: found.identity?.history || [], takenFrom: found.identity ? Identity.takenFrom(found.identity) : found.retired?.takenFrom ?? null, cause: found.retired?.cause ?? null };
+}
 function snapshotPersonalVessel() {
+  ensurePersonalIdentity();
   const b = fleetBook(),
     d = vesselDefaults(state.playership);
   b.personal = Fleet.snapshotVessel(
@@ -24076,6 +24192,21 @@ function updateBoarding(seconds) {
       target.sensors.mode = 'passive';
     }
     const id = Fleet.nextId(b, 'prize');
+    // The vessel keeps its identity. A campaign hull leaves its faction's books alive — never counted as
+    // a survivor or a loss by the operation it came with — and its identity comes with it; a vessel no
+    // book knew about enters the books here, built by whoever flew it. [identity]
+    const fromFaction = normalizeFactionKey(target.faction);
+    let capturedIdentity = null;
+    if (target.campaignHullId) {
+      const out = Campaign.transferHullOut(campaignBook(), target.campaignHullId, { day: state.day, to: PLAYER_SIDE, systemIndex: state.currentPlanet });
+      if (out) capturedIdentity = out.identity;
+      delete target.campaignHullId;
+    }
+    if (!capturedIdentity) {
+      capturedIdentity = mintVesselIdentity({ vid: `vsl:${id}`, shipId: target.shipId, name: target.name, seed: target.seed, builder: fromFaction, via: 'captured', systemIndex: state.currentPlanet });
+      Identity.recordProvenance(capturedIdentity, { day: state.day, event: 'captured', from: fromFaction, to: PLAYER_SIDE, systemIndex: state.currentPlanet });
+    }
+    if (capturedIdentity.name == null) capturedIdentity.name = target.name;
     // Snapshot before changing side or orders. The physical identity is not a new spawn.
     target.condition = 'operational';
     target.prizeStabilized = true;
@@ -24093,8 +24224,10 @@ function updateBoarding(seconds) {
     const record = {
       id,
       shipId: target.shipId,
-      name: target.name,
+      name: capturedIdentity.name,
       seed: target.seed,
+      identity: capturedIdentity,
+      takenFrom: fromFaction,
       assignment: 'escort',
       systemIndex: state.currentPlanet,
       faction: state.playerFaction,
@@ -24216,6 +24349,7 @@ function sellFleetVessel(id, confirm = true) {
   )
     return false;
   // Sale is a sink: never refill retail stock with a repaired copy of this vessel.
+  retireStrategicVessel(ensureFleetVesselIdentity(record), 'sold', state.currentPlanet);
   state.playerFleet = state.playerFleet.filter((f) => f !== record);
   state.npcShips = state.npcShips.filter((n) => n !== npc);
   Fleet.removeVessel(fleetBook(), id);
@@ -24496,7 +24630,7 @@ function syncPlayerPolity(book) {
   // day, booking a fresh kill every day. 'assigned' keeps it out of both the defence total and the
   // attrition pass, exactly as a hull committed to an operation is.
   const sceneOwned = (f) => Boolean(fleetLocalActor(f.id));
-  p.hulls = (state.playerFleet || []).filter((f) => !f.destroyed && f.vessel?.condition !== 'destroyed').map((f) => ({ id: `pf:${f.id}`, shipId: Number(f.shipId), hull: finiteNumber(f.vessel?.hull, finiteNumber(f.vessel?.maxHull, 100)), maxHull: finiteNumber(f.vessel?.maxHull, 100), crew: 1, systemIndex: Number(f.assignment === 'escort' ? state.currentPlanet : f.systemIndex), status: f.assignment === 'transit' || sceneOwned(f) ? 'assigned' : 'ready', opId: null }));
+  p.hulls = (state.playerFleet || []).filter((f) => !f.destroyed && f.vessel?.condition !== 'destroyed').map((f) => ({ id: `pf:${f.id}`, vid: ensureFleetVesselIdentity(f).vid, shipId: Number(f.shipId), hull: finiteNumber(f.vessel?.hull, finiteNumber(f.vessel?.maxHull, 100)), maxHull: finiteNumber(f.vessel?.maxHull, 100), crew: 1, systemIndex: Number(f.assignment === 'escort' ? state.currentPlanet : f.systemIndex), status: f.assignment === 'transit' || sceneOwned(f) ? 'assigned' : 'ready', opId: null }));
   p.treasury = state.latinum; p.materials = state.duranium;
   p.queue = fleetBook().orders.filter((o) => !['delivered', 'lost'].includes(o.status)).map((o) => ({ id: o.id, shipId: o.shipId, systemIndex: o.system, stationId: o.stationId, remainingDays: o.remainingDays, status: o.status }));
   return p;
@@ -24829,6 +24963,7 @@ function applyPlayerDefenderLosses(effect, day) {
     record.vessel.condition = 'destroyed';
     record.vessel.hull = 0;
     Fleet.removeVessel(fleetBook(), record.id);
+    retireStrategicVessel(ensureFleetVesselIdentity(record), 'destroyed', Number(effect.systemIndex));
     lost.push(record.name || 'a vessel');
   }
   if (!lost.length && !hurt.length) return;
@@ -25057,10 +25192,13 @@ function spawnCampaignOperation(op, hulls, wave = 0) {
   const origin = { x: state.systemStar.x + Math.cos(originAngle) * originDistance, y: state.systemStar.y + Math.sin(originAngle) * originDistance };
   const primaryTarget = state.stations.find((station) => !station.destroyed && station.faction !== attackerFaction) || state.systemPlanet;
   const ships = batch.map((h, index) => {
-    const seed = hashString(`${attackId}-${index}`);
+    // The hull's own seed and name, every time it is materialised: the same hull is the same ship,
+    // not a new one generated for this wave. [identity]
+    const identity = factionHullIdentity(h, op.faction);
+    const seed = identity.seed;
     const spread = (index - (batch.length - 1) / 2) * 56;
     const sideAngle = originAngle + Math.PI / 2;
-    const npc = createNpcShip({ id: `${attackId}-${index}`, shipId: h.shipId, faction: attackerFaction, attitude: 'hostile', hostile: true, seed,
+    const npc = createNpcShip({ id: `${attackId}-${index}`, shipId: h.shipId, faction: attackerFaction, attitude: 'hostile', hostile: true, seed, name: identity.name,
       from: { x: origin.x + Math.cos(sideAngle) * spread, y: origin.y + Math.sin(sideAngle) * spread },
       destination: { x: primaryTarget.x + (seeded(seed + 3) - 0.5) * 240, y: primaryTarget.y + (seeded(seed + 4) - 0.5) * 240 },
       destinationName: `campaign: ${primaryTarget.name || 'system defense'}`, role: 'fleetAttack', attackId });
@@ -26025,6 +26163,7 @@ function deliverFleetBuild(order) {
     name: getShipStats(order.shipId).name,
     faction: state.playerFaction,
   };
+  record.identity = mintVesselIdentity({ vid: `vsl:${id}`, shipId: record.shipId, name: record.name, seed: record.seed, builder: PLAYER_SIDE, via: 'built', systemIndex: order.system, event: 'built' });
   const npc = createNpcShip({
     id: `fleet-${id}`,
     shipId: record.shipId,
@@ -26200,6 +26339,7 @@ function renderFleetManager(open = false) {
       ],
       f.intent || '',
     )}</select></label>
+    <p class="fleet-identity" data-fleet-identity="${escapeHtml(ensureFleetVesselIdentity(f).vid)}">${escapeHtml(vesselIdentityLine(f.identity))}</p>
     ${tradeBlock}
     ${n ? btn('transfer', 'Take command', f.id) + btn('repair', 'Repair hull', f.id) + btn('sell', 'Sell ship', f.id) + slots : 'Remote vessel'}
     ${
@@ -26274,7 +26414,7 @@ function renderFleetManager(open = false) {
     .join('');
   // The title bar carries the close control, and everything else scrolls beneath it, so the heading and
   // the close never end up underneath the body the way the OPS panel's did. [playtest]
-  fleetManagerEl.innerHTML = `<h2>Fleet &amp; shipyard${btn('close', '\u00d7')}</h2><div class="fleet-manager-body"><p>Calendar day ${state.day} · Fleet upkeep ${state.playerFleet.filter((f) => !f.destroyed).reduce((n, f) => n + upkeepPerDay(f.shipId), 0)} L/day. Personal vessel exempt.</p>
+  fleetManagerEl.innerHTML = `<h2>Fleet &amp; shipyard${btn('close', '\u00d7')}</h2><div class="fleet-manager-body"><p>Calendar day ${state.day} · Fleet upkeep ${state.playerFleet.filter((f) => !f.destroyed).reduce((n, f) => n + upkeepPerDay(f.shipId), 0)} L/day. Personal vessel exempt.</p><p class="fleet-identity" data-personal-identity="${escapeHtml(ensurePersonalIdentity().vid)}">Your ship ${escapeHtml(state.shipName || '')} · ${escapeHtml(vesselIdentityLine(ensurePersonalIdentity()))}</p>
     <p>Arrears ${b.debt.toFixed(2)} L ${btn('pay', 'Settle arrears')}</p><p>Team: ${b.boarding ? b.boarding.phase : b.team.available ? 'Available' : 'Lost'} · XP ${b.team.xp}. ${btn('board', 'Board selected disabled ship')}${btn('cancel', 'Cancel deployment')}${btn('recruit', 'Recruit (2000 L)')}${btn('train', 'Train +5 XP (1000 L)')}</p>
     <p>${btn('repair', 'Repair personal hull', 'player')}${btn('rescue', 'Request recovery')}</p><h3>Formations</h3>${groups}${btn('group', 'New formation')}<h3>Owned vessels (${state.playerFleet.filter((f) => !f.destroyed).length})</h3>${roster || '<p>No fleet vessels.</p>'}<h3>Plans & construction</h3>${plans || '<p>Dock at a suitable vendor.</p>'}${b.orders.map((o) => `<p>${escapeHtml(getShipStats(o.shipId).name)}: ${o.status}, ${Math.max(0, o.remainingDays)} work days remaining</p>`).join('')}<h3>Financial book</h3><p>Older history: ${b.ledgerArchive.entries} entries summarized below; recent entries remain itemized.</p>${Object.entries(b.ledgerArchive.byKind).map(([kind, total]) => `<p>${escapeHtml(kind)}: ${total.amount.toFixed(2)} L total, ${total.paid.toFixed(2)} L paid.</p>`).join('')}${b.ledger
       .slice(-20)
@@ -26403,6 +26543,9 @@ function transferFleetCommand(id) {
   captureShipPowerState();
   const old = Fleet.copy(snapshotPersonalVessel()),
     incoming = Fleet.copy(record.vessel);
+  // The two vessels swap roles, not identities: each keeps its own. [identity]
+  const outgoingIdentity = ensurePersonalIdentity(),
+    incomingIdentity = ensureFleetVesselIdentity(record);
   const now = gameNow(),
     oldPosition = playerWorldPosition(),
     incomingPosition = { x: destination.x, y: destination.y };
@@ -26434,7 +26577,10 @@ function transferFleetCommand(id) {
     assignment: record.assignment || 'escort',
     faction: state.playerFaction,
     vessel: old,
+    identity: outgoingIdentity,
   };
+  Identity.recordProvenance(outgoingIdentity, { day: state.day, event: 'command-released', systemIndex: state.currentPlanet });
+  Identity.recordProvenance(incomingIdentity, { day: state.day, event: 'command-taken', systemIndex: state.currentPlanet });
   state.playerFleet = state.playerFleet.filter((f) => f !== record);
   state.playerFleet.push(formerRecord);
   for (const g of b.formations) {
@@ -26444,6 +26590,9 @@ function transferFleetCommand(id) {
   state.npcShips = state.npcShips.filter((n) => n !== destination);
   state.npcShips.push(former);
   b.personalId = incoming.physicalId || id;
+  b.personalIdentity = incomingIdentity;
+  b.personalIdentityFor = b.personalId;
+  b.personalRetireCause = null;
   b.personalCondition = incoming.condition;
   b.personal = incoming;
   state.playership = record.shipId;
@@ -27327,6 +27476,7 @@ function resolveFleetTradeLegRisk(f, t, at, day = state.day) {
     f.destroyed = true;
     f.vessel = v;
     Fleet.removeVessel(fleetBook(), f.id);
+    retireStrategicVessel(ensureFleetVesselIdentity(f), 'destroyed', at);
     state.npcShips = state.npcShips.filter((n) => n.fleetId !== f.id);
     t.active = false;
     t.stage = 'holding';

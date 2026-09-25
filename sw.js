@@ -20,6 +20,7 @@ const APP_SHELL = [
   './src/galaxy-intelligence.mjs',
   './src/station-roles.mjs',
   './src/campaign-strategy.mjs',
+  './src/vessel-identity.mjs',
   './data/game_items.json',
   './bm-ships/catalog.mjs',
   './bm-ships/ships.json',

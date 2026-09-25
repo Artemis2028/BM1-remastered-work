@@ -10,6 +10,7 @@
 // Every number in CAMPAIGN_RULES is first-pass tuning (units documented inline), not measured balance.
 
 import { stableHash, bounded, copy, planStanding } from './ship-fleet.mjs';
+import * as Identity from './vessel-identity.mjs';
 
 export const CAMPAIGN_VERSION = 1;
 
@@ -200,6 +201,7 @@ export function upgradeCampaignBook(book) {
   book.dominion ||= { phase: 'dormant', phaseDay: null, warnings: [], entrySystem: null, stagingSystem: null, expeditionOpId: null, reinforcementCut: false, convoys: 0, lastConvoyDay: null };
   book.stats ||= { battlesResolved: 0, captures: 0, hullsBuilt: 0, hullsLost: 0, missionsOffered: 0 };
   book.stats.missionsOffered ??= 0;
+  migrateHullIdentities(book);
   return book;
 }
 
@@ -367,7 +369,14 @@ function pruneLostHulls(book) {
     if (!p.hulls.some((h) => h.status === 'lost')) continue;
     const referenced = new Set();
     for (const op of book.operations) if (op.status !== 'resolved' && op.faction === id) for (const hid of op.hullIds) referenced.add(hid);
-    p.hulls = p.hulls.filter((h) => h.status !== 'lost' || referenced.has(h.id));
+    const kept = [];
+    for (const h of p.hulls) {
+      if (h.status !== 'lost' || referenced.has(h.id)) { kept.push(h); continue; }
+      // Leaving the books destroyed: its identity is retired, never reused. A hull taken by the captain
+      // is not retired — it lives on under the same vid in the captain's fleet. [identity]
+      if (h.identity && h.fate !== 'captured') Identity.retireVessel(book, h.identity, { day: book.settled ?? null, cause: 'destroyed', holder: id, systemIndex: h.systemIndex });
+    }
+    p.hulls = kept;
   }
 }
 function addHull(book, world, polityId, systemIndex, seedKey, shipId = null) {
@@ -378,8 +387,54 @@ function addHull(book, world, polityId, systemIndex, seedKey, shipId = null) {
   const stats = world.shipStats(id) || {};
   const maxHull = Math.max(1, Number(stats.combatHull) || 100);
   const hull = { id: nextCampaignId(book, 'hull'), shipId: Number(id), hull: maxHull, maxHull, crew: 1, systemIndex: Number(systemIndex), status: 'ready', opId: null };
+  // The hull is a strategic vessel from the day it enters the books. Its id is its vid; how it came
+  // to exist is read off the key that created it. No random draw is taken, so no book changes shape.
+  hull.identity = Identity.makeIdentity({ vid: hull.id, shipId: hull.shipId, seed: Identity.vesselHash(`${book.seed}:${hull.id}`),
+    builder: polityId, via: hullOriginVia(seedKey), day: book.settled ?? null, systemIndex: hull.systemIndex });
   p.hulls.push(hull);
   return hull;
+}
+function hullOriginVia(seedKey) {
+  const k = String(seedKey || '').split(':')[0];
+  return { opening: 'initial', garrison: 'initial', reserve: 'initial', 'garrison-replace': 'built', build: 'built', recon: 'expedition', expedition: 'expedition', convoy: 'expedition' }[k] || 'built';
+}
+// A save written before identities existed: every hull gets one, deterministically from the book's
+// seed and the hull's own id, so migrating the same save twice gives the same vessels. [identity]
+export function migrateHullIdentities(book) {
+  if (book.identityVersion === Identity.IDENTITY_VERSION) return 0; // every hull made since carries one
+  let migrated = 0;
+  for (const [polityId, p] of Object.entries(book.polities || {})) {
+    if (polityId === 'player') continue; // the captain's hulls are mirrors, rebuilt from the fleet each day
+    for (const h of p.hulls || []) {
+      if (h.identity?.vid === h.id) continue;
+      h.identity = Identity.normalizeIdentity(h.identity) && h.identity.vid === h.id ? Identity.normalizeIdentity(h.identity)
+        : Identity.makeIdentity({ vid: h.id, shipId: h.shipId, seed: Identity.vesselHash(`${book.seed}:${h.id}`), builder: polityId, via: 'legacy', day: null, systemIndex: h.systemIndex, legacy: true });
+      migrated++;
+    }
+  }
+  Identity.ensureRegistry(book);
+  book.identityVersion = Identity.IDENTITY_VERSION;
+  return migrated;
+}
+// A hull that leaves its polity's books alive: taken by the captain. It stops being that polity's
+// hull at once — an operation reconciling afterwards must not count it as a survivor or a loss — and
+// its identity leaves with it; the caller puts the same identity on the vessel's new record. Returns
+// that identity, or null if there is no such living hull.
+export function transferHullOut(book, hullId, { day = null, to = 'player', systemIndex = null } = {}) {
+  for (const [polityId, p] of Object.entries(book.polities || {})) {
+    if (polityId === 'player') continue;
+    const h = (p.hulls || []).find((x) => x.id === hullId);
+    if (!h || h.status === 'lost') continue;
+    h.identity ||= Identity.makeIdentity({ vid: h.id, shipId: h.shipId, seed: Identity.vesselHash(`${book.seed}:${h.id}`), builder: polityId, via: 'legacy', systemIndex: h.systemIndex, legacy: true });
+    Identity.recordProvenance(h.identity, { day, event: 'captured', from: polityId, to, systemIndex });
+    h.status = 'lost';
+    h.fate = 'captured';
+    h.hull = 0;
+    p.lostHulls = (p.lostHulls || 0) + 1;
+    book.stats.hullsCaptured = (book.stats.hullsCaptured || 0) + 1;
+    return { polityId, identity: Identity.normalizeIdentity(h.identity) };
+  }
+  return null;
 }
 
 // ---------- the bulk shadow ----------

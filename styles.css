@@ -4850,3 +4850,4 @@ button:disabled {
 .cargo-dump-confirm button { margin-right: 6px; }
 .map-rail.map-rail-overlay { background: rgba(4, 8, 16, 0.86); font-size: 14px; }
 .map-rail.map-rail-overlay h3 { font-size: 13px; }
+.fleet-manager .fleet-identity { color: #b8c4d8; font-size: 14px; margin: 4px 0 6px; }

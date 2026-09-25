@@ -53,6 +53,8 @@
     "test:playtest:gate": "node scripts/playtest-gate.cjs",
     "test:fleet-state-ui": "node scripts/fleet-state-ui-gate.cjs",
     "test:section6:verify": "node scripts/section6-verification-gate.cjs",
+    "test:vessel-identity": "node scripts/vessel-identity-test.mjs",
+    "test:vessel-identity:ingame": "node scripts/vessel-identity-gate.cjs",
     "bench:map": "node scripts/map-render-bench.cjs",
     "screens:section6": "node scripts/section6-screens.cjs"
   },
