@@ -219,7 +219,11 @@ test('Dominion: the expedition is an opening, not a date — elapsed days alone 
   const effects = run(book, world, 201, 201 + book.config.dominionOpeningSustainDays + book.config.dominionReconDwellDays + book.config.dominionStagingDwellDays + 90);
   const warnings = effects.filter((e) => e.type === 'dominionWarning');
   assert.ok(warnings.length >= 2, `at least two warnings before the assault, got ${warnings.length}`);
-  assert.equal(book.dominion.phase, 'invasion', `the opening did not carry through to a crossing (${book.dominion.phase})`);
+  // The crossing happened. Since the Dominion formal-war round an expedition that is thrown back at the
+  // entry with no way to replace its losses is withdrawn (DOMINION-FORMAL-WAR-RULES §6), so the phase may
+  // already have moved on from the crossing it made.
+  assert.ok(['invasion', 'withdrawn'].includes(book.dominion.phase), `the opening did not carry through to a crossing (${book.dominion.phase})`);
+  assert.ok(book.dominion.plan, 'the crossing carried no invasion plan');
   const op = book.operations.find((o) => o.id === book.dominion.expeditionOpId);
   assert.equal(op.targetSystem, 6, 'entry is Bajora (system 6), resolved by endpoint id');
   assert.ok(warnings.every((w) => w.day < op.createdDay + 1));

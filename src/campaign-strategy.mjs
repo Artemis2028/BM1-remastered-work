@@ -122,6 +122,19 @@ export const CAMPAIGN_RULES = Object.freeze({
   dominionBlockadeStrength: 600,   // defender strength at the entry system that interdicts reinforcement convoys (≈ a starbase plus escorts)
   dominionMaxConvoys: 8,           // reinforcement is finite: the expedition must win with what the wormhole can carry
   dominionOpportunityRatio: 0.9,   // expedition strength vs best local opposition needed to advance past the bridgehead
+  // Dominion formal war (DOMINION-FORMAL-WAR-RULES-261233ZSEP26). Static hostility never declares a war;
+  // these authored lists say who the storyline may deliberately attack, and only a power actually
+  // attacked by a plan or an escalation is declared against.
+  dominionCorridorTargets: Object.freeze(['bajoran', 'terran', 'klingon', 'vulcan', 'andorian', 'romulan', 'ferengi', 'player']), // the corridor may be forced against its holder only if it is one of these
+  dominionOpeningAlsoDeclare: Object.freeze([]),   // further opening war targets the authored plan deliberately attacks
+  dominionEscalationTargets: Object.freeze(['bajoran', 'terran', 'klingon', 'vulcan', 'andorian', 'romulan', 'ferengi', 'player']),
+  dominionEscalationEveryDays: 30,  // at most one deliberate escalation against a new power per this many days
+  dominionPactPartners: Object.freeze(['cardassian', 'breen']), // pacts activated at the crossing with whichever of these is aligned then
+  dominionAccessDeniedDays: 60,     // the wormhole held against Central and convoys interdicted this long: access is permanently denied
+  // Expeditionary sides: a power fighting on this side of a wormhole is judged by whether the expedition
+  // can sustain the war, not by its home realm. [DOMINION-FORMAL-WAR-RULES §5]
+  expeditionarySides: Object.freeze({ dominion: Object.freeze({ wormhole: 'bajora-dominica-wormhole' }) }),
+  expeditionCollapseShare: 0.35,    // at or below this share of the expedition's best, with no way to replace losses, it cannot sustain the war
   // Strategic resolution of the opening war: no calendar roll ends it; it ends when one belligerent
   // loses its home world and cannot contest it, or loses every world.
   centralWar: ['terran', 'klingon'],
@@ -508,7 +521,7 @@ export function advanceCampaignDay(book, world, day) {
   // The model's own settlements are authoritative for the war instance they settled, even before the
   // engine has applied them (and always, in a world with no engine behind it).
   for (const st of Object.values(book.warStates || {})) {
-    if (st.status !== 'ceasefire' && st.status !== 'peace') continue;
+    if (st.status !== 'ceasefire' && st.status !== 'peace' && !(st.declared && st.status === 'war')) continue;
     const current = warPairsInView(book, world, true).find((p) => warKey(p.a, p.b) === st.key);
     if (current && current.warId === st.warId) stepWorld.shadow.relations.set(`${relSide(world, st.a)}:${relSide(world, st.b)}`, st.status);
   }
@@ -936,8 +949,10 @@ function planOperations(book, world, day, effects) {
     p.lastPlanDay = day;
     if (book.operations.filter((o) => o.faction === id && o.status !== 'resolved').length >= 2) continue;
     let targets = reachableEnemyTargets(book, world, id);
-    if (!targets.length) continue;
     if (id === 'dominion' && book.dominion.phase !== 'invasion') continue; // the expedition opens hostilities, never a routine raid
+    // The Dominion's targets are only powers it is formally at war with; with none left in reach it may
+    // deliberately escalate against a new one (below). Everyone else plans only against its wars.
+    if (!targets.length && id !== 'dominion') continue;
     const ready = p.hulls.filter((h) => h.status === 'ready');
     // A home garrison stays behind at every held world: an offensive never strips a world of its last defenders.
     const perSystem = {};
@@ -948,6 +963,7 @@ function planOperations(book, world, day, effects) {
       const bound = dominionPlanningBounds(book, world, targets, spare);
       if (!bound) continue;
       targets = bound.targets; spare = bound.spare;
+      if (!targets.length) { dominionEscalate(book, world, day, spare, effects); continue; }
     }
     if (spare.length < 3) continue;
     const doctrine = world.doctrine?.(id) || { aggression: 1 };
@@ -975,11 +991,20 @@ export function nearSideSystems(world, entrySystem) {
 // and the force has to come through the wormhole to reach it. Once it holds ground, operations are
 // mounted from that ground — never from the far side of the galaxy, and never from the home region
 // straight past an entry it does not control.
+// The near-side ground the expedition operates from: worlds it holds, and the partner-held terminus it
+// crossed into under the pact.
+function dominionGround(book, world, near) {
+  const d = book.dominion;
+  const ground = controlled(world, 'dominion').map((s) => s.index).filter((i) => near.has(Number(i)));
+  const entryHolder = world.systems[d.entrySystem]?.controller ?? null;
+  if (d.plan?.partnerCorridor && entryHolder && entryHolder !== 'dominion' && world.relation('dominion', relSide(world, entryHolder)) === 'allied' && !ground.includes(Number(d.entrySystem))) ground.push(Number(d.entrySystem));
+  return ground;
+}
 function dominionPlanningBounds(book, world, targets, spare) {
   const d = book.dominion;
   if (d.entrySystem == null) return null;
   const near = nearSideSystems(world, d.entrySystem);
-  const heldNear = controlled(world, 'dominion').map((s) => s.index).filter((i) => near.has(Number(i)));
+  const heldNear = dominionGround(book, world, near);
   if (!heldNear.length) return { targets: targets.filter((t) => Number(t.index) === Number(d.entrySystem)), spare: spare.filter((h) => !near.has(Number(h.systemIndex))) };
   const staging = new Set([...heldNear.map(Number), Number(d.stagingSystem)]);
   return { targets: targets.filter((t) => near.has(Number(t.index))), spare: spare.filter((h) => staging.has(Number(h.systemIndex))) };
@@ -1483,21 +1508,71 @@ function advanceDominion(book, world, day, effects) {
     // that the opening already judged worth staging. There is no deadline that sends it anyway: a
     // corridor closed while it staged is a crossing that never happens.
     const staged = dominion.hulls.filter((h) => h.status === 'ready' && h.systemIndex === d.stagingSystem);
-    if (staged.length > 0 && opportunity.corridorOpen) {
+    // The invasion plan says, explicitly, who the opening attacks. The corridor is forced only against a
+    // holder on the authored list; an unheld terminus is occupied unopposed; a holder off the list (a pact
+    // partner) is not attacked and the crossing waits. Holding the entry world is never itself a war.
+    const holder = world.systems[d.entrySystem]?.controller ?? null;
+    const holderAtWar = holder != null && holder !== 'dominion' && formallyAtWar(world, 'dominion', holder);
+    const forced = holder != null && holder !== 'dominion' && (c.dominionCorridorTargets || []).includes(holder)
+      && world.relation('dominion', relSide(world, holder)) !== 'allied';
+    // A corridor a pact partner holds is not forced: the expedition crosses into the partner's world under
+    // the pact, unopposed, and declares on no one for it.
+    const partnerCorridor = holder != null && holder !== 'dominion' && !holderAtWar && world.relation('dominion', relSide(world, holder)) === 'allied';
+    const passable = holder == null || holder === 'dominion' || holderAtWar || forced || partnerCorridor;
+    if (staged.length > 0 && opportunity.corridorOpen && !passable && d.corridorHeldBy !== holder) {
+      d.corridorHeldBy = holder;
+      addHistory(book, day, 'dominion', `The crossing waits: ${world.systems[d.entrySystem]?.name} is held by ${world.factionName(holder)}, which the invasion plan does not attack.`);
+    }
+    if (staged.length > 0 && opportunity.corridorOpen && passable) {
       commitPhase('invasion');
-      const op = launchOperation(book, world, 'dominion', staged, d.entrySystem, day, 1, 'invasion', effects);
-      d.expeditionOpId = op.id;
+      const warTargets = [...new Set([...(forced && !holderAtWar ? [holder] : []),
+        ...(c.dominionOpeningAlsoDeclare || []).filter((x) => (x === 'player' || book.polities[x]) && !formallyAtWar(world, 'dominion', x))])];
+      const pacts = (c.dominionPactPartners || []).filter((x) => book.polities[x] && world.relation('dominion', relSide(world, x)) === 'allied');
+      d.plan = { day, objective: Number(d.entrySystem), holder, warTargets, pacts, partnerCorridor,
+        reason: forced ? `forcing the ${entry.name || 'Bajoran Wormhole'} at ${world.systems[d.entrySystem]?.name}`
+          : partnerCorridor ? `an unopposed crossing into ${world.factionName(holder)}-held ${world.systems[d.entrySystem]?.name} under the pact`
+          : 'an unopposed crossing' };
+      for (const x of warTargets) declareFormalWar(book, world, 'dominion', x, day, effects, { reason: x === holder ? d.plan.reason : 'the invasion plan', source: 'authored', by: 'dominion' });
+      if (partnerCorridor) {
+        // No assault: the staged force comes through and stands at the partner's terminus.
+        for (const h of staged) h.systemIndex = Number(d.entrySystem);
+        d.expeditionOpId = null;
+      } else {
+        const op = launchOperation(book, world, 'dominion', staged, d.entrySystem, day, 1, 'invasion', effects);
+        d.expeditionOpId = op.id;
+      }
       warn('invasion', `A Dominion expedition is transiting the ${entry.name || 'Bajoran Wormhole'} toward ${world.systems[d.entrySystem]?.name}.`, d.entrySystem);
       addHistory(book, day, 'dominion', 'Dominion invasion launched through the Bajoran wormhole.');
     }
   }
   if (d.phase === 'invasion') {
+    // Is the expedition still sustainable, and is the wormhole still open to it? Either failing is an
+    // authored ending: Central orders the withdrawal, and every war it is fighting ends through the
+    // ordinary bilateral transition. [DOMINION-FORMAL-WAR-RULES §6]
+    const exp = expeditionAssessment(book, world, 'dominion');
+    if (exp) d.expeditionPeak = Math.max(Number(d.expeditionPeak) || 0, exp.strength);
+    const entryHolder = world.systems[d.entrySystem]?.controller ?? null;
+    const denied = entryHolder != null && entryHolder !== 'dominion' && formallyAtWar(world, 'dominion', entryHolder) && d.reinforcementCut;
+    d.accessDeniedSince = denied ? (d.accessDeniedSince ?? day) : null;
+    const deniedFor = denied ? day - d.accessDeniedSince : 0;
+    const why = exp?.unsustainable ? `the expedition can no longer sustain the war (${exp.reasons.join('; ')})`
+      : deniedFor >= (c.dominionAccessDeniedDays ?? 60) ? `the wormhole has been held against it for ${deniedFor} days`
+      : null;
+    // The fighting in hand is decided first: a withdrawal is ordered between operations, never in the
+    // middle of one, so an assault that is under way ends by its own result.
+    const inFlight = book.operations.some((o) => o.faction === 'dominion' && o.status !== 'resolved');
+    if (why && !inFlight && beatFree()) {
+      d.lastPhaseBeat = beat;
+      withdrawExpedition(book, world, day, effects, { reason: why, basis: 'withdrawal' });
+      return;
+    }
     // Reinforcement convoys through the wormhole unless the entry is interdicted by real defences.
-    const blockaded = localDefenseStrength(book, world, d.entrySystem) >= c.dominionBlockadeStrength && world.systems[d.entrySystem]?.controller !== 'dominion';
+    const entryFriendly = entryHolder === 'dominion' || (entryHolder != null && world.relation('dominion', relSide(world, entryHolder)) === 'allied');
+    const blockaded = localDefenseStrength(book, world, d.entrySystem) >= c.dominionBlockadeStrength && !entryFriendly;
     d.reinforcementCut = blockaded;
     if (!blockaded && d.convoys < c.dominionMaxConvoys && (d.lastConvoyDay == null || day - d.lastConvoyDay >= c.dominionReinforcementEveryDays)) {
       d.lastConvoyDay = day; d.convoys++;
-      const bridgehead = world.systems[d.entrySystem]?.controller === 'dominion' ? d.entrySystem : d.stagingSystem;
+      const bridgehead = entryFriendly ? d.entrySystem : d.stagingSystem;
       for (let i = 0; i < c.dominionReinforcementHulls; i++) addHull(book, world, 'dominion', bridgehead, `convoy:${d.convoys}:${i}`);
       effects.push({ type: 'dominionConvoy', day, systemIndex: bridgehead, hulls: c.dominionReinforcementHulls });
     }
@@ -1616,17 +1691,34 @@ export function failMission(book, id, day, reason) { const m = book.missions.fin
 // between two AI powers ends when it is eligible; a war the player's empire is party to produces an
 // offer the captain answers. Either way the transition goes through one path that stands down the
 // pair's operations, closes war-only contracts and applies the territorial terms.
-const LOCKED_WAR_PARTIES = Object.freeze(['dominion', 'dominion_remnant']); // arc-owned hostility, never a formal bilateral war
-// Pairs the model should consider: { a, b, status, warId, warStarted }. The engine supplies them from
-// the diplomacy book; a world without an engine is read through its relation function.
+// Dominion Central and the Blender Remnant keep out of the bilateral system while nothing formal exists
+// between them and the other party: static hostility is not a war. A pair of theirs with an explicit
+// formal record (an authored declaration, an escalation, an independent declaration, a binding) is
+// evaluated like any other. [DOMINION-FORMAL-WAR-RULES §1]
+const LOCKED_WAR_PARTIES = Object.freeze(['dominion', 'dominion_remnant']);
+// Parties that can be bound to follow another's wars: the captain's empire (to its government) and the
+// Remnant (to Central, once subordinated). An inherited record follows its government's transitions.
+function isLockedParty(id) { return LOCKED_WAR_PARTIES.includes(id); }
+// Pairs the model should consider: { a, b, status, warId, warStarted, inheritedFrom, formal }. The engine
+// supplies them from the diplomacy book (every one of them a formal record); a world without an engine
+// is read through its relation function. Wars the model itself declared in this call are included until
+// the engine has recorded them, so a jump and a step see the same wars.
 function warPairsInView(book, world, includeSettled = false) {
   const statuses = includeSettled ? ['war', 'ceasefire', 'peace', 'crisis'] : ['war', 'ceasefire'];
-  if (typeof world.warPairs === 'function') return world.warPairs().filter((p) => statuses.includes(p.status));
-  const ids = Object.keys(book.polities).filter((id) => id !== 'player' && !LOCKED_WAR_PARTIES.includes(id)).sort();
-  const out = [];
-  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
-    const status = world.relation(ids[i], ids[j]);
-    if (statuses.includes(status)) out.push({ a: ids[i], b: ids[j], status, warId: 'static', warStarted: null });
+  let out;
+  if (typeof world.warPairs === 'function') out = world.warPairs().filter((p) => statuses.includes(p.status)).map((p) => ({ ...p, formal: p.formal !== false }));
+  else {
+    const ids = Object.keys(book.polities).filter((id) => id !== 'player' && !isLockedParty(id)).sort();
+    out = [];
+    for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+      const status = world.relation(ids[i], ids[j]);
+      if (statuses.includes(status)) out.push({ a: ids[i], b: ids[j], status, warId: 'static', warStarted: null, formal: false });
+    }
+  }
+  const seen = new Set(out.map((p) => warKey(p.a, p.b)));
+  for (const st of Object.values(book.warStates || {})) {
+    if (!st.declared || seen.has(st.key) || !statuses.includes(st.status)) continue;
+    out.push({ a: st.a, b: st.b, status: st.status, warId: st.warId, warStarted: st.startedDay, inheritedFrom: st.declared.inheritedFrom || null, formal: true });
   }
   return out;
 }
@@ -1646,6 +1738,8 @@ function openWarInstance(book, world, pair, day) {
       day, ledger: ledgerSnapshot(book, a, b),
       worlds: { [a]: controlled(world, a).length, [b]: controlled(world, b).length },
       hulls: { [a]: livingHulls(polity(book, a)).length, [b]: livingHulls(polity(book, b)).length },
+      // An expeditionary side is judged by its ground on this side of the wormhole, not its home realm.
+      bridgeheads: Object.fromEntries([a, b].map((id) => [id, expeditionAssessment(book, world, id)?.bridgeheads ?? null]).filter(([, n]) => n != null)),
     },
     offer: null, offerCooldownUntil: 0, settlement: null, lastEval: null,
     previous: prior?.settlement ? { warId: prior.warId, settlement: prior.settlement } : (prior?.previous || null),
@@ -1677,6 +1771,14 @@ function warSides(book, world, st) {
       homeLost: Boolean(home && home.controller === other), homeName: home?.name || null,
       losses: (ledger.losses[id] || 0) - (st.baseline.ledger.losses[id] || 0),
     };
+    // Expeditionary mode: the side's strength, capacity and ground are the expedition's; its home realm
+    // is out of reach and cannot be lost, and what decides it is whether the expedition can go on.
+    const exp = expeditionAssessment(book, world, id);
+    if (exp && exp.active) Object.assign(out[id], {
+      strength: exp.strength, capacity: exp.capacity, capShare: exp.share, strain: null,
+      worldsNow: exp.bridgeheads, worldsAtStart: st.baseline.bridgeheads?.[id] ?? 0, homeLost: false, homeName: null,
+      expedition: { unsustainable: exp.unsustainable, reasons: exp.reasons },
+    });
   }
   return out;
 }
@@ -1696,7 +1798,7 @@ export function evaluateWars(book, world, day, effects) {
   const rules = { ...WAR_RULES, ...(book.config.warRules || {}) };
   book.warStates ||= {};
   for (const pair of warPairsInView(book, world)) {
-    if (LOCKED_WAR_PARTIES.includes(pair.a) || LOCKED_WAR_PARTIES.includes(pair.b)) continue;
+    if ((isLockedParty(pair.a) || isLockedParty(pair.b)) && !pair.formal) continue;
     if (!book.polities[pair.a] || !book.polities[pair.b]) continue;
     // An inherited war is its government's war: it follows that war's ceasefire and settlement and is
     // not evaluated (or offered) on its own. A war the empire made its own carries no inheritance.
@@ -1771,23 +1873,27 @@ function applyWarTransitionInModel(book, world, st, t, day, effects, source = 'e
   // cleanup. A war the empire made its own (an incident, a seizure) has no inheritance and is not
   // touched; nor is anything the captain does afterwards, which is an incident like any other.
   const bound = [];
-  if (st.a !== 'player' && st.b !== 'player' && source !== 'inherited') {
+  if (source !== 'inherited') {
     for (const [side, other] of [[st.a, st.b], [st.b, st.a]]) {
-      const inherited = warPairsInView(book, world).find((p) => [p.a, p.b].includes('player') && [p.a, p.b].includes(other) && p.inheritedFrom === side && ['war', 'ceasefire'].includes(p.status));
-      if (!inherited || !book.polities.player) continue;
-      if (inherited.status === t.to) continue;
-      const pkey = warKey('player', other);
-      let pst = book.warStates[pkey];
-      if (!pst || pst.warId !== (inherited.warId || 'static') || pst.status === 'peace') pst = openWarInstance(book, world, inherited, day);
-      // The empire's ground follows its government's settlement: on the winning side of a decisive peace
-      // it keeps what it took, on the losing side it gives it back; a negotiated peace is negotiated.
-      const pwinner = t.basis === 'decisive' ? (t.winner === side ? 'player' : other) : null;
-      const pterms = t.to === 'peace'
-        ? settlementTerms(t.basis === 'decisive' ? 'decisive' : 'settlement', pwinner, pairOccupations(book, world, pst), Object.fromEntries([pst.a, pst.b].map((id) => [id, polityReadiness(book, world, id).strength])))
-        : [];
-      applyWarTransitionInModel(book, world, pst, { to: t.to, basis: 'co-belligerent', winner: pwinner, loser: pwinner ? (pwinner === 'player' ? other : 'player') : null,
-        reason: `the ${world.factionName(side)}–${world.factionName(other)} ${t.to === 'ceasefire' ? 'ceasefire' : 'settlement'} binds your empire`, terms: pterms, parentKey: st.key }, day, effects, 'inherited');
-      bound.push(pkey);
+      for (const inherited of warPairsInView(book, world).filter((p) => p.inheritedFrom === side && [p.a, p.b].includes(other) && ['war', 'ceasefire'].includes(p.status))) {
+        const follower = inherited.a === other ? inherited.b : inherited.a;
+        if (follower === side || !book.polities[follower]) continue;
+        if (inherited.status === t.to) continue;
+        const pkey = warKey(follower, other);
+        let pst = book.warStates[pkey];
+        if (!pst || pst.warId !== (inherited.warId || 'static') || pst.status === 'peace') pst = openWarInstance(book, world, inherited, day);
+        // The follower's ground follows its government's settlement: on the winning side of a decisive
+        // peace it keeps what it took, on the losing side it gives it back; a negotiated peace is negotiated.
+        const imposed = t.basis === 'decisive' || t.basis === 'withdrawal';
+        const pwinner = imposed ? (t.winner === side ? follower : other) : null;
+        const pterms = t.to === 'peace'
+          ? settlementTerms(imposed ? 'decisive' : 'settlement', pwinner, pairOccupations(book, world, pst), Object.fromEntries([pst.a, pst.b].map((id) => [id, polityReadiness(book, world, id).strength])))
+          : [];
+        const whom = follower === 'player' ? 'your empire' : world.factionName(follower);
+        applyWarTransitionInModel(book, world, pst, { to: t.to, basis: 'co-belligerent', winner: pwinner, loser: pwinner ? (pwinner === follower ? other : follower) : null,
+          reason: `the ${world.factionName(side)}–${world.factionName(other)} ${t.to === 'ceasefire' ? 'ceasefire' : 'settlement'} binds ${whom}`, terms: pterms, parentKey: st.key }, day, effects, 'inherited');
+        bound.push(pkey);
+      }
     }
   }
   effects.push({ type: t.to === 'peace' ? 'warResolved' : 'warCeasefire', key: st.key, a: st.a, b: st.b, warId: st.warId, to: t.to, basis: t.basis, winner: t.winner, loser: t.loser, reason: t.reason, terms: applied, standDown: closed, source, parentKey: t.parentKey || null, alsoBinds: bound, day });
@@ -1850,6 +1956,186 @@ export function forceWarTransition(book, world, a, b, to, day, reason = 'Directe
   const terms = to === 'peace' ? settlementTerms('negotiated', null, pairOccupations(book, world, st), Object.fromEntries([st.a, st.b].map((id) => [id, polityReadiness(book, world, id).strength]))) : [];
   applyWarTransitionInModel(book, world, st, { to, basis, winner: null, loser: null, reason, terms }, day, effects, 'directed');
   return effects;
+}
+// ---------- formal declarations, expeditions, withdrawal, followers (DOMINION-FORMAL-WAR-RULES) ----------
+function formallyAtWar(world, a, b) { return world.relation(relSide(world, a), relSide(world, b)) === 'war'; }
+function commandFollowers(book, government) {
+  return Object.entries(book.commandBindings || {}).filter(([, b]) => b?.to === government).map(([id]) => id);
+}
+// A formal war the campaign itself declares: an authored escalation, a deliberate attack, or a follower
+// bound to its government's war. The model opens the war instance at once with its own id, and the
+// engine records the diplomatic side under the same id, so the two are one war. A follower bound to the
+// declaring power is declared with it (inherited, no separate report).
+export function declareFormalWar(book, world, a, b, day, effects, opts = {}) {
+  const { reason = 'Declared', source = 'authored', by = a, opId = null, inheritedFrom = null, parentKey = null, status = 'war' } = opts;
+  const key = warKey(a, b);
+  const warId = `${key}#${nextCampaignId(book, 'war')}`;
+  const st = openWarInstance(book, world, { a, b, warId, warStarted: day }, day);
+  st.status = status; st.statusSince = day;
+  st.declared = { day, by, reason, source, inheritedFrom, parentKey };
+  if (world.shadow) world.shadow.relations.set(`${relSide(world, st.a)}:${relSide(world, st.b)}`, status);
+  const followers = [];
+  if (!inheritedFrom) {
+    const target = by === a ? b : a;
+    for (const f of commandFollowers(book, by)) {
+      if (f === target || !book.polities[f] || formallyAtWar(world, f, target)) continue;
+      followers.push(f);
+    }
+  }
+  addHistory(book, day, 'declaration', inheritedFrom
+    ? `${world.factionName(inheritedFrom === st.a ? st.b : inheritedFrom === st.b ? st.a : a)} is bound to ${world.factionName(inheritedFrom)}'s war: ${reason}.`
+    : `${world.factionName(by)} declared war on ${world.factionName(by === a ? b : a)}: ${reason}.`, { key, warId, source });
+  effects.push({ type: 'warDeclared', key, a: st.a, b: st.b, warId, by, reason, source, opId, inheritedFrom, parentKey, status, day,
+    alsoBinds: followers.map((f) => warKey(f, by === a ? b : a)) });
+  for (const f of followers) declareFormalWar(book, world, f, by === a ? b : a, day, effects, { reason: `under ${world.factionName(by)} command`, source: 'inherited', by, inheritedFrom: by, parentKey: key, status });
+  return st;
+}
+// Can this expedition still sustain the war? Pure: reads the book and world as they stand.
+export function expeditionAssessment(book, world, id) {
+  const spec = book.config.expeditionarySides?.[id];
+  if (!spec) return null;
+  const wh = (world.wormholes || []).find((w) => w.id === spec.wormhole);
+  if (!wh) return null;
+  const c = book.config;
+  const d = id === 'dominion' ? book.dominion : ((book.expeditions ||= {})[id] ||= {});
+  const entry = Number(d.entrySystem ?? wh.from), staging = Number(d.stagingSystem ?? wh.to);
+  const near = nearSideSystems(world, entry);
+  const p = book.polities[id];
+  if (!p) return null;
+  const present = livingHulls(p).filter((h) => near.has(Number(h.systemIndex)) || Number(h.systemIndex) === staging);
+  const strength = present.reduce((n, h) => n + hullStrength(book, world, h), 0);
+  const capacity = Math.max(Number(p.readinessBaseline) || 0, Number(d.expeditionPeak) || 0, strength);
+  const share = capacity > 0 ? strength / capacity : null;
+  const bridgeheads = (id === 'dominion' ? dominionGround(book, world, near) : controlled(world, id).filter((s) => near.has(Number(s.index))).map((s) => s.index)).length;
+  const entryHolder = world.systems[entry]?.controller ?? null;
+  const access = entryHolder === id || (entryHolder && world.relation(id, relSide(world, entryHolder)) === 'allied') || !d.reinforcementCut;
+  const convoysLeft = Math.max(0, (c.dominionMaxConvoys || 0) - (d.convoys || 0));
+  const replace = Boolean(access && convoysLeft > 0);
+  const enemies = warPairsInView(book, world).filter((q) => [q.a, q.b].includes(id) && q.status === 'war' && !q.inheritedFrom).map((q) => (q.a === id ? q.b : q.a));
+  const partners = (d.plan?.pacts || []).filter((pid) => book.polities[pid] && controlled(world, pid).length > 0
+    && enemies.some((e) => formallyAtWar(world, pid, e)));
+  const remnant = Object.entries(book.commandBindings || {}).find(([, b]) => b?.to === id)?.[0] || null;
+  const blender = Boolean(remnant && book.polities[remnant] && livingHulls(book.polities[remnant]).length > 0);
+  const reasons = [];
+  if (share != null) reasons.push(`${Math.round(share * 100)}% of its best strength on this side`);
+  reasons.push(bridgeheads ? `${bridgeheads} bridgehead${bridgeheads > 1 ? 's' : ''}` : 'no bridgehead');
+  reasons.push(access ? 'the wormhole open' : 'the wormhole closed to it');
+  reasons.push(replace ? `${convoysLeft} convoy${convoysLeft > 1 ? 's' : ''} still to come` : 'no way to replace losses');
+  if (partners.length) reasons.push(`support from ${partners.map((x) => world.factionName(x)).join(', ')}`);
+  if (blender) reasons.push('the Blender front under its command');
+  const collapsed = share != null && share <= (c.expeditionCollapseShare ?? 0.35) && !replace && !partners.length && !blender;
+  const stranded = bridgeheads === 0 && !access && strength <= 0;
+  return { id, active: ['invasion'].includes(d.phase) || id !== 'dominion', strength, capacity, share, bridgeheads, access, convoysLeft, replace,
+    partners, blender, unsustainable: collapsed || stranded, reasons };
+}
+// Terms of an authored withdrawal: what the withdrawing side holds of the other's is abandoned (returned)
+// unless the authored terms keep or contest it; what the other side took from it stays taken.
+function withdrawalTerms(withdrawing, occupied, retain = [], disputed = []) {
+  return occupied.map((w) => ({ systemIndex: w.systemIndex, holder: w.holder, claimant: w.claimant,
+    term: w.holder !== withdrawing ? 'retained_by_occupier'
+      : retain.includes(w.systemIndex) ? 'retained_by_occupier'
+      : disputed.includes(w.systemIndex) ? 'disputed' : 'returned_to_previous_controller' }));
+}
+// withdraw_expedition: an authored ending for Central's wars (all of them, or the `scope` enemies). Each
+// war ends through the ordinary transition, as a peace with basis `withdrawal`; the expedition then
+// withdraws through the wormhole. Nothing is deleted, and nobody else is touched: an autonomous Remnant
+// keeps its own state, a bound one follows through the ordinary follow.
+export function withdrawExpedition(book, world, day, effects, opts = {}) {
+  const { reason = 'the expedition is withdrawn', basis = 'withdrawal', scope = null, retain = [], disputed = [], id = 'dominion' } = opts;
+  const d = id === 'dominion' ? book.dominion : ((book.expeditions ||= {})[id] ||= {});
+  const rules = { ...WAR_RULES, ...(book.config.warRules || {}) };
+  const wars = warPairsInView(book, world).filter((q) => [q.a, q.b].includes(id) && !q.inheritedFrom && (!scope || scope.includes(q.a === id ? q.b : q.a)));
+  const settled = [], offered = [], abandoned = [];
+  for (const pair of wars) {
+    const key = warKey(pair.a, pair.b);
+    let st = book.warStates[key];
+    if (st && st.warId === (pair.warId || 'static') && st.status === 'peace') continue;
+    if (!st || st.warId !== (pair.warId || 'static')) st = openWarInstance(book, world, pair, day);
+    const other = st.a === id ? st.b : st.a;
+    const terms = withdrawalTerms(id, pairOccupations(book, world, st), retain, disputed);
+    const t = { to: 'peace', basis, winner: other, loser: id, reason, terms };
+    if (other === 'player') {
+      if (st.offer) continue;
+      st.offer = { id: nextCampaignId(book, 'offer'), from: id, ...t, day, expires: day + rules.offerExpiryDays };
+      addHistory(book, day, 'offer', `${world.factionName(id)} offers peace: ${reason}.`, { key });
+      effects.push({ type: 'warOffer', key, a: st.a, b: st.b, from: id, offerId: st.offer.id, ...t, day, expires: st.offer.expires });
+      offered.push(key);
+      continue;
+    }
+    applyWarTransitionInModel(book, world, st, t, day, effects, 'authored');
+    for (const term of st.settlement?.terms || []) if (term.status === 'returned' && term.holder === id) {
+      abandoned.push(term.systemIndex);
+      // Evacuation hook: the world was abandoned under the settlement. Nothing reads it yet.
+      if (book.territory[term.systemIndex]) book.territory[term.systemIndex].evacuate = true;
+    }
+    settled.push(key);
+  }
+  // Whatever Central still has under way on this side is recalled, and the expedition withdraws to the
+  // far terminus. Operations of powers other than Central and assets elsewhere are not touched.
+  const ended = scope ? [] : terminateOperations(book, world, id, day, effects, `${world.factionName(id)} recalled its expedition: ${reason}.`);
+  const moved = [];
+  if (!scope) {
+    const entry = Number(d.entrySystem), staging = Number(d.stagingSystem);
+    const near = Number.isFinite(entry) ? nearSideSystems(world, entry) : new Set();
+    for (const h of livingHulls(polity(book, id))) {
+      if (h.status !== 'ready' || h.opId || !near.has(Number(h.systemIndex)) || !Number.isFinite(staging)) continue;
+      h.systemIndex = staging; moved.push(h.id);
+    }
+    d.phase = 'withdrawn'; d.phaseDay = day;
+  }
+  d.withdrawal = { day, reason, basis, wars: settled, offered, abandoned, recalled: ended.length, moved: moved.length, scope };
+  addHistory(book, day, id, `The ${world.factionName(id)} expedition withdraws: ${reason}.`, { basis });
+  effects.push({ type: 'expeditionWithdrawn', polityId: id, day, reason, basis, wars: settled, offered, abandoned, moved: moved.length, recalled: ended.length, scope });
+  return d.withdrawal;
+}
+// An authored subordination: `follower` is put under `government`'s command and inherits its current
+// wars (and later declarations). One effect; the inherited records publish nothing of their own.
+export function subordinateFollower(book, world, follower, government, day, effects, reason = 'returned to central command') {
+  book.commandBindings ||= {};
+  if (book.commandBindings[follower]?.to === government) return [];
+  book.commandBindings[follower] = { to: government, day, reason };
+  const joined = [];
+  for (const q of warPairsInView(book, world)) {
+    if (![q.a, q.b].includes(government) || q.inheritedFrom) continue;
+    const other = q.a === government ? q.b : q.a;
+    if (other === follower || formallyAtWar(world, follower, other)) continue;
+    declareFormalWar(book, world, follower, other, day, effects, { reason: `under ${world.factionName(government)} command`, source: 'inherited', by: government, inheritedFrom: government, parentKey: warKey(q.a, q.b), status: q.status });
+    joined.push({ other, status: q.status });
+  }
+  addHistory(book, day, 'command', `${world.factionName(follower)} ${reason}: now under ${world.factionName(government)} command.`, { follower, government });
+  effects.push({ type: 'followerBound', follower, government, day, reason, joined });
+  return joined;
+}
+// A deliberate escalation: Central has ground on this side, nothing left it is at war with inside its
+// planning bounds, and force to spare. It attacks the nearest world of a power on the authored list, and
+// the declaration and the operation are one step. This is the only way the war spreads.
+function dominionEscalate(book, world, day, spare, effects) {
+  const c = book.config, d = book.dominion;
+  if (d.lastEscalationDay != null && day - d.lastEscalationDay < (c.dominionEscalationEveryDays ?? 30)) return null;
+  if (spare.length < 3 || d.entrySystem == null) return null;
+  const near = nearSideSystems(world, d.entrySystem);
+  const heldNear = dominionGround(book, world, near);
+  if (!heldNear.length) return null;
+  const list = c.dominionEscalationTargets || [];
+  const p = polity(book, 'dominion');
+  const commit = bounded(Math.round(spare.length * c.attackCommitFraction), 3, spare.length);
+  const chosen = spare.slice(0, commit);
+  const strength = chosen.reduce((n, h) => n + hullStrength(book, world, h), 0) * bounded(p.supply, c.supplyFloor, 1);
+  const candidates = world.systems
+    .filter((sys) => near.has(Number(sys.index)) && sys.controller && sys.controller !== 'dominion' && list.includes(sys.controller)
+      && (sys.controller === 'player' || book.polities[sys.controller])
+      && !['war', 'allied'].includes(world.relation('dominion', relSide(world, sys.controller))))
+    .map((sys) => ({ index: sys.index, controller: sys.controller, hops: world.routeHops(heldNear, sys.index, 'dominion') }))
+    .filter((x) => x.hops != null)
+    .sort((x, y) => x.hops - y.hops || x.index - y.index);
+  const target = candidates.find((x) => strength >= localDefenseStrength(book, world, x.index) * c.minReadinessRatioToAttack);
+  if (!target) return null;
+  const name = world.systems[target.index]?.name || `system ${target.index}`;
+  const st = declareFormalWar(book, world, 'dominion', target.controller, day, effects, { reason: `a deliberate attack on ${name}`, source: 'escalation', by: 'dominion' });
+  const op = launchOperation(book, world, 'dominion', chosen, target.index, day, target.hops, 'assault', effects);
+  op.declares = st.key; st.declared.opId = op.id;
+  d.lastEscalationDay = day;
+  return op;
 }
 function expireMissions(book, day, effects) {
   for (const m of book.missions) if (['offered', 'active'].includes(m.status) && m.deadlineDay != null && day > m.deadlineDay) { m.status = 'expired'; m.reason = 'deadline passed'; effects.push({ type: 'missionExpired', missionId: m.id, day }); }

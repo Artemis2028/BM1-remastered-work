@@ -38,6 +38,14 @@ export function evaluateWar(a, b, sides, war, rules = WAR_RULES) {
   const beaten = (L, W) => {
     const l = sides[L], w = sides[W];
     if (!l || !w) return null;
+    // An expeditionary side is beaten when its expedition can no longer sustain the war and the other
+    // side clearly outmatches what is left of it. Its home realm is never the question.
+    if (l.expedition) {
+      const outmatchedExp = w.strength >= Math.max(1, l.strength) * rules.decisiveStrengthRatio;
+      return l.expedition.unsustainable && outmatchedExp
+        ? `${name(L)}'s expedition can no longer sustain the war: ${(l.expedition.reasons || []).join('; ')}`
+        : null;
+    }
     // A party that held no world when the war began (the captain's empire, an outpost garrison) cannot
     // lose one; holding nothing is decisive only for a power that had ground to lose.
     if (l.worldsAtStart > 0 && l.worldsNow === 0) return `${name(L)} holds no world`;

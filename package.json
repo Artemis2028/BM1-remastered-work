@@ -59,6 +59,8 @@
     "test:foreign-stock": "node scripts/foreign-stock-gate.cjs",
     "test:war-peace": "node scripts/war-peace-test.mjs",
     "test:war-peace:ingame": "node scripts/war-peace-gate.cjs",
+    "test:dominion-war": "node scripts/dominion-war-test.mjs",
+    "test:dominion-war:ingame": "node scripts/dominion-war-gate.cjs",
     "bench:map": "node scripts/map-render-bench.cjs",
     "screens:section6": "node scripts/section6-screens.cjs"
   },

@@ -47,7 +47,7 @@ Two different things were being read from one table. They are now separate.
 * The declared starting wars are exactly **Terran ↔ Klingon**. A Terran officer's empire inherits that one, and no other.
 * Static hostility never becomes a formal war on its own: not at the start, not over time, not through the evaluator. Romulan, Cardassian, Breen, Tholian, Hirogen, Suliban and the others start formally at **peace** with the Terran empire, and are still hostile locally.
 * **Gorn** are dormant. Their static hostility never produces a formal war.
-* **Arc-owned hostility.** The Dominion and the Blender Remnant (`dominion`, `dominion_remnant`) keep whatever relation their campaign arcs establish. They are never formal wars in this system, never evaluated, and never listed as the empire's wars.
+* **Dominion Central and the Blender Remnant** do not receive formal wars from static hostility. They enter the bilateral war system only through explicit authored escalation or an independently declared war (and the Remnant also through an authored subordination to Central). Until a formal record exists they are not evaluated or listed; once it exists it runs on this system like any other war. Details: `DOMINION-FORMAL-WAR-RULES-261233ZSEP26.md`. [amended 261233ZSEP26]
 * A hostile-but-not-at-war pair can become a real war through the ordinary route (§6): incidents raise tension to crisis and then war, with a **fresh** war instance.
 * Once a pair has a formal record that ended a war (`formalPeace`), local attitude follows that peace. Without one, static hostility still decides local attitude.
 * **Old saves.** A save whose empire inherited every static hostility as a war (`playerSeeded.version` < 2) is reseeded once on load: inherited records that are not declared starting wars are dropped, and the declared ones are seeded. Wars the empire made its own through incidents are kept.
@@ -78,7 +78,7 @@ The record answers:
 
 **The calendar never ends a war.** The old roll that signed peace after ten days at random is removed for every pair. The random incident roll still raises crises and can start wars between powers at peace.
 
-Once a day, `evaluateWars` reads every pair at **war** or in **ceasefire** whose parties are both strategic polities. The player's empire counts; pairs involving the campaign-locked Dominion don't, because the Dominion arc ends its war. Several conditions are evaluated together:
+Once a day, `evaluateWars` reads every pair at **war** or in **ceasefire** whose parties are both strategic polities. The player's empire counts. A Dominion or Remnant pair counts once it has a formal record; Dominion Central is then judged as an expeditionary side, and the storyline may also end its wars by an authored withdrawal through the same transition (DOMINION-FORMAL-WAR-RULES §5–§6). Several conditions are evaluated together:
 
 | basis | conditions (all required) | outcome |
 |---|---|---|

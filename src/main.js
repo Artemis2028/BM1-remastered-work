@@ -8714,7 +8714,7 @@ function openDebugMenu() {
     <section><h3>Local events &amp; existing missions</h3><p>Combat events deploy real ships against the current system. An eligible enemy must be at war with its governor; use the diplomacy controls above first.</p><div class="debug-actions"><button data-debug-code="event scout">Reconnaissance</button><button data-debug-code="event skirmish">Minor fleet action</button><button data-debug-code="event raid">Raid</button><button data-debug-code="event battle">Major fleet action</button><button data-debug-code="event station-loss">Destroy selected installation</button><button data-debug-code="mission cargo">Cargo contract</button><button data-debug-code="mission transport">Planet away mission</button><button data-galaxy-reports>View reports</button></div><p>Cargo delivery and planetary away missions already exist. Escort, rescue and investigation contracts are future mission ideas.</p></section>
     <section><h3>Campaign &amp; empire</h3><p>Strategic controls act through the campaign model. Calendar and stock controls use the normal paths; phase, treasury, readiness and discovery are forced overrides and are labelled as such in their results.</p><div class="debug-actions">
       <button data-debug-code="campaign advance 1">Advance 1 day</button><button data-debug-code="campaign advance 10">Advance 10 days</button><button data-debug-code="campaign advance 30">Advance 30 days</button>
-      <button data-debug-code="campaign phase reconnaissance">Dominion: reconnaissance</button><button data-debug-code="campaign phase staging">Dominion: staging</button><button data-debug-code="campaign phase invasion">Dominion: invasion</button>
+      <button data-debug-code="campaign phase reconnaissance">Dominion: reconnaissance</button><button data-debug-code="campaign phase staging">Dominion: staging</button><button data-debug-code="campaign phase invasion">Dominion: invasion</button><button data-debug-code="campaign withdraw">Dominion: withdraw expedition</button><button data-debug-code="campaign subordinate">Remnant: to Central command</button>
       <button data-debug-code="campaign damage">Damage selected installation 50%</button><button data-debug-code="campaign restore">Restore selected installation</button>
       <button data-debug-code="campaign stock current deplete">Deplete stock of current hull here</button><button data-debug-code="campaign stock current replenish">Replenish stock of current hull here</button>
       <button data-debug-code="campaign mission relief">Relief contract</button><button data-debug-code="campaign mission escort">Escort contract</button><button data-debug-code="campaign mission evacuation">Evacuation contract</button><button data-debug-code="campaign mission repair">Repair contract</button><button data-debug-code="campaign mission recon">Reconnaissance contract</button><button data-debug-code="campaign mission blockade">Blockade contract</button>
@@ -9913,12 +9913,16 @@ function campaignPartyRelation(a, b) {
   if (a === PLAYER_SIDE || b === PLAYER_SIDE) {
     const other = a === PLAYER_SIDE ? b : a;
     if (!isRecognizedFactionKey(other)) return 'peace';
-    if (arcOwned(other, other)) return worldRelation(getPlayerFlag(), other).status;
+    // The empire's own formal record, for the Dominion as for anyone: no record is no war.
     return playerRelation(other).status;
   }
   if (!isRecognizedFactionKey(a) || !isRecognizedFactionKey(b)) return 'peace';
+  if (arcOwned(a, b)) {
+    const record = formalRecord(a, b);
+    if (record) return record.status;
+    return arcAligned(a, b) ? 'allied' : 'peace';
+  }
   if (areFactionsAligned(a, b)) return 'allied';
-  if (arcOwned(a, b)) return worldRelation(a, b).status;
   return formalRelation(a, b).status;
 }
 // Every pair at war or in ceasefire (or, when asked, any recorded pair) the campaign should consider,
@@ -9926,15 +9930,17 @@ function campaignPartyRelation(a, b) {
 function campaignWarPairs() {
   const book = diplomacyBook();
   const out = new Map();
-  const add = (a, b, r) => { const key = World.pairKey(a, b); if (!out.has(key)) out.set(key, { a, b, status: r.status, warId: r.warId || `${key}#base`, warStarted: r.warStarted ?? null, inheritedFrom: r.inheritedFrom || null }); };
+  const add = (a, b, r) => { const key = World.pairKey(a, b); if (!out.has(key)) out.set(key, { a, b, status: r.status, warId: r.warId || `${key}#base`, warStarted: r.warStarted ?? null, inheritedFrom: r.inheritedFrom || null, formal: true }); };
+  // Every recorded pair is a formal record — Dominion and Remnant pairs included: they are recorded only
+  // by a declaration, an escalation, a binding or the captain's own acts, never by static hostility.
   for (const r of Object.values(book.pairs)) {
-    if (!r.a || !r.b || campaignOwnsDiplomacy(r.a, r.b) || arcOwned(r.a, r.b)) continue;
+    if (!r.a || !r.b) continue;
     if (![r.a, r.b].every((x) => x === PLAYER_SIDE || isRecognizedFactionKey(x))) continue;
     add(r.a, r.b, r);
   }
   // Declared starting wars that nothing has recorded yet. Static hostility is not a war.
   for (const [x, y] of FORMAL_STARTING_WARS) if (!out.has(World.pairKey(x, y))) add(x, y, formalRelation(x, y));
-  return [...out.values()].filter((p) => !arcOwned(p.a, p.b));
+  return [...out.values()];
 }
 // The diplomatic side of a campaign transition: the formal record, the local scene, the news. The
 // model has already stood the pair's operations down, closed their contracts and settled territory.
@@ -9955,6 +9961,91 @@ function applyWarTransitionEngine(e, day) {
   else if (bindsEmpire)
     setLog(`${formatFaction(e.a)} / ${formatFaction(e.b)}: ${e.to}. ${e.reason}. It also applies to your empire.`);
   return record;
+}
+// A formal war the campaign declared (DOMINION-FORMAL-WAR-RULES §2–§3, §7): the diplomatic record under
+// the model's own war id, the local scene, and one report. A follower bound to the declaring power is
+// recorded silently; the declaration's report says it is bound.
+function applyWarDeclarationEngine(e, day) {
+  const book = diplomacyBook();
+  const key = World.pairKey(e.a, e.b);
+  const status = e.status || 'war';
+  const reason = e.inheritedFrom ? `Bound to the ${formatFaction(e.inheritedFrom)} war: ${e.reason}` : `War declared: ${e.reason}`;
+  World.setDiplomacy(book, e.a, e.b, status, day, false, reason);
+  Object.assign(book.pairs[key], { warId: e.warId, warStarted: day, declaredBy: e.by || null, declaration: e.source || 'authored', declaredReason: e.reason || null, lastHostileDay: day });
+  if (e.inheritedFrom) book.pairs[key].inheritedFrom = e.inheritedFrom; else delete book.pairs[key].inheritedFrom;
+  delete book.pairs[key].formalPeace;
+  markDiplomacyHistory(book, { transition: status, key, warId: e.warId });
+  reconcileDiplomacy();
+  campaignWorldCache = null;
+  if (e.inheritedFrom) return;
+  const target = e.by === e.a ? e.b : e.a;
+  const source = warTransitionSource({ a: e.a, b: e.b, alsoBinds: [] });
+  if (source === 'none') return;
+  const binds = (e.alsoBinds || []).map((k) => k.split(':').find((x) => x !== target)).filter(Boolean);
+  const delay = source === 'relay' ? WAR_REPORT_RELAY_DELAY
+    : source === 'rumour' ? 5 + Math.floor(intelRandom(`${fleetBook().campaignId}:war-news:${key}:${e.warId}:declared`)() * 6) : 0;
+  const report = {
+    id: `diplomacy:declared:${key}:${e.warId}`, day: day + delay, kind: 'War declared', category: 'diplomacy',
+    factions: [e.a, e.b].filter(isRecognizedFactionKey), playerRelated: source === 'party',
+    confidence: source === 'party' ? 'Delivered to your government' : source === 'rumour' ? 'Unconfirmed civilian report' : source === 'relay' ? 'Relay dispatch' : 'Confirmed local observation',
+    text: `${warPartyName(e.by || e.a).replace(/^your/, 'Your')} declared war on ${warPartyName(target)}: ${e.reason}.${binds.length ? ` ${binds.map(warPartyName).join(', ')} ${binds.length > 1 ? 'are' : 'is'} bound by it.` : ''}`,
+  };
+  if (e.a === PLAYER_SIDE || e.b === PLAYER_SIDE) setLog(`${formatFaction(e.by || target)} declared war on your empire: ${e.reason}.`);
+  if (delay === 0) return addGalaxyReport(report);
+  const news = galaxyNewsBook();
+  news.pending.push(report);
+  news.pending = news.pending.slice(-120);
+}
+// An authored subordination (the Remnant returning to Central command): one report naming the wars the
+// follower now shares; the inherited records themselves were written silently.
+function applyFollowerBoundEngine(e, day) {
+  campaignWorldCache = null;
+  const wars = (e.joined || []).map((j) => `${warPartyName(j.other)}${j.status === 'ceasefire' ? ' (ceasefire)' : ''}`);
+  campaignReport({ id: `command:${e.follower}:${e.government}:${day}`, storyline: e.government === 'dominion' ? 'dominion' : undefined, systemIndex: null, day,
+    kind: 'Command bound', confidence: 'Campaign record', factions: [e.follower, e.government].filter(isRecognizedFactionKey),
+    text: campaignMaskText(`${formatFaction(e.follower)} has ${e.reason}: it is now under ${formatFaction(e.government)} command.${wars.length ? ` It is party to the ${formatFaction(e.government)} war${wars.length > 1 ? 's' : ''} with ${wars.join(', ')}.` : ' It is at war with no one on that account.'}`) });
+  setLog(`${formatFaction(e.follower)} is now under ${formatFaction(e.government)} command.`);
+}
+// Authored events and controls for this round. Each goes through the model; none writes a war by hand.
+function runCampaignAuthored(fn) {
+  const book = campaign();
+  const world = buildCampaignWorld(true);
+  const effects = [];
+  const out = fn(book, world, effects);
+  applyCampaignEffects(effects, state.day);
+  campaignWorldCache = null;
+  updateStats();
+  return out;
+}
+function subordinateRemnant(reason = 'returned to Central command') {
+  return runCampaignAuthored((book, world, effects) => Campaign.subordinateFollower(book, world, 'dominion_remnant', 'dominion', state.day, effects, reason));
+}
+function withdrawDominionExpedition(reason = 'Central orders the expedition home', opts = {}) {
+  return runCampaignAuthored((book, world, effects) => Campaign.withdrawExpedition(book, world, state.day, effects, { reason, ...opts }));
+}
+// An explicit authored binding of the captain's empire to its government's formal war with `enemy`. The
+// empire's record is inherited from that government: it follows the government's ceasefire and settlement
+// and is never evaluated or offered terms on its own. One report. Raising a flag never does this.
+function bindEmpireToWar(government, enemy, reason = 'your government binds its officers to the war') {
+  const gov = normalizeFactionKey(government), other = normalizeFactionKey(enemy);
+  if (!isRecognizedFactionKey(gov) || !isRecognizedFactionKey(other)) throw new Error('Unknown faction.');
+  const g = formalRelation(gov, other);
+  if (g.status !== 'war') throw new Error(`${formatFaction(gov)} is not formally at war with ${formatFaction(other)}.`);
+  if (playerRelation(other).status === 'war') return false;
+  const book = diplomacyBook();
+  const key = World.pairKey(PLAYER_SIDE, other);
+  World.setDiplomacy(book, PLAYER_SIDE, other, 'war', state.day, false, `Bound to the ${formatFaction(gov)} war: ${reason}`);
+  Object.assign(book.pairs[key], { inheritedFrom: gov, lastHostileDay: state.day });
+  delete book.pairs[key].formalPeace;
+  markDiplomacyHistory(book, { transition: 'war', key, seed: true });
+  reconcileDiplomacy();
+  campaignWorldCache = null;
+  addGalaxyReport({ id: `diplomacy:bound:${key}:${book.pairs[key].warId}`, day: state.day, kind: 'War binding', category: 'diplomacy',
+    factions: [gov, other].filter(isRecognizedFactionKey), playerRelated: true, confidence: 'Binding on your empire',
+    text: `Your empire is bound to the ${formatFaction(gov)} war with ${formatFaction(other)}: ${reason}. Its ceasefire and settlement will apply to your empire.` });
+  setLog(`Your empire is now at war with ${formatFaction(other)}, bound to the ${formatFaction(gov)} cause.`);
+  updateStats();
+  return true;
 }
 function warPartyName(id) { return id === PLAYER_SIDE ? 'your empire' : formatFaction(id); }
 function warTermsText(terms, known = true) {
@@ -9993,11 +10084,14 @@ function reportWarTransition(e, day) {
   const occupiedLeft = e.to === 'ceasefire'
     ? Object.entries(campaignBook().territory || {}).filter(([i, t]) => t.status === 'occupied' && [e.a, e.b].includes(t.holder) && [e.a, e.b].includes(t.claimant)).map(([i]) => state.planets[i]?.name).filter(Boolean)
     : [];
-  const kind = e.to === 'ceasefire' ? 'Ceasefire' : e.basis === 'decisive' ? 'Dictated peace' : 'Peace settlement';
+  const kind = e.to === 'ceasefire' ? 'Ceasefire' : e.basis === 'decisive' ? 'Dictated peace' : e.basis === 'withdrawal' ? 'Withdrawal settlement' : 'Peace settlement';
+  const otherBound = (e.alsoBinds || []).map((k) => k.split(':').find((x) => x !== e.a && x !== e.b)).filter((x) => x && x !== PLAYER_SIDE);
   const who = `${warPartyName(e.a)} and ${warPartyName(e.b)}`.replace(/^your/, 'Your');
   const base = e.to === 'ceasefire'
     ? `${who} agreed a ceasefire: ${e.reason}.${occupiedLeft.length ? ` ${occupiedLeft.join(', ')} ${occupiedLeft.length === 1 ? 'remains' : 'remain'} occupied; no settlement yet.` : ''}`
-    : `${who} signed a peace${e.winner ? `; ${warPartyName(e.winner)} dictated the terms` : ''}: ${e.reason}.`;
+    : e.basis === 'withdrawal'
+      ? `${who} signed a peace: ${warPartyName(e.loser)} withdraws — ${e.reason}.`
+      : `${who} signed a peace${e.winner ? `; ${warPartyName(e.winner)} dictated the terms` : ''}: ${e.reason}.`;
   const binds = source === 'bound';
   const delay = source === 'relay' ? WAR_REPORT_RELAY_DELAY
     : source === 'rumour' ? 5 + Math.floor(intelRandom(`${fleetBook().campaignId}:war-news:${e.key}:${e.warId}:${e.to}`)() * 6) : 0;
@@ -10006,7 +10100,7 @@ function reportWarTransition(e, day) {
     id: `diplomacy:war:${e.key}:${e.warId || ''}:${e.to}`, day: day + delay, kind, category: 'diplomacy',
     factions: [e.a, e.b].filter(isRecognizedFactionKey), playerRelated: source === 'party' || binds,
     confidence: source === 'party' ? 'Signed by your government' : binds ? 'Binding on your empire' : source === 'rumour' ? 'Unconfirmed civilian report' : source === 'relay' ? 'Relay dispatch' : 'Confirmed local observation',
-    text: `${base}${e.to === 'peace' ? warTermsText(e.terms, detailed) : ''}${binds ? (e.to === 'ceasefire' ? ' The ceasefire also applies to your empire.' : ' The settlement also applies to your empire.') : ''}`,
+    text: `${base}${e.to === 'peace' ? warTermsText(e.terms, detailed) : ''}${binds ? (e.to === 'ceasefire' ? ' The ceasefire also applies to your empire.' : ' The settlement also applies to your empire.') : ''}${otherBound.length ? ` It also binds ${otherBound.map(warPartyName).join(', ')}.` : ''}`,
   };
   if (delay === 0) return addGalaxyReport(report);
   const news = galaxyNewsBook();
@@ -10094,12 +10188,21 @@ function isFormalStartingWar(a, b) {
   const key = World.pairKey(a, b);
   return FORMAL_STARTING_WARS.some(([x, y]) => World.pairKey(x, y) === key);
 }
-// Powers whose hostilities are owned by a campaign arc rather than by the diplomacy book: the Dominion
-// expedition and the Blender garrison raid under their own authored rules. Their pairs are not formal
-// bilateral wars (never evaluated, never inherited by the captain's empire); the campaign keeps reading
-// their authored hostility, as it did before. [correction to 3bbcf15]
+// Dominion Central and the Blender Remnant: no formal war from static hostility. While a pair of theirs
+// has no formal record, the campaign reads peace (or alliance, for a bound follower and its government);
+// once a record exists — an authored declaration, a deliberate escalation, an independent declaration,
+// a binding — the record decides, as for any pair. [DOMINION-FORMAL-WAR-RULES §1]
 const ARC_OWNED_HOSTILITY = Object.freeze(['dominion', 'dominion_remnant']);
 function arcOwned(a, b) { return ARC_OWNED_HOSTILITY.includes(a) || ARC_OWNED_HOSTILITY.includes(b); }
+function formalRecord(a, b) { return diplomacyBook().pairs?.[World.pairKey(a, b)] || null; }
+// The Remnant is Central's only while an authored subordination binds it; autonomous, it is its own power.
+function commandBound(follower, government) { return ensurePlaytestState().campaign?.commandBindings?.[follower]?.to === government; }
+function arcAligned(a, b) {
+  if (!areFactionsAligned(a, b)) return false;
+  const pair = [a, b].sort().join(':');
+  if (pair === 'dominion:dominion_remnant') return commandBound('dominion_remnant', 'dominion');
+  return true;
+}
 // The formal state of a pair: its diplomacy record if it has one, otherwise war only for a declared
 // starting war.
 function formalRelation(a, b) {
@@ -10121,7 +10224,8 @@ function worldRelation(a, b) {
 // exhaustion between two systems that happen to share a travel route. Before this, an expedition that
 // took a near-side world made the Dominion an ordinary neighbour of whoever it bordered, and the roll
 // signed a public peace with a power the captain had never met. [playtest]
-const CAMPAIGN_LOCKED_DIPLOMACY = Object.freeze(['dominion']);
+// The Remnant too: a war of its own is declared, never rolled. [DOMINION-FORMAL-WAR-RULES §0]
+const CAMPAIGN_LOCKED_DIPLOMACY = Object.freeze(['dominion', 'dominion_remnant']);
 function campaignOwnsDiplomacy(a, b) { return CAMPAIGN_LOCKED_DIPLOMACY.includes(a) || CAMPAIGN_LOCKED_DIPLOMACY.includes(b); }
 function diplomaticPairs() {
   if (!state.travelRoutes.length) rebuildTravelRoutes();
@@ -25696,6 +25800,21 @@ function applyCampaignEffects(effects, day = state.day) {
         applyWarTransitionEngine(ev, e.day ?? day);
         break;
       }
+      case 'warDeclared': {
+        applyWarDeclarationEngine(e, e.day ?? day);
+        break;
+      }
+      case 'followerBound': {
+        applyFollowerBoundEngine(e, e.day ?? day);
+        break;
+      }
+      case 'expeditionWithdrawn': {
+        const moved = e.moved ? ` ${e.moved} hull${e.moved > 1 ? 's' : ''} withdrew through the wormhole.` : '';
+        campaignReport({ id: `dominion:withdrawal:${e.day ?? day}`, storyline: 'dominion', systemIndex: null, day: e.day ?? day, kind: 'Expedition withdrawn',
+          confidence: 'Campaign record', factions: [e.polityId], text: campaignMaskText(`The ${formatFaction(e.polityId)} expedition is withdrawn: ${e.reason}.${moved}`) });
+        setLog(`${formatFaction(e.polityId)} expedition withdrawn: ${e.reason}.`);
+        break;
+      }
       case 'warOffer': {
         const from = e.from;
         setLog(`${formatFaction(from)} offers ${e.to === 'ceasefire' ? 'a ceasefire' : 'peace'}: ${e.reason}. Answer in Empire → Wars & treaties.`);
@@ -26238,9 +26357,33 @@ function renderWarsAndTreaties(book, world) {
       || (isReportSystemKnown(Number(i)) && (watchesReportLocation(Number(i)) || hasIntelShips(Number(i))))
       || (t.status !== 'occupied' && reportedTerms.has(t.warKey)))
     .map(([i, t]) => `<li data-territory="${escapeHtml(i)}">${escapeHtml(state.planets[i]?.name || i)} — ${escapeHtml(territoryStatusText(t))}</li>`).join('') || '<li>No occupied or disputed territory you know of.</li>';
+  // Other formal wars the captain knows of: the government's own, and any whose declaration or
+  // ceasefire/settlement report has reached the captain. Formal records only: hostility is not listed.
+  const gov = diplo.playerSeeded?.from || null;
+  const heard = new Set(galaxyNewsBook().items.filter((r) => /^diplomacy:(declared|war):/.test(String(r.id))).map((r) => String(r.id).split(':').slice(2, 4).join(':')));
+  const others = campaignWarPairs().filter((p) => p.a !== PLAYER_SIDE && p.b !== PLAYER_SIDE && ['war', 'ceasefire'].includes(p.status)
+    && ([p.a, p.b].includes(gov) || heard.has(World.pairKey(p.a, p.b))));
+  const otherRows = others.map((p) => {
+    const key = World.pairKey(p.a, p.b);
+    const r = diplo.pairs[key] || {};
+    const st = book.warStates?.[key];
+    const status = p.status === 'war' ? `at war since day ${p.warStarted ?? r.warStarted ?? st?.startedDay ?? r.since ?? 1}` : `ceasefire since day ${r.since ?? st?.statusSince ?? '?'}`;
+    const why = r.declaredReason ? ` · declared by ${formatFaction(r.declaredBy)}: ${r.declaredReason}` : '';
+    const bound = p.inheritedFrom ? ` · bound to the ${formatFaction(p.inheritedFrom)} war` : '';
+    const remnant = [p.a, p.b].includes('dominion') && !p.inheritedFrom
+      ? `<p class="meta" data-remnant-note>Blender Remnant: ${commandBound('dominion_remnant', 'dominion') ? `under Central command — ${diplo.pairs[World.pairKey('dominion_remnant', p.a === 'dominion' ? p.b : p.a)]?.inheritedFrom === 'dominion' ? 'bound to this war' : 'not a party to this war'}` : 'autonomous — not a party to this war'}.</p>` : '';
+    const front = st?.lastEval && p.status === 'war' ? `<p class="meta">front: ${escapeHtml((st.lastEval.reasons || []).join('; ') || st.lastEval.outcome)}</p>` : '';
+    return `<li data-war-other="${escapeHtml(key)}"><b>${escapeHtml(formatFaction(p.a))} – ${escapeHtml(formatFaction(p.b))}</b> — ${escapeHtml(status + why + bound)}${front}${remnant}</li>`;
+  }).join('') || '<li>No other formal war you know of.</li>';
+  // Hostile on sight, but no formal war with the empire: static hostility is local, not a war. [§1a]
+  const hostileOnly = Object.keys(book.polities).filter((id) => id !== PLAYER_SIDE && world.isFaction(id) && campaignPowerContact(id)
+    && areFactionsOpposed(id, getPlayerFlag()) && playerRelation(id).status !== 'war')
+    .map((id) => formatFaction(id)).sort();
   const news = galaxyNewsBook().items.filter((r) => String(r.id).startsWith('diplomacy:war:')).slice(-8).reverse()
     .map((r) => `<li>Day ${r.day}: <b>${escapeHtml(r.kind)}</b> — ${escapeHtml(r.text)} <span class="meta">(${escapeHtml(r.confidence)})</span></li>`).join('') || '<li>No ceasefire or settlement has reached you.</li>';
   return `<section><h3>Your empire's wars</h3><ul class="war-list">${rows}</ul></section>
+    <section data-war-hostile><h3>Hostile, not at war with your empire</h3><p>${hostileOnly.length ? `${escapeHtml(hostileOnly.join(', '))}. Their ships may fire on yours; no formal war exists.` : 'None you know of.'}</p></section>
+    <section data-war-others><h3>Other formal wars you know of</h3><ul class="war-list">${otherRows}</ul></section>
     <section data-war-territory><h3>Occupied and disputed territory</h3><ul>${terr}</ul></section>
     <section><h3>Ceasefires and settlements reported to you</h3><ul>${news}</ul></section>`;
 }
@@ -26360,13 +26503,21 @@ function triggerCampaignDebug(args) {
     case 'phase': { // forced override
       if (!['dormant', 'reconnaissance', 'staging', 'invasion'].includes(a)) throw new Error('phase: dormant|reconnaissance|staging|invasion');
       const c = book.config, d = book.dominion;
+      // Winding an open invasion back ends Central's formal wars through the ordinary transition, as an
+      // authored recall; a phase and a war that disagree are exactly what this control must not leave.
+      if (d.phase === 'invasion' && ['dormant', 'reconnaissance', 'staging'].includes(a)) {
+        const fx = [];
+        Campaign.withdrawExpedition(book, world, state.day, fx, { basis: 'directed', reason: 'the expedition was recalled by forced override' });
+        applyCampaignEffects(fx, state.day);
+      }
+      if (d.phase === 'withdrawn') d.phase = 'dormant';
       if (a === 'dormant') {
         // Put the expedition back to sleep and push the whole timetable out of reach. Live operations
         // are stood down through the ordinary path so their hulls are released; deleting the records
         // instead left those hulls assigned to an operation that no longer existed.
         const recalled = Campaign.terminateOperations(book, world, 'dominion', state.day, [], 'The Dominion expedition was recalled.');
         Object.assign(d, { phase: 'dormant', phaseDay: null, warnings: [], expeditionOpId: null, reinforcementCut: false, convoys: 0, lastConvoyDay: null });
-        Object.assign(d, { openedDay: null, standDownDay: null });
+        Object.assign(d, { openedDay: null, standDownDay: null, plan: null, expeditionPeak: null, accessDeniedSince: null, lastEscalationDay: null, corridorHeldBy: null });
         // There is no timetable to push any more: what holds the expedition back is the opening, so the
         // override puts the floor out of reach and leaves the opening unsatisfiable.
         // Nothing here is a date any more, so "push it out of reach" means making the strategic case
@@ -26405,6 +26556,15 @@ function triggerCampaignDebug(args) {
       }
       advanceFleetCalendar(1, Fleet.nextId(fleetBook(), 'journey'));
       return `Forced override: the Dominion opening is forced${recalled.length ? `, ${recalled.length} operation(s) recalled` : ''} and one day advanced through the normal calendar. Phase is now ${campaign().dominion.phase} (campaign day ${state.day}).`;
+    }
+    case 'subordinate': { // authored event: the Remnant returns to Central command
+      const joined = subordinateRemnant('returned to Central command (forced override)');
+      return `Forced override: the Blender Remnant is under Central command; it now shares ${joined.length} war(s).`;
+    }
+    case 'withdraw': { // authored event: Central orders the expedition home
+      if (book.dominion.phase !== 'invasion') throw new Error('withdraw: the expedition is not in the invasion phase');
+      const w = withdrawDominionExpedition('Central orders the expedition home (forced override)');
+      return `Forced override: the expedition withdraws; ${w.wars.length} war(s) settled, ${w.moved} hull(s) withdrawn.`;
     }
     case 'treasury': { const p = book.polities[a]; if (!p) throw new Error('unknown polity'); const v = Math.round(finiteNumber(b, NaN)); if (!Number.isFinite(v)) throw new Error('treasury <polity> <finite number>'); p.treasury = clamp(v, -book.config.treasuryCap, book.config.treasuryCap); return `${formatFaction(a)} treasury set to ${p.treasury} (forced override; clamped to the campaign treasury cap).`; }
     case 'readiness': {
