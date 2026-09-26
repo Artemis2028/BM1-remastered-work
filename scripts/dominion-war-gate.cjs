@@ -106,21 +106,147 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.equal(r.st.declared.source, 'authored'); assert.equal(r.campaign, 'war');
   });
 
-  await check('new-feature', 'INVASION-PARTNER-CORRIDOR holding the wormhole entry is never itself a war: a pact partner\'s corridor is crossed unopposed and nobody is declared against', async () => {
-    await fresh('dw-partner');
+  // Treaty state: pacts are authored records, never alignment (DOMINION-FORMAL-WAR-RULES §2a) -------
+  await page.evaluate(() => {
+    const t = testBM1;
+    // The storyline without its authored agreement, so each check decides the pact itself.
+    window.__noAuthoredPacts = () => { t.campaign().config.dominionAuthoredPacts = []; };
+    window.__pactView = () => {
+      const book = t.campaign(), w = t.buildCampaignWorld(true), d = book.dominion;
+      const exp = t.Campaign.expeditionAssessment(book, w, 'dominion');
+      return { phase: d.phase, plan: d.plan ? { partnerCorridor: d.plan.partnerCorridor, pacts: d.plan.pacts, warTargets: d.plan.warTargets } : null,
+        active: t.Campaign.activePacts ? t.Campaign.activePacts(book, 'dominion') : (d.plan?.pacts || []), partners: exp?.partners || [], bridgeheads: exp?.bridgeheads ?? null, access: exp?.access ?? null,
+        records: window.__arcRecords().map((x) => x.key), ops46: book.operations.filter((o) => o.faction === 'dominion' && o.targetSystem === 46 && o.status !== 'resolved').length,
+        atEntry: book.polities.dominion.hulls.filter((h) => h.status === 'ready' && Number(h.systemIndex) === 46).length,
+        rel: { cardassian: w.relation('dominion', 'cardassian'), breen: w.relation('dominion', 'breen') }, local: { cardassian: t.worldRelation('dominion', 'cardassian').status, breen: t.worldRelation('dominion', 'breen').status } };
+    };
+  });
+
+  await check('baseline-defect', 'PACT-INACTIVE Cardassia statically aligned with the Dominion but with no pact: no partner-corridor privilege and no expedition support', async () => {
+    await fresh('dw-pact-off');
+    const r = await ev(() => {
+      const t = testBM1;
+      window.__noAuthoredPacts();
+      t.transferSystemControlToFaction(46, 'cardassian');
+      window.__invade();
+      return window.__pactView();
+    });
+    assert.equal(r.rel.cardassian, 'allied', 'precondition: Cardassia is not statically aligned with the Dominion');
+    assert.notEqual(r.plan?.partnerCorridor, true, `alignment alone opened a partner corridor (plan.pacts ${JSON.stringify(r.plan?.pacts)})`);
+    assert.equal(r.phase, 'staging', `the expedition crossed a Cardassian corridor without a pact (${r.phase})`);
+    assert.equal(r.atEntry, 0);
+    assert.deepEqual(r.partners, [], 'alignment alone counted as partner support');
+    assert.deepEqual(r.active, []);
+  });
+
+  await check('new-feature', 'PACT-ACTIVE an authored Cardassian pact lets the expedition cross partner-held Bajora unopposed, with nobody declared against, and Cardassian support counts', async () => {
+    await fresh('dw-pact-on');
+    const r = await ev(() => {
+      const t = testBM1;
+      window.__noAuthoredPacts();
+      const act = t.activateDominionPact('cardassian', 'a secret agreement');
+      t.transferSystemControlToFaction(46, 'cardassian');
+      window.__invade();
+      return { act: act.ok, view: window.__pactView(), record: t.Campaign.pactRecord(t.campaign(), 'dominion', 'cardassian') };
+    });
+    assert.ok(r.act);
+    assert.equal(r.record.status, 'active'); assert.equal(r.record.secret, true);
+    assert.equal(r.view.phase, 'invasion');
+    assert.equal(r.view.plan.partnerCorridor, true); assert.deepEqual(r.view.plan.pacts, ['cardassian']); assert.deepEqual(r.view.plan.warTargets, []);
+    assert.deepEqual(r.view.records, [], `a war was declared for a partner-held corridor: ${r.view.records}`);
+    assert.equal(r.view.ops46, 0, 'the expedition assaulted its partner\'s world');
+    assert.ok(r.view.atEntry > 0, 'the expedition did not come through');
+    assert.deepEqual(r.view.partners, ['cardassian'], 'the active pact does not count as support');
+    assert.equal(r.view.bridgeheads, 1, 'the partner-held terminus is not the expedition\'s ground');
+  });
+
+  await check('new-feature', 'PACT-COLLAPSE ending the pact removes the corridor and support at once, and leaves the ordinary relation exactly as it was: no hostility, no war', async () => {
+    await fresh('dw-pact-collapse');
+    const r = await ev(() => {
+      const t = testBM1;
+      window.__noAuthoredPacts();
+      t.activateDominionPact('cardassian');
+      t.transferSystemControlToFaction(46, 'cardassian');
+      window.__invade();
+      const before = window.__pactView();
+      const end = t.endDominionPact('cardassian', 'the agreement collapses');
+      const after = window.__pactView();
+      window.__advance(3);
+      return { before, end: end.ok, after, later: window.__pactView(), record: t.Campaign.pactRecord(t.campaign(), 'dominion', 'cardassian') };
+    });
+    assert.deepEqual(r.before.partners, ['cardassian']); assert.equal(r.before.bridgeheads, 1);
+    assert.ok(r.end);
+    assert.equal(r.record.status, 'collapsed'); assert.ok(r.record.endedDay != null);
+    assert.deepEqual(r.after.active, []); assert.deepEqual(r.after.partners, [], 'support survived the collapse');
+    assert.equal(r.after.bridgeheads, 0, 'the corridor privilege survived the collapse');
+    assert.deepEqual(r.after.rel, r.before.rel, 'the collapse changed the ordinary relation');
+    assert.deepEqual(r.after.local, r.before.local);
+    assert.deepEqual(r.later.records, [], `the collapse created a war: ${r.later.records}`);
+    assert.equal(r.later.rel.cardassian, 'allied');
+  });
+
+  await check('new-feature', 'PACT-BREEN the Breen behave the same way: no pact, no privilege; an authored pact grants the corridor and support; collapse removes them without war', async () => {
+    await fresh('dw-pact-breen');
+    const r = await ev(() => {
+      const t = testBM1;
+      window.__noAuthoredPacts();
+      t.transferSystemControlToFaction(46, 'breen');
+      window.__invade();
+      const off = window.__pactView();
+      t.activateDominionPact('breen', 'a secret agreement');
+      t.applyDebugCommand('campaign phase invasion');
+      const on = window.__pactView();
+      t.endDominionPact('breen', 'the agreement collapses');
+      window.__advance(2);
+      const ended = window.__pactView();
+      return { off, on, ended };
+    });
+    assert.equal(r.off.phase, 'staging'); assert.deepEqual(r.off.partners, []); assert.equal(r.off.atEntry, 0);
+    assert.equal(r.on.phase, 'invasion'); assert.equal(r.on.plan.partnerCorridor, true); assert.deepEqual(r.on.plan.pacts, ['breen']);
+    assert.deepEqual(r.on.partners, ['breen']); assert.deepEqual(r.on.records, []);
+    assert.deepEqual(r.ended.partners, []); assert.equal(r.ended.bridgeheads, 0);
+    assert.equal(r.ended.rel.breen, r.off.rel.breen, 'the Breen collapse changed the ordinary relation');
+    assert.deepEqual(r.ended.records, [], `the Breen collapse created a war: ${r.ended.records}`);
+  });
+
+  await check('new-feature', 'PACT-SAVELOAD active and collapsed pact state survive save/load exactly', async () => {
+    await fresh('dw-pact-save');
+    const r = await ev(() => {
+      const t = testBM1;
+      window.__noAuthoredPacts();
+      t.activateDominionPact('cardassian');
+      t.activateDominionPact('breen'); t.endDominionPact('breen', 'collapsed');
+      const read = () => JSON.stringify({ treaties: t.campaign().treaties, active: t.Campaign.activePacts(t.campaign(), 'dominion') });
+      const before = read();
+      t.saveGame(6); t.startWithFaction('ferengi'); t.loadGame(6);
+      return { before, after: read() };
+    });
+    assert.equal(r.after, r.before);
+    const b = JSON.parse(r.before);
+    assert.deepEqual(b.active, ['cardassian']);
+    assert.equal(b.treaties['pact:breen:dominion'].status, 'collapsed');
+  });
+
+  await check('new-feature', 'PACT-REMNANT the autonomous Remnant neither learns nor inherits Central\'s pact, and a later subordination does not hand it one either', async () => {
+    await fresh('dw-pact-remnant');
     const r = await ev(() => {
       const t = testBM1, book = t.campaign();
-      t.transferSystemControlToFaction(46, 'cardassian');
-      const phase = window.__invade();
-      const d = book.dominion;
-      return { phase, plan: d.plan, records: window.__arcRecords().map((x) => x.key), atEntry: book.polities.dominion.hulls.filter((h) => h.status === 'ready' && Number(h.systemIndex) === 46).length,
-        ops: book.operations.filter((o) => o.faction === 'dominion' && o.targetSystem === 46).length, rel: window.__rel('dominion', 'cardassian') };
+      window.__noAuthoredPacts();
+      const relBefore = window.__rel('dominion_remnant', 'cardassian');
+      t.activateDominionPact('cardassian');
+      const news = () => { const n = t.galaxyNewsBook(); return [...n.items, ...n.pending].filter((x) => /pact|agreement/i.test(`${x.kind} ${x.text}`)).map((x) => x.text); };
+      const autonomous = { pacts: t.Campaign.activePacts(book, 'dominion_remnant'), rel: window.__rel('dominion_remnant', 'cardassian'), treaties: Object.keys(book.treaties || {}).filter((k) => k.includes('dominion_remnant')), news: news(), knownTo: t.Campaign.pactRecord(book, 'dominion', 'cardassian').knownTo };
+      window.__invade();
+      t.subordinateRemnant();
+      const bound = { pacts: t.Campaign.activePacts(book, 'dominion_remnant'), treaties: Object.keys(book.treaties || {}).filter((k) => k.includes('dominion_remnant')) };
+      return { relBefore, autonomous, bound };
     });
-    assert.equal(r.phase, 'invasion');
-    assert.equal(r.plan.partnerCorridor, true); assert.deepEqual(r.plan.warTargets, []);
-    assert.deepEqual(r.records, [], `a war was declared for a partner-held corridor: ${r.records}`);
-    assert.equal(r.ops, 0, 'the expedition assaulted its partner\'s world');
-    assert.ok(r.atEntry > 0, 'the expedition did not come through'); assert.equal(r.rel, 'allied');
+    assert.deepEqual(r.autonomous.pacts, []); assert.deepEqual(r.autonomous.treaties, []);
+    assert.equal(r.autonomous.rel, r.relBefore, 'the pact changed the Remnant\'s relation to Cardassia');
+    assert.deepEqual(r.autonomous.news, [], `the secret pact was published: ${r.autonomous.news}`);
+    assert.deepEqual(r.autonomous.knownTo, []);
+    assert.deepEqual(r.bound.pacts, [], 'subordination handed the Remnant Central\'s pact');
+    assert.deepEqual(r.bound.treaties, []);
   });
 
   // 3 & 6 -----------------------------------------------------------------------------------------

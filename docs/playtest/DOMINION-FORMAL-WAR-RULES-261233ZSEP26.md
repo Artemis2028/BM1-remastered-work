@@ -38,15 +38,31 @@ plan = { day, objective: <entry system>, warTargets: [...], pacts: [...], reason
 * **War targets** are exactly the powers the opening operation deliberately attacks. The candidate list is authored (`dominionCorridorTargets`): the powers against which the corridor may be forced. The holder of the objective becomes a war target only if it is on that list: the corridor is then being forced against it.
   * Bajoran authority at Bajora: war target (the corridor is forced).
   * An unheld objective: no war target; the crossing occupies it unopposed.
-  * A pact partner holds the objective (for example the Cardassians, once they have taken Bajora): the corridor isn't forced. The expedition crosses unopposed into the partner's world under the pact and stands there. No operation is launched and no war is declared. The partner-held terminus counts as the expedition's ground for planning, convoys and sustainability.
+  * A partner with an **active pact** (§2a) holds the objective (for example the Cardassians, once they have taken Bajora): the corridor isn't forced. The expedition crosses unopposed into the partner's world under the pact and stands there. No operation is launched and no war is declared. The partner-held terminus counts as the expedition's ground for planning, convoys and sustainability.
   * Any other holder not on the list: the crossing waits.
   * No war is ever inferred from holding the entry world.
   * *(Amended during implementation, 261233ZSEP26 round: the first draft had the crossing wait at a partner-held corridor too. That stalled the arc for good whenever the Cardassians held Bajora, which the playtest gate DOM check caught.)*
   * `dominionOpeningAlsoDeclare` (authored, empty by default) can add further opening targets deliberately attacked by the plan.
-* **Pacts:** authored pact partners (`dominionPactPartners`, default Cardassian, Breen) that are aligned with the Dominion when the crossing happens are recorded as active. That is an alliance, not a co-belligerence: no partner is put at war.
+* **Pacts:** `plan.pacts` lists the pacts that are **active** (§2a) at the crossing. A pact is an alliance, not a co-belligerence: no partner is put at war. *(Corrected 261400ZSEP26: b6334bf read an active pact off static alignment.)*
 * Nobody else is declared against: not every hostile faction, not the Terran government, not the captain.
 
 The declaration is one effect per pair (`warDeclared`, `source: 'authored'`) with a model-assigned war instance id. The engine records it in the diplomacy book with that id, so the model's war instance and the diplomacy record are the same war. The report is Diplomacy news under the usual knowledge rules.
+
+## 2a. Treaty state: Dominion pacts (correction, 261400ZSEP26)
+
+A pact is an explicit, authored treaty record in the campaign book (`book.treaties['pact:<a>:<b>']`). It is never read off static friendship or alignment (`factionRelations.friendly`, `areFactionsAligned`, a campaign `allied` relation).
+
+| | |
+|---|---|
+| **eligible** | `dominionPactPartners` (default Cardassian, Breen). Eligibility makes a pact possible; it is not a pact. |
+| **activation** | only an authored agreement event: `activatePact`. The storyline's own beat concludes the pacts named in `dominionAuthoredPacts` (default Cardassian) when staging begins, with a partner that still holds ground and is not at war with Central. It is also exposed as `activateDominionPact(partner)` and the debug command `campaign pact <partner> on`. |
+| **record** | `{ kind: 'pact', parties, status: active\|collapsed, since, endedDay, reason, endReason, secret: true, knownTo: [], instance }`. Typed, named parties, start and end, knowledge state; persisted with the book. |
+| **only an active pact** | grants an unopposed partner-held corridor; counts toward expeditionary partner support (together with actual support: fighting Central's enemy or hosting the expedition); appears in `dominion.plan.pacts`; is what later pact-specific orders read (`pactActive`, `activePacts`). |
+| **end / collapse** | `endPact` (authored, `endDominionPact`, debug `campaign pact <partner> off`). The benefits go at once: a partner terminus stops being Central's ground, support stops counting, and convoys to it are interdicted as at anyone else's. **No hostility, no war, no change to the ordinary relation.** |
+| **knowledge** | secret: no report is published, and `knownTo` is empty. Revealing it through intelligence is a later round. |
+| **Remnant** | pacts are Central's. The autonomous Remnant neither learns nor inherits them; subordination to Central does not hand them over either. |
+
+Static alignment keeps its ordinary effects (the campaign `allied` relation for defence), which the pact neither grants nor removes.
 
 ## 3. How the war spreads
 
@@ -83,7 +99,7 @@ A reusable **expeditionary side mode** (`config.expeditionarySides`) replaces th
 | bridgeheads | near-side worlds it holds; `worldsNow` / `worldsAtStart` read these |
 | wormhole access | the entry is held by it or a partner, or reinforcement isn't interdicted |
 | supply throughput / reinforcement flow / replacement | convoys still to come while access holds (`dominionMaxConvoys − convoys`) |
-| partner support | active pact partners that still hold worlds |
+| partner support | partners with an **active pact** (§2a) that still hold worlds and actually support: fighting one of Central's enemies, or hosting the expedition at their terminus |
 | Blender front | the Remnant is bound to Central and still has living hulls |
 | homeLost | always false |
 
@@ -104,7 +120,7 @@ Authored endings, which military arithmetic can't express, are story conditions 
 | **expedition unsustainable, ordered to withdraw** | assessment unsustainable (§5), whether or not the enemy is 2:1 stronger | `withdraw_expedition` |
 | **wormhole access permanently denied** | the entry held by a power at war with Central, and convoys interdicted, for `dominionAccessDeniedDays` (60) | `withdraw_expedition` |
 | Blender front breaks away | hook only: an authored event may call `withdraw_expedition` or settle a bound Remnant pair | — |
-| a covert alliance collapses | hook only: deactivates a pact, which feeds §5 | — |
+| a covert alliance collapses | `endPact` (authored event / debug `campaign pact <partner> off`): the corridor and support go at once, the relation is untouched | — (no war follows) |
 | Central abandons one front for another | hook only: `withdraw_expedition` with a single-enemy scope | — |
 
 ### `withdraw_expedition` (authored settlement action)

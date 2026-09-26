@@ -129,7 +129,8 @@ export const CAMPAIGN_RULES = Object.freeze({
   dominionOpeningAlsoDeclare: Object.freeze([]),   // further opening war targets the authored plan deliberately attacks
   dominionEscalationTargets: Object.freeze(['bajoran', 'terran', 'klingon', 'vulcan', 'andorian', 'romulan', 'ferengi', 'player']),
   dominionEscalationEveryDays: 30,  // at most one deliberate escalation against a new power per this many days
-  dominionPactPartners: Object.freeze(['cardassian', 'breen']), // pacts activated at the crossing with whichever of these is aligned then
+  dominionPactPartners: Object.freeze(['cardassian', 'breen']), // ELIGIBLE for an authored Dominion pact; eligibility is not a pact
+  dominionAuthoredPacts: Object.freeze(['cardassian']), // the storyline's covert agreement, concluded when staging begins (empty: none)
   dominionAccessDeniedDays: 60,     // the wormhole held against Central and convoys interdicted this long: access is permanently denied
   // Expeditionary sides: a power fighting on this side of a wormhole is judged by whether the expedition
   // can sustain the war, not by its home realm. [DOMINION-FORMAL-WAR-RULES §5]
@@ -997,7 +998,7 @@ function dominionGround(book, world, near) {
   const d = book.dominion;
   const ground = controlled(world, 'dominion').map((s) => s.index).filter((i) => near.has(Number(i)));
   const entryHolder = world.systems[d.entrySystem]?.controller ?? null;
-  if (d.plan?.partnerCorridor && entryHolder && entryHolder !== 'dominion' && world.relation('dominion', relSide(world, entryHolder)) === 'allied' && !ground.includes(Number(d.entrySystem))) ground.push(Number(d.entrySystem));
+  if (d.plan?.partnerCorridor && entryHolder && entryHolder !== 'dominion' && pactActive(book, 'dominion', entryHolder) && !ground.includes(Number(d.entrySystem))) ground.push(Number(d.entrySystem));
   return ground;
 }
 function dominionPlanningBounds(book, world, targets, spare) {
@@ -1488,6 +1489,13 @@ function advanceDominion(book, world, day, effects) {
   }
   if (d.phase === 'reconnaissance' && beatFree() && day - (d.phaseDay ?? day) >= c.dominionReconDwellDays) {
     commitPhase('staging');
+    // Covert preparation includes the authored agreement: Central concludes the pacts the storyline
+    // names, with partners that still hold ground and are not at war with it. The pact is a treaty
+    // record from here on; nothing about it is read off friendship.
+    for (const partner of c.dominionAuthoredPacts || []) {
+      if (!book.polities[partner] || !controlled(world, partner).length || pactActive(book, 'dominion', partner)) continue;
+      activatePact(book, world, 'dominion', partner, day, effects, 'a secret agreement concluded while the expedition prepares');
+    }
     // The expedition is sized against the galaxy as it stands when staging begins; powers that keep
     // building afterwards can outmatch it, and nothing later rescales it.
     const strongest = Math.max(...Object.keys(book.polities).filter((id) => id !== 'dominion').map((id) => polityReadiness(book, world, id).strength), 1);
@@ -1517,7 +1525,8 @@ function advanceDominion(book, world, day, effects) {
       && world.relation('dominion', relSide(world, holder)) !== 'allied';
     // A corridor a pact partner holds is not forced: the expedition crosses into the partner's world under
     // the pact, unopposed, and declares on no one for it.
-    const partnerCorridor = holder != null && holder !== 'dominion' && !holderAtWar && world.relation('dominion', relSide(world, holder)) === 'allied';
+    // Only an active, authored pact opens a partner's corridor; alignment or friendship alone does not.
+    const partnerCorridor = holder != null && holder !== 'dominion' && !holderAtWar && pactActive(book, 'dominion', holder);
     const passable = holder == null || holder === 'dominion' || holderAtWar || forced || partnerCorridor;
     if (staged.length > 0 && opportunity.corridorOpen && !passable && d.corridorHeldBy !== holder) {
       d.corridorHeldBy = holder;
@@ -1527,7 +1536,7 @@ function advanceDominion(book, world, day, effects) {
       commitPhase('invasion');
       const warTargets = [...new Set([...(forced && !holderAtWar ? [holder] : []),
         ...(c.dominionOpeningAlsoDeclare || []).filter((x) => (x === 'player' || book.polities[x]) && !formallyAtWar(world, 'dominion', x))])];
-      const pacts = (c.dominionPactPartners || []).filter((x) => book.polities[x] && world.relation('dominion', relSide(world, x)) === 'allied');
+      const pacts = activePacts(book, 'dominion');
       d.plan = { day, objective: Number(d.entrySystem), holder, warTargets, pacts, partnerCorridor,
         reason: forced ? `forcing the ${entry.name || 'Bajoran Wormhole'} at ${world.systems[d.entrySystem]?.name}`
           : partnerCorridor ? `an unopposed crossing into ${world.factionName(holder)}-held ${world.systems[d.entrySystem]?.name} under the pact`
@@ -1567,7 +1576,7 @@ function advanceDominion(book, world, day, effects) {
       return;
     }
     // Reinforcement convoys through the wormhole unless the entry is interdicted by real defences.
-    const entryFriendly = entryHolder === 'dominion' || (entryHolder != null && world.relation('dominion', relSide(world, entryHolder)) === 'allied');
+    const entryFriendly = entryHolder === 'dominion' || (entryHolder != null && pactActive(book, 'dominion', entryHolder));
     const blockaded = localDefenseStrength(book, world, d.entrySystem) >= c.dominionBlockadeStrength && !entryFriendly;
     d.reinforcementCut = blockaded;
     if (!blockaded && d.convoys < c.dominionMaxConvoys && (d.lastConvoyDay == null || day - d.lastConvoyDay >= c.dominionReinforcementEveryDays)) {
@@ -1957,6 +1966,47 @@ export function forceWarTransition(book, world, a, b, to, day, reason = 'Directe
   applyWarTransitionInModel(book, world, st, { to, basis, winner: null, loser: null, reason, terms }, day, effects, 'directed');
   return effects;
 }
+// ---------- treaties: authored pacts (DOMINION-FORMAL-WAR-RULES §2a) ----------
+// A pact is an explicit treaty record, never read off static friendship or alignment. `dominionPactPartners`
+// says who is eligible for an authored Dominion pact; only an authored agreement activates one, and only an
+// active one grants its benefits. The record is typed, names its parties, carries its own start/end and
+// knowledge state, and is persisted with the book, so later terms (corridors, guarantees) can sit alongside.
+export function pactKey(a, b) { return `pact:${warKey(a, b)}`; }
+export function pactRecord(book, a, b) { return book.treaties?.[pactKey(a, b)] || null; }
+export function pactActive(book, a, b) { return pactRecord(book, a, b)?.status === 'active'; }
+// The powers `government` holds an active pact with. Nothing is inherited: a follower bound to the
+// government (the Remnant under Central command) has no pact of its own unless one is made with it.
+export function activePacts(book, government) {
+  return Object.values(book.treaties || {}).filter((t) => t.kind === 'pact' && t.status === 'active' && t.parties.includes(government))
+    .map((t) => t.parties.find((x) => x !== government)).filter(Boolean).sort();
+}
+export function activatePact(book, world, government, partner, day, effects = [], reason = 'a secret agreement is concluded') {
+  const eligible = government === 'dominion' ? (book.config.dominionPactPartners || []) : [];
+  if (!eligible.includes(partner)) return { ok: false, reason: `${world.factionName(partner)} is not an eligible pact partner of ${world.factionName(government)}.` };
+  if (!book.polities[partner] || !book.polities[government]) return { ok: false, reason: 'Unknown party.' };
+  if (formallyAtWar(world, government, partner)) return { ok: false, reason: `${world.factionName(government)} and ${world.factionName(partner)} are at war.` };
+  book.treaties ||= {};
+  const key = pactKey(government, partner);
+  const prior = book.treaties[key];
+  if (prior?.status === 'active') return { ok: true, record: prior, unchanged: true };
+  const record = { key, kind: 'pact', parties: [government, partner].sort(), status: 'active', since: day, endedDay: null, reason, endReason: null,
+    // Knowledge: a secret agreement. Nobody is told; a later round may reveal it through intelligence.
+    secret: true, knownTo: [], instance: (prior?.instance || 0) + 1 };
+  book.treaties[key] = record;
+  addHistory(book, day, 'treaty', `Pact concluded between ${world.factionName(government)} and ${world.factionName(partner)}: ${reason}.`, { key, secret: true });
+  effects.push({ type: 'pactChanged', key, parties: record.parties, status: 'active', reason, day, secret: true });
+  return { ok: true, record };
+}
+// A pact ends or collapses: its benefits go at once. Nothing else follows: no hostility, no war, no
+// change to the ordinary diplomatic relation between the two.
+export function endPact(book, world, government, partner, day, effects = [], reason = 'the agreement collapses') {
+  const record = pactRecord(book, government, partner);
+  if (!record || record.status !== 'active') return { ok: false, reason: 'No active pact.' };
+  record.status = 'collapsed'; record.endedDay = day; record.endReason = reason;
+  addHistory(book, day, 'treaty', `Pact between ${world.factionName(government)} and ${world.factionName(partner)} ended: ${reason}.`, { key: record.key, secret: record.secret });
+  effects.push({ type: 'pactChanged', key: record.key, parties: record.parties, status: 'collapsed', reason, day, secret: record.secret });
+  return { ok: true, record };
+}
 // ---------- formal declarations, expeditions, withdrawal, followers (DOMINION-FORMAL-WAR-RULES) ----------
 function formallyAtWar(world, a, b) { return world.relation(relSide(world, a), relSide(world, b)) === 'war'; }
 function commandFollowers(book, government) {
@@ -2008,12 +2058,15 @@ export function expeditionAssessment(book, world, id) {
   const share = capacity > 0 ? strength / capacity : null;
   const bridgeheads = (id === 'dominion' ? dominionGround(book, world, near) : controlled(world, id).filter((s) => near.has(Number(s.index))).map((s) => s.index)).length;
   const entryHolder = world.systems[entry]?.controller ?? null;
-  const access = entryHolder === id || (entryHolder && world.relation(id, relSide(world, entryHolder)) === 'allied') || !d.reinforcementCut;
+  const access = entryHolder === id || (entryHolder && pactActive(book, id, entryHolder)) || !d.reinforcementCut;
   const convoysLeft = Math.max(0, (c.dominionMaxConvoys || 0) - (d.convoys || 0));
   const replace = Boolean(access && convoysLeft > 0);
+  // Partner support needs an active pact (read now, not from the plan) with a partner that still holds
+  // ground and is actually supporting: fighting one of Central's enemies, or hosting the expedition at
+  // its own terminus. A pact is necessary for support, not sufficient.
   const enemies = warPairsInView(book, world).filter((q) => [q.a, q.b].includes(id) && q.status === 'war' && !q.inheritedFrom).map((q) => (q.a === id ? q.b : q.a));
-  const partners = (d.plan?.pacts || []).filter((pid) => book.polities[pid] && controlled(world, pid).length > 0
-    && enemies.some((e) => formallyAtWar(world, pid, e)));
+  const partners = activePacts(book, id).filter((pid) => book.polities[pid] && controlled(world, pid).length > 0
+    && (enemies.some((e) => formallyAtWar(world, pid, e)) || (entryHolder === pid && Boolean(d.plan?.partnerCorridor))));
   const remnant = Object.entries(book.commandBindings || {}).find(([, b]) => b?.to === id)?.[0] || null;
   const blender = Boolean(remnant && book.polities[remnant] && livingHulls(book.polities[remnant]).length > 0);
   const reasons = [];

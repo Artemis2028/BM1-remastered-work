@@ -10017,6 +10017,14 @@ function runCampaignAuthored(fn) {
   updateStats();
   return out;
 }
+// Authored treaty events: a Dominion pact concluded or collapsed. Collapse removes the pact's benefits and
+// nothing else: the ordinary relation between the two is untouched.
+function activateDominionPact(partner, reason = 'a secret agreement is concluded') {
+  return runCampaignAuthored((book, world, effects) => Campaign.activatePact(book, world, 'dominion', normalizeFactionKey(partner), state.day, effects, reason));
+}
+function endDominionPact(partner, reason = 'the agreement collapses') {
+  return runCampaignAuthored((book, world, effects) => Campaign.endPact(book, world, 'dominion', normalizeFactionKey(partner), state.day, effects, reason));
+}
 function subordinateRemnant(reason = 'returned to Central command') {
   return runCampaignAuthored((book, world, effects) => Campaign.subordinateFollower(book, world, 'dominion_remnant', 'dominion', state.day, effects, reason));
 }
@@ -25804,6 +25812,11 @@ function applyCampaignEffects(effects, day = state.day) {
         applyWarDeclarationEngine(e, e.day ?? day);
         break;
       }
+      case 'pactChanged': {
+        // A secret agreement: recorded in the campaign's treaty state, published to nobody.
+        campaignWorldCache = null;
+        break;
+      }
       case 'followerBound': {
         applyFollowerBoundEngine(e, e.day ?? day);
         break;
@@ -26556,6 +26569,11 @@ function triggerCampaignDebug(args) {
       }
       advanceFleetCalendar(1, Fleet.nextId(fleetBook(), 'journey'));
       return `Forced override: the Dominion opening is forced${recalled.length ? `, ${recalled.length} operation(s) recalled` : ''} and one day advanced through the normal calendar. Phase is now ${campaign().dominion.phase} (campaign day ${state.day}).`;
+    }
+    case 'pact': { // authored treaty event: campaign pact <partner> on|off
+      const r = b === 'off' ? endDominionPact(a, 'the agreement collapses (forced override)') : activateDominionPact(a, 'a secret agreement is concluded (forced override)');
+      if (!r.ok) throw new Error(r.reason);
+      return `Forced override: Dominion–${formatFaction(a)} pact ${r.record.status}.`;
     }
     case 'subordinate': { // authored event: the Remnant returns to Central command
       const joined = subordinateRemnant('returned to Central command (forced override)');

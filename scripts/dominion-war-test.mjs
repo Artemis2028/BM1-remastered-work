@@ -45,4 +45,22 @@ test('a declared war is a formal war instance the model sees at once; withdrawal
   assert.ok(fx2.some((e) => e.type === 'warResolved' && e.basis === 'withdrawal'));
   assert.ok(fx2.some((e) => e.type === 'expeditionWithdrawn'));
 });
+test('a pact is an authored treaty record: eligibility is not a pact, only activation makes one, collapse ends it, and nobody inherits it', () => {
+  const { world } = makeWorld({ relations: { 'cardassian:dominion': 'allied' } });
+  const book = C.createCampaignBook('seed-PACT', 1); C.initializeCampaign(book, world);
+  if (!book.polities.dominion || !book.polities.cardassian) { console.log('  (fixture has no dominion/cardassian polity; skipped)'); return; }
+  assert.ok(book.config.dominionPactPartners.includes('cardassian'), 'precondition: Cardassia is eligible');
+  assert.equal(C.pactActive(book, 'dominion', 'cardassian'), false, 'eligibility alone made a pact');
+  assert.deepEqual(C.activePacts(book, 'dominion'), []);
+  const fx = [];
+  assert.equal(C.activatePact(book, world, 'dominion', 'terran', 3, fx).ok, false, 'an ineligible power was given a pact');
+  assert.ok(C.activatePact(book, world, 'dominion', 'cardassian', 3, fx, 'authored').ok);
+  assert.deepEqual(C.activePacts(book, 'dominion'), ['cardassian']);
+  assert.deepEqual(C.activePacts(book, 'dominion_remnant'), [], 'the Remnant inherited a pact');
+  assert.ok(C.endPact(book, world, 'dominion', 'cardassian', 9, fx, 'collapse').ok);
+  assert.equal(C.pactActive(book, 'dominion', 'cardassian'), false);
+  assert.equal(C.pactRecord(book, 'dominion', 'cardassian').status, 'collapsed');
+  assert.deepEqual(fx.map((e) => `${e.type}:${e.status}`), ['pactChanged:active', 'pactChanged:collapsed']);
+  assert.ok(fx.every((e) => e.secret === true));
+});
 console.log(`${passed} Dominion-war unit groups passed.`);
