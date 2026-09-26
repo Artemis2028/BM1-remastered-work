@@ -1993,9 +1993,32 @@ export function activatePact(book, world, government, partner, day, effects = []
     // Knowledge: a secret agreement. Nobody is told; a later round may reveal it through intelligence.
     secret: true, knownTo: [], instance: (prior?.instance || 0) + 1 };
   book.treaties[key] = record;
-  addHistory(book, day, 'treaty', `Pact concluded between ${world.factionName(government)} and ${world.factionName(partner)}: ${reason}.`, { key, secret: true });
+  addHistory(book, day, 'treaty', `Pact concluded between ${world.factionName(government)} and ${world.factionName(partner)}: ${reason}.`, { key, secretOf: key });
   effects.push({ type: 'pactChanged', key, parties: record.parties, status: 'active', reason, day, secret: true });
   return { ok: true, record };
+}
+// Who may read a campaign-history entry. One rule for every player-facing view: an entry tied to a secret
+// record (`secretOf`, a treaty key) is visible only once that record is no longer secret or the viewer is
+// in its `knownTo`; an entry marked `secret` on its own reads its own `knownTo`. The entry itself is never
+// rewritten, so a later intelligence round that adds the captain to a treaty's knownTo reveals its whole
+// history as it was recorded. The book keeps everything; only what is shown is filtered.
+export function historyVisibleTo(book, entry, viewer = 'player') {
+  if (!entry) return false;
+  if (entry.secretOf) {
+    const rec = book.treaties?.[entry.secretOf];
+    if (!rec) return false;
+    return !rec.secret || (rec.knownTo || []).includes(viewer);
+  }
+  if (entry.secret) return (entry.knownTo || []).includes(viewer);
+  return true;
+}
+export function visibleHistory(book, viewer = 'player') {
+  return (book.history || []).filter((h) => historyVisibleTo(book, h, viewer));
+}
+// Whether a viewer knows of a pact. Nothing reveals one yet; the knowledge state is the hook.
+export function pactKnownTo(book, a, b, viewer = 'player') {
+  const rec = pactRecord(book, a, b);
+  return Boolean(rec && (!rec.secret || (rec.knownTo || []).includes(viewer)));
 }
 // A pact ends or collapses: its benefits go at once. Nothing else follows: no hostility, no war, no
 // change to the ordinary diplomatic relation between the two.
@@ -2003,7 +2026,7 @@ export function endPact(book, world, government, partner, day, effects = [], rea
   const record = pactRecord(book, government, partner);
   if (!record || record.status !== 'active') return { ok: false, reason: 'No active pact.' };
   record.status = 'collapsed'; record.endedDay = day; record.endReason = reason;
-  addHistory(book, day, 'treaty', `Pact between ${world.factionName(government)} and ${world.factionName(partner)} ended: ${reason}.`, { key: record.key, secret: record.secret });
+  addHistory(book, day, 'treaty', `Pact between ${world.factionName(government)} and ${world.factionName(partner)} ended: ${reason}.`, { key: record.key, secretOf: record.key });
   effects.push({ type: 'pactChanged', key: record.key, parties: record.parties, status: 'collapsed', reason, day, secret: record.secret });
   return { ok: true, record };
 }
@@ -2074,7 +2097,10 @@ export function expeditionAssessment(book, world, id) {
   reasons.push(bridgeheads ? `${bridgeheads} bridgehead${bridgeheads > 1 ? 's' : ''}` : 'no bridgehead');
   reasons.push(access ? 'the wormhole open' : 'the wormhole closed to it');
   reasons.push(replace ? `${convoysLeft} convoy${convoysLeft > 1 ? 's' : ''} still to come` : 'no way to replace losses');
-  if (partners.length) reasons.push(`support from ${partners.map((x) => world.factionName(x)).join(', ')}`);
+  // Reasons are read by the captain (reports, the Wars & treaties front line): a secret partner he does
+  // not know of is never named, and its support is not mentioned at all.
+  const namedPartners = partners.filter((x) => pactKnownTo(book, id, x, 'player'));
+  if (namedPartners.length) reasons.push(`support from ${namedPartners.map((x) => world.factionName(x)).join(', ')}`);
   if (blender) reasons.push('the Blender front under its command');
   const collapsed = share != null && share <= (c.expeditionCollapseShare ?? 0.35) && !replace && !partners.length && !blender;
   const stranded = bridgeheads === 0 && !access && strength <= 0;

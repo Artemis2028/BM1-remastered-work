@@ -63,4 +63,19 @@ test('a pact is an authored treaty record: eligibility is not a pact, only activ
   assert.deepEqual(fx.map((e) => `${e.type}:${e.status}`), ['pactChanged:active', 'pactChanged:collapsed']);
   assert.ok(fx.every((e) => e.secret === true));
 });
+test('secret history: one visibility rule; the book keeps the entries, a later revelation shows them unchanged', () => {
+  const { world } = makeWorld({ relations: { 'cardassian:dominion': 'allied' } });
+  const book = C.createCampaignBook('seed-SECRET', 1); C.initializeCampaign(book, world);
+  if (!book.polities.dominion || !book.polities.cardassian) { console.log('  (fixture has no dominion/cardassian polity; skipped)'); return; }
+  C.activatePact(book, world, 'dominion', 'cardassian', 3, [], 'authored');
+  C.endPact(book, world, 'dominion', 'cardassian', 5, [], 'collapse');
+  const kept = book.history.filter((h) => h.kind === 'treaty');
+  assert.equal(kept.length, 2, 'the book lost a treaty event');
+  assert.equal(C.visibleHistory(book, 'player').filter((h) => h.kind === 'treaty').length, 0, 'an unrevealed pact is visible');
+  const texts = kept.map((h) => h.text);
+  // A future intelligence round adds the captain to knownTo: the recorded history becomes visible as written.
+  C.pactRecord(book, 'dominion', 'cardassian').knownTo.push('player');
+  assert.deepEqual(C.visibleHistory(book, 'player').filter((h) => h.kind === 'treaty').map((h) => h.text), texts);
+  assert.ok(C.historyVisibleTo(book, { kind: 'x', text: 'ordinary' }));
+});
 console.log(`${passed} Dominion-war unit groups passed.`);

@@ -249,6 +249,74 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.deepEqual(r.bound.treaties, []);
   });
 
+  // Secrecy: an unrevealed pact is unavailable to every player-facing view ----------------------------
+  await page.evaluate(() => {
+    const t = testBM1;
+    // Everything the captain can read: every Empire & campaign tab, every report folder, the chart's rails.
+    window.__playerUI = () => {
+      const parts = [];
+      t.openCampaignPanel('empire');
+      for (const b of [...document.querySelectorAll('#campaign-panel [data-campaign-tab]')].map((x) => x.dataset.campaignTab)) {
+        t.openCampaignPanel(b);
+        parts.push(`[tab ${b}] ${document.getElementById('campaign-panel').innerHTML}`);
+      }
+      t.closeCampaignPanel();
+      t.openGalaxyReports();
+      for (const f of [...document.querySelectorAll('[data-report-folder]')].map((x) => x.dataset.reportFolder)) {
+        document.querySelector(`[data-report-folder="${f}"]`)?.click();
+        parts.push(`[reports ${f}] ${document.getElementById('galaxy-reports')?.innerHTML || ''}`);
+      }
+      t.closeGalaxyReports();
+      t.openMap(); t.drawInterstellarMapOverlay();
+      parts.push(`[map] ${[...document.querySelectorAll('.map-rail')].map((e) => e.innerHTML).join('')}`);
+      t.closeMap?.();
+      return parts;
+    };
+    window.__leaks = (parts) => parts.filter((p) => /\bpacts?\b|agreement/i.test(p)).map((p) => p.slice(0, 40));
+    window.__diffParts = (a, b) => a.map((x, i) => (x === b[i] ? null : x.slice(0, 30))).filter(Boolean);
+    window.__secretHistory = () => t.campaign().history.filter((h) => h.kind === 'treaty').map((h) => h.text);
+  });
+
+  await check('baseline-defect', 'PACT-SECRET-HISTORY an unrevealed secret pact is unavailable to every player-facing view: Campaign Log, every report folder, the chart — no row, count or text changes when it is concluded; the book keeps it', async () => {
+    await fresh('dw-secret');
+    const r = await ev(() => {
+      const t = testBM1;
+      window.__noAuthoredPacts();
+      const before = window.__playerUI(), again = window.__playerUI();
+      t.activateDominionPact('cardassian', 'a secret agreement');
+      const after = window.__playerUI();
+      const rec = t.Campaign.pactRecord(t.campaign(), 'dominion', 'cardassian');
+      return { stable: window.__diffParts(before, again), changed: window.__diffParts(before, after), leaks: window.__leaks(after), record: rec && { status: rec.status, secret: rec.secret, knownTo: rec.knownTo }, history: window.__secretHistory() };
+    });
+    assert.deepEqual(r.stable, [], `precondition: the views are not stable on their own: ${r.changed}`);
+    assert.deepEqual(r.leaks, [], `a player-facing view mentions the pact: ${r.leaks}`);
+    assert.deepEqual(r.changed, [], `concluding the secret pact changed a player-facing view: ${r.changed}`);
+    assert.deepEqual(r.record, { status: 'active', secret: true, knownTo: [] });
+    assert.equal(r.history.length, 1, 'the campaign history no longer keeps the pact');
+  });
+
+  await check('baseline-defect', 'PACT-SECRET-COLLAPSE ending an unrevealed pact is just as invisible; the book keeps both events, and save/load reveals nothing', async () => {
+    await fresh('dw-secret-end');
+    const r = await ev(() => {
+      const t = testBM1;
+      window.__noAuthoredPacts();
+      const before = window.__playerUI();
+      t.activateDominionPact('cardassian', 'a secret agreement');
+      t.endDominionPact('cardassian', 'the agreement collapses');
+      const after = window.__playerUI();
+      t.saveGame(2); t.startWithFaction('ferengi'); t.loadGame(2);
+      const loaded = window.__playerUI();
+      const rec = t.Campaign.pactRecord(t.campaign(), 'dominion', 'cardassian');
+      return { changed: window.__diffParts(before, after), leaks: [...window.__leaks(after), ...window.__leaks(loaded)], loadedChanged: window.__diffParts(before, loaded), record: rec && { status: rec.status, knownTo: rec.knownTo }, history: window.__secretHistory(), remnant: t.Campaign.activePacts(t.campaign(), 'dominion_remnant') };
+    });
+    assert.deepEqual(r.leaks, [], `a player-facing view mentions the pact: ${r.leaks}`);
+    assert.deepEqual(r.changed, [], `the secret pact changed a player-facing view: ${r.changed}`);
+    assert.deepEqual(r.loadedChanged, [], `save/load revealed it: ${r.loadedChanged}`);
+    assert.deepEqual(r.record, { status: 'collapsed', knownTo: [] });
+    assert.equal(r.history.length, 2, `the book lost an event: ${r.history}`);
+    assert.deepEqual(r.remnant, []);
+  });
+
   // 3 & 6 -----------------------------------------------------------------------------------------
   await check('new-feature', 'WARS-UI the formal Dominion war appears in Wars & Treaties once its declaration reaches the captain, with the Remnant shown as outside it', async () => {
     await fresh('dw-ui');

@@ -26466,7 +26466,7 @@ function renderCampaignPanel() {
     const done = book.missions.filter((m) => !['offered', 'active'].includes(m.status)).slice(-6).reverse().map((m) => `<li>${escapeHtml(m.kind)}: ${m.status}${m.reason ? ` — ${escapeHtml(m.reason)}` : ''}</li>`).join('');
     body = `<section><h3>Design recovery</h3><ul>${recoveries}</ul><p class="meta">Recovery restores lawful access once. Plans still cost 4× the hull price and need the next standing tier; an already owned licence is never charged again.</p></section><section><h3>Contracts</h3><ul>${missions}</ul>${done ? `<h4>Recent</h4><ul>${done}</ul>` : ''}</section>`;
   } else {
-    body = `<section><h3>Campaign log</h3><ul>${book.history.slice(-30).reverse().map((h) => `<li>Day ${h.day} · ${escapeHtml(h.kind)}: ${escapeHtml(campaignMaskText(h.text))}</li>`).join('') || '<li>Nothing recorded yet.</li>'}</ul></section>`;
+    body = `<section><h3>Campaign log</h3><ul>${Campaign.visibleHistory(book, PLAYER_SIDE).slice(-30).reverse().map((h) => `<li>Day ${h.day} · ${escapeHtml(h.kind)}: ${escapeHtml(campaignMaskText(h.text))}</li>`).join('') || '<li>Nothing recorded yet.</li>'}</ul></section>`;
   }
   el.innerHTML = `<div class="debug-heading"><h2>Empire &amp; campaign</h2><button data-campaign-close>Close</button></div><p>Campaign day ${state.day}. Flag: ${escapeHtml(formatFaction(getPlayerFlag()))}.</p><nav class="report-folders" aria-label="Campaign sections">${tabs.map(([k, l]) => `<button data-campaign-tab="${k}" aria-pressed="${campaignPanelTab === k}">${l}</button>`).join('')}</nav><div class="campaign-body">${body}</div>`;
 }
