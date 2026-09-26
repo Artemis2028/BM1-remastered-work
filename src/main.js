@@ -10006,6 +10006,162 @@ function applyFollowerBoundEngine(e, day) {
     text: campaignMaskText(`${formatFaction(e.follower)} has ${e.reason}: it is now under ${formatFaction(e.government)} command.${wars.length ? ` It is party to the ${formatFaction(e.government)} war${wars.length > 1 ? 's' : ''} with ${wars.join(', ')}.` : ' It is at war with no one on that account.'}`) });
   setLog(`${formatFaction(e.follower)} is now under ${formatFaction(e.government)} command.`);
 }
+// ---- strategic evacuation and blockade (EVACUATION-BLOCKADE-RULES-261530ZSEP26) ----
+// The model owns the operations; the engine holds the captain's real vessels to them, answers the
+// captain's controls, and tells the captain what they can actually know.
+function fleetEntryForHull(hullId) {
+  const raw = String(hullId || '');
+  if (!raw.startsWith('pf:')) return null;
+  return (state.playerFleet || []).find((f) => String(f.id) === raw.slice(3) && !f.destroyed) || null;
+}
+function holdFleetForOperation(hullIds, opId, role, systemIndex) {
+  for (const hid of hullIds || []) {
+    const f = fleetEntryForHull(hid);
+    if (!f) continue;
+    f.strategicOp = opId; f.strategicRole = role; f.assignment = 'defense';
+    if (systemIndex != null) f.systemIndex = Number(systemIndex);
+  }
+}
+function releaseFleetFromOperation(hullIds, opId) {
+  for (const hid of hullIds || []) {
+    const f = fleetEntryForHull(hid);
+    if (f && f.strategicOp === opId) { delete f.strategicOp; delete f.strategicRole; }
+  }
+}
+// A vessel the captain may put to an operation: stationed (not escorting, not in transit, not trading),
+// operational, and not already held by another operation.
+function fleetShipFreeForOperation(f) {
+  return f && !f.destroyed && f.vessel?.condition !== 'destroyed' && f.vessel?.condition !== 'disabled' && f.assignment === 'defense' && !f.strategicOp && !f.trade?.active && !fleetLocalActor(f.id);
+}
+function freeFleetShipsAt(systemIndexes) {
+  const at = new Set([].concat(systemIndexes).map(Number));
+  return (state.playerFleet || []).filter((f) => fleetShipFreeForOperation(f) && at.has(Number(f.systemIndex)));
+}
+function evacLiftOfFleetShip(f) {
+  return Math.floor(Math.max(0, finiteNumber(getShipStats(f.shipId).cargoCapacity, 0)) * Campaign.CAMPAIGN_RULES.evacPeoplePerCargo);
+}
+function runStrategicCommand(fn) {
+  const book = campaign();
+  syncPlayerPolity(book);
+  const world = buildCampaignWorld(true);
+  const effects = [];
+  const r = fn(book, world, effects);
+  applyCampaignEffects(effects, state.day);
+  campaignWorldCache = null;
+  updateStats();
+  return r;
+}
+// The captain's controls.
+function startPlayerEvacuation(origin, destination, fleetIds, opts = {}) {
+  return runStrategicCommand((book, world, effects) => Campaign.startEvacuation(book, world, { sponsor: PLAYER_SIDE, origin: Number(origin), destination: Number(destination),
+    transports: (fleetIds || []).map((id) => `pf:${id}`), escorts: (opts.escorts || []).map((id) => `pf:${id}`), target: opts.target, reason: opts.reason || 'ordered by the captain' }, state.day, effects));
+}
+function cancelPlayerEvacuation(id) { return runStrategicCommand((book, world, effects) => Campaign.cancelEvacuation(book, world, id, state.day, effects, 'cancelled by the captain')); }
+function assignPlayerEscorts(id, fleetIds) { return runStrategicCommand((book, world, effects) => Campaign.assignEvacuationEscorts(book, world, id, (fleetIds || []).map((x) => `pf:${x}`), state.day, effects)); }
+function startPlayerBlockade(target, fleetIds, purpose = 'isolate_world') {
+  return runStrategicCommand((book, world, effects) => Campaign.startBlockade(book, world, { power: PLAYER_SIDE, target: Number(target), hullIds: (fleetIds || []).map((id) => `pf:${id}`), purpose }, state.day, effects));
+}
+function reinforcePlayerBlockade(id, fleetIds) { return runStrategicCommand((book, world, effects) => Campaign.reinforceBlockade(book, world, id, (fleetIds || []).map((x) => `pf:${x}`), state.day, effects)); }
+function withdrawPlayerBlockade(id) { return runStrategicCommand((book, world, effects) => Campaign.withdrawBlockade(book, world, id, state.day, effects, 'withdrawn by the captain')); }
+// Where the captain may send evacuees from a world: every known system the model accepts.
+function evacuationDestinationsFor(origin) {
+  const book = campaign(); const world = buildCampaignWorld();
+  return world.systems.filter((s) => s.index !== Number(origin) && isChartSystemVisible(s.index))
+    .map((s) => ({ index: s.index, name: s.name, check: Campaign.validateEvacuationDestination(book, world, PLAYER_SIDE, Number(origin), s.index) }))
+    .filter((x) => x.check.ok).sort((a, b) => a.check.hops - b.check.hops || a.name.localeCompare(b.name));
+}
+// What the captain knows about an operation. Their own: everything. Otherwise the best source they have
+// at the place: being there or a ship there sees the ships; a relay reads the traffic; hearsay only
+// that something is going on.
+function strategicOpSource(systemIndex, own) {
+  if (own) return 'own';
+  const control = getSystemControl(systemIndex) || {};
+  if (control.playerControlled) return 'local';
+  return campaignIntelSource(systemIndex);
+}
+function blockadeKnowledge(b) {
+  const source = strategicOpSource(b.target, b.power === PLAYER_SIDE);
+  if (source === 'none') return null;
+  const exact = source === 'own' || source === 'local' || source === 'fleet';
+  const n = b.hulls.length;
+  const band = exact ? `${n}` : source === 'relay' ? `${Math.max(1, Math.floor(n * 0.6))}–${Math.ceil(n * 1.5)}` : null;
+  const coverage = source === 'rumour' ? 'unknown' : Campaign.blockadeTier(b.coverage);
+  return { source, exact, coverage, force: band, supply: exact ? (b.supply >= 0.7 ? 'stable' : b.supply >= Campaign.CAMPAIGN_RULES.blockadeMinSupply ? 'strained' : 'failing') : null };
+}
+function evacuationKnowledge(e) {
+  const source = strategicOpSource(e.origin, e.sponsor === PLAYER_SIDE);
+  if (source === 'none') return null;
+  return { source, exact: source === 'own' || source === 'local' || source === 'fleet', progressKnown: source !== 'rumour' };
+}
+function campaignOperationName(id) { return id === PLAYER_SIDE ? 'Your empire' : formatFaction(campaignFactionKeyFor(id)); }
+function reportStrategicOp(spec) {
+  const stake = campaignEventStake(spec.systemIndex, spec.extra || []);
+  const personal = spec.own || stake.personal;
+  if (spec.own) return campaignReport({ id: spec.id, systemIndex: spec.systemIndex, day: spec.day, kind: spec.kind, confidence: 'Campaign record', factions: spec.factions.filter(isRecognizedFactionKey), playerRelated: true, text: spec.direct });
+  return reportCampaignEvent({ id: spec.id, systemIndex: spec.systemIndex, day: spec.day, kind: spec.kind, factions: spec.factions, involved: stake.involved, attacker: spec.attacker || null,
+    observationKind: 'raid', playerRelated: personal, direct: spec.direct, relay: () => spec.relay || spec.direct, fleet: () => spec.fleet || spec.direct, rumour: () => spec.rumour });
+}
+function applyStrategicOpEffect(e, day) {
+  const d = e.day ?? day;
+  const nameOf = (i) => state.planets[i]?.name || `system ${i}`;
+  switch (e.type) {
+    case 'evacuationStarted': {
+      if (e.sponsor === PLAYER_SIDE) { holdFleetForOperation(e.transports, e.id, 'transport', e.origin); holdFleetForOperation(e.escorts, e.id, 'escort', e.origin); }
+      const who = campaignFactionKeyFor(e.sponsor);
+      const n = e.transports.length;
+      reportStrategicOp({ id: `evac:${e.id}:start`, systemIndex: e.origin, day: d, kind: `Evacuation underway — ${nameOf(e.origin)}`, own: e.sponsor === PLAYER_SIDE, factions: [who],
+        direct: `${n === 1 ? 'One transport' : `${n} transports`} departed ${nameOf(e.origin)} for ${nameOf(e.destination)}.`,
+        rumour: `Civilian ships are leaving ${nameOf(e.origin)} in numbers.` });
+      break;
+    }
+    case 'strategicShipsAssigned': if (e.sponsor === PLAYER_SIDE) holdFleetForOperation(e.hulls, e.id, e.role, e.systemIndex); break;
+    case 'strategicShipReleased': if (e.sponsor === PLAYER_SIDE) releaseFleetFromOperation([e.hullId], e.id); break;
+    case 'evacuationHalfway': break;
+    case 'evacuationLoss': {
+      reportStrategicOp({ id: `evac:${e.id}:loss:${e.hullId}`, systemIndex: e.origin, day: d, kind: `Transport lost — ${nameOf(e.origin)}`, own: e.sponsor === PLAYER_SIDE, factions: [campaignFactionKeyFor(e.sponsor), campaignFactionKeyFor(e.by)], attacker: campaignFactionKeyFor(e.by),
+        direct: `A transport running the blockade at ${nameOf(e.origin)} was destroyed.`, rumour: `A civilian transport is overdue out of ${nameOf(e.origin)}.` });
+      break;
+    }
+    case 'evacuationEnded': {
+      if (e.sponsor === PLAYER_SIDE) releaseFleetFromOperation(e.released, e.id);
+      const pct = Math.round(100 * e.moved / Math.max(1, e.target));
+      const head = e.status === 'completed' ? 'Evacuation complete' : e.status === 'cancelled' ? 'Evacuation cancelled' : e.status === 'partial' ? 'Evacuation ended' : 'Evacuation failed';
+      reportStrategicOp({ id: `evac:${e.id}:end`, systemIndex: e.origin, day: d, kind: `${head} — ${nameOf(e.origin)}`, own: e.sponsor === PLAYER_SIDE, factions: [campaignFactionKeyFor(e.sponsor)],
+        direct: e.status === 'completed' ? `${e.moved.toLocaleString()} evacuees reached ${nameOf(e.destination)}.` : `${e.moved.toLocaleString()} of ${e.target.toLocaleString()} evacuated (${pct}%)${e.reason ? `: ${e.reason}` : ''}.`,
+        rumour: `The evacuation of ${nameOf(e.origin)} has ${e.status === 'completed' ? 'finished' : 'stopped'}.` });
+      break;
+    }
+    case 'blockadeStarted': case 'blockadeActive': {
+      if (e.type === 'blockadeStarted' && e.power === PLAYER_SIDE) holdFleetForOperation(e.hulls, e.id, 'blockade', e.target);
+      if (e.type === 'blockadeStarted' && e.forming) break;
+      const who = campaignFactionKeyFor(e.power);
+      reportStrategicOp({ id: `blockade:${e.id}:start`, systemIndex: e.target, day: d, kind: `Blockade — ${nameOf(e.target)}`, own: e.power === PLAYER_SIDE, factions: [who], attacker: who, extra: [who],
+        direct: `${campaignOperationName(e.power)} ${e.power === PLAYER_SIDE ? 'ships took station' : 'warships took station'} around ${nameOf(e.target)}. Traffic is being stopped.`,
+        rumour: `Heavy hostile traffic reported around ${nameOf(e.target)}.` });
+      break;
+    }
+    case 'blockadeCoverage': {
+      const tiers = ['light', 'moderate', 'heavy'];
+      const weaker = tiers.indexOf(e.to) < tiers.indexOf(e.from);
+      const who = campaignFactionKeyFor(e.power);
+      reportStrategicOp({ id: `blockade:${e.id}:${e.day}:${e.to}`, systemIndex: e.target, day: d, kind: `Blockade ${weaker ? 'weakened' : 'tightened'} — ${nameOf(e.target)}`, own: e.power === PLAYER_SIDE, factions: [who], attacker: who, extra: [who],
+        direct: weaker ? `The blockade of ${nameOf(e.target)} has thinned. Civilian traffic is getting through again.` : `The blockade of ${nameOf(e.target)} has tightened. Little traffic is getting through.`,
+        rumour: weaker ? `Traders report fewer interceptions near ${nameOf(e.target)}.` : `Traders report more interceptions near ${nameOf(e.target)}.` });
+      break;
+    }
+    case 'blockadeEnded': {
+      if (e.power === PLAYER_SIDE) releaseFleetFromOperation(e.released, e.id);
+      const who = campaignFactionKeyFor(e.power);
+      const head = e.status === 'broken' ? 'Blockade broken' : e.status === 'closed' ? 'Blockade lifted' : e.status === 'completed' ? 'Blockade ended' : 'Blockade withdrawn';
+      reportStrategicOp({ id: `blockade:${e.id}:end`, systemIndex: e.target, day: d, kind: `${head} — ${nameOf(e.target)}`, own: e.power === PLAYER_SIDE, factions: [who], attacker: who, extra: [who],
+        direct: `${campaignOperationName(e.power)} ${e.power === PLAYER_SIDE ? 'ships left' : 'warships left'} ${nameOf(e.target)}: ${e.reason}.`, rumour: `Traffic is moving freely again around ${nameOf(e.target)}.` });
+      break;
+    }
+    default: return false;
+  }
+  campaignWorldCache = null;
+  return true;
+}
 // Authored events and controls for this round. Each goes through the model; none writes a war by hand.
 function runCampaignAuthored(fn) {
   const book = campaign();
@@ -14618,7 +14774,9 @@ function marketStockFor(index) {
     if (!record.goods[offer.goods]) record.goods[offer.goods] = { supply: cap.tons, demand: cap.demand };
   const elapsed = Math.max(0, day - (Number(record.day) || day));
   if (elapsed > 0) {
-    const back = elapsed * cap.replenish;
+    // A blockade slows restocking for the days it stood, in proportion to its coverage then; the shelf is
+    // never emptied by it, and recovers at the ordinary rate once it is lifted.
+    const back = cap.replenish * blockadeRestockDays(i, Number(record.day) || day, day);
     for (const entry of Object.values(record.goods)) {
       entry.supply = Math.min(cap.tons, Math.max(0, finiteNumber(entry.supply, cap.tons)) + back);
       entry.demand = Math.min(cap.demand, Math.max(0, finiteNumber(entry.demand, cap.demand)) + back);
@@ -14626,6 +14784,14 @@ function marketStockFor(index) {
   }
   record.day = day;
   return record;
+}
+function blockadeRestockDays(index, fromDay, toDay) {
+  const blockades = (ensurePlaytestState().campaign?.blockades || []).filter((b) => Number(b.target) === Number(index));
+  if (!blockades.length) return Math.max(0, toDay - fromDay);
+  const impact = finiteNumber(campaign().config.blockadeRestockImpact, 0.8);
+  let days = 0;
+  for (let d = fromDay; d < toDay; d++) days += Campaign.blockadeFlowFactor({ blockades }, index, impact, d);
+  return days;
 }
 function marketSupply(index, goods) {
   const record = marketStockFor(index);
@@ -23150,6 +23316,7 @@ const MAP_OVERLAY_LAYERS = Object.freeze([
   // Deliberately not the blue the chart already uses for travel routes: an objective line drawn in the
   // engine's own route colour is invisible, because it lands on top of a line that is already there.
   { key: 'routes', label: 'Route to objective', color: '#d3a6ff' },
+  { key: 'operations', label: 'Evacuations & blockades', color: '#ff6f8a', kind: 'conditions' },
 ]);
 function mapOverlayState() {
   const p = ensurePlaytestState();
@@ -23352,6 +23519,7 @@ function mapOverlayLegendCounts() {
   }
   counts.lanes = known;
   counts.security = known;
+  { const ops = mapStrategicOps(); counts.operations = ops.evacs.length + ops.blocks.length; }
   return { layers, counts, unknown };
 }
 // The rails' contents. Rebuilt as HTML and written only when it changes, so a button is never replaced
@@ -23435,6 +23603,7 @@ function drawMapOverlayLegend() {
   }
   counts.lanes = known;
   counts.security = known;
+  { const ops = mapStrategicOps(); counts.operations = ops.evacs.length + ops.blocks.length; }
   const rect = getStarChartPanelRect();
   const x = rect.left + 14;
   const y = rect.bottom - 18 - MAP_OVERLAY_LAYERS.length * 18;
@@ -23565,6 +23734,7 @@ function drawInterstellarMapOverlay() {
     drawMapLaneOverlay();
     drawMapObjectiveOverlay();
     drawMapSecurityOverlay();
+    drawMapStrategicOpsOverlay();
     for (let i = 0; i < state.planets.length; i++) {
       drawPlanetMarker(state.planets[i], i);
     }
@@ -25211,7 +25381,7 @@ function buildCampaignWorld(force = false) {
     playerOpportunity: campaignPlayerOpportunity(),
     isFaction: (id) => isRecognizedFactionKey(id) && id !== 'pirate' && (id !== 'gorn' || getCampaignDiscoveries().gorn),
     factionName: (id) => (id === 'player' ? `${state.captainName || 'Captain'}'s empire` : formatFaction(id)),
-    shipStats: (id) => { const s = state.shipStatsById[Number(id)]; if (!s) return null; return { price: getShipPrice(s), mass: finiteNumber(s.mass, 1), combatHull: getNpcCombatDurability(Number(id)).hull, faction: getShipFaction(Number(id)) }; },
+    shipStats: (id) => { const s = state.shipStatsById[Number(id)]; if (!s) return null; return { price: getShipPrice(s), mass: finiteNumber(s.mass, 1), combatHull: getNpcCombatDurability(Number(id)).hull, faction: getShipFaction(Number(id)), cargo: Math.max(0, finiteNumber(s.cargoCapacity, 0)) }; },
     pickHull: (polityId, u) => { if (polityId === 'player') return null; const key = campaignFactionKeyFor(polityId); const seed = Math.floor(u * 100000) + 1; for (const role of ['fleetAttack', 'patrol', 'traffic']) { const id = getNpcShipIdForFaction(key, seed, role); if (id != null) return Number(id); } return null; },
     // A culture's catalogue for the purposes of captured industry: everything it actually builds, less
     // the named exceptions. Filtering this by the retail rule is what made capturing a Dominion major
@@ -25226,6 +25396,14 @@ function buildCampaignWorld(force = false) {
     playerRelationSide: 'player',
     relation: (a, b) => campaignPartyRelation(a, b),
     warPairs: () => campaignWarPairs(),
+    // Who takes a sponsor's evacuees: its own government, a friend, never a power hostile to it. For the
+    // captain's empire, friends are its flag's government and those aligned with it.
+    receivesEvacuees: (sponsor, host) => {
+      const hostKey = campaignFactionKeyFor(host);
+      if (sponsor === PLAYER_SIDE) { const flag = getPlayerFlag(); return hostKey === flag || (areFactionsAligned(flag, hostKey) && !areFactionsOpposed(flag, hostKey)); }
+      const key = campaignFactionKeyFor(sponsor);
+      return hostKey === key || (areFactionsAligned(key, hostKey) && !areFactionsOpposed(key, hostKey));
+    },
     stationsBySystem: (i) => stationsBySystem.get(Number(i)) || [],
     neighbours: (i) => [...(neighbourMap.get(Number(i)) || [])],
     // The hidden Dominion region stays hidden: only the Dominion routes through the wormhole until the
@@ -25300,7 +25478,7 @@ function syncPlayerPolity(book) {
   // day, booking a fresh kill every day. 'assigned' keeps it out of both the defence total and the
   // attrition pass, exactly as a hull committed to an operation is.
   const sceneOwned = (f) => Boolean(fleetLocalActor(f.id));
-  p.hulls = (state.playerFleet || []).filter((f) => !f.destroyed && f.vessel?.condition !== 'destroyed').map((f) => ({ id: `pf:${f.id}`, vid: ensureFleetVesselIdentity(f).vid, shipId: Number(f.shipId), hull: finiteNumber(f.vessel?.hull, finiteNumber(f.vessel?.maxHull, 100)), maxHull: finiteNumber(f.vessel?.maxHull, 100), crew: 1, systemIndex: Number(f.assignment === 'escort' ? state.currentPlanet : f.systemIndex), status: f.assignment === 'transit' || sceneOwned(f) ? 'assigned' : 'ready', opId: null }));
+  p.hulls = (state.playerFleet || []).filter((f) => !f.destroyed && f.vessel?.condition !== 'destroyed').map((f) => ({ id: `pf:${f.id}`, vid: ensureFleetVesselIdentity(f).vid, shipId: Number(f.shipId), hull: finiteNumber(f.vessel?.hull, finiteNumber(f.vessel?.maxHull, 100)), maxHull: finiteNumber(f.vessel?.maxHull, 100), crew: 1, systemIndex: Number(f.assignment === 'escort' ? state.currentPlanet : f.systemIndex), status: f.assignment === 'transit' || sceneOwned(f) || f.strategicOp ? 'assigned' : 'ready', opId: f.strategicOp || null }));
   p.treasury = state.latinum; p.materials = state.duranium;
   p.queue = fleetBook().orders.filter((o) => !['delivered', 'lost'].includes(o.status)).map((o) => ({ id: o.id, shipId: o.shipId, systemIndex: o.system, stationId: o.stationId, remainingDays: o.remainingDays, status: o.status }));
   return p;
@@ -25812,6 +25990,10 @@ function applyCampaignEffects(effects, day = state.day) {
         applyWarDeclarationEngine(e, e.day ?? day);
         break;
       }
+      case 'evacuationStarted': case 'strategicShipsAssigned': case 'strategicShipReleased': case 'evacuationHalfway': case 'evacuationLoss': case 'evacuationEnded':
+      case 'blockadeStarted': case 'blockadeActive': case 'blockadeCoverage': case 'blockadeEnded':
+        applyStrategicOpEffect(e, day);
+        break;
       case 'pactChanged': {
         // A secret agreement: recorded in the campaign's treaty state, published to nobody.
         campaignWorldCache = null;
@@ -26334,6 +26516,183 @@ function campaignOperationDetail({ op, known }) {
   const seen = known.sighting ? `<br><span class="meta">Last ${campaignSightingText(known.sighting)}</span>` : '';
   return `<li><b>${where}</b> · ${status} · last report day ${latest.day}${since}<br>${escapeHtml(campaignMaskText(latest.text))} <span class="meta">(${escapeHtml(latest.confidence)})</span>${seen}</li>`;
 }
+// ---- Empire & campaign → Operations: evacuations and blockades ----
+const opsForm = { origin: null, destination: null, target: null, purpose: 'isolate_world', picked: new Set(), openDetails: new Set(), picker: null, message: '' };
+function opsPct(x) { return `${Math.round(x * 100)}%`; }
+function opsShipLabel(f, extra = '') { return `${escapeHtml(f.name || getShipStats(f.shipId).name)}${extra}`; }
+function renderOpsShipPicker(ships, role) {
+  if (!ships.length) return '<p class="meta">No free vessels there.</p>';
+  return `<ul class="ops-picker">${ships.map((f) => `<li><label><input type="checkbox" data-ops-pick="${escapeHtml(String(f.id))}" ${opsForm.picked.has(String(f.id)) ? 'checked' : ''}> ${opsShipLabel(f, role === 'transport' ? ` · ${evacLiftOfFleetShip(f).toLocaleString()} per trip` : '')}</label></li>`).join('')}</ul>`;
+}
+function routeStatusText(factor) { return factor >= 0.95 ? 'Clear' : factor >= 0.5 ? 'Contested' : 'Heavily interdicted'; }
+function renderEvacuationCard(e, book) {
+  const k = evacuationKnowledge(e);
+  if (!k) return '';
+  const own = e.sponsor === PLAYER_SIDE;
+  const o = state.planets[e.origin]?.name, dst = state.planets[e.destination]?.name;
+  const who = own ? '' : `<p class="meta">${escapeHtml(campaignOperationName(e.sponsor))}</p>`;
+  const active = e.status === 'active';
+  if (!k.progressKnown) return `<article class="ops-card" data-ops-evac="${escapeHtml(e.id)}"><h4>EVACUATION — ${escapeHtml(String(o).toUpperCase())}</h4>${who}<p>Evacuation reported.</p></article>`;
+  const pct = e.moved / Math.max(1, e.target);
+  const remaining = Math.max(0, e.target - e.moved);
+  const eta = active && e.lastThroughput > 0 ? Math.ceil(remaining / e.lastThroughput) : null;
+  const status = active ? `Route status: ${routeStatusText(e.lastFactor ?? 1)}${(e.lastFactor ?? 1) < 0.999 ? ` · throughput ${opsPct(e.lastFactor)}` : ''}` : `${e.status === 'completed' ? 'Completed' : e.status === 'cancelled' ? 'Cancelled' : e.status === 'partial' ? 'Ended' : 'Failed'} day ${e.endDay}${e.endReason ? ` · ${escapeHtml(e.endReason)}` : ''}`;
+  const open = opsForm.openDetails.has(e.id);
+  const lift = e.transports.reduce((n, t) => n + t.lift, 0);
+  const trip = Math.max(1, 2 * (e.route.length - 1) + (book.config.evacLoadingDays ?? 1));
+  const details = open ? `<dl class="ops-details"><div>Moved: ${e.moved.toLocaleString()} / ${e.target.toLocaleString()}</div><div>Transport capacity: ${lift.toLocaleString()} per trip · ${trip}-day round trip</div><div>Route: ${e.route.map((i) => escapeHtml(state.planets[i]?.name || i)).join(' → ')}</div><div>Losses: ${e.lost.length} lost · ${e.removed.length} withdrawn</div>${own || k.exact ? `<div>Last day: ${Number(e.lastThroughput || 0).toLocaleString()} moved</div>` : ''}</dl>` : '';
+  const buttons = [`<button data-ops-details="${escapeHtml(e.id)}">${open ? 'Hide' : 'Details'}</button>`, `<button data-ops-map="${e.origin}">Show on map</button>`];
+  if (own && active) buttons.push(`<button data-ops-escort="${escapeHtml(e.id)}">Assign escort</button>`, `<button data-ops-cancel="${escapeHtml(e.id)}">Cancel</button>`);
+  const picker = own && active && opsForm.picker === `escort:${e.id}` ? `<div class="ops-inline">${renderOpsShipPicker(freeFleetShipsAt(e.origin), 'escort')}<button data-ops-escort-confirm="${escapeHtml(e.id)}">Assign selected</button></div>` : '';
+  return `<article class="ops-card ops-evac" data-ops-evac="${escapeHtml(e.id)}"><h4>EVACUATION — ${escapeHtml(String(o).toUpperCase())}</h4>${who}<p>${escapeHtml(o)} → ${escapeHtml(dst)}</p>
+    <div class="ops-bar" role="progressbar" aria-valuenow="${Math.round(pct * 100)}" aria-valuemin="0" aria-valuemax="100"><span style="width:${Math.round(pct * 100)}%"></span></div>
+    <p class="ops-figures"><b>${opsPct(pct)}</b> · ${e.moved.toLocaleString()} evacuated · ${remaining.toLocaleString()} remaining</p>
+    <p>${e.transports.length} transport${e.transports.length === 1 ? '' : 's'}${e.escorts.length ? ` · ${e.escorts.length} escort${e.escorts.length === 1 ? '' : 's'}` : ''}</p>
+    <p>${status}</p>${eta != null ? `<p>Estimated completion: ${eta} day${eta === 1 ? '' : 's'}</p>` : ''}${details}<p class="ops-actions">${buttons.join(' ')}</p>${picker}</article>`;
+}
+function renderBlockadeCard(b, book) {
+  const k = blockadeKnowledge(b);
+  if (!k) return '';
+  const own = b.power === PLAYER_SIDE;
+  const t = state.planets[b.target]?.name;
+  const active = ['active', 'forming'].includes(b.status);
+  const head = `<h4>BLOCKADE — ${escapeHtml(String(t).toUpperCase())}</h4><p class="meta">${escapeHtml(campaignOperationName(b.power))}</p>`;
+  if (!active) return `<article class="ops-card" data-ops-blockade="${escapeHtml(b.id)}">${head}<p>${b.status === 'broken' ? 'Broken' : b.status === 'closed' ? 'Lifted' : b.status === 'completed' ? 'Ended' : 'Withdrawn'} day ${b.endDay} · ${escapeHtml(b.endReason || '')}</p></article>`;
+  if (k.coverage === 'unknown') return `<article class="ops-card ops-blockade" data-ops-blockade="${escapeHtml(b.id)}">${head}<p>Coverage: Unknown</p><p>Traffic losses reported.</p><p class="ops-actions"><button data-ops-map="${b.target}">Show on map</button></p></article>`;
+  const c = book.config;
+  const effects = b.status === 'forming' ? '<li>Forming</li>' : [`<li>Evacuation throughput −${opsPct(b.coverage * c.blockadeEvacImpact)}</li>`, `<li>Trade traffic −${opsPct(b.coverage * c.blockadeRestockImpact)}</li>`,
+    `<li>Reinforcements ${b.coverage >= 0.55 ? 'severely restricted' : b.coverage >= 0.25 ? 'restricted' : 'slowed'}</li>`].join('');
+  const buttons = [`<button data-ops-map="${b.target}">Show on map</button>`];
+  if (own) buttons.push(`<button data-ops-reinforce="${escapeHtml(b.id)}">Reinforce</button>`, `<button data-ops-withdraw="${escapeHtml(b.id)}">Withdraw</button>`);
+  const picker = own && opsForm.picker === `reinforce:${b.id}` ? `<div class="ops-inline">${renderOpsShipPicker(freeFleetShipsAt([b.target, ...(buildCampaignWorld().neighbours(b.target) || [])]), 'blockade')}<button data-ops-reinforce-confirm="${escapeHtml(b.id)}">Reinforce with selected</button></div>` : '';
+  return `<article class="ops-card ops-blockade" data-ops-blockade="${escapeHtml(b.id)}">${head}
+    <p>Coverage: <b data-ops-coverage>${k.coverage[0].toUpperCase()}${k.coverage.slice(1)}</b></p>${k.force ? `<p>${k.exact ? 'Force' : 'Known force'}: ${k.force} ship${k.force === '1' ? '' : 's'}</p>` : ''}${k.supply ? `<p>Supply: ${k.supply}</p>` : ''}
+    <p>Effects:</p><ul>${effects}</ul><p class="ops-actions">${buttons.join(' ')}</p>${picker}</article>`;
+}
+function renderStrategicOperations(book, world) {
+  const evacs = (book.evacuations || []);
+  const blocks = (book.blockades || []);
+  const liveE = evacs.filter((e) => e.status === 'active').map((e) => renderEvacuationCard(e, book)).filter(Boolean).join('');
+  const liveB = blocks.filter((b) => ['active', 'forming'].includes(b.status)).map((b) => renderBlockadeCard(b, book)).filter(Boolean).join('');
+  const ended = [...evacs.filter((e) => e.status !== 'active').map((e) => ({ day: e.endDay, html: renderEvacuationCard(e, book) })), ...blocks.filter((b) => !['active', 'forming'].includes(b.status)).map((b) => ({ day: b.endDay, html: renderBlockadeCard(b, book) }))]
+    .filter((x) => x.html).sort((a, b) => b.day - a.day).slice(0, 4).map((x) => x.html).join('');
+  // New operations.
+  const mine = world.systems.filter((s) => s.controller === PLAYER_SIDE && s.population > 0);
+  if (opsForm.origin == null || !mine.some((s) => s.index === opsForm.origin)) opsForm.origin = mine[0]?.index ?? null;
+  const dests = opsForm.origin != null ? evacuationDestinationsFor(opsForm.origin) : [];
+  if (!dests.some((d) => d.index === opsForm.destination)) opsForm.destination = dests[0]?.index ?? null;
+  const evacForm = mine.length ? `<label>From <select data-ops-origin>${mine.map((s) => `<option value="${s.index}" ${s.index === opsForm.origin ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}</select></label>
+    <label>To <select data-ops-destination>${dests.map((d) => `<option value="${d.index}" ${d.index === opsForm.destination ? 'selected' : ''}>${escapeHtml(d.name)} · ${d.check.hops} jump${d.check.hops === 1 ? '' : 's'}</option>`).join('') || '<option value="">No valid destination</option>'}</select></label>
+    ${renderOpsShipPicker(freeFleetShipsAt(opsForm.origin), 'transport')}<button data-ops-start-evac>Start evacuation</button>` : '<p class="meta">You hold no inhabited world.</p>';
+  const enemies = world.systems.filter((s) => s.controller && s.controller !== PLAYER_SIDE && isChartSystemVisible(s.index) && campaignPartyRelation(PLAYER_SIDE, s.controller) === 'war'
+    && freeFleetShipsAt([s.index, ...(world.neighbours(s.index) || [])]).length);
+  if (!enemies.some((s) => s.index === opsForm.target)) opsForm.target = enemies[0]?.index ?? null;
+  const blockForm = enemies.length ? `<label>Target <select data-ops-target>${enemies.map((s) => `<option value="${s.index}" ${s.index === opsForm.target ? 'selected' : ''}>${escapeHtml(s.name)} · ${escapeHtml(formatFaction(campaignFactionKeyFor(s.controller)))}</option>`).join('')}</select></label>
+    <label>Purpose <select data-ops-purpose>${book.config.blockadePurposes.map((p) => `<option value="${p}" ${p === opsForm.purpose ? 'selected' : ''}>${p.replace(/_/g, ' ')}</option>`).join('')}</select></label>
+    ${renderOpsShipPicker(freeFleetShipsAt([opsForm.target, ...(world.neighbours(opsForm.target) || [])]), 'blockade')}<button data-ops-start-blockade>Start blockade</button>` : '<p class="meta">No enemy world within reach of your free ships.</p>';
+  return `<section data-ops-evacuations><h3>Active evacuations</h3>${liveE || '<p>None.</p>'}</section>
+    <section data-ops-blockades><h3>Active blockades</h3>${liveB || '<p>None known.</p>'}</section>
+    ${opsForm.message ? `<p class="ops-message" data-ops-message>${escapeHtml(opsForm.message)}</p>` : ''}
+    <section class="ops-new"><details ${opsForm.picker === 'new-evac' ? 'open' : ''} data-ops-new="new-evac"><summary>New evacuation</summary>${evacForm}</details>
+    <details ${opsForm.picker === 'new-blockade' ? 'open' : ''} data-ops-new="new-blockade"><summary>New blockade</summary>${blockForm}</details></section>
+    ${ended ? `<section><h3>Recently ended</h3>${ended}</section>` : ''}`;
+}
+function opsResult(r, ok) { opsForm.message = r?.ok ? ok : (r?.reason || 'Refused.'); if (r?.ok) opsForm.picked.clear(); setLog(opsForm.message); renderCampaignPanel(); }
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (!t?.closest?.('#campaign-panel')) return;
+  if (t.matches('[data-ops-pick]')) { if (t.checked) opsForm.picked.add(t.dataset.opsPick); else opsForm.picked.delete(t.dataset.opsPick); return; }
+  if (t.matches('[data-ops-origin]')) { opsForm.origin = Number(t.value); opsForm.picked.clear(); opsForm.picker = 'new-evac'; renderCampaignPanel(); return; }
+  if (t.matches('[data-ops-destination]')) { opsForm.destination = Number(t.value); return; }
+  if (t.matches('[data-ops-target]')) { opsForm.target = Number(t.value); opsForm.picked.clear(); opsForm.picker = 'new-blockade'; renderCampaignPanel(); return; }
+  if (t.matches('[data-ops-purpose]')) { opsForm.purpose = t.value; return; }
+});
+document.addEventListener('click', (e) => {
+  const q = (sel) => e.target.closest?.(sel);
+  if (!q('#campaign-panel')) return;
+  let el;
+  if ((el = q('[data-ops-new] > summary'))) { const key = el.parentElement.dataset.opsNew; opsForm.picker = opsForm.picker === key ? null : key; opsForm.picked.clear(); return; }
+  if ((el = q('[data-ops-details]'))) { const id = el.dataset.opsDetails; if (opsForm.openDetails.has(id)) opsForm.openDetails.delete(id); else opsForm.openDetails.add(id); renderCampaignPanel(); return; }
+  if ((el = q('[data-ops-map]'))) { const i = Number(el.dataset.opsMap); closeCampaignPanel(); if (!state.mapOpen) openMap(); state.selectedPlanet = i; focusStarChartOnSystem(i, STAR_CHART_FOCUSED_ZOOM); return; }
+  if ((el = q('[data-ops-start-evac]'))) { opsResult(startPlayerEvacuation(opsForm.origin, opsForm.destination, [...opsForm.picked]), 'Evacuation ordered.'); return; }
+  if ((el = q('[data-ops-cancel]'))) { opsResult(cancelPlayerEvacuation(el.dataset.opsCancel), 'Evacuation cancelled.'); return; }
+  if ((el = q('[data-ops-escort]'))) { const key = `escort:${el.dataset.opsEscort}`; opsForm.picker = opsForm.picker === key ? null : key; opsForm.picked.clear(); renderCampaignPanel(); return; }
+  if ((el = q('[data-ops-escort-confirm]'))) { opsResult(assignPlayerEscorts(el.dataset.opsEscortConfirm, [...opsForm.picked]), 'Escort assigned.'); opsForm.picker = null; return; }
+  if ((el = q('[data-ops-start-blockade]'))) { opsResult(startPlayerBlockade(opsForm.target, [...opsForm.picked], opsForm.purpose), 'Blockade ordered.'); return; }
+  if ((el = q('[data-ops-reinforce]'))) { const key = `reinforce:${el.dataset.opsReinforce}`; opsForm.picker = opsForm.picker === key ? null : key; opsForm.picked.clear(); renderCampaignPanel(); return; }
+  if ((el = q('[data-ops-reinforce-confirm]'))) { opsResult(reinforcePlayerBlockade(el.dataset.opsReinforceConfirm, [...opsForm.picked]), 'Blockade reinforced.'); opsForm.picker = null; return; }
+  if ((el = q('[data-ops-withdraw]'))) { opsResult(withdrawPlayerBlockade(el.dataset.opsWithdraw), 'Blockade withdrawn.'); return; }
+});
+// Map: evacuation routes (dashed, with chevrons pointing the way the people go) and blockade rings.
+function mapStrategicOps() {
+  const book = ensurePlaytestState().campaign;
+  if (!book) return { evacs: [], blocks: [] };
+  const evacs = (book.evacuations || []).filter((e) => e.status === 'active' && evacuationKnowledge(e) && isChartSystemVisible(e.origin));
+  const blocks = (book.blockades || []).filter((b) => ['active', 'forming'].includes(b.status) && isChartSystemVisible(b.target)).map((b) => ({ b, k: blockadeKnowledge(b) })).filter((x) => x.k);
+  return { evacs, blocks };
+}
+function drawMapStrategicOpsOverlay() {
+  if (!mapOverlayState().operations) return;
+  const { evacs, blocks } = mapStrategicOps();
+  if (!evacs.length && !blocks.length) return;
+  const color = MAP_OVERLAY_LAYERS.find((l) => l.key === 'operations').color;
+  const t = (gameNow() / 900) % 1;
+  const labels = [];
+  for (const e of evacs) {
+    const pts = e.route.map((i) => getStarChartSystemScreen(i));
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(6, 8, 18, 0.85)'; ctx.lineWidth = 7; ctx.setLineDash([]);
+    ctx.beginPath(); pts.forEach((p, n) => (n ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.stroke();
+    ctx.strokeStyle = '#7ff0ff'; ctx.lineWidth = 2.6; ctx.setLineDash([7, 7]); ctx.lineDashOffset = -t * 14;
+    ctx.beginPath(); pts.forEach((p, n) => (n ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.stroke();
+    ctx.setLineDash([]); ctx.fillStyle = '#7ff0ff';
+    for (let n = 1; n < pts.length; n++) {
+      const a = pts[n - 1], b = pts[n];
+      const ang = Math.atan2(b.y - a.y, b.x - a.x);
+      for (const f of [0.35, 0.65]) {
+        const x = a.x + (b.x - a.x) * f, y = a.y + (b.y - a.y) * f;
+        ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+        ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(-4, -5); ctx.lineTo(-1, 0); ctx.lineTo(-4, 5); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+    const pct = Math.round(100 * e.moved / Math.max(1, e.target));
+    labels.push({ index: e.origin, text: evacuationKnowledge(e).progressKnown ? `Evacuating ${pct}%` : 'Evacuating', color: '#7ff0ff' });
+  }
+  for (const { b, k } of blocks) {
+    const p = getStarChartSystemScreen(b.target);
+    const r = MAP_PLANET_DRAW_SIZE * 0.25 + 16;
+    const weight = { light: 1.6, moderate: 2.6, heavy: 3.8, unknown: 2 }[k.coverage];
+    ctx.save();
+    ctx.strokeStyle = 'rgba(6, 8, 18, 0.85)'; ctx.lineWidth = weight + 4; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = color; ctx.lineWidth = weight; ctx.setLineDash(k.coverage === 'unknown' ? [3, 6] : k.coverage === 'light' ? [10, 8] : []);
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    // Tick marks around the ring: a perimeter, not a target marker.
+    for (let n = 0; n < 12; n++) {
+      const a = n / 12 * Math.PI * 2;
+      ctx.beginPath(); ctx.moveTo(p.x + Math.cos(a) * (r - 4), p.y + Math.sin(a) * (r - 4)); ctx.lineTo(p.x + Math.cos(a) * (r + 5), p.y + Math.sin(a) * (r + 5)); ctx.stroke();
+    }
+    ctx.restore();
+    labels.push({ index: b.target, text: `Blockade: ${k.coverage}`, color });
+  }
+  // Labels stack beneath the system, clear of its own name and of each other.
+  const rows = new Map();
+  ctx.save();
+  ctx.font = canvasUiFont(11); ctx.textAlign = 'center';
+  for (const l of labels) {
+    const p = getStarChartSystemScreen(l.index);
+    const n = rows.get(l.index) || 0; rows.set(l.index, n + 1);
+    const y = p.y + MAP_PLANET_DRAW_SIZE * 0.25 + 34 + n * 15;
+    const w = ctx.measureText(l.text).width + 8;
+    ctx.fillStyle = 'rgba(6, 8, 18, 0.88)'; ctx.fillRect(p.x - w / 2, y - 11, w, 14);
+    ctx.fillStyle = l.color; ctx.fillText(l.text, p.x, y);
+  }
+  ctx.textAlign = 'left';
+  ctx.restore();
+}
 // ---- Wars & treaties (BILATERAL-WAR-PEACE-RULES) ----
 function territoryStatusText(t) {
   if (!t) return '';
@@ -26407,7 +26766,7 @@ function renderCampaignPanel() {
   syncPlayerPolity(book);
   const world = buildCampaignWorld();
   const me = Campaign.politySummary(book, world, 'player');
-  const tabs = [['empire', 'Your empire'], ['wars', 'Wars & treaties'], ['powers', 'Other powers'], ['operations', 'Fleets & battles'], ['missions', 'Contracts & recovery'], ['history', 'Campaign log']];
+  const tabs = [['empire', 'Your empire'], ['wars', 'Wars & treaties'], ['strategic', 'Operations'], ['powers', 'Other powers'], ['operations', 'Fleets & battles'], ['missions', 'Contracts & recovery'], ['history', 'Campaign log']];
   let body = '';
   if (campaignPanelTab === 'empire') {
     const prod = me.production, econ = me.economy, ready = me.readiness;
@@ -26424,6 +26783,8 @@ function renderCampaignPanel() {
       <section><h3>Relay orders</h3><p>Connected systems: ${[...campaignRelayCoverage()].map((i) => escapeHtml(state.planets[i]?.name || '')).filter(Boolean).join(', ') || 'none beyond your current system'}.</p><ul>${orders || '<li>No queued orders.</li>'}</ul></section>`;
   } else if (campaignPanelTab === 'wars') {
     body = renderWarsAndTreaties(book, world);
+  } else if (campaignPanelTab === 'strategic') {
+    body = renderStrategicOperations(book, world);
   } else if (campaignPanelTab === 'powers') {
     // Read once, not once per power: the knowledge record is the only thing this table may count.
     const afoot = campaignKnownOperations((k) => k.phase !== 'resolved');

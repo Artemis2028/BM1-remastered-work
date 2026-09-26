@@ -364,7 +364,7 @@ const { startProbe } = require('./probe-harness.cjs');
       if (vp.width >= 2560) assert.equal(r.mode, 'two', `at ${vp.width} the spare width is not framing on both sides`);
       for (const b of r.rails) assert.ok(b.right <= r.chart.left + 1 || b.left >= r.chart.right - 1, `a rail overlaps the chart: ${JSON.stringify(b)} vs ${JSON.stringify(r.chart)}`);
       assert.ok(r.lines >= 7 && r.minSize >= 14, `rail text: ${r.lines} lines, smallest ${r.minSize}px`);
-      assert.equal(r.toggles, 5);
+      assert.equal(r.toggles, 6); // + Evacuations & blockades (EVACUATION-BLOCKADE-RULES)
       assert.equal(r.canvasKey, false, 'the overlay key is still painted into the canvas');
       assert.equal(r.backing, r.css * r.dpr, `the chart canvas is ${r.backing} pixels for ${r.css} CSS pixels at ${r.dpr}x`);
       // Toggle by pointer; zoom with the wheel and pan with a drag inside the chart.

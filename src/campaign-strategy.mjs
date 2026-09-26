@@ -136,6 +136,35 @@ export const CAMPAIGN_RULES = Object.freeze({
   // can sustain the war, not by its home realm. [DOMINION-FORMAL-WAR-RULES §5]
   expeditionarySides: Object.freeze({ dominion: Object.freeze({ wormhole: 'bajora-dominica-wormhole' }) }),
   expeditionCollapseShare: 0.35,    // at or below this share of the expedition's best, with no way to replace losses, it cannot sustain the war
+  // Strategic evacuation and blockade (EVACUATION-BLOCKADE-RULES-261530ZSEP26). Both are persistent
+  // operations with named participants and real hulls; none of these is a switch.
+  evacPeoplePerCargo: 40,           // evacuees one unit of cargo capacity carries per trip
+  evacProtectedShare: 10,           // evacuees per unit of the world's population figure an evacuation sets out to move (bounded, abstract)
+  evacMinTarget: 2000, evacMaxTarget: 60000,
+  evacLoadingDays: 1,               // a round trip is two days a jump plus a day loading
+  evacMaxHops: 6,                   // a destination further than this is not a viable route
+  evacLossRate: 0.12,               // per day, at full effective interdiction, the chance-equivalent of losing an unescorted transport
+  evacAbandonLossShare: 0.5,        // an AI sponsor abandons an evacuation once it has lost this share of its transports
+  evacMinPopulation: 5000,          // an AI evacuates only a world with people worth moving
+  evacThreatRatio: 1.2,             // an AI evacuates when the force bound for a world outweighs its defence by this
+  maxAiEvacuations: 3,
+  blockadePurposes: Object.freeze(['interdict_trade', 'cut_reinforcements', 'stop_evacuation', 'isolate_world', 'prepare_invasion']),
+  blockadeTrafficScale: 400,        // strength a blockade must field just to watch a system's traffic: coverage = S / (S + D + this)
+  blockadeEvacImpact: 0.85,         // evacuation throughput lost at full effective coverage
+  blockadeRestockImpact: 0.8,       // market restocking lost at full coverage
+  blockadeRevenueImpact: 0.5,       // trade revenue lost at full coverage
+  blockadeReinforcementImpact: 0.7, // production and resupply at the blockaded world lost at full coverage
+  blockadeEscortWeight: 1,          // an escort's strength against the blockade's, in the effective coverage an evacuation meets
+  blockadeAttrition: 0.02,          // per day, the share of the defending ships' strength (not installations) that lands on the blockade as damage
+  blockadeCooldownDays: 60,         // an AI power waits this long between blockades
+  blockadeMaxDays: 90,              // an AI blockade that has not achieved its purpose by then is lifted
+  blockadeMinSpare: 5,              // an AI needs this many spare hulls before it commits to a blockade
+  blockadeBreakRatio: 0.5,          // a blockade fielding less than this share of the local defence is broken
+  blockadeStartRatio: 0.8,          // an AI blockades a world it cannot assault when it fields this share of its defence
+  blockadeRetryDays: 180,           // an AI does not blockade again a world where its last blockade failed, for this long
+  blockadeStallDays: 45,            // an AI turns to blockade only after this long at war without being able to mount an assault
+  blockadeMinSupply: 0.3, blockadeUnsuppliedDays: 10,
+  maxBlockadesPerPolity: 1,
   // Strategic resolution of the opening war: no calendar roll ends it; it ends when one belligerent
   // loses its home world and cannot contest it, or loses every world.
   centralWar: ['terran', 'klingon'],
@@ -557,6 +586,7 @@ function settleCampaignDay(book, world, day, effects) {
   planOperations(book, world, day, effects);
   advanceOperations(book, world, day, effects);
   advanceDominion(book, world, day, effects);
+  advanceStrategicOps(book, world, day, effects);
   evaluateWars(book, world, day, effects);
   advanceRecoveries(book, world, day, effects);
   expireMissions(book, day, effects);
@@ -609,7 +639,8 @@ function settleEconomy(book, world, day, effects) {
     for (const sys of worlds) {
       const fx = stationEffects(world, sys.index, id);
       const factor = book.occupations[sys.index] ? occupationFactor(book, book.occupations[sys.index]) : 1;
-      revenue += (c.worldRevenueBase + c.worldRevenuePerPopulation * (sys.population || 0) + (fx.revenue || 0)) * factor * (1 + (fx.customs || 0) / 100);
+      revenue += (c.worldRevenueBase + c.worldRevenuePerPopulation * (sys.population || 0) + (fx.revenue || 0)) * factor * (1 + (fx.customs || 0) / 100)
+        * blockadeFlowFactor(book, sys.index, c.blockadeRevenueImpact ?? 0.5);
       materials += (c.materialsPerWorld + (fx.mining || 0)) * factor;
       food += fx.food || 0; housing += fx.housing || 0;
     }
@@ -623,7 +654,9 @@ function settleEconomy(book, world, day, effects) {
     }
     // Supply: a polity with no controlled world has none, save a garrison still on its outpost, which
     // runs on what that one station can sustain; blockaded worlds (an enemy op holding) reduce it.
-    const blockaded = worlds.filter((s) => book.operations.some((o) => o.targetSystem === s.index && o.status === 'engaged' && o.faction !== id)).length;
+    const blockaded = worlds.filter((s) => book.operations.some((o) => o.targetSystem === s.index && o.status === 'engaged' && o.faction !== id)).length
+      // ...and a standing blockade weighs by how much of the world's traffic it actually stops.
+      + worlds.reduce((n, s) => n + (1 - blockadeFlowFactor(book, s.index, 1)), 0);
     p.supply = worlds.length
       ? bounded(1 - blockaded / worlds.length * 0.6, c.supplyFloor, 1)
       : (holdsOutpost ? bounded(Number(garrison.supply) || c.supplyFloor, c.supplyFloor, 1) : c.supplyFloor);
@@ -758,7 +791,7 @@ function advanceProduction(book, world, day, effects) {
     for (const sys of controlled(world, id)) {
       const fx = stationEffects(world, sys.index, id);
       const factor = book.occupations[sys.index] ? occupationFactor(book, book.occupations[sys.index]) : 1;
-      const supply = bounded(p.supply, c.supplyFloor, 1);
+      const supply = bounded(p.supply, c.supplyFloor, 1) * blockadeFlowFactor(book, sys.index, c.blockadeReinforcementImpact ?? 0.7);
       const repairBerths = Math.floor((p.repairedToday?.[sys.index] || 0) / c.repairPointsPerBerthDay);
       capacity[sys.index] = {
         standard: Math.max(0, Math.floor((fx.berths || 0) * factor) - repairBerths),
@@ -1024,6 +1057,7 @@ export function launchOperation(book, world, factionId, hulls, targetSystem, day
     hullIds: hulls.map((h) => h.id), committed: hulls.length,
     status: 'moving', createdDay: day, arriveDay: day + Math.max(1, hops), engagedDay: null, holdDays: 0, resolvedDay: null, outcome: null, resolvedBy: null, losses: 0, defenderLosses: 0 };
   for (const h of hulls) { h.status = 'assigned'; h.opId = op.id; }
+  if (['assault', 'invasion'].includes(kind) && book.polities[factionId]) book.polities[factionId].lastAssaultDay = day;
   book.operations.push(op);
   addHistory(book, day, 'operation', `${world.factionName(factionId)} dispatched ${hulls.length} hulls toward ${world.systems[targetSystem]?.name} (${kind}).`, { opId: op.id, faction: factionId, systemIndex: targetSystem });
   effects.push({ type: 'operationLaunched', opId: op.id, faction: factionId, targetSystem, hulls: hulls.length, kind, day });
@@ -1853,6 +1887,7 @@ export function evaluateWars(book, world, day, effects) {
 function applyWarTransitionInModel(book, world, st, t, day, effects, source = 'evaluation') {
   st.status = t.to; st.statusSince = day; st.offer = null;
   const closed = closePairOperations(book, world, st.a, st.b, day, effects, t.to);
+  closePairBlockades(book, world, st.a, st.b, day, effects, t.to);
   const applied = [];
   if (t.to === 'peace') {
     for (const term of t.terms || []) {
@@ -2215,6 +2250,479 @@ function dominionEscalate(book, world, day, spare, effects) {
   op.declares = st.key; st.declared.opId = op.id;
   d.lastEscalationDay = day;
   return op;
+}
+// ---------- strategic evacuation and blockade (EVACUATION-BLOCKADE-RULES-261530ZSEP26) ----------
+// Both are persistent operations: an objective, a sponsor, a place, real hulls held for them, progress,
+// supply and risk, and explicit ways to end. Nothing here is a flag with no actors behind it.
+export const BLOCKADE_TIERS = Object.freeze([['light', 0.25], ['moderate', 0.55], ['heavy', 1]]);
+export function blockadeTier(coverage) {
+  for (const [tier, max] of BLOCKADE_TIERS) if (coverage < max) return tier;
+  return 'heavy';
+}
+function strategicBook(book) {
+  book.evacuations ||= [];
+  book.blockades ||= [];
+  return book;
+}
+// Every hull held by a live evacuation or blockade, so no hull is ever in two places at once.
+export function strategicAssignments(book) {
+  const out = new Map();
+  for (const e of book.evacuations || []) if (e.status === 'active') for (const t of [...e.transports, ...e.escorts]) out.set(t.hullId, e.id);
+  for (const b of book.blockades || []) if (['forming', 'active'].includes(b.status)) for (const h of b.hulls) out.set(h.hullId, b.id);
+  return out;
+}
+function hullOf(book, polityId, hullId) {
+  return (book.polities[polityId]?.hulls || []).find((h) => h.id === hullId && h.status !== 'lost') || null;
+}
+// People one hull carries per trip, from its real cargo capacity. A hull with no hold carries nobody.
+export function evacuationLift(book, world, hull) {
+  const cargo = Math.max(0, Number((world.shipStats(hull.shipId) || {}).cargo) || 0);
+  return Math.floor(cargo * book.config.evacPeoplePerCargo);
+}
+function shortestRoute(world, from, to, polityId) {
+  const prev = new Map([[Number(from), null]]); const q = [Number(from)];
+  while (q.length) {
+    const cur = q.shift();
+    if (cur === Number(to)) break;
+    for (const n of world.neighbours(cur)) if (!prev.has(Number(n))) { prev.set(Number(n), cur); q.push(Number(n)); }
+  }
+  if (!prev.has(Number(to))) return null;
+  const path = []; for (let x = Number(to); x != null; x = prev.get(x)) path.unshift(x);
+  // routeHops honours the chart's closed routes (the wormhole before it is charted); a path it refuses is none.
+  return world.routeHops([Number(from)], Number(to), polityId) == null ? null : path;
+}
+// Political access: the sponsor's own worlds, and those of a power that will take its people. The engine
+// says who that is (a friend, not merely somebody the sponsor is not formally at war with); a world
+// without an engine reads alliance or peace.
+function friendlyTo(world, sponsor, controller) {
+  if (!controller) return false;
+  if (controller === sponsor) return true;
+  const rel = world.relation(relSide(world, sponsor), relSide(world, controller));
+  if (rel === 'war' || rel === 'ceasefire') return false;
+  if (typeof world.receivesEvacuees === 'function') return Boolean(world.receivesEvacuees(sponsor, controller));
+  return rel === 'allied' || rel === 'peace';
+}
+function activeBlockadesAt(book, systemIndex) {
+  return (book.blockades || []).filter((b) => b.status === 'active' && Number(b.target) === Number(systemIndex));
+}
+// Is this a place the sponsor may take its people to? Explicit, reachable, friendly, not itself besieged.
+export function validateEvacuationDestination(book, world, sponsor, origin, destination) {
+  const c = book.config;
+  const dest = world.systems[Number(destination)];
+  if (!dest) return { ok: false, reason: 'No such destination.' };
+  if (Number(destination) === Number(origin)) return { ok: false, reason: 'The destination is the world being evacuated.' };
+  if (!dest.controller) return { ok: false, reason: `${dest.name} has no government to receive evacuees.` };
+  if (!friendlyTo(world, sponsor, dest.controller)) return { ok: false, reason: `${dest.name} is held by ${world.factionName(dest.controller)}, which will not receive them.` };
+  if (!(dest.population > 0)) return { ok: false, reason: `${dest.name} has no settlement to take evacuees.` };
+  const hostile = activeBlockadesAt(book, destination).filter((b) => b.power !== sponsor && formallyAtWar(world, b.power, sponsor));
+  if (hostile.some((b) => blockadeTier(b.coverage) === 'heavy')) return { ok: false, reason: `${dest.name} is under blockade.` };
+  if (book.operations.some((o) => o.status !== 'resolved' && Number(o.targetSystem) === Number(destination) && o.faction !== sponsor && formallyAtWar(world, o.faction, dest.controller)))
+    return { ok: false, reason: `${dest.name} is under attack.` };
+  const route = shortestRoute(world, origin, destination, sponsor);
+  if (!route) return { ok: false, reason: `There is no route to ${dest.name}.` };
+  if (route.length - 1 > c.evacMaxHops) return { ok: false, reason: `${dest.name} is too far: ${route.length - 1} jumps.` };
+  return { ok: true, route, hops: route.length - 1 };
+}
+export function evacuationTargetFor(book, world, origin) {
+  const c = book.config;
+  const pop = Math.max(0, Number(world.systems[Number(origin)]?.population) || 0);
+  return Math.round(bounded(pop * c.evacProtectedShare, c.evacMinTarget, c.evacMaxTarget));
+}
+export function startEvacuation(book, world, spec, day, effects = []) {
+  strategicBook(book);
+  const { sponsor, origin, destination, transports = [], escorts = [], deadlineDay = null, reason = 'the world is threatened' } = spec;
+  const o = world.systems[Number(origin)];
+  if (!o || o.controller !== sponsor) return { ok: false, reason: 'Only the world\'s own government can evacuate it.' };
+  if ((book.evacuations || []).some((e) => e.status === 'active' && Number(e.origin) === Number(origin) && e.sponsor === sponsor)) return { ok: false, reason: `${o.name} is already being evacuated.` };
+  const dest = validateEvacuationDestination(book, world, sponsor, origin, destination);
+  if (!dest.ok) return dest;
+  const taken = strategicAssignments(book);
+  const pick = (ids, role) => {
+    const out = [];
+    for (const id of ids) {
+      const h = hullOf(book, sponsor, id);
+      if (!h) return { error: `${id} is not a vessel of ${world.factionName(sponsor)}.` };
+      if (taken.has(h.id) || h.opId || h.status !== 'ready') return { error: `${id} is already committed elsewhere.` };
+      if (Number(h.systemIndex) !== Number(origin)) return { error: `${id} is not at ${o.name}.` };
+      const lift = role === 'transport' ? evacuationLift(book, world, h) : 0;
+      out.push({ hullId: h.id, vid: h.vid || h.identity?.vid || null, shipId: Number(h.shipId), lift });
+    }
+    return { list: out };
+  };
+  const tp = pick(transports, 'transport'); if (tp.error) return { ok: false, reason: tp.error };
+  const es = pick(escorts, 'escort'); if (es.error) return { ok: false, reason: es.error };
+  if (tp.list.reduce((n, t) => n + t.lift, 0) <= 0) return { ok: false, reason: 'No transport capacity: the assigned vessels carry nobody.' };
+  const target = Math.max(1, Math.round(Number(spec.target) || evacuationTargetFor(book, world, origin)));
+  const rec = { id: nextCampaignId(book, 'evac'), kind: 'evacuation', sponsor, origin: Number(origin), destination: Number(destination), route: dest.route,
+    target, moved: 0, transports: tp.list, escorts: es.list, startDay: day, deadlineDay, status: 'active', endDay: null, endReason: null, reason,
+    lost: [], removed: [], riskBank: 0, lastThroughput: 0, lastFactor: 1, initialTransports: tp.list.length, carry: 0 };
+  for (const t of [...tp.list, ...es.list]) { const h = hullOf(book, sponsor, t.hullId); h.status = 'assigned'; h.opId = rec.id; }
+  book.evacuations.push(rec);
+  addHistory(book, day, 'evacuation', `${world.factionName(sponsor)} began evacuating ${o.name} to ${world.systems[destination].name}: ${reason}.`, { id: rec.id, systemIndex: rec.origin });
+  effects.push({ type: 'evacuationStarted', id: rec.id, sponsor, origin: rec.origin, destination: rec.destination, transports: tp.list.map((t) => t.hullId), escorts: es.list.map((t) => t.hullId), target, day });
+  return { ok: true, record: rec };
+}
+export function assignEvacuationEscorts(book, world, id, hullIds, day, effects = []) {
+  const e = (book.evacuations || []).find((x) => x.id === id && x.status === 'active');
+  if (!e) return { ok: false, reason: 'No such evacuation.' };
+  const taken = strategicAssignments(book);
+  const added = [];
+  for (const hid of hullIds) {
+    const h = hullOf(book, e.sponsor, hid);
+    if (!h || taken.has(h.id) || h.opId || h.status !== 'ready') return { ok: false, reason: `${hid} is not free to escort.` };
+    if (Number(h.systemIndex) !== e.origin) return { ok: false, reason: `${hid} is not at ${world.systems[e.origin]?.name}.` };
+    added.push({ hullId: h.id, vid: h.vid || null, shipId: Number(h.shipId), lift: 0 });
+  }
+  for (const a of added) { const h = hullOf(book, e.sponsor, a.hullId); h.status = 'assigned'; h.opId = e.id; e.escorts.push(a); }
+  if (added.length) effects.push({ type: 'strategicShipsAssigned', id: e.id, sponsor: e.sponsor, role: 'escort', hulls: added.map((a) => a.hullId), systemIndex: e.origin, day });
+  return { ok: true, added: added.length };
+}
+function releaseHulls(book, polityId, list, systemIndex = null) {
+  for (const t of list) {
+    const h = hullOf(book, polityId, t.hullId);
+    if (!h) continue;
+    h.status = 'ready'; h.opId = null;
+    if (systemIndex != null) h.systemIndex = Number(systemIndex);
+  }
+}
+function endEvacuation(book, world, e, day, status, reason, effects) {
+  e.status = status; e.endDay = day; e.endReason = reason;
+  const all = [...e.transports, ...e.escorts];
+  releaseHulls(book, e.sponsor, all, status === 'completed' ? null : null);
+  addHistory(book, day, 'evacuation', `Evacuation of ${world.systems[e.origin]?.name} ${status}: ${Math.round(e.moved)} of ${e.target} moved${reason ? ` (${reason})` : ''}.`, { id: e.id, systemIndex: e.origin });
+  effects.push({ type: 'evacuationEnded', id: e.id, sponsor: e.sponsor, origin: e.origin, destination: e.destination, status, reason, moved: Math.round(e.moved), target: e.target, released: all.map((t) => t.hullId), day });
+}
+export function cancelEvacuation(book, world, id, day, effects = [], reason = 'cancelled') {
+  const e = (book.evacuations || []).find((x) => x.id === id && x.status === 'active');
+  if (!e) return { ok: false, reason: 'No such evacuation.' };
+  endEvacuation(book, world, e, day, e.moved > 0 ? 'partial' : 'cancelled', reason, effects);
+  return { ok: true, record: e };
+}
+function blockadeStrength(book, world, b) {
+  return b.hulls.reduce((n, t) => { const h = hullOf(book, b.power, t.hullId); return n + (h ? hullStrength(book, world, h) : 0); }, 0);
+}
+// What an evacuation's escorts field against the blockades it meets.
+function escortStrength(book, world, e) {
+  return e.escorts.reduce((n, t) => { const h = hullOf(book, e.sponsor, t.hullId); return n + (h ? hullStrength(book, world, h) : 0); }, 0);
+}
+// Escorts of evacuations at a system count as defenders against a blockade of it.
+function blockadeOpposition(book, world, b) {
+  let d = localDefenseStrength(book, world, b.target);
+  for (const e of book.evacuations || []) if (e.status === 'active' && e.origin === Number(b.target) && formallyAtWar(world, b.power, e.sponsor)) d += escortStrength(book, world, e);
+  return d;
+}
+export function startBlockade(book, world, spec, day, effects = []) {
+  strategicBook(book);
+  const c = book.config;
+  const { power, target, hullIds = [], purpose = 'isolate_world', authority = 'war' } = spec;
+  const sys = world.systems[Number(target)];
+  if (!sys || !sys.controller) return { ok: false, reason: 'There is nothing there to blockade.' };
+  if (sys.controller === power) return { ok: false, reason: 'A power does not blockade its own world.' };
+  if (!(c.blockadePurposes || []).includes(purpose)) return { ok: false, reason: `Unknown purpose ${purpose}.` };
+  // Authority: an ordinary military blockade is an act of war and needs one. (An authored or treaty
+  // authority is a hook for later rounds; nothing grants one yet.)
+  if (authority !== 'war' || !formallyAtWar(world, power, sys.controller)) return { ok: false, reason: `${world.factionName(power)} is not at war with ${world.factionName(sys.controller)}.` };
+  if (activeBlockadesAt(book, target).some((b) => b.power === power) || (book.blockades || []).some((b) => b.status === 'forming' && b.power === power && Number(b.target) === Number(target)))
+    return { ok: false, reason: `${world.factionName(power)} already blockades ${sys.name}.` };
+  const taken = strategicAssignments(book);
+  const list = [];
+  const near = new Set([Number(target), ...world.neighbours(Number(target)).map(Number)]);
+  for (const id of hullIds) {
+    const h = hullOf(book, power, id);
+    if (!h) return { ok: false, reason: `${id} is not a vessel of ${world.factionName(power)}.` };
+    if (taken.has(h.id) || h.opId || h.status !== 'ready') return { ok: false, reason: `${id} is already committed elsewhere.` };
+    if (power === 'player' && !near.has(Number(h.systemIndex))) return { ok: false, reason: `${id} is not at or next to ${sys.name}.` };
+    list.push({ hullId: h.id, vid: h.vid || null, shipId: Number(h.shipId), from: Number(h.systemIndex) });
+  }
+  if (!list.length) return { ok: false, reason: 'A blockade needs ships assigned to it.' };
+  // A force already on station holds the blockade at once; otherwise it forms when it arrives.
+  const hops = list.every((t) => t.from === Number(target)) ? 0
+    : power === 'player' ? 1 : (world.routeHops(controlled(world, power).map((s) => s.index), Number(target), power) ?? 1);
+  const rec = { id: nextCampaignId(book, 'blockade'), kind: 'blockade', power, target: Number(target), purpose, authority, warKey: warKey(power, sys.controller),
+    hulls: list, startDay: day, activeDay: day + Math.max(0, hops), status: hops > 0 ? 'forming' : 'active', endDay: null, endReason: null,
+    strength: 0, coverage: 0, supply: 1, unsuppliedDays: 0, damageBank: 0, losses: 0, breaches: [], segments: [], lastTier: null };
+  for (const t of list) { const h = hullOf(book, power, t.hullId); h.status = 'assigned'; h.opId = rec.id; h.systemIndex = Number(target); }
+  book.blockades.push(rec);
+  addHistory(book, day, 'blockade', `${world.factionName(power)} ${rec.status === 'forming' ? 'is moving to blockade' : 'blockades'} ${sys.name} (${purpose.replace(/_/g, ' ')}).`, { id: rec.id, systemIndex: rec.target });
+  effects.push({ type: 'blockadeStarted', id: rec.id, power, target: rec.target, purpose, hulls: list.map((t) => t.hullId), day, forming: rec.status === 'forming' });
+  if (rec.status === 'active') settleBlockadeDay(book, world, rec, day, effects, true);
+  return { ok: true, record: rec };
+}
+export function reinforceBlockade(book, world, id, hullIds, day, effects = []) {
+  const b = (book.blockades || []).find((x) => x.id === id && ['forming', 'active'].includes(x.status));
+  if (!b) return { ok: false, reason: 'No such blockade.' };
+  const taken = strategicAssignments(book);
+  const near = new Set([b.target, ...world.neighbours(b.target).map(Number)]);
+  const added = [];
+  for (const hid of hullIds) {
+    const h = hullOf(book, b.power, hid);
+    if (!h || taken.has(h.id) || h.opId || h.status !== 'ready') return { ok: false, reason: `${hid} is not free.` };
+    if (b.power === 'player' && !near.has(Number(h.systemIndex))) return { ok: false, reason: `${hid} is not at or next to ${world.systems[b.target]?.name}.` };
+    added.push({ hullId: h.id, vid: h.vid || null, shipId: Number(h.shipId), from: Number(h.systemIndex) });
+  }
+  for (const a of added) { const h = hullOf(book, b.power, a.hullId); h.status = 'assigned'; h.opId = b.id; h.systemIndex = b.target; b.hulls.push(a); }
+  if (added.length) effects.push({ type: 'strategicShipsAssigned', id: b.id, sponsor: b.power, role: 'blockade', hulls: added.map((a) => a.hullId), systemIndex: b.target, day });
+  return { ok: true, added: added.length };
+}
+function endBlockade(book, world, b, day, status, reason, effects) {
+  b.status = status; b.endDay = day; b.endReason = reason;
+  b.segments.push({ day, coverage: 0 }); b.segments = b.segments.slice(-60);
+  releaseHulls(book, b.power, b.hulls);
+  // An AI power remembers when it last lifted a blockade, and where one failed.
+  const p = book.polities[b.power];
+  if (p && b.power !== 'player') {
+    p.lastBlockadeDay = day;
+    if (['broken', 'withdrawn'].includes(status)) { p.blockadeFailures ||= {}; p.blockadeFailures[b.target] = day; }
+  }
+  addHistory(book, day, 'blockade', `${world.factionName(b.power)} blockade of ${world.systems[b.target]?.name} ${status}: ${reason}.`, { id: b.id, systemIndex: b.target });
+  effects.push({ type: 'blockadeEnded', id: b.id, power: b.power, target: b.target, status, reason, released: b.hulls.map((t) => t.hullId), losses: b.losses, day });
+}
+export function withdrawBlockade(book, world, id, day, effects = [], reason = 'withdrawn by command') {
+  const b = (book.blockades || []).find((x) => x.id === id && ['forming', 'active'].includes(x.status));
+  if (!b) return { ok: false, reason: 'No such blockade.' };
+  endBlockade(book, world, b, day, 'withdrawn', reason, effects);
+  return { ok: true, record: b };
+}
+// Ceasefire or peace between two parties ends every blockade either keeps on the other's worlds,
+// through the same transition that stands their operations down.
+function closePairBlockades(book, world, a, b, day, effects, to) {
+  const out = [];
+  for (const x of book.blockades || []) {
+    if (!['forming', 'active'].includes(x.status) || ![a, b].includes(x.power)) continue;
+    const other = x.power === a ? b : a;
+    if (world.systems[x.target]?.controller !== other) continue;
+    endBlockade(book, world, x, day, 'closed', to === 'ceasefire' ? `ceasefire with ${world.factionName(other)}` : `peace with ${world.factionName(other)}`, effects);
+    out.push(x.id);
+  }
+  return out;
+}
+function loseHull(book, world, polityId, hullId, systemIndex, day, effects, by) {
+  const h = hullOf(book, polityId, hullId);
+  if (!h) return;
+  if (polityId === 'player') {
+    effects.push({ type: 'defenderLosses', polityId: 'player', systemIndex, opId: `strategic:${hullId}:${day}`, day, attacker: by, hulls: [{ hullId, hull: 0, maxHull: h.maxHull, destroyed: true }] });
+  }
+  h.status = 'lost'; h.hull = 0; h.opId = null;
+  const p = book.polities[polityId]; if (p) p.lostHulls = (p.lostHulls || 0) + 1;
+  book.stats.hullsLost++;
+}
+function settleBlockadeDay(book, world, b, day, effects, opening = false) {
+  const c = book.config;
+  const sys = world.systems[b.target];
+  // End conditions: the objective taken, no war behind it, nobody left to hold it.
+  if (sys?.controller === b.power) return endBlockade(book, world, b, day, 'completed', `${sys.name} is in ${world.factionName(b.power)} hands`, effects);
+  if (!sys?.controller || !formallyAtWar(world, b.power, sys.controller)) return endBlockade(book, world, b, day, 'closed', `no war with ${world.factionName(sys?.controller)}`, effects);
+  // A hull that is gone, or has been taken off the station, no longer holds the blockade.
+  b.hulls = b.hulls.filter((t) => {
+    const h = hullOf(book, b.power, t.hullId);
+    if (!h) return false;
+    if (h.opId !== b.id || Number(h.systemIndex) !== b.target) { effects.push({ type: 'strategicShipReleased', id: b.id, sponsor: b.power, hullId: t.hullId, day }); return false; }
+    return true;
+  });
+  if (!b.hulls.length) return endBlockade(book, world, b, day, 'broken', 'the blockading force is gone', effects);
+  const S = blockadeStrength(book, world, b);
+  const D = blockadeOpposition(book, world, b);
+  // Supply: how far the nearest ground of its own is, and how well supplied the power is at all.
+  const own = controlled(world, b.power).map((s) => s.index);
+  const hops = own.length ? world.routeHops(own, b.target, b.power) : null;
+  const base = bounded(Number(book.polities[b.power]?.supply) || c.supplyFloor, c.supplyFloor, 1);
+  b.supply = hops == null ? c.supplyFloor : bounded(base * (1 - Math.max(0, hops - 1) * 0.2), 0, 1);
+  b.unsuppliedDays = b.supply < c.blockadeMinSupply ? (b.unsuppliedDays || 0) + 1 : 0;
+  if (b.unsuppliedDays >= c.blockadeUnsuppliedDays) return endBlockade(book, world, b, day, 'withdrawn', 'it could not be supplied', effects);
+  if (D > 0 && S < D * c.blockadeBreakRatio) return endBlockade(book, world, b, day, 'broken', 'the defence outmatches it', effects);
+  // Purpose: a blockade meant to stop an evacuation is done when there is none; one meant to isolate or
+  // prepare a world for invasion is done when an assault has become possible. An AI blockade that has
+  // achieved neither within its time is lifted. (The captain's own run until he withdraws them.)
+  if (b.power !== 'player' && !opening) {
+    if (b.purpose === 'stop_evacuation' && !(book.evacuations || []).some((e) => e.status === 'active' && e.origin === b.target))
+      return endBlockade(book, world, b, day, 'completed', 'there is no evacuation left to stop', effects);
+    if (['isolate_world', 'prepare_invasion'].includes(b.purpose) && D > 0 && S * bounded(Number(book.polities[b.power]?.supply) || 1, c.supplyFloor, 1) >= D * c.minReadinessRatioToAttack)
+      return endBlockade(book, world, b, day, 'completed', 'the world is weak enough to assault', effects);
+    if (day - (b.activeDay ?? b.startDay) >= (c.blockadeMaxDays ?? 90)) return endBlockade(book, world, b, day, 'withdrawn', 'it achieved nothing in its time', effects);
+  }
+  // Attrition: the defence wears the blockade down; the weakest hull goes first.
+  // Only ships can sortie against it: installations shield the world's traffic (they count in the
+  // coverage) but do not hunt the blockade down.
+  const mobile = defendingPolityIds(book, world, b.target).reduce((n, pid) => n + (book.polities[pid]?.hulls || []).filter((h) => h.status === 'ready' && Number(h.systemIndex) === b.target).reduce((m, h) => m + hullStrength(book, world, h), 0), 0)
+    + (book.evacuations || []).filter((e) => e.status === 'active' && e.origin === b.target && formallyAtWar(world, b.power, e.sponsor)).reduce((n, e) => n + escortStrength(book, world, e), 0);
+  if (!opening && mobile > 0) {
+    b.damageBank += mobile * c.blockadeAttrition;
+    const weakest = () => b.hulls.map((t) => ({ t, h: hullOf(book, b.power, t.hullId) })).filter((x) => x.h).sort((x, y) => hullStrength(book, world, x.h) - hullStrength(book, world, y.h) || String(x.h.id).localeCompare(String(y.h.id)))[0];
+    let w = weakest();
+    while (w && b.damageBank >= hullStrength(book, world, w.h)) {
+      b.damageBank -= hullStrength(book, world, w.h);
+      loseHull(book, world, b.power, w.h.id, b.target, day, effects, sys.controller);
+      b.losses++;
+      b.hulls = b.hulls.filter((t) => t.hullId !== w.h.id);
+      w = weakest();
+    }
+    if (!b.hulls.length) return endBlockade(book, world, b, day, 'broken', 'the blockading force was destroyed', effects);
+  }
+  const S2 = blockadeStrength(book, world, b);
+  b.strength = Math.round(S2);
+  b.coverage = Math.round(Math.min(0.95, S2 / (S2 + D + c.blockadeTrafficScale)) * 1000) / 1000;
+  const tier = blockadeTier(b.coverage);
+  const last = b.segments[b.segments.length - 1];
+  if (!last || Math.abs(last.coverage - b.coverage) >= 0.05) { b.segments.push({ day, coverage: b.coverage }); b.segments = b.segments.slice(-60); }
+  if (b.lastTier && b.lastTier !== tier) effects.push({ type: 'blockadeCoverage', id: b.id, power: b.power, target: b.target, from: b.lastTier, to: tier, day });
+  b.lastTier = tier;
+}
+// The share of a day's normal flow a blockade lets through at a system, 1 when there is none.
+export function blockadeFlowFactor(book, systemIndex, impact, day = null) {
+  let f = 1;
+  for (const b of book.blockades || []) {
+    if (Number(b.target) !== Number(systemIndex)) continue;
+    const cov = day == null ? (b.status === 'active' ? b.coverage : 0) : blockadeCoverageOn(b, day);
+    f *= 1 - cov * impact;
+  }
+  return f;
+}
+// The coverage a blockade had on a given day, from its recorded segments (0 outside its life).
+export function blockadeCoverageOn(b, day) {
+  if (day < (b.activeDay ?? b.startDay) || (b.endDay != null && day >= b.endDay)) return 0;
+  let cov = 0;
+  for (const s of b.segments || []) { if (s.day <= day) cov = s.coverage; else break; }
+  return cov;
+}
+function settleEvacuationDay(book, world, e, day, effects) {
+  const c = book.config;
+  const o = world.systems[e.origin], dst = world.systems[e.destination];
+  if (o?.controller !== e.sponsor) return endEvacuation(book, world, e, day, e.moved > 0 ? 'partial' : 'failed', `${o?.name} was lost`, effects);
+  if (!friendlyTo(world, e.sponsor, dst?.controller)) return endEvacuation(book, world, e, day, e.moved > 0 ? 'partial' : 'failed', `${dst?.name} can no longer receive them`, effects);
+  if (e.deadlineDay != null && day > e.deadlineDay) return endEvacuation(book, world, e, day, e.moved > 0 ? 'partial' : 'failed', 'the deadline passed', effects);
+  // Transports and escorts that are gone, or that have been taken off the route, no longer serve.
+  const onRoute = new Set(e.route.map(Number));
+  const keep = (list, role) => list.filter((t) => {
+    const h = book.polities[e.sponsor]?.hulls.find((x) => x.id === t.hullId);
+    if (!h || h.status === 'lost') { e.lost.push({ hullId: t.hullId, vid: t.vid, day, role }); return false; }
+    if (h.opId !== e.id || !onRoute.has(Number(h.systemIndex))) { e.removed.push({ hullId: t.hullId, vid: t.vid, day, role }); effects.push({ type: 'strategicShipReleased', id: e.id, sponsor: e.sponsor, hullId: t.hullId, day }); return false; }
+    return true;
+  });
+  e.transports = keep(e.transports, 'transport'); e.escorts = keep(e.escorts, 'escort');
+  const lift = e.transports.reduce((n, t) => n + t.lift, 0);
+  if (lift <= 0) return endEvacuation(book, world, e, day, e.moved > 0 ? 'partial' : 'failed', 'no transport capacity is left', effects);
+  if (e.sponsor !== 'player' && e.initialTransports > 0 && e.lost.filter((x) => x.role === 'transport').length / e.initialTransports >= c.evacAbandonLossShare)
+    return endEvacuation(book, world, e, day, e.moved > 0 ? 'partial' : 'failed', 'losses became unacceptable', effects);
+  const trip = Math.max(1, 2 * (e.route.length - 1) + (c.evacLoadingDays ?? 1));
+  // Interdiction: every hostile blockade on the route bites, softened by what the escorts can field
+  // against it. A weak blockade leaks; none stops traffic outright.
+  const esc = escortStrength(book, world, e) * c.blockadeEscortWeight;
+  let factor = 1, exposure = 0;
+  for (const sysIndex of e.route) for (const b of activeBlockadesAt(book, sysIndex)) {
+    if (b.power === e.sponsor || !formallyAtWar(world, b.power, e.sponsor) && !formallyAtWar(world, b.power, world.systems[sysIndex]?.controller)) continue;
+    const S = Math.max(1, b.strength);
+    const eff = b.coverage * S / (S + esc);
+    factor *= 1 - eff * c.blockadeEvacImpact;
+    exposure = Math.max(exposure, eff);
+    if (eff > 0) { b.breaches.push({ day, by: e.id, kind: 'evacuation' }); b.breaches = b.breaches.slice(-30); }
+  }
+  const through = lift / trip * factor;
+  const before = e.moved;
+  e.carry += through;
+  const step = Math.floor(e.carry);
+  e.carry -= step;
+  e.moved = Math.min(e.target, e.moved + step);
+  e.lastThroughput = Math.round(through); e.lastFactor = Math.round(factor * 1000) / 1000; e.lastDay = day;
+  if (e.moved >= e.target) return endEvacuation(book, world, e, day, 'completed', null, effects);
+  // Risk: an unescorted transport running an interdicted route can be lost.
+  if (exposure > 0 && !e.escorts.length) {
+    e.riskBank += exposure * c.evacLossRate;
+    if (e.riskBank >= 1 && e.transports.length) {
+      e.riskBank -= 1;
+      const victim = e.transports[e.transports.length - 1];
+      const by = activeBlockadesAt(book, e.origin)[0]?.power || null;
+      loseHull(book, world, e.sponsor, victim.hullId, e.origin, day, effects, by);
+      e.transports = e.transports.filter((t) => t !== victim);
+      e.lost.push({ hullId: victim.hullId, vid: victim.vid, day, role: 'transport' });
+      effects.push({ type: 'evacuationLoss', id: e.id, sponsor: e.sponsor, origin: e.origin, hullId: victim.hullId, by, day });
+    }
+  }
+  if (before < e.target / 2 && e.moved >= e.target / 2) effects.push({ type: 'evacuationHalfway', id: e.id, sponsor: e.sponsor, origin: e.origin, destination: e.destination, day });
+}
+// AI: blockade a world it cannot assault; evacuate a world that is about to fall; escort an evacuation
+// that is being interdicted. Each needs a reason and the force to do it.
+function aiStrategicOps(book, world, day, effects) {
+  const c = book.config;
+  const taken = strategicAssignments(book);
+  const free = (id, at = null) => (book.polities[id]?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && !taken.has(h.id) && (at == null || Number(h.systemIndex) === Number(at)));
+  // Evacuations.
+  const activeAi = (book.evacuations || []).filter((e) => e.status === 'active' && e.sponsor !== 'player').length;
+  if (activeAi < c.maxAiEvacuations) {
+    for (const op of book.operations) {
+      if (op.status === 'resolved' || !['assault', 'invasion'].includes(op.kind)) continue;
+      const sys = world.systems[op.targetSystem];
+      const sponsor = sys?.controller;
+      if (!sponsor || sponsor === 'player' || sponsor === op.faction || !book.polities[sponsor]) continue;
+      if ((sys.population || 0) < c.evacMinPopulation) continue;
+      if ((book.evacuations || []).some((e) => e.status === 'active' && e.origin === sys.index)) continue;
+      if ((book.evacuations || []).some((e) => e.status === 'active' && e.sponsor === sponsor)) continue;
+      const attack = operationHulls(book, op).reduce((n, h) => n + hullStrength(book, world, h), 0);
+      if (attack < localDefenseStrength(book, world, sys.index) * c.evacThreatRatio) continue;
+      const carriers = free(sponsor, sys.index).filter((h) => evacuationLift(book, world, h) > 0)
+        .sort((x, y) => hullStrength(book, world, x) - hullStrength(book, world, y) || String(x.id).localeCompare(String(y.id)));
+      const garrison = c.homeGarrisonPerWorld || 0;
+      const transports = carriers.slice(0, Math.max(0, Math.min(3, carriers.length - garrison)));
+      if (!transports.length) continue;
+      const dests = controlled(world, sponsor).filter((d) => d.index !== sys.index).map((d) => ({ d, v: validateEvacuationDestination(book, world, sponsor, sys.index, d.index) }))
+        .filter((x) => x.v.ok && !book.operations.some((o2) => o2.status !== 'resolved' && o2.targetSystem === x.d.index)).sort((x, y) => x.v.hops - y.v.hops || x.d.index - y.d.index);
+      if (!dests.length) continue;
+      startEvacuation(book, world, { sponsor, origin: sys.index, destination: dests[0].d.index, transports: transports.map((h) => h.id), reason: `${world.factionName(op.faction)} forces are bound for it` }, day, effects);
+      break;
+    }
+  }
+  // Escorts for interdicted AI evacuations.
+  for (const e of book.evacuations || []) {
+    if (e.status !== 'active' || e.sponsor === 'player' || e.escorts.length) continue;
+    if (!activeBlockadesAt(book, e.origin).some((b) => formallyAtWar(world, b.power, e.sponsor))) continue;
+    const spare = free(e.sponsor, e.origin).filter((h) => !e.transports.some((t) => t.hullId === h.id)).slice(0, 3);
+    if (spare.length) assignEvacuationEscorts(book, world, e.id, spare.map((h) => h.id), day, effects);
+  }
+  // Blockades: instead of an assault it cannot make.
+  for (const id of Object.keys(book.polities)) {
+    if (id === 'player' || id === 'dominion' || isLockedParty(id)) continue;
+    if ((book.blockades || []).filter((b) => b.power === id && ['forming', 'active'].includes(b.status)).length >= c.maxBlockadesPerPolity) continue;
+    const p = book.polities[id];
+    if (day - (p.lastBlockadeDay ?? -1e9) < (c.blockadeCooldownDays ?? 60)) continue;
+    const targets = reachableEnemyTargets(book, world, id);
+    if (!targets.length) continue;
+    // A reason, not an opportunity: a power turns to blockade when its war has stalled (no assault for a
+    // season), or to stop an enemy evacuation it can reach.
+    const stalledSince = Math.max(p.lastAssaultDay ?? -1e9, p.blockadeStallFrom ?? (p.blockadeStallFrom = day));
+    const stalled = day - stalledSince >= (c.blockadeStallDays ?? 45);
+    const evacTargets = new Set((book.evacuations || []).filter((e) => e.status === 'active' && formallyAtWar(world, id, e.sponsor)).map((e) => e.origin));
+    if (!stalled && !targets.some((t) => evacTargets.has(t.index))) continue;
+    const held = new Set(controlled(world, id).map((s) => s.index));
+    const perSystem = {};
+    const ready = free(id);
+    for (const h of ready) perSystem[h.systemIndex] = (perSystem[h.systemIndex] || 0) + 1;
+    const spare = ready.filter((h) => { if (!held.has(h.systemIndex)) return true; if (perSystem[h.systemIndex] > c.homeGarrisonPerWorld) { perSystem[h.systemIndex]--; return true; } return false; });
+    if (spare.length < (c.blockadeMinSpare ?? 5)) continue;
+    const chosen = spare.slice(0, Math.min(spare.length, 6));
+    const S = chosen.reduce((n, h) => n + hullStrength(book, world, h), 0) * bounded(p.supply, c.supplyFloor, 1);
+    for (const t of targets.slice(0, 3)) {
+      if (!stalled && !evacTargets.has(t.index)) continue;
+      const D = localDefenseStrength(book, world, t.index);
+      if (S >= D * c.minReadinessRatioToAttack) break; // an assault is possible: planning mounts that instead
+      if (S < D * c.blockadeStartRatio || activeBlockadesAt(book, t.index).length) continue;
+      if (day - (p.blockadeFailures?.[t.index] ?? -1e9) < (c.blockadeRetryDays ?? 180)) continue;
+      const evacuating = (book.evacuations || []).some((e) => e.status === 'active' && e.origin === t.index);
+      const r = startBlockade(book, world, { power: id, target: t.index, hullIds: chosen.map((h) => h.id), purpose: evacuating ? 'stop_evacuation' : 'isolate_world' }, day, effects);
+      if (r.ok) { p.lastBlockadeDay = day; break; }
+    }
+  }
+}
+function advanceStrategicOps(book, world, day, effects) {
+  if (!book.evacuations && !book.blockades && book.config.strategicOps === false) return;
+  strategicBook(book);
+  for (const b of book.blockades) {
+    if (b.status === 'forming' && day >= b.activeDay) { b.status = 'active'; effects.push({ type: 'blockadeActive', id: b.id, power: b.power, target: b.target, day }); }
+    if (b.status === 'active') settleBlockadeDay(book, world, b, day, effects);
+  }
+  for (const e of book.evacuations) if (e.status === 'active') settleEvacuationDay(book, world, e, day, effects);
+  if (book.config.aiStrategicOps !== false) aiStrategicOps(book, world, day, effects);
+  // Bounded history: finished operations are kept for the record, the newest forty of each kind.
+  const trim = (list) => { const live = list.filter((x) => ['active', 'forming'].includes(x.status)); const done = list.filter((x) => !['active', 'forming'].includes(x.status)); return live.concat(done.slice(-40)); };
+  book.evacuations = trim(book.evacuations); book.blockades = trim(book.blockades);
 }
 function expireMissions(book, day, effects) {
   for (const m of book.missions) if (['offered', 'active'].includes(m.status) && m.deadlineDay != null && day > m.deadlineDay) { m.status = 'expired'; m.reason = 'deadline passed'; effects.push({ type: 'missionExpired', missionId: m.id, day }); }

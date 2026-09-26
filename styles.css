@@ -4851,3 +4851,19 @@ button:disabled {
 .map-rail.map-rail-overlay { background: rgba(4, 8, 16, 0.86); font-size: 14px; }
 .map-rail.map-rail-overlay h3 { font-size: 13px; }
 .fleet-manager .fleet-identity { color: #b8c4d8; font-size: 14px; margin: 4px 0 6px; }
+
+/* Empire & campaign → Operations (evacuations, blockades) */
+#campaign-panel .ops-card {border:1px solid #3a3550;border-radius:8px;padding:10px 14px;margin:10px 0;background:rgba(20,22,38,.6);}
+#campaign-panel .ops-card h4 {margin:0 0 4px;letter-spacing:.06em;font-size:15px;}
+#campaign-panel .ops-card p {margin:3px 0;}
+#campaign-panel .ops-evac {border-left:4px solid #7ff0ff;}
+#campaign-panel .ops-blockade {border-left:4px solid #ff6f8a;}
+#campaign-panel .ops-bar {height:10px;border-radius:5px;background:#2a2740;overflow:hidden;margin:6px 0;}
+#campaign-panel .ops-bar span {display:block;height:100%;background:linear-gradient(90deg,#4fd6e8,#7ff0ff);}
+#campaign-panel .ops-actions button {margin:4px 6px 0 0;}
+#campaign-panel .ops-picker {list-style:none;padding:0;margin:6px 0;}
+#campaign-panel .ops-details {font-size:14px;color:#c9c4dc;margin:6px 0;}
+#campaign-panel .ops-new details {margin:8px 0;}
+#campaign-panel .ops-new summary {cursor:pointer;font-weight:600;}
+#campaign-panel .ops-new label {display:block;margin:6px 0;}
+#campaign-panel .ops-message {color:#ffe38a;}

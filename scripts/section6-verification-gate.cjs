@@ -506,7 +506,7 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.ok(r.visible, 'no panel');
     assert.ok(r.rail.right <= r.panel.right + 1 && r.rail.left >= r.panel.left, `the panel is outside the chart window: ${JSON.stringify(r.rail)}`);
     assert.ok(r.lines >= 7 && r.minSize >= 13, `narrow panel text: ${r.lines} lines, smallest ${r.minSize}px`);
-    assert.equal(r.toggles, 5);
+    assert.equal(r.toggles, 6); // + Evacuations & blockades (EVACUATION-BLOCKADE-RULES)
     const at = await ev(() => { const t = testBM1; const p = t.mapOverlayLegendRowPoint('cargo'); return { ...p, before: t.mapOverlayState().cargo }; });
     await page.mouse.click(at.x, at.y);
     assert.notEqual(await ev(() => testBM1.mapOverlayState().cargo), at.before, 'the toggle did not work');
