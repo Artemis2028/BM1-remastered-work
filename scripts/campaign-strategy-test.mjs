@@ -153,7 +153,7 @@ test('captured-industry integration works for every conqueror/source pairing inc
   assert.equal(C.getPolity(book, 'romulan').integrations[8].qualification.qualifies, false);
 });
 
-test('the Earth–Klingon war resolves strategically, once: never by a roll, only when a belligerent loses its home world and cannot contest it, or holds nothing', () => {
+test('the Earth–Klingon war resolves strategically, once: never by a roll; losing the capital alone is not enough while the fleet can contest it; a broken fleet or holding nothing settles it', () => {
   const { world } = makeWorld();
   const book = C.createCampaignBook('seed-W', 1); C.initializeCampaign(book, world);
   let resolved = run(book, world, 2, 40).filter((e) => e.type === 'warResolved');
@@ -172,8 +172,13 @@ test('the Earth–Klingon war resolves strategically, once: never by a roll, onl
   // a belligerent with no worlds at all also sues for peace
   const { world: w2 } = makeWorld(); const b2 = C.createCampaignBook('seed-W2', 1); C.initializeCampaign(b2, w2);
   for (const sys of w2.systems) if (sys.controller === 'klingon') sys.controller = 'terran';
-  const r2 = run(b2, w2, 2, 10).filter((e) => e.type === 'warResolved');
+  // Changed in the bilateral-peace round: every war is evaluated on the same rules, so a Klingon Empire
+  // that holds nothing loses its other war (with the Cardassians) the same day. The central war is
+  // checked here; each settlement is bilateral and names its own pair.
+  const r2all = run(b2, w2, 2, 10).filter((e) => e.type === 'warResolved');
+  const r2 = r2all.filter((e) => e.key === 'klingon:terran');
   assert.equal(r2.length, 1); assert.equal(r2[0].loser, 'klingon'); assert.match(r2[0].reason, /holds no world/);
+  assert.ok(r2all.every((e) => e.loser === 'klingon' && [e.a, e.b].includes('klingon')), 'a settlement named a pair the Klingons are not in');
 });
 
 // An opening is a strategic condition, not a date. These fixtures author the condition rather than
@@ -223,8 +228,12 @@ test('Dominion: the expedition is an opening, not a date — elapsed days alone 
 
   // 3. The stages dwell rather than tick: the crossing cannot precede the two dwells.
   assert.ok(book.dominion.openedDay >= 201, 'the opening was dated before the condition existed');
-  assert.ok(book.dominion.openedDay - 201 >= book.config.dominionOpeningSustainDays,
-    `the arc unlocked after ${book.dominion.openedDay - 201} eligible day(s), inside its own window`);
+  // Day 201 is itself an eligible day, so the count of eligible days up to the opening is inclusive.
+  // (Before the bilateral-peace round this read `openedDay - 201 >= sustain`, which only held because
+  // the uninterrupted war's numbers wobbled; a ceasefire that stops the fighting steadies them, and the
+  // opening then lands on exactly the sustain-th eligible day.)
+  assert.ok(book.dominion.openedDay - 201 + 1 >= book.config.dominionOpeningSustainDays,
+    `the arc unlocked after ${book.dominion.openedDay - 201 + 1} eligible day(s), inside its own window`);
   assert.ok(op.createdDay - book.dominion.openedDay >= book.config.dominionReconDwellDays + book.config.dominionStagingDwellDays,
     `the expedition crossed ${op.createdDay - book.dominion.openedDay} days after the opening, inside its own dwells`);
 

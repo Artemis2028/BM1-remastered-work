@@ -10,6 +10,7 @@ const JUMP_CAMPAIGN_REPORT_LIMIT = 3;
 const PLAYER_DISABLE_GRACE_MS = 3000;
 import * as Fleet from './ship-fleet.mjs';
 import * as Identity from './vessel-identity.mjs';
+import { WAR_RULES } from './war-termination.mjs';
 import { HOJ_WEAPON_ID, createHojFlight, stepHojFlight, sampleHojIfDue } from './ship-hoj.mjs';
 import { EW_MODULES, sanitizeEW, snapshotEW, stopEW, rollEW, manageEW, fundElectronics } from './ship-ew.mjs';
 import { SENSOR_RULES, SENSOR_SUITES, SensorWorld, sensorProfile, ensureSensorEquipment, defaultTransponder, fundSensors, sensorDistance, visualReach, freshTrack, receivedDeclaration, pointImpact } from './ship-sensors.mjs';
@@ -4346,6 +4347,8 @@ function getFactionAttitude(faction = 'neutral') {
   if (faction === 'pirate') return 'hostile';
   if (faction === state.playerFaction) return 'friendly';
   if (areFactionsOpposed(state.playerFaction,faction)) return 'hostile';
+  // The captain's empire at war with this power, whatever flag is raised. [bilateral peace]
+  if (state.gameStarted && playerEmpireAtWar(faction)) return 'hostile';
   if (areFactionsAligned(state.playerFaction,faction)) return 'friendly';
   return 'neutral';
 }
@@ -9575,6 +9578,9 @@ function collectGalaxyReports(day = state.day) {
     const before = priorStates.get(pair) || (history.length < 120 ? (baseFactionWar(e.a,e.b) ? 'war' : 'peace') : null);
     priorStates.set(pair,e.status);
     if (index < overlap) continue;
+    // War transitions and the captain's own pair records have their own reports, which go through the
+    // captain's sources (reportWarTransition); publishing the raw history entry would bypass them.
+    if (e.transition || e.seed || e.incident || e.a === PLAYER_SIDE || e.b === PLAYER_SIDE) continue;
     const kind = e.status === 'war' && before && before !== 'war' ? 'War declared' : e.status === 'peace' && before === 'war' ? 'Peace agreement' : e.status === 'crisis' && before && before !== 'crisis' ? 'Border crisis' : 'Diplomatic update';
     // "Public" means public to powers the captain knows exist. A settlement between two powers, one of
     // which they have never met and cannot name, is not news they could have read. [playtest]
@@ -9845,7 +9851,199 @@ window.addEventListener(
 
 function diplomacyBook() {
   const p = ensurePlaytestState();
-  return (p.diplomacy ||= World.createDiplomacy(fleetBook().campaignId, state.day));
+  const book = (p.diplomacy ||= World.createDiplomacy(fleetBook().campaignId, state.day));
+  if (!book.playerSeeded && state.gameStarted) seedPlayerWars(book);
+  return book;
+}
+// ---- the player's empire as a party to war (BILATERAL-WAR-PEACE-RULES §7) ----
+// The captain's empire has its own pair records ('player' ↔ faction). A new game inherits the wars its
+// starting faction is fighting; a save from before this record existed inherits them once, from the
+// flag it was saved under. From then on only the empire's own acts and settlements change them, and
+// raising a flag changes none of them.
+function seedPlayerWars(book) {
+  const from = normalizeFactionKey(getPlayerFlag());
+  book.playerSeeded = { from, day: state.day };
+  if (!isRecognizedFactionKey(from)) return;
+  for (const f of Object.keys(factionNames)) {
+    if (!isRecognizedFactionKey(f) || f === from || ['borg', 'pirate'].includes(f)) continue;
+    if (World.relation(book, from, f, baseFactionWar(from, f)).status !== 'war') continue;
+    World.setDiplomacy(book, PLAYER_SIDE, f, 'war', state.day, false, `Inherited from the ${formatFaction(from)} cause`);
+    markDiplomacyHistory(book, { seed: true });
+    book.pairs[World.pairKey(PLAYER_SIDE, f)].inheritedFrom = from;
+  }
+}
+function markDiplomacyHistory(book, marks) {
+  const last = book.history.at(-1);
+  if (last) Object.assign(last, marks);
+}
+function playerRelation(faction) {
+  if (!isRecognizedFactionKey(faction) || faction === PLAYER_SIDE) return { status: 'peace', tension: 0 };
+  return World.relation(diplomacyBook(), PLAYER_SIDE, faction, false);
+}
+function playerEmpireAtWar(faction) {
+  return isRecognizedFactionKey(faction) && !['borg', 'pirate'].includes(faction) && playerRelation(faction).status === 'war';
+}
+// Relation between two campaign parties, either of which may be the player's empire.
+function campaignPartyRelation(a, b) {
+  if (a === b) return 'allied';
+  if (a === PLAYER_SIDE) return isRecognizedFactionKey(b) ? playerRelation(b).status : 'peace';
+  if (b === PLAYER_SIDE) return isRecognizedFactionKey(a) ? playerRelation(a).status : 'peace';
+  if (!isRecognizedFactionKey(a) || !isRecognizedFactionKey(b)) return 'peace';
+  if (areFactionsAligned(a, b)) return 'allied';
+  return worldRelation(a, b).status;
+}
+// Every pair at war or in ceasefire (or, when asked, any recorded pair) the campaign should consider,
+// with the war instance it is in. Parties are campaign polity ids.
+function campaignWarPairs() {
+  const book = diplomacyBook();
+  const out = new Map();
+  const add = (a, b, r) => { const key = World.pairKey(a, b); if (!out.has(key)) out.set(key, { a, b, status: r.status, warId: r.warId || `${key}#base`, warStarted: r.warStarted ?? null, inheritedFrom: r.inheritedFrom || null }); };
+  for (const r of Object.values(book.pairs)) {
+    if (!r.a || !r.b || campaignOwnsDiplomacy(r.a, r.b)) continue;
+    if (![r.a, r.b].every((x) => x === PLAYER_SIDE || isRecognizedFactionKey(x))) continue;
+    add(r.a, r.b, r);
+  }
+  // Wars that exist only in lore (never recorded) are wars too.
+  const keys = Object.keys(factionNames).filter((f) => isRecognizedFactionKey(f) && !['borg', 'pirate'].includes(f) && !campaignOwnsDiplomacy(f, f));
+  for (let i = 0; i < keys.length; i++) for (let j = i + 1; j < keys.length; j++) {
+    const key = World.pairKey(keys[i], keys[j]);
+    if (out.has(key) || !baseFactionWar(keys[i], keys[j])) continue;
+    add(keys[i], keys[j], worldRelation(keys[i], keys[j]));
+  }
+  return [...out.values()];
+}
+// The diplomatic side of a campaign transition: the formal record, the local scene, the news. The
+// model has already stood the pair's operations down, closed their contracts and settled territory.
+function applyWarTransitionEngine(e, day) {
+  const book = diplomacyBook();
+  const record = World.setDiplomacy(book, e.a, e.b, e.to, day, e.a !== PLAYER_SIDE && e.b !== PLAYER_SIDE && baseFactionWar(e.a, e.b),
+    e.to === 'ceasefire' ? `Ceasefire: ${e.reason}` : `${e.basis === 'decisive' ? 'Dictated peace' : 'Peace settlement'}: ${e.reason}`);
+  markDiplomacyHistory(book, { transition: e.to, key: e.key, warId: e.warId });
+  reconcileDiplomacy();
+  reportWarTransition(e, day);
+  if (e.a === PLAYER_SIDE || e.b === PLAYER_SIDE)
+    setLog(`${e.to === 'ceasefire' ? 'Ceasefire' : 'Peace'} with ${formatFaction(e.a === PLAYER_SIDE ? e.b : e.a)}: ${e.reason}.`);
+  return record;
+}
+function warPartyName(id) { return id === PLAYER_SIDE ? 'your empire' : formatFaction(id); }
+function warTermsText(terms, known = true) {
+  if (!terms?.length || !known) return '';
+  const by = (status) => terms.filter((t) => t.status === status).map((t) => state.planets[t.systemIndex]?.name).filter(Boolean);
+  const parts = [];
+  const kept = by('retained'), returned = by('returned'), disputed = by('disputed');
+  if (kept.length) parts.push(`retained by the occupier: ${kept.join(', ')}`);
+  if (returned.length) parts.push(`returned: ${returned.join(', ')}`);
+  if (disputed.length) parts.push(`disputed: ${disputed.join(', ')}`);
+  return parts.length ? ` Terms — ${parts.join('; ')}.` : '';
+}
+// Ceasefire and peace reports are Diplomacy news and go through the captain's sources. A party learns
+// at once; anyone else learns through the best source they have at a world either party holds —
+// being there or having ships there the same day, their own relay two days later, hearsay later still —
+// and not at all about two powers they have never had contact with.
+function warTransitionSource(e) {
+  if (e.a === PLAYER_SIDE || e.b === PLAYER_SIDE) return 'party';
+  if (![e.a, e.b].every((f) => campaignPowerContact(f))) return 'none';
+  const ctx = campaignIntelContext();
+  let best = 'rumour';
+  const rank = { local: 3, fleet: 3, relay: 2, rumour: 1 };
+  for (let i = 0; i < state.planets.length; i++) {
+    const holder = campaignPolityIdFor(getSystemControl(i).polityId);
+    if (holder !== e.a && holder !== e.b) continue;
+    const src = campaignIntelSource(i, ctx);
+    if ((rank[src] || 0) > (rank[best] || 0)) best = src;
+  }
+  return best;
+}
+const WAR_REPORT_RELAY_DELAY = 2;
+function reportWarTransition(e, day) {
+  const source = warTransitionSource(e);
+  if (source === 'none') return false;
+  const occupiedLeft = e.to === 'ceasefire'
+    ? Object.entries(campaignBook().territory || {}).filter(([i, t]) => t.status === 'occupied' && [e.a, e.b].includes(t.holder) && [e.a, e.b].includes(t.claimant)).map(([i]) => state.planets[i]?.name).filter(Boolean)
+    : [];
+  const kind = e.to === 'ceasefire' ? 'Ceasefire' : e.basis === 'decisive' ? 'Dictated peace' : 'Peace settlement';
+  const who = `${warPartyName(e.a)} and ${warPartyName(e.b)}`.replace(/^your/, 'Your');
+  const base = e.to === 'ceasefire'
+    ? `${who} agreed a ceasefire: ${e.reason}.${occupiedLeft.length ? ` ${occupiedLeft.join(', ')} ${occupiedLeft.length === 1 ? 'remains' : 'remain'} occupied; no settlement yet.` : ''}`
+    : `${who} signed a peace${e.winner ? `; ${warPartyName(e.winner)} dictated the terms` : ''}: ${e.reason}.`;
+  const delay = source === 'relay' ? WAR_REPORT_RELAY_DELAY
+    : source === 'rumour' ? 5 + Math.floor(intelRandom(`${fleetBook().campaignId}:war-news:${e.key}:${e.warId}:${e.to}`)() * 6) : 0;
+  const detailed = source !== 'rumour';
+  const report = {
+    id: `diplomacy:war:${e.key}:${e.warId || ''}:${e.to}`, day: day + delay, kind, category: 'diplomacy',
+    factions: [e.a, e.b].filter(isRecognizedFactionKey), playerRelated: source === 'party',
+    confidence: source === 'party' ? 'Signed by your government' : source === 'rumour' ? 'Unconfirmed civilian report' : source === 'relay' ? 'Relay dispatch' : 'Confirmed local observation',
+    text: `${base}${e.to === 'peace' ? warTermsText(e.terms, detailed) : ''}`,
+  };
+  if (delay === 0) return addGalaxyReport(report);
+  const news = galaxyNewsBook();
+  news.pending.push(report);
+  news.pending = news.pending.slice(-120);
+  return true;
+}
+// A hostile act by the captain's empire against a power it is not at war with is an incident on that
+// pair (§6). It never restores the old war: a war that follows is a new instance.
+const PLAYER_INCIDENT_TENSION = Object.freeze({ ship: 30, station: 50, world: 100 });
+function recordPlayerHostileAct(faction, kind) {
+  const f = normalizeFactionKey(faction);
+  if (!isRecognizedFactionKey(f) || ['borg', 'pirate'].includes(f) || !state.gameStarted) return null;
+  const book = diplomacyBook();
+  const old = playerRelation(f);
+  const key = World.pairKey(PLAYER_SIDE, f);
+  if (old.status === 'war') { book.pairs[key] = { ...old, a: old.a || PLAYER_SIDE, b: old.b || f, lastHostileDay: state.day }; return 'war'; }
+  const label = { ship: 'a vessel attacked', station: 'an installation destroyed', world: 'a world seized' }[kind] || 'a hostile act';
+  if (old.status === 'ceasefire' || kind === 'world') {
+    const r = World.setDiplomacy(book, PLAYER_SIDE, f, 'war', state.day, false, old.status === 'ceasefire' ? `Ceasefire broken: ${label}` : `War: ${label}`);
+    book.pairs[key].lastHostileDay = state.day;
+    delete book.pairs[key].inheritedFrom; // a war the empire started is its own
+    markDiplomacyHistory(book, { transition: 'war', key });
+    setLog(`${old.status === 'ceasefire' ? 'Ceasefire broken' : 'War'} with ${formatFaction(f)}: ${label}.`);
+    reconcileDiplomacy();
+    return r.status;
+  }
+  const tension = Math.min(100, (old.tension || 0) + (PLAYER_INCIDENT_TENSION[kind] || 30));
+  const status = tension >= 100 ? 'war' : tension >= 70 ? 'crisis' : old.status === 'crisis' ? 'crisis' : 'peace';
+  if (status === 'war') {
+    World.setDiplomacy(book, PLAYER_SIDE, f, 'war', state.day, false, `War: repeated incidents (${label})`);
+    markDiplomacyHistory(book, { transition: 'war', key });
+    delete book.pairs[key].inheritedFrom;
+    setLog(`War with ${formatFaction(f)}: repeated incidents.`);
+    reconcileDiplomacy();
+  } else {
+    book.pairs[key] = { ...old, a: PLAYER_SIDE, b: f, tension, status, since: status === old.status ? old.since : state.day, lastHostileDay: state.day };
+    book.history.push({ day: state.day, a: PLAYER_SIDE, b: f, status, tension, reason: `Incident: ${label}`, incident: true });
+    book.history = book.history.slice(-120);
+  }
+  book.pairs[key].lastHostileDay = state.day;
+  return status;
+}
+// Tension from the captain's incidents cools when nothing more happens; a crisis becomes peace again.
+function coolPlayerIncidents(day) {
+  const book = diplomacyBook();
+  for (const r of Object.values(book.pairs)) {
+    if (r.a !== PLAYER_SIDE && r.b !== PLAYER_SIDE) continue;
+    if (r.status !== 'peace' && r.status !== 'crisis') continue;
+    if (!(r.tension > 15)) continue;
+    r.tension = Math.max(15, r.tension - 1);
+    if (r.status === 'crisis' && r.tension < 70) { r.status = 'peace'; r.since = day; }
+  }
+}
+// The captain answers an offer.
+function answerWarOffer(key, accept) {
+  const book = campaign();
+  const st = book.warStates?.[key];
+  if (!st?.offer) { setLog('That offer is no longer open.'); return false; }
+  const world = buildCampaignWorld(true);
+  const r = Campaign.answerWarOffer(book, world, key, Boolean(accept), state.day);
+  if (!r.ok) { setLog(r.reason); return false; }
+  if (r.refused) {
+    adjustFactionStanding(r.offer.from, WAR_RULES.refusalStanding, { silent: true });
+    setLog(`You refused ${formatFaction(r.offer.from)}'s offer of ${r.offer.to === 'ceasefire' ? 'a ceasefire' : 'peace'}. The war goes on.`);
+  }
+  applyCampaignEffects(r.effects, state.day);
+  campaignWorldCache = null;
+  updateStats();
+  return true;
 }
 function baseFactionWar(a, b) {
   return Boolean(
@@ -9877,7 +10075,7 @@ function diplomaticPairs() {
       pairs.set(World.pairKey(a, b), [a, b]);
   }
   for (const pair of Object.values(diplomacyBook().pairs))
-    if (pair.a && pair.b && !campaignOwnsDiplomacy(pair.a, pair.b)) pairs.set(World.pairKey(pair.a, pair.b), [pair.a, pair.b]);
+    if (pair.a && pair.b && isRecognizedFactionKey(pair.a) && isRecognizedFactionKey(pair.b) && !campaignOwnsDiplomacy(pair.a, pair.b)) pairs.set(World.pairKey(pair.a, pair.b), [pair.a, pair.b]);
   return [...pairs.values()].sort((a, b) => World.pairKey(...a).localeCompare(World.pairKey(...b)));
 }
 function reconcileDiplomacy() {
@@ -9889,7 +10087,8 @@ function reconcileDiplomacy() {
     npc.hostile =
       activePersonalAttack ||
       getFactionStanding(npc.faction) <= -50 ||
-      areFactionsOpposed(npc.faction, getPlayerFlag());
+      areFactionsOpposed(npc.faction, getPlayerFlag()) ||
+      playerEmpireAtWar(npc.faction);
     if (npc.attackId && !areFactionsOpposed(npc.faction, getSystemFaction())) {
       npc.attackId = null;
       npc.role = 'ceasefireWithdrawal';
@@ -9909,6 +10108,7 @@ function reconcileDiplomacy() {
   updateStats();
 }
 function advanceWorldDiplomacy(day) {
+  coolPlayerIncidents(day);
   const book = diplomacyBook(),
     last = book.history.at(-1);
   World.advanceDiplomacy(book, day, diplomaticPairs(), baseFactionWar);
@@ -9934,6 +10134,14 @@ function advanceWorldDiplomacy(day) {
 function changeDiplomacy(a, b, status) {
   if (!isRecognizedFactionKey(a) || !isRecognizedFactionKey(b))
     throw new Error('Unknown diplomatic faction.');
+  // Ending or suspending a war from the debug menu takes the same path as any settlement. [bilateral peace]
+  if ((status === 'peace' || status === 'ceasefire') && ['war', 'ceasefire'].includes(worldRelation(a, b).status) && status !== worldRelation(a, b).status) {
+    const book = campaign();
+    const effects = Campaign.forceWarTransition(book, buildCampaignWorld(true), a, b, status, state.day, 'Directed settlement');
+    applyCampaignEffects(effects, state.day);
+    campaignWorldCache = null;
+    return `${formatFaction(a)} and ${formatFaction(b)}: ${status}.`;
+  }
   const event = World.setDiplomacy(diplomacyBook(), a, b, status, state.day, baseFactionWar(a, b));
   if (status === 'war' || status === 'crisis')
     for (let i = 0; i < state.planets.length; i++) {
@@ -12097,6 +12305,9 @@ function claimCurrentSystem() {
   }
   // Claiming takes control and explicitly transfers the previous holder's government installations;
   // foreign and private stations keep their owners.
+  // Taking a power's world is an act of war on the captain's empire's own record. [bilateral peace]
+  const seizedFrom = getSystemControl(state.currentPlanet).controller;
+  if (isRecognizedFactionKey(seizedFrom)) recordPlayerHostileAct(seizedFrom, 'world');
   transferSystemControlToPlayer(state.currentPlanet);
   const claimCost = getSystemClaimCost(state.currentPlanet);
   state.latinum = Math.max(0, state.latinum - claimCost.latinum);
@@ -18000,6 +18211,7 @@ function destroyNpcShip(npc) {
   state.latinum += reward;
   if (npc.faction) {
     applyKillStanding(npc.faction, npc.role === 'patrol' ? -4 : -2);
+    recordPlayerHostileAct(npc.faction, 'ship');
     const witnesses = new Set();
     for (const other of state.npcShips || []) {
       if (!other || other.destroyed || other === npc || isPlayerEscortNpc(other)) continue;
@@ -18080,6 +18292,7 @@ function destroyStation(station) {
   const reward = Math.max(65, Math.round((station.maxCombatHull || 100) * 0.18));
   state.latinum += reward;
   applyKillStanding(station.faction || getSystemFaction(state.currentPlanet), -6);
+  recordPlayerHostileAct(station.faction || getSystemFaction(state.currentPlanet), 'station');
   checkSystemFeatUnlocks();
   const claimStatus = getClaimSystemStatus(state.currentPlanet);
   setLog(claimStatus.canClaim
@@ -18489,7 +18702,7 @@ function chooseFleetAttackFaction(systemIndex = state.currentPlanet) {
     && faction !== 'borg'
     && faction !== localFaction
     && faction !== state.playerFaction
-    && (areFactionsOpposed(faction, localFaction) || areFactionsOpposed(faction, state.playerFaction))
+    && (areFactionsOpposed(faction, localFaction) || areFactionsOpposed(faction, state.playerFaction) || playerEmpireAtWar(faction))
   ));
   if (candidates.length) {
     return candidates[Math.floor(seeded(gameNow() * 0.011 + systemIndex * 97) * candidates.length) % candidates.length];
@@ -24366,6 +24579,7 @@ function applyCaptureStanding(target) {
   if (target.captureConsequenceApplied) return;
   target.captureConsequenceApplied = true;
   applyKillStanding(target.faction, target.role === 'patrol' ? -4 : -2);
+  recordPlayerHostileAct(target.faction, 'ship');
   const witnesses = new Set();
   for (const n of state.npcShips)
     if (
@@ -24830,7 +25044,11 @@ function buildCampaignWorld(force = false) {
     designEligible: (shipId, polityId) => isGeneralProductionDesign(shipId, campaignFactionKeyFor(polityId)),
     // Whether a licence — a captured yard and its drawings — covers this design.
     designIndustrial: (shipId) => isRecoverableIndustrialDesign(shipId),
-    relation: (a, b) => { if (a === b) return 'allied'; if (!isRecognizedFactionKey(a) || !isRecognizedFactionKey(b)) return 'peace'; if (areFactionsAligned(a, b)) return 'allied'; return worldRelation(a, b).status; },
+    // The player's empire is its own party to war (BILATERAL-WAR-PEACE-RULES §7): the model asks about
+    // 'player' and gets the empire's own record, never its current flag's.
+    playerRelationSide: 'player',
+    relation: (a, b) => campaignPartyRelation(a, b),
+    warPairs: () => campaignWarPairs(),
     stationsBySystem: (i) => stationsBySystem.get(Number(i)) || [],
     neighbours: (i) => [...(neighbourMap.get(Number(i)) || [])],
     // The hidden Dominion region stays hidden: only the Dominion routes through the wormhole until the
@@ -25398,17 +25616,40 @@ function applyCampaignEffects(effects, day = state.day) {
           text: `The only yard offering the ${ship?.name || `design ${e.shipId}`} is gone. A ${e.kind} recovery contract is available in the Empire panel.` });
         break;
       }
-      case 'warResolved': {
-        // Strategic settlement through the ordinary diplomacy record (the same path the debug
-        // controls use); a calendar roll never ends this war.
-        World.setDiplomacy(diplomacyBook(), e.a, e.b, 'peace', day, baseFactionWar(e.a, e.b), `Strategic settlement: ${e.reason}`);
-        reconcileDiplomacy();
-        // A settlement between two other powers is news, not the captain's business; the faction list
-        // already makes it personal when one of the belligerents is theirs.
-        campaignReport({ id: `war-resolved:${e.a}:${e.b}:${e.day ?? day}`, systemIndex: null, day: e.day ?? day, kind: 'War resolved', confidence: 'Campaign record', factions: [e.a, e.b], text: `The ${formatFaction(e.a)}–${formatFaction(e.b)} war has ended: ${e.reason}. ${formatFaction(e.winner)} dictated the settlement.` });
-        setLog(`${formatFaction(e.a)} / ${formatFaction(e.b)}: peace. ${e.reason}.`);
+      case 'warResolved':
+      case 'warCeasefire': {
+        // The model has stood the pair's operations down, closed their contracts and settled territory;
+        // this is the diplomatic record, the local scene and the news. An effect handed in without the
+        // model's cleanup (an older caller) is sent through the model first, so no path skips it.
+        let ev = { to: e.type === 'warCeasefire' ? 'ceasefire' : 'peace', key: World.pairKey(e.a, e.b), terms: [], basis: e.basis || null, ...e };
+        if (!e.key) {
+          const fx = Campaign.forceWarTransition(book, buildCampaignWorld(true), e.a, e.b, ev.to, day, e.reason || 'Directed settlement', e.basis || 'directed');
+          const own = fx.find((x) => x.type === 'warResolved' || x.type === 'warCeasefire');
+          applyCampaignEffects(fx.filter((x) => x !== own), day);
+          ev = { ...own, winner: e.winner ?? own?.winner ?? null, loser: e.loser ?? own?.loser ?? null, basis: e.basis || (e.winner ? 'decisive' : own?.basis) };
+        }
+        applyWarTransitionEngine(ev, e.day ?? day);
         break;
       }
+      case 'warOffer': {
+        const from = e.from;
+        setLog(`${formatFaction(from)} offers ${e.to === 'ceasefire' ? 'a ceasefire' : 'peace'}: ${e.reason}. Answer in Empire → Wars & treaties.`);
+        addGalaxyReport({ id: `diplomacy:offer:${e.offerId}`, day: e.day ?? day, kind: e.to === 'ceasefire' ? 'Ceasefire offered' : 'Peace offered', category: 'diplomacy',
+          factions: [from].filter(isRecognizedFactionKey), playerRelated: true, confidence: 'Delivered to your government',
+          text: `${formatFaction(from)} offers ${e.to === 'ceasefire' ? 'a ceasefire' : `peace${e.winner === from ? ' on its terms' : ''}`}: ${e.reason}. The offer stands until day ${e.expires}.${e.to === 'peace' ? warTermsText((e.terms || []).map((t) => ({ ...t, status: t.term === 'returned_to_previous_controller' ? 'returned' : t.term === 'disputed' ? 'disputed' : 'retained' }))) : ''}` });
+        break;
+      }
+      case 'warOfferLapsed': break;
+      case 'territoryReturned': {
+        const i = Number(e.systemIndex);
+        const control = getSystemControl(i);
+        if (campaignPolityIdFor(control.polityId) === e.to) break;
+        book.suppressCaptureHook = true;
+        try { if (e.to === 'player') transferSystemControlToPlayer(i, { settlement: true }); else transferSystemControlToFaction(i, e.to); } finally { book.suppressCaptureHook = false; }
+        if (i === Number(state.currentPlanet) && !state.warp.active) { state.systemFaction = campaignFactionKeyFor(e.to); state.systemAttitude = getFactionAttitude(state.systemFaction); }
+        break;
+      }
+      case 'missionClosed': break;
       case 'defenderLosses': {
         if (e.polityId !== 'player') break;
         applyPlayerDefenderLosses(e, day);
@@ -25896,6 +26137,48 @@ function campaignOperationDetail({ op, known }) {
   const seen = known.sighting ? `<br><span class="meta">Last ${campaignSightingText(known.sighting)}</span>` : '';
   return `<li><b>${where}</b> · ${status} · last report day ${latest.day}${since}<br>${escapeHtml(campaignMaskText(latest.text))} <span class="meta">(${escapeHtml(latest.confidence)})</span>${seen}</li>`;
 }
+// ---- Wars & treaties (BILATERAL-WAR-PEACE-RULES) ----
+function territoryStatusText(t) {
+  if (!t) return '';
+  const claimant = t.claimant ? warPartyName(t.claimant) : null;
+  const st = t.warKey ? campaignBook().warStates?.[t.warKey] : null;
+  if (t.status === 'occupied') return `occupied from ${claimant}${st?.status === 'ceasefire' ? ' — ceasefire, territory unresolved' : ''}`;
+  if (t.status === 'disputed') return `disputed: held by ${warPartyName(t.holder)}, claimed by ${claimant} (settled day ${t.day})`;
+  if (t.status === 'returned') return `returned to ${warPartyName(t.holder)} by settlement, day ${t.day}`;
+  if (t.status === 'retained') return `retained by ${warPartyName(t.holder)} by settlement, day ${t.day}`;
+  return t.status;
+}
+function renderWarsAndTreaties(book, world) {
+  const diplo = diplomacyBook();
+  const mine = Object.values(diplo.pairs).filter((r) => (r.a === PLAYER_SIDE || r.b === PLAYER_SIDE) && ['war', 'ceasefire', 'crisis'].includes(r.status) || ((r.a === PLAYER_SIDE || r.b === PLAYER_SIDE) && book.warStates?.[World.pairKey(r.a, r.b)]));
+  const rows = mine.map((r) => {
+    const other = r.a === PLAYER_SIDE ? r.b : r.a;
+    const key = World.pairKey(r.a, r.b);
+    const st = book.warStates?.[key];
+    const ledger = Campaign.warHistory(book, PLAYER_SIDE, other);
+    const eng = ledger ? (ledger.engagements || 0) - (st?.baseline?.ledger?.engagements || 0) : 0;
+    const lossMine = ledger ? (ledger.losses?.[PLAYER_SIDE] || 0) - (st?.baseline?.ledger?.losses?.[PLAYER_SIDE] || 0) : 0;
+    const lossTheirs = ledger ? (ledger.losses?.[other] || 0) - (st?.baseline?.ledger?.losses?.[other] || 0) : 0;
+    const status = r.status === 'war' ? `At war since day ${r.warStarted ?? r.since}` : r.status === 'ceasefire' ? `Ceasefire since day ${r.since}` : r.status === 'crisis' ? `Crisis (tension ${Math.round(r.tension)})` : `Peace since day ${r.since}`;
+    const offer = st?.offer ? `<p class="war-offer"><b>${escapeHtml(formatFaction(other))} offers ${st.offer.to === 'ceasefire' ? 'a ceasefire' : 'peace'}</b>: ${escapeHtml(st.offer.reason)}. Open until day ${st.offer.expires}.${st.offer.to === 'peace' ? escapeHtml(warTermsText((st.offer.terms || []).map((t) => ({ ...t, status: t.term === 'returned_to_previous_controller' ? 'returned' : t.term === 'disputed' ? 'disputed' : 'retained' })))) : ''} <button data-war-accept="${escapeHtml(key)}">Accept</button> <button data-war-refuse="${escapeHtml(key)}">Refuse</button></p>` : '';
+    const settled = st?.settlement && r.status !== 'war' ? `<p class="meta">Settled day ${st.settlement.day}: ${escapeHtml(st.settlement.reason)}.${escapeHtml(warTermsText(st.settlement.terms))}</p>` : '';
+    const detail = r.status === 'war' ? `<p class="meta">${eng} engagements · losses ${lossMine} yours, ${lossTheirs} theirs${st?.lastEval ? ` · front: ${escapeHtml((st.lastEval.reasons || []).join('; ') || st.lastEval.outcome)}` : ''}</p>` : '';
+    return `<li data-war-pair="${escapeHtml(key)}"><b>${escapeHtml(formatFaction(other))}</b> — ${escapeHtml(status)}${detail}${offer}${settled}</li>`;
+  }).join('') || '<li>Your empire is at war with no one.</li>';
+  // Known territory only: the empire's own, worlds the captain watches, and settled terms whose report
+  // has actually reached the captain.
+  const reportedTerms = new Set(galaxyNewsBook().items.filter((r) => String(r.id).startsWith('diplomacy:war:') && String(r.id).endsWith(':peace')).map((r) => String(r.id).split(':').slice(2, 4).join(':')));
+  const terr = Object.entries(book.territory || {})
+    .filter(([i, t]) => (t.holder === PLAYER_SIDE || t.claimant === PLAYER_SIDE)
+      || (isReportSystemKnown(Number(i)) && (watchesReportLocation(Number(i)) || hasIntelShips(Number(i))))
+      || (t.status !== 'occupied' && reportedTerms.has(t.warKey)))
+    .map(([i, t]) => `<li data-territory="${escapeHtml(i)}">${escapeHtml(state.planets[i]?.name || i)} — ${escapeHtml(territoryStatusText(t))}</li>`).join('') || '<li>No occupied or disputed territory you know of.</li>';
+  const news = galaxyNewsBook().items.filter((r) => String(r.id).startsWith('diplomacy:war:')).slice(-8).reverse()
+    .map((r) => `<li>Day ${r.day}: <b>${escapeHtml(r.kind)}</b> — ${escapeHtml(r.text)} <span class="meta">(${escapeHtml(r.confidence)})</span></li>`).join('') || '<li>No ceasefire or settlement has reached you.</li>';
+  return `<section><h3>Your empire's wars</h3><ul class="war-list">${rows}</ul></section>
+    <section data-war-territory><h3>Occupied and disputed territory</h3><ul>${terr}</ul></section>
+    <section><h3>Ceasefires and settlements reported to you</h3><ul>${news}</ul></section>`;
+}
 function renderCampaignPanel() {
   const el = document.getElementById('campaign-panel');
   if (!el) return;
@@ -25903,13 +26186,13 @@ function renderCampaignPanel() {
   syncPlayerPolity(book);
   const world = buildCampaignWorld();
   const me = Campaign.politySummary(book, world, 'player');
-  const tabs = [['empire', 'Your empire'], ['powers', 'Other powers'], ['operations', 'Fleets & battles'], ['missions', 'Contracts & recovery'], ['history', 'Campaign log']];
+  const tabs = [['empire', 'Your empire'], ['wars', 'Wars & treaties'], ['powers', 'Other powers'], ['operations', 'Fleets & battles'], ['missions', 'Contracts & recovery'], ['history', 'Campaign log']];
   let body = '';
   if (campaignPanelTab === 'empire') {
     const prod = me.production, econ = me.economy, ready = me.readiness;
     const integrations = Object.entries(book.polities.player?.integrations || {}).map(([s, i]) => `<li>${escapeHtml(state.planets[s]?.name || s)}: ${i.completedDay ? `integrated day ${i.completedDay} (${i.designs.length} designs)` : i.qualification?.qualifies ? `retooling ${Math.round(i.progress)}/${book.config.integrationDays} days` : `not major — ${escapeHtml(i.qualification?.reason || '')}`}</li>`).join('') || '<li>No captured industry.</li>';
     const queue = (book.polities.player?.queue || []).map((q) => `<li>${escapeHtml(state.shipStatsById[q.shipId]?.name || q.shipId)} at ${escapeHtml(state.planets[q.systemIndex]?.name || '')}: ${q.status}, ${Math.ceil(q.remainingDays)} days</li>`).join('') || '<li>No builds queued.</li>';
-    const worlds = world.systems.filter((s) => s.controller === 'player').map((s) => { const q = Campaign.majorWorldQualification(book, world, s.index); const occ = book.occupations[s.index]; return `<li>${escapeHtml(s.name)} — ${q.qualifies ? 'major world' : 'minor world'} (${escapeHtml(q.reason)})${occ ? `, occupied since day ${occ.capturedDay}` : ''}</li>`; }).join('') || '<li>No controlled worlds. Claim or capture a system to found an empire.</li>';
+    const worlds = world.systems.filter((s) => s.controller === 'player').map((s) => { const q = Campaign.majorWorldQualification(book, world, s.index); const occ = book.occupations[s.index]; const terr = book.territory?.[s.index]; return `<li>${escapeHtml(s.name)} — ${q.qualifies ? 'major world' : 'minor world'} (${escapeHtml(q.reason)})${occ ? `, occupied since day ${occ.capturedDay}` : ''}${terr ? ` · ${escapeHtml(territoryStatusText(terr))}` : ''}</li>`; }).join('') || '<li>No controlled worlds. Claim or capture a system to found an empire.</li>';
     const orders = book.orders.filter((o) => o.status === 'queued').map((o) => o.order === 'fleet'
       ? `<li>${escapeHtml(fleetCommandLabel(o))} for ${escapeHtml(o.label || o.fleetId)} at ${escapeHtml(state.planets[o.systemIndex]?.name || '')} queued — no relay link (queued day ${o.queuedDay}).</li>`
       : `<li>Order for ${escapeHtml(o.label || o.formationId)} to ${escapeHtml(state.planets[o.systemIndex]?.name || '')} queued — no relay link (queued day ${o.queuedDay}).</li>`).join('');
@@ -25918,6 +26201,8 @@ function renderCampaignPanel() {
       <section><h3>Military readiness</h3><p>${ready.hulls} fleet hulls (${ready.ready} ready, ${ready.repairing} repairing) · strength ${ready.strength} · ${(state.playerFleet || []).filter((f) => f.assignment === 'transit').length} in transit</p></section>
       <section><h3>Worlds and integration</h3><ul>${worlds}</ul><ul>${integrations}</ul><p class="meta">Major world: population ≥ ${book.config.majorWorldPopulation} or ≥ ${book.config.majorWorldStations} operational stations. Qualification opens a route to native designs; hulls still need plans, a yard, resources and time.</p></section>
       <section><h3>Relay orders</h3><p>Connected systems: ${[...campaignRelayCoverage()].map((i) => escapeHtml(state.planets[i]?.name || '')).filter(Boolean).join(', ') || 'none beyond your current system'}.</p><ul>${orders || '<li>No queued orders.</li>'}</ul></section>`;
+  } else if (campaignPanelTab === 'wars') {
+    body = renderWarsAndTreaties(book, world);
   } else if (campaignPanelTab === 'powers') {
     // Read once, not once per power: the knowledge record is the only thing this table may count.
     const afoot = campaignKnownOperations((k) => k.phase !== 'resolved');
@@ -25986,6 +26271,10 @@ document.addEventListener('click', (e) => {
   if (ops) { const id = ops.dataset.campaignPowerOps; campaignPowerOpsOpen = campaignPowerOpsOpen === id ? null : id; renderCampaignPanel(); return; }
   const rec = e.target.closest('[data-campaign-recover]');
   if (rec) { startDesignRecovery(rec.dataset.campaignRecover); renderCampaignPanel(); return; }
+  const warAccept = e.target.closest('[data-war-accept]');
+  if (warAccept) { answerWarOffer(warAccept.dataset.warAccept, true); renderCampaignPanel(); return; }
+  const warRefuse = e.target.closest('[data-war-refuse]');
+  if (warRefuse) { answerWarOffer(warRefuse.dataset.warRefuse, false); renderCampaignPanel(); return; }
   const acc = e.target.closest('[data-campaign-accept]');
   if (acc) { acceptCampaignMission(acc.dataset.campaignAccept); renderCampaignPanel(); return; }
 });
@@ -27150,7 +27439,7 @@ function unreportedSystemDoubt(index) {
   const faction = normalizeFactionKey(knownSystemController(i) || 'neutral');
   if (faction && faction !== 'neutral' && isRecognizedFactionKey(faction)) {
     if (getEffectiveAttitude(faction) === 'hostile') return 'hostile-flag';
-    if (areFactionsOpposed(getPlayerFlag(), faction)) return 'hostile-flag';
+    if (areFactionsOpposed(getPlayerFlag(), faction) || playerEmpireAtWar(faction)) return 'hostile-flag';
   }
   const key = `${Number(state.day) || 0}|${Number(state.conditionsRev) || 0}`;
   if (unreportedSystemDoubt.key !== key) {

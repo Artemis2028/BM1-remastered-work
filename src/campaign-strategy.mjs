@@ -11,6 +11,7 @@
 
 import { stableHash, bounded, copy, planStanding } from './ship-fleet.mjs';
 import * as Identity from './vessel-identity.mjs';
+import { evaluateWar, settlementTerms, WAR_RULES } from './war-termination.mjs';
 
 export const CAMPAIGN_VERSION = 1;
 
@@ -182,6 +183,8 @@ export function createCampaignBook(seed, day = 1, config = {}) {
     activatedStations: {},
     unstaffedStations: {},
     occupations: {},     // systemIndex → { capturedDay, by }
+    warStates: {},       // warKey → the current war instance between a pair (BILATERAL-WAR-PEACE-RULES §2)
+    territory: {},       // systemIndex → { status: occupied|retained|returned|disputed, holder, claimant, warKey, day }
     stats: { battlesResolved: 0, captures: 0, hullsBuilt: 0, hullsLost: 0, missionsOffered: 0 },
   };
 }
@@ -196,7 +199,7 @@ export function upgradeCampaignBook(book) {
   if (!book || typeof book !== 'object') return book;
   book.config = { ...CAMPAIGN_RULES, ...(book.config || {}) };
   book.discoveries ||= { gorn: false };
-  for (const key of ['polities', 'designs', 'incomeLedger', 'restoredStations', 'activatedStations', 'unstaffedStations', 'occupations', 'wars']) book[key] ||= {};
+  for (const key of ['polities', 'designs', 'incomeLedger', 'restoredStations', 'activatedStations', 'unstaffedStations', 'occupations', 'wars', 'warStates', 'territory']) book[key] ||= {};
   for (const key of ['operations', 'recoveries', 'missions', 'orders', 'history']) if (!Array.isArray(book[key])) book[key] = [];
   book.dominion ||= { phase: 'dormant', phaseDay: null, warnings: [], entrySystem: null, stagingSystem: null, expeditionOpId: null, reinforcementCut: false, convoys: 0, lastConvoyDay: null };
   book.stats ||= { battlesResolved: 0, captures: 0, hullsBuilt: 0, hullsLost: 0, missionsOffered: 0 };
@@ -358,6 +361,9 @@ export function initializeCampaign(book, world) {
     if (!d.sources.includes(st.id)) d.sources.push(st.id);
   }
   book.initialized = true;
+  // Wars already under way when the campaign begins start their instance here, with the opening
+  // position as the baseline, so "the worlds it held at the start" means the start of the war.
+  for (const pair of warPairsInView(book, world)) openWarInstance(book, world, pair, book.day);
   return book;
 }
 function livingHulls(p) { return p.hulls.filter((h) => h.status !== 'lost'); }
@@ -499,6 +505,13 @@ export function advanceCampaignDay(book, world, day) {
   // the caller asked for — the day's own conquests are reduced before the engine settles that day,
   // whether it is day one of two hundred or the only one.
   const stepWorld = shadowWorld(world);
+  // The model's own settlements are authoritative for the war instance they settled, even before the
+  // engine has applied them (and always, in a world with no engine behind it).
+  for (const st of Object.values(book.warStates || {})) {
+    if (st.status !== 'ceasefire' && st.status !== 'peace') continue;
+    const current = warPairsInView(book, world, true).find((p) => warKey(p.a, p.b) === st.key);
+    if (current && current.warId === st.warId) stepWorld.shadow.relations.set(`${relSide(world, st.a)}:${relSide(world, st.b)}`, st.status);
+  }
   for (let d = book.settled + 1; d <= last; d++) {
     const mark = effects.length;
     settleCampaignDay(book, stepWorld, d, effects);
@@ -530,7 +543,7 @@ function settleCampaignDay(book, world, day, effects) {
   planOperations(book, world, day, effects);
   advanceOperations(book, world, day, effects);
   advanceDominion(book, world, day, effects);
-  resolveCentralWar(book, world, day, effects);
+  evaluateWars(book, world, day, effects);
   advanceRecoveries(book, world, day, effects);
   expireMissions(book, day, effects);
   pruneLostHulls(book);
@@ -652,6 +665,12 @@ export function buildRecipe(c, stats) {
   return { latinum: Math.round(price * c.buildLatinumFactor), materials: Math.max(1, Math.ceil(mass * c.buildMaterialsPerMass)), days: Math.max(2, Math.ceil(Math.sqrt(mass) * c.buildDaysPerSqrtMass)) };
 }
 function factionOf(world, polityId) { return polityId === 'player' ? world.playerFaction : polityId; }
+// Who a polity is for the purposes of war and peace. The player's empire is its own party when the
+// engine says so (world.playerRelationSide = 'player'): its wars are its own records, not whatever its
+// current flag's government is fighting. A world built without that (the pure tests) keeps the old
+// reading, so a relation question is still answered. Culture — which designs are native — is a
+// different question and stays with factionOf.
+function relSide(world, polityId) { return polityId === 'player' ? (world.playerRelationSide || world.playerFaction) : polityId; }
 // Whether a design may be laid down at all: a captured licence grants access to a catalogue, never an
 // exemption from the rules that keep special-vendor, non-shipyard and secret hulls out of general
 // production. The engine owns that judgement; the model only refuses to bypass it.
@@ -809,6 +828,15 @@ export function majorWorldQualification(book, world, systemIndex) {
 // Called by the engine when control changes hands (effect-driven, so local and offscreen captures agree).
 export function recordCapture(book, world, systemIndex, byPolity, fromPolity, day) {
   book.occupations[systemIndex] = { capturedDay: day, by: byPolity, from: fromPolity };
+  // Territory taken from somebody is occupied until a settlement says otherwise; a ceasefire does not.
+  book.territory ||= {};
+  if (fromPolity && fromPolity !== byPolity) {
+    book.territory[systemIndex] = { status: 'occupied', holder: byPolity, claimant: fromPolity, warKey: warKey(byPolity, fromPolity), day };
+    const w = warRecord(book, byPolity, fromPolity);
+    w.front ||= [];
+    w.front.push({ day, by: byPolity, from: fromPolity, systemIndex });
+    if (w.front.length > 40) w.front = w.front.slice(-40);
+  } else delete book.territory[systemIndex];
   book.stats.captures++;
   const sys = world.systems[systemIndex];
   const origin = sys?.origin;
@@ -852,7 +880,7 @@ function reachableEnemyTargets(book, world, id) {
   for (const sys of world.systems) {
     if (sys.controller === id || !sys.controller) continue;
     if (sys.controller !== 'player' && !book.polities[sys.controller]) continue; // only strategic actors are objectives; pirate havens and independents are not
-    const enemy = sys.controller === 'player' ? world.relation(id, world.playerFaction) === 'war' : world.relation(id, sys.controller) === 'war';
+    const enemy = world.relation(id, relSide(world, sys.controller)) === 'war';
     if (!enemy) continue;
     const hops = world.routeHops(mine, sys.index, id);
     if (hops == null) continue;
@@ -872,7 +900,7 @@ export function defendingPolityIds(book, world, systemIndex, attackerId = null) 
   for (const id of Object.keys(book.polities)) {
     if (id === attackerId) continue;
     if (id === controller) { out.push(id); continue; }
-    const relation = world.relation(factionOf(world, id), factionOf(world, controller));
+    const relation = world.relation(relSide(world, id), relSide(world, controller));
     if (relation === 'allied') { out.push(id); continue; }
     // The captain's own vessels stand with any holder they are not at war with — their own worlds,
     // allies, and neutral hosts such as Bajora against the Dominion. That is the rule the removed
@@ -889,7 +917,7 @@ export function localDefenseStrength(book, world, systemIndex) {
   for (const st of systemStations(world, systemIndex)) {
     if (!isOperationalStation(st)) continue;
     const owner = st.owner;
-    const hostileToController = sys?.controller && owner && owner !== sys.controller && world.relation(factionOf(world, owner), factionOf(world, sys.controller)) === 'war';
+    const hostileToController = sys?.controller && owner && owner !== sys.controller && world.relation(relSide(world, owner), relSide(world, sys.controller)) === 'war';
     if (hostileToController) continue;
     defense += st.cap.effects.defense || 0;
   }
@@ -1007,7 +1035,7 @@ export function operationIsAuthorised(book, world, op) {
   const owner = world.systems[op.targetSystem]?.controller ?? null;
   if (owner == null) return true;                 // an unheld objective is nobody's peace to break
   if (owner === op.faction) return true;          // already ours; advanceOperations absorbs it
-  return world.relation(factionOf(world, op.faction), factionOf(world, owner)) === 'war';
+  return world.relation(relSide(world, op.faction), relSide(world, owner)) === 'war';
 }
 function enforceRelations(book, world, day, effects) {
   for (const op of book.operations) {
@@ -1582,31 +1610,241 @@ export function offerMission(book, mission, day) {
 export function acceptMission(book, id, day) { const m = book.missions.find((x) => x.id === id); if (!m || m.status !== 'offered') return false; m.status = 'active'; m.acceptedDay = day; return true; }
 export function completeMission(book, id, day, reason = 'objective met') { const m = book.missions.find((x) => x.id === id); if (!m || m.status !== 'active') return null; m.status = 'completed'; m.completedDay = day; m.reason = reason; return m; }
 export function failMission(book, id, day, reason) { const m = book.missions.find((x) => x.id === id); if (!m || !['offered', 'active'].includes(m.status)) return null; m.status = 'failed'; m.completedDay = day; m.reason = reason; return m; }
-// The Earth–Klingon war is never ended by a random roll. It resolves once, strategically: a
-// belligerent that has lost its home world and cannot contest it (or holds no world at all) sues for
-// peace. The engine applies the settlement through the ordinary diplomacy record.
-function resolveCentralWar(book, world, day, effects) {
-  const c = book.config;
-  const [a, b] = c.centralWar || [];
-  if (!a || !b || !book.polities[a] || !book.polities[b]) return;
-  book.resolutions ||= {};
-  const key = `${a}:${b}`;
-  if (book.resolutions[key] || world.relation(a, b) !== 'war') return;
-  const worldsOf = (id) => controlled(world, id);
-  const homeOf = (id) => world.systems.find((s) => s.name === c.homeWorlds?.[id]);
-  const strengthOf = (id) => polityReadiness(book, world, id).strength;
-  const beaten = (id, other) => {
-    if (!worldsOf(id).length) return `${world.factionName(id)} holds no world`;
-    const home = homeOf(id);
-    if (home && home.controller !== id && strengthOf(id) < strengthOf(other) * c.resolutionStrengthRatio) return `${home.name} has fallen and ${world.factionName(id)} cannot contest it`;
-    return null;
+// ---------- war termination (BILATERAL-WAR-PEACE-RULES §3–§5) ----------
+// Every pair at war or in ceasefire whose parties are both strategic polities is evaluated once a day.
+// The evaluation is several conditions at once (war-termination.mjs); none of them is a date. A war
+// between two AI powers ends when it is eligible; a war the player's empire is party to produces an
+// offer the captain answers. Either way the transition goes through one path that stands down the
+// pair's operations, closes war-only contracts and applies the territorial terms.
+const LOCKED_WAR_PARTIES = Object.freeze(['dominion']);
+// Pairs the model should consider: { a, b, status, warId, warStarted }. The engine supplies them from
+// the diplomacy book; a world without an engine is read through its relation function.
+function warPairsInView(book, world, includeSettled = false) {
+  const statuses = includeSettled ? ['war', 'ceasefire', 'peace', 'crisis'] : ['war', 'ceasefire'];
+  if (typeof world.warPairs === 'function') return world.warPairs().filter((p) => statuses.includes(p.status));
+  const ids = Object.keys(book.polities).filter((id) => id !== 'player' && !LOCKED_WAR_PARTIES.includes(id)).sort();
+  const out = [];
+  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+    const status = world.relation(ids[i], ids[j]);
+    if (statuses.includes(status)) out.push({ a: ids[i], b: ids[j], status, warId: 'static', warStarted: null });
+  }
+  return out;
+}
+function ledgerSnapshot(book, a, b) {
+  const w = warHistory(book, a, b) || { engagements: 0, losses: {}, captures: {} };
+  return { engagements: w.engagements || 0, losses: { [a]: w.losses?.[a] || 0, [b]: w.losses?.[b] || 0 }, captures: { [a]: w.captures?.[a] || 0, [b]: w.captures?.[b] || 0 } };
+}
+function openWarInstance(book, world, pair, day) {
+  const key = warKey(pair.a, pair.b);
+  const [a, b] = key.split(':');
+  book.warStates ||= {};
+  const prior = book.warStates[key];
+  const st = {
+    key, a, b, warId: pair.warId || 'static', instance: (prior?.instance || 0) + 1,
+    status: 'war', startedDay: pair.warStarted ?? day, statusSince: pair.warStarted ?? day,
+    baseline: {
+      day, ledger: ledgerSnapshot(book, a, b),
+      worlds: { [a]: controlled(world, a).length, [b]: controlled(world, b).length },
+      hulls: { [a]: livingHulls(polity(book, a)).length, [b]: livingHulls(polity(book, b)).length },
+    },
+    offer: null, offerCooldownUntil: 0, settlement: null, lastEval: null,
+    previous: prior?.settlement ? { warId: prior.warId, settlement: prior.settlement } : (prior?.previous || null),
   };
-  const loserReason = beaten(a, b) ? [a, b, beaten(a, b)] : beaten(b, a) ? [b, a, beaten(b, a)] : null;
-  if (!loserReason) return;
-  const [loser, winner, reason] = loserReason;
-  book.resolutions[key] = { day, loser, winner, reason };
-  addHistory(book, day, 'resolution', `The ${world.factionName(a)}–${world.factionName(b)} war ends: ${reason}.`, { loser, winner });
-  effects.push({ type: 'warResolved', a, b, loser, winner, reason, day });
+  book.warStates[key] = st;
+  return st;
+}
+function warSides(book, world, st) {
+  const c = book.config;
+  const ledger = ledgerSnapshot(book, st.a, st.b);
+  const out = {};
+  for (const [id, other] of [[st.a, st.b], [st.b, st.a]]) {
+    const p = polity(book, id);
+    const strength = polityReadiness(book, world, id).strength;
+    const capacity = Math.max(Number(p.readinessBaseline) || 0, Number(p.readinessPeak) || 0);
+    const bits = [];
+    if ((p.revenuePeak || 0) > 0) bits.push((p.revenueLastDay || 0) / p.revenuePeak);
+    // Treasury is not counted: a war chest spent is what a war chest is for, and a power drawing on it is
+    // not thereby unable to fight. Revenue and yards are what it cannot replace.
+    if ((p.berthsPeak || 0) > 0) bits.push(polityProduction(book, world, id).berths / p.berthsPeak);
+    const homeName = c.homeWorlds?.[id] || null;
+    const home = homeName ? world.systems.find((s) => s.name === homeName) : null;
+    const worldsLost = Object.values(book.territory || {}).filter((t) => t.status === 'occupied' && t.claimant === id && t.holder === other && t.day >= st.startedDay).length;
+    out[id] = {
+      name: world.factionName(id), strength, capacity, capShare: capacity > 0 ? strength / capacity : null,
+      strain: bits.length ? Math.min(...bits) : null,
+      worldsNow: controlled(world, id).length, worldsAtStart: st.baseline.worlds[id] || 0, worldsLost,
+      // Taken by THIS enemy: a home world lost to a third power is not this war's decision.
+      homeLost: Boolean(home && home.controller === other), homeName: home?.name || null,
+      losses: (ledger.losses[id] || 0) - (st.baseline.ledger.losses[id] || 0),
+    };
+  }
+  return out;
+}
+function warFrontDay(book, st) {
+  const front = (warHistory(book, st.a, st.b)?.front || []).filter((f) => f.day >= st.startedDay);
+  return front.length ? front[front.length - 1].day : st.startedDay;
+}
+// Occupied worlds between the pair, with whether each is the claimant's own people.
+function pairOccupations(book, world, st) {
+  return Object.entries(book.territory || {})
+    .filter(([, t]) => t.status === 'occupied' && [st.a, st.b].includes(t.holder) && [st.a, st.b].includes(t.claimant) && t.holder !== t.claimant)
+    .filter(([i, t]) => world.systems[Number(i)]?.controller === t.holder)
+    .map(([i, t]) => ({ systemIndex: Number(i), holder: t.holder, claimant: t.claimant, claimantPeople: world.systems[Number(i)]?.origin === factionOf(world, t.claimant) }));
+}
+export function evaluateWars(book, world, day, effects) {
+  if (book.config.warTermination === false) return;
+  const rules = { ...WAR_RULES, ...(book.config.warRules || {}) };
+  book.warStates ||= {};
+  for (const pair of warPairsInView(book, world)) {
+    if (LOCKED_WAR_PARTIES.includes(pair.a) || LOCKED_WAR_PARTIES.includes(pair.b)) continue;
+    if (!book.polities[pair.a] || !book.polities[pair.b]) continue;
+    const key = warKey(pair.a, pair.b);
+    let st = book.warStates[key];
+    if (!st || (st.warId !== (pair.warId || 'static')) || (st.status === 'peace')) {
+      if (st && st.warId === (pair.warId || 'static') && st.status === 'peace') continue; // settled; the engine has not caught up
+      st = openWarInstance(book, world, pair, day);
+    }
+    if (pair.status === 'ceasefire' && st.status === 'war') { st.status = 'ceasefire'; st.statusSince = day; }
+    // An offer to the captain lapses unanswered.
+    if (st.offer && day > st.offer.expires) {
+      effects.push({ type: 'warOfferLapsed', key, offerId: st.offer.id, day });
+      st.offer = null; st.offerCooldownUntil = day + rules.offerCooldownDays;
+    }
+    if (st.offer) continue;
+    const sides = warSides(book, world, st);
+    const ledger = ledgerSnapshot(book, st.a, st.b);
+    const verdict = evaluateWar(st.a, st.b, sides, {
+      age: day - st.startedDay, daysSinceFront: day - warFrontDay(book, st),
+      engagements: ledger.engagements - st.baseline.ledger.engagements, status: st.status,
+      ceasefireDays: st.status === 'ceasefire' ? day - st.statusSince : 0, quietSinceCeasefire: st.status === 'ceasefire',
+    }, rules);
+    st.lastEval = { day, outcome: verdict.outcome, basis: verdict.basis || null, reasons: verdict.reasons || [], sides: Object.fromEntries(Object.entries(sides).map(([id, x]) => [id, { strength: Math.round(x.strength), capShare: x.capShare == null ? null : Math.round(x.capShare * 100) / 100, strain: x.strain == null ? null : Math.round(x.strain * 100) / 100, worldsLost: x.worldsLost, losses: x.losses }])) };
+    if (verdict.outcome === 'continue') continue;
+    const terms = verdict.outcome === 'peace'
+      ? settlementTerms(verdict.basis, verdict.winner, pairOccupations(book, world, st), Object.fromEntries(Object.entries(sides).map(([id, x]) => [id, x.strength])))
+      : [];
+    const transition = { to: verdict.outcome, basis: verdict.basis, winner: verdict.winner || null, loser: verdict.loser || null, reason: verdict.reason, terms };
+    if (st.a === 'player' || st.b === 'player') {
+      if (day < (st.offerCooldownUntil || 0)) continue;
+      const from = st.a === 'player' ? st.b : st.a;
+      st.offer = { id: nextCampaignId(book, 'offer'), from, ...transition, day, expires: day + rules.offerExpiryDays };
+      addHistory(book, day, 'offer', `${world.factionName(from)} offers ${transition.to === 'ceasefire' ? 'a ceasefire' : 'peace'}: ${transition.reason}.`, { key });
+      effects.push({ type: 'warOffer', key, a: st.a, b: st.b, from, offerId: st.offer.id, ...transition, day, expires: st.offer.expires });
+      continue;
+    }
+    applyWarTransitionInModel(book, world, st, transition, day, effects);
+  }
+}
+// The one path every ceasefire and settlement takes, whoever proposed it.
+function applyWarTransitionInModel(book, world, st, t, day, effects, source = 'evaluation') {
+  st.status = t.to; st.statusSince = day; st.offer = null;
+  const closed = closePairOperations(book, world, st.a, st.b, day, effects, t.to);
+  const applied = [];
+  if (t.to === 'peace') {
+    for (const term of t.terms || []) {
+      const i = term.systemIndex;
+      const status = term.term === 'returned_to_previous_controller' ? 'returned' : term.term === 'disputed' ? 'disputed' : 'retained';
+      book.territory[i] = { status, holder: status === 'returned' ? term.claimant : term.holder, claimant: status === 'retained' ? null : term.claimant, warKey: st.key, day, term: term.term };
+      if (status === 'returned') {
+        delete book.occupations[i];
+        const sys = world.systems[i];
+        if (sys) sys.controller = term.claimant;
+        effects.push({ type: 'territoryReturned', systemIndex: i, to: term.claimant, from: term.holder, key: st.key, day });
+      }
+      applied.push({ ...term, status });
+    }
+    st.settlement = { day, basis: t.basis, winner: t.winner, loser: t.loser, reason: t.reason, terms: applied, source };
+    // The first settlement of the opening war is what the Dominion reads; later wars keep their own.
+    const [wa, wb] = book.config.centralWar || [];
+    if (wa && wb && warKey(wa, wb) === st.key) { book.resolutions ||= {}; book.resolutions[`${wa}:${wb}`] ||= { day, loser: t.loser, winner: t.winner, reason: t.reason, basis: t.basis }; }
+    addHistory(book, day, 'resolution', `The ${world.factionName(st.a)}–${world.factionName(st.b)} war ends: ${t.reason}.`, { key: st.key, loser: t.loser, winner: t.winner, basis: t.basis });
+  } else {
+    st.ceasefireDay = day;
+    addHistory(book, day, 'ceasefire', `Ceasefire between ${world.factionName(st.a)} and ${world.factionName(st.b)}: ${t.reason}.`, { key: st.key, basis: t.basis });
+  }
+  if (world.shadow) world.shadow.relations.set(`${relSide(world, st.a)}:${relSide(world, st.b)}`, t.to);
+  // A war the captain's empire inherited from one of these parties follows it: the officer's empire
+  // was fighting the government's war, and the government's settlement binds it, with the same
+  // cleanup. A war the empire made its own (an incident, a seizure) has no inheritance and is not
+  // touched; nor is anything the captain does afterwards, which is an incident like any other.
+  if (st.a !== 'player' && st.b !== 'player' && source !== 'inherited') {
+    for (const [side, other] of [[st.a, st.b], [st.b, st.a]]) {
+      const inherited = warPairsInView(book, world).find((p) => [p.a, p.b].includes('player') && [p.a, p.b].includes(other) && p.inheritedFrom === side && ['war', 'ceasefire'].includes(p.status));
+      if (!inherited || !book.polities.player) continue;
+      if (inherited.status === t.to) continue;
+      const pkey = warKey('player', other);
+      let pst = book.warStates[pkey];
+      if (!pst || pst.warId !== (inherited.warId || 'static') || pst.status === 'peace') pst = openWarInstance(book, world, inherited, day);
+      // The empire's ground follows its government's settlement: on the winning side of a decisive peace
+      // it keeps what it took, on the losing side it gives it back; a negotiated peace is negotiated.
+      const pwinner = t.basis === 'decisive' ? (t.winner === side ? 'player' : other) : null;
+      const pterms = t.to === 'peace'
+        ? settlementTerms(t.basis === 'decisive' ? 'decisive' : 'settlement', pwinner, pairOccupations(book, world, pst), Object.fromEntries([pst.a, pst.b].map((id) => [id, polityReadiness(book, world, id).strength])))
+        : [];
+      applyWarTransitionInModel(book, world, pst, { to: t.to, basis: 'co-belligerent', winner: pwinner, loser: pwinner ? (pwinner === 'player' ? other : 'player') : null,
+        reason: `the ${world.factionName(side)}–${world.factionName(other)} ${t.to === 'ceasefire' ? 'ceasefire' : 'settlement'} binds your empire`, terms: pterms }, day, effects, 'inherited');
+    }
+  }
+  effects.push({ type: t.to === 'peace' ? 'warResolved' : 'warCeasefire', key: st.key, a: st.a, b: st.b, warId: st.warId, to: t.to, basis: t.basis, winner: t.winner, loser: t.loser, reason: t.reason, terms: applied, standDown: closed, source, day });
+}
+// Operations between the pair stand down the same day, in any phase, in both directions. A battle the
+// loaded scene owns is marked and stood down when the scene releases it. Escort and blockade contracts
+// whose only threat was one of these operations fail with the reason.
+function closePairOperations(book, world, a, b, day, effects, to) {
+  const closed = [];
+  const party = new Set([a, b]);
+  for (const op of book.operations) {
+    if (op.status === 'resolved' || !party.has(op.faction)) continue;
+    const other = op.faction === a ? b : a;
+    const owner = world.systems[op.targetSystem]?.controller ?? null;
+    if (owner !== other && op.defender !== other) continue;
+    if (op.resolvedBy === 'local') { op.standDownPending = true; closed.push({ opId: op.id, pending: true }); continue; }
+    op.standDownPending = false;
+    finishOperation(book, world, op, day, 'stood-down', effects, 'diplomacy',
+      `${world.factionName(op.faction)} called off the operation at ${world.systems[op.targetSystem]?.name || `system ${op.targetSystem}`}: ${to === 'ceasefire' ? 'ceasefire' : 'peace'} with ${world.factionName(other)}.`);
+    closed.push({ opId: op.id, targetSystem: op.targetSystem });
+  }
+  for (const c of closed) {
+    if (c.pending || c.targetSystem == null) continue;
+    const stillThreatened = book.operations.some((o) => o.status !== 'resolved' && o.targetSystem === c.targetSystem);
+    if (stillThreatened) continue;
+    for (const m of book.missions) if (['offered', 'active'].includes(m.status) && ['escort', 'blockade'].includes(m.kind) && Number(m.systemIndex) === Number(c.targetSystem)) {
+      m.status = 'failed'; m.completedDay = day; m.reason = `${to === 'ceasefire' ? 'ceasefire' : 'peace'}: the operation it answered was called off`;
+      effects.push({ type: 'missionClosed', missionId: m.id, reason: m.reason, day });
+    }
+  }
+  return closed;
+}
+// The captain answers an offer. Accepting runs the same transition; refusing keeps the war, costs
+// standing with the offering power (applied by the engine) and blocks a new offer for a while.
+export function answerWarOffer(book, world, key, accept, day) {
+  const st = book.warStates?.[key];
+  if (!st?.offer) return { ok: false, reason: 'No offer is open.', effects: [] };
+  const offer = st.offer;
+  const effects = [];
+  if (!accept) {
+    st.offer = null; st.offerCooldownUntil = day + (book.config.warRules?.offerCooldownDays ?? WAR_RULES.offerCooldownDays);
+    addHistory(book, day, 'offer', `The offer of ${offer.to === 'ceasefire' ? 'a ceasefire' : 'peace'} from ${world.factionName(offer.from)} was refused.`, { key });
+    return { ok: true, refused: true, offer, effects };
+  }
+  // Terms are recomputed against the world as it stands: an offer's list is what was known when it
+  // was made, and a world that changed hands since must not be returned to the wrong party.
+  const terms = offer.to === 'peace'
+    ? settlementTerms(offer.basis, offer.winner, pairOccupations(book, world, st), Object.fromEntries([st.a, st.b].map((id) => [id, polityReadiness(book, world, id).strength])))
+    : [];
+  applyWarTransitionInModel(book, world, st, { ...offer, terms }, day, effects, 'accepted');
+  return { ok: true, accepted: true, offer, effects };
+}
+// A transition decided outside the evaluator (debug, an authored story beat) still takes the same path.
+export function forceWarTransition(book, world, a, b, to, day, reason = 'Directed settlement', basis = 'directed') {
+  const key = warKey(a, b);
+  const pair = warPairsInView(book, world).find((p) => warKey(p.a, p.b) === key) || { a, b, warId: book.warStates?.[key]?.warId || 'static', warStarted: day };
+  let st = book.warStates?.[key];
+  if (!st || st.warId !== (pair.warId || 'static') || st.status === 'peace') st = openWarInstance(book, world, pair, day);
+  const effects = [];
+  const terms = to === 'peace' ? settlementTerms('negotiated', null, pairOccupations(book, world, st), Object.fromEntries([st.a, st.b].map((id) => [id, polityReadiness(book, world, id).strength]))) : [];
+  applyWarTransitionInModel(book, world, st, { to, basis, winner: null, loser: null, reason, terms }, day, effects, 'directed');
+  return effects;
 }
 function expireMissions(book, day, effects) {
   for (const m of book.missions) if (['offered', 'active'].includes(m.status) && m.deadlineDay != null && day > m.deadlineDay) { m.status = 'expired'; m.reason = 'deadline passed'; effects.push({ type: 'missionExpired', missionId: m.id, day }); }

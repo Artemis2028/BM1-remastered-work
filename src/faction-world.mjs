@@ -135,7 +135,7 @@ export function setDiplomacy(
     throw new Error(
       'Choose two different diplomatic factions. Borg, pirates and independent traffic do not sign treaties.',
     );
-  if (!['peace', 'crisis', 'war'].includes(status)) throw new Error('Choose peace, crisis or war.');
+  if (!['peace', 'crisis', 'war', 'ceasefire'].includes(status)) throw new Error('Choose peace, crisis, ceasefire or war.');
   const previous = relation(book, a, b, baseWar);
   return record(
     book,
@@ -145,16 +145,26 @@ export function setDiplomacy(
     {
       ...previous,
       status,
-      tension: { peace: 10, crisis: 85, war: 100 }[status],
+      tension: { peace: 10, crisis: 85, war: 100, ceasefire: 60 }[status],
       since: day,
       treatyUntil: status === 'peace' ? day + DIPLOMACY_RULES.treatyDays : 0,
+      ...warInstanceFields(book, a, b, previous, status, day),
     },
     reason,
   );
 }
+// Entering war from anything else opens a new, numbered war instance; staying at war keeps it. A
+// ceasefire keeps the instance it suspended, so the settlement that follows belongs to the same war.
+function warInstanceFields(book, a, b, previous, status, day) {
+  if (status !== 'war' || previous.status === 'war') return {};
+  book.warCount = (book.warCount || 0) + 1;
+  return { warId: `${pairKey(a, b)}#${book.warCount}`, warStarted: day };
+}
 export function spikeCrisis(book, a, b, amount, day, baseWar = false, reason = 'Border incident') {
   const old = relation(book, a, b, baseWar);
-  if (old.status === 'war' || day < old.treatyUntil) return old;
+  // A war or a ceasefire is not moved by the incident roll: the strategic evaluator ends wars, and a
+  // ceasefire is broken only by an actual hostile act between the parties.
+  if (old.status === 'war' || old.status === 'ceasefire' || day < old.treatyUntil) return old;
   const tension = Math.max(0, Math.min(100, old.tension + amount));
   const status = tension >= 100 ? 'war' : tension >= 70 ? 'crisis' : 'peace';
   return record(
@@ -162,7 +172,7 @@ export function spikeCrisis(book, a, b, amount, day, baseWar = false, reason = '
     a,
     b,
     day,
-    { ...old, tension, status, since: status === old.status ? old.since : day },
+    { ...old, tension, status, since: status === old.status ? old.since : day, ...warInstanceFields(book, a, b, old, status, day) },
     reason,
   );
 }
@@ -173,12 +183,10 @@ export function advanceDiplomacy(book, day, pairs, baseWar) {
       const [a, b] = pairs[Math.floor(randomFor(`${book.seed}:${d}:pair`) * pairs.length)];
       const old = relation(book, a, b, baseWar(a, b));
       const roll = randomFor(`${book.seed}:${d}:${a}:${b}`);
-      if (old.status === 'war') {
-        const warAge = d - old.since;
-        // The Earth–Klingon campaign war needs an authored strategic resolution.
-        // Debug/story setDiplomacy calls remain available; a calendar roll cannot end it.
-        if (pairKey(a, b) !== pairKey('terran', 'klingon') && warAge >= DIPLOMACY_RULES.minimumWarDays && roll < Math.min(0.75, 0.2 + warAge / 150))
-          setDiplomacy(book, a, b, 'peace', d, true, 'War exhaustion and negotiated peace');
+      if (old.status === 'war' || old.status === 'ceasefire') {
+        // No war ends by the calendar. Wars end through the campaign's strategic evaluation (stalemate,
+        // exhaustion, decisive victory, settlement), which reads what the war has actually cost; a
+        // ceasefire ends by settlement or by a hostile act. The roll only moves relations at peace.
       } else if (d >= old.treatyUntil) {
         if (old.status === 'crisis' && roll < 0.32)
           setDiplomacy(book, a, b, 'peace', d, false, 'Mediation resolves the crisis');

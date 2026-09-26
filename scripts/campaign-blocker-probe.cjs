@@ -283,7 +283,10 @@ const { startProbe } = require('./probe-harness.cjs');
       // A war between two powers the captain (terran) belongs to neither of.
       t.applyCampaignEffects([{ type: 'warResolved', a: 'romulan', b: 'cardassian', winner: 'romulan', reason: 'a home world fell', day: s.day }], s.day);
       const warn = news.items.find((x) => String(x.id).startsWith('dominion:'));
-      const war = news.items.find((x) => String(x.id).startsWith('war-resolved:'));
+      // Since the bilateral-peace round a settlement between two other powers reaches the captain through
+      // their sources (Diplomacy news, possibly later), so it is looked for among delivered and pending
+      // accounts alike; what this check is about is that it is not classed as the captain's business.
+      const war = [...news.items, ...news.pending].find((x) => String(x.id).startsWith('war-resolved:') || String(x.id).startsWith('diplomacy:war:'));
       return { flag: t.getPlayerFlag(), warn: warn ? { id: warn.id, personal: t.isPersonalGalaxyReport(warn) } : null, war: war ? { id: war.id, personal: t.isPersonalGalaxyReport(war) } : null };
     });
     assert.ok(r.warn, 'the warning was recorded');
