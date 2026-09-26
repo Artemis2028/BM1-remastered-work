@@ -35,6 +35,23 @@ Separate facts that are **not** the formal relation, and never change it:
 
 Ownership, culture, sovereign claim, current controller and jurisdiction stay separate, as in the existing campaign work. A territorial term changes the **controller** (returned) or records a **claim** (disputed). It never rewrites a world's people. Captured-industry and foreign-market access keep following actual control and provenance.
 
+## 1a. Formal wars and static hostility (correction, 261300ZSEP26)
+
+Two different things were being read from one table. They are now separate.
+
+| | source | used for |
+|---|---|---|
+| **formal war** | `FORMAL_STARTING_WARS` (the campaign's declared starting wars) and, after that, the diplomacy pair records alone | the war set: campaign operations and planning, the war evaluator, offers, the Wars & treaties tab, save/load |
+| **static hostility** | `factionRelations.hostile` / `baseFactionWar()` | local attitude and targeting only: who is hostile on sight, as before |
+
+* The declared starting wars are exactly **Terran ↔ Klingon**. A Terran officer's empire inherits that one, and no other.
+* Static hostility never becomes a formal war on its own: not at the start, not over time, not through the evaluator. Romulan, Cardassian, Breen, Tholian, Hirogen, Suliban and the others start formally at **peace** with the Terran empire, and are still hostile locally.
+* **Gorn** are dormant. Their static hostility never produces a formal war.
+* **Arc-owned hostility.** The Dominion and the Blender Remnant (`dominion`, `dominion_remnant`) keep whatever relation their campaign arcs establish. They are never formal wars in this system, never evaluated, and never listed as the empire's wars.
+* A hostile-but-not-at-war pair can become a real war through the ordinary route (§6): incidents raise tension to crisis and then war, with a **fresh** war instance.
+* Once a pair has a formal record that ended a war (`formalPeace`), local attitude follows that peace. Without one, static hostility still decides local attitude.
+* **Old saves.** A save whose empire inherited every static hostility as a war (`playerSeeded.version` < 2) is reseeded once on load: inherited records that are not declared starting wars are dropped, and the declared ones are seeded. Wars the empire made its own through incidents are kept.
+
 ## 2. The war record
 
 Per pair, two stores with one owner each:
@@ -121,7 +138,7 @@ A new instance starts a fresh baseline, and its operations are planned fresh. No
 The player's empire is a party in its own right (`player`), with its own pair records.
 
 **Where its wars come from:**
-* At the start of a game, it inherits the wars its starting faction is in: a Terran officer begins at war with the Klingons.
+* At the start of a game, it inherits its starting faction's **declared formal** wars (§1a): a Terran officer begins at war with the Klingons, and with nobody else.
 * A save from before this round inherits its wars once, on load, from the flag it was saved under.
 * After that, its wars change only through its own acts (incidents and world seizures) or its own settlements.
 
@@ -130,6 +147,8 @@ The player's empire is a party in its own right (`player`), with its own pair re
 **Rules:** the player's empire can hold occupied territory, lose it, and receive and answer offers. Offers come from the same evaluator, under the same thresholds.
 
 **Inherited wars follow their source.** When an AI pair makes a ceasefire or peace, a war the captain's empire inherited from one of the settling governments follows it, with the same cleanup and basis `co-belligerent`. The officer's empire was fighting that government's war, and its settlement binds it. For example, after a Terran–Klingon ceasefire, the Terran officer's empire is in ceasefire with the Klingons too.
+
+An inherited war is **not evaluated on its own** and never receives offers of its own: it moves only when its government's war moves. The empire's record is updated in the same transition, but no separate treaty is published: the captain receives **one** report, the government's, marked *Binding on your empire*, ending "The ceasefire/settlement also applies to your empire." Wars the empire started itself still produce their own offers and reports.
 
 Nothing the captain does afterwards is bound: firing on a Klingon ship is an incident, and it can open a new war that is the empire's own. A war the empire made its own through an incident or a seizure is not inherited, and it ends only through its own evaluation and offers. A later war between the two governments doesn't pull the empire back in.
 
@@ -141,7 +160,7 @@ Nothing the captain does afterwards is bound: firing on a Klingon ship is an inc
 * The debug bulletin is unchanged.
 
 **When the captain hears:**
-* immediately, if the captain's empire is a party;
+* immediately, if the captain's empire is a party, or the settlement binds an inherited war of the empire's (one report, not two: §7);
 * otherwise through the best source the captain has at any world held by either party:
   * local or fleet: the same day;
   * relay: 2 days later;
@@ -168,7 +187,8 @@ Nothing the captain does afterwards is bound: firing on a Klingon ship is an inc
 | ceasefire → peace | ≥ 30 quiet days (AI: automatic; player: offer accepted) | terms applied, report |
 | ceasefire → war | incident: ship, installation or world attacked | new war instance; nothing old revived |
 | peace → crisis/peace | tension moves with incidents and mediation | none |
-| AI pair settles → the empire's inherited war | follows automatically (basis `co-belligerent`) | the same cleanup; the empire's incidents afterwards are its own |
+| AI pair settles → the empire's inherited war | follows automatically (basis `co-belligerent`) | the same cleanup; no separate report or offer (the government's report says it binds the empire); the empire's incidents afterwards are its own |
+| static hostility → formal war | never directly; only through incidents (§6) | new war instance |
 | any → any | debug `setDiplomacy` | the same `applyWarTransition` cleanup when the change ends or suspends a war |
 
 ## 10. Deferred hooks

@@ -338,40 +338,43 @@ const { startProbe } = require('./probe-harness.cjs');
   });
 
   // 13 --------------------------------------------------------------------------------------------
-  await check('new-feature', 'PLAYER-OFFER the empire receives a ceasefire offer, accepts it through the panel, and the same cleanup runs: operations against its worlds stand down, its occupied world stays occupied', async () => {
+  await check('new-feature', 'PLAYER-OFFER a war the empire made its own receives a ceasefire offer, accepted through the panel, and the same cleanup runs: operations against its worlds stand down, its occupied world stays occupied', async () => {
     await fresh('wp-player');
     const r = await ev(() => {
       const t = testBM1, s = t.state, book = t.campaign();
-      if (!t.playerRelation || t.playerRelation('klingon').status !== 'war') return { fail: 'precondition: the empire is not at war with the Klingons' };
+      if (!t.playerRelation || t.playerRelation('cardassian').status !== 'peace') return { fail: 'precondition: the empire did not start at peace with the Cardassians' };
       window.__advance(3);
-      // The empire holds a world it took from the Klingons, and a Klingon operation is bound for it.
-      const kw = window.__worldsOf('klingon').filter((i) => t.state.planets[i].name !== 'Qonos');
-      const held = kw[0];
-      window.__take(held, 'player', 'klingon');
-      const hulls = t.Campaign.getPolity(book, 'klingon').hulls.filter((h) => h.status === 'ready' && !h.opId).slice(0, 4);
-      const op = t.Campaign.launchOperation(book, t.buildCampaignWorld(true), 'klingon', hulls, held, s.day, 6, 'assault', []);
+      // The empire makes the war its own: incidents against Cardassian ships.
+      for (let i = 0; i < 4; i++) t.recordPlayerHostileAct('cardassian', 'ship');
+      if (t.playerRelation('cardassian').status !== 'war') return { fail: 'precondition: the incidents did not open a war' };
+      window.__advance(1);
+      // The empire holds a world it took from the Cardassians, and a Cardassian operation is bound for it.
+      const held = window.__worldsOf('cardassian').filter((i) => t.state.planets[i].name !== 'Cardassia')[0];
+      window.__take(held, 'player', 'cardassian');
+      const hulls = t.Campaign.getPolity(book, 'cardassian').hulls.filter((h) => h.status === 'ready' && !h.opId).slice(0, 4);
+      const op = t.Campaign.launchOperation(book, t.buildCampaignWorld(true), 'cardassian', hulls, held, s.day, 6, 'assault', []);
       op.arriveDay = s.day + 6;
-      // A costly stall between the empire and the Klingons (the size gap is waived for this fixture: the
+      // A costly stall between the empire and the Cardassians (the size gap is waived for this fixture: the
       // captain's empire is small, and the rule under test is the offer and its cleanup).
       book.config.warRules = { stalemateMaxRatio: 1e9 };
-      const w = t.Campaign.warRecord(book, 'player', 'klingon'); w.engagements = 30; w.losses.player = 3; w.losses.klingon = 5;
-      const st = book.warStates['klingon:player']; st.startedDay = s.day - 150; st.statusSince = st.startedDay;
+      const w = t.Campaign.warRecord(book, 'player', 'cardassian'); w.engagements = 30; w.losses.player = 3; w.losses.cardassian = 5;
+      const st = book.warStates['cardassian:player']; st.startedDay = s.day - 150; st.statusSince = st.startedDay;
       w.front = (w.front || []).map((f) => ({ ...f, day: s.day - 120 }));
       window.__advance(1);
-      return { fail: null, offer: book.warStates['klingon:player']?.offer, held, opId: op.id, opStatus: book.operations.find((o) => o.id === op.id)?.status };
+      return { fail: null, offer: book.warStates['cardassian:player']?.offer, inheritedOffer: book.warStates['klingon:player']?.offer || null, held, opId: op.id };
     });
     assert.ok(!r.fail, r.fail);
     assert.ok(r.offer, 'no offer reached the empire');
     assert.equal(r.offer.to, 'ceasefire');
     await ev(() => { testBM1.openCampaignPanel('wars'); });
     await page.screenshot({ path: path.join(out, 'war-offer-to-empire.png') });
-    await page.click('[data-war-accept="klingon:player"]');
+    await page.click('[data-war-accept="cardassian:player"]');
     const after = await ev(({ held, opId }) => {
       const t = testBM1, book = t.campaign();
       const op = book.operations.find((o) => o.id === opId);
-      return { rel: t.playerRelation('klingon').status, op: op && { status: op.status, outcome: op.outcome }, controller: t.getSystemControl(held).controller, terr: window.__terr(held), hostile: t.getFactionAttitude('klingon'), flagWar: t.worldRelation('terran', 'klingon').status };
+      return { rel: t.playerRelation('cardassian').status, op: op && { status: op.status, outcome: op.outcome }, controller: t.getSystemControl(held).controller, terr: window.__terr(held), empireKlingon: t.playerRelation('klingon').status, govWar: t.formalRelation('terran', 'klingon').status };
     }, r);
-    await ev(() => { testBM1.renderCampaignPanel(); document.querySelector('[data-war-pair="klingon:player"]')?.scrollIntoView({ block: 'start' }); });
+    await ev(() => { testBM1.renderCampaignPanel(); document.querySelector('[data-war-pair="cardassian:player"]')?.scrollIntoView({ block: 'start' }); });
     await page.screenshot({ path: path.join(out, 'war-empire-ceasefire.png') });
     await ev(() => document.querySelector('[data-war-territory]')?.scrollIntoView({ block: 'start' }));
     await page.screenshot({ path: path.join(out, 'war-empire-ceasefire-occupied.png') });
@@ -380,7 +383,9 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.deepEqual(after.op, { status: 'resolved', outcome: 'stood-down' });
     assert.equal(after.controller, 'player', 'the ceasefire handed the world back');
     assert.equal(after.terr.status, 'occupied');
-    assert.equal(after.flagWar, 'war', 'the empire\'s ceasefire ended the Terran government\'s war');
+    assert.equal(after.empireKlingon, 'war', 'the empire\'s Cardassian ceasefire moved its Klingon war');
+    assert.equal(after.govWar, 'war', 'the empire\'s ceasefire ended the Terran government\'s war');
+    assert.equal(r.inheritedOffer, null, 'an inherited war was offered terms of its own');
   });
 
   await check('new-feature', 'INHERITED-FOLLOWS the empire\'s inherited Klingon war follows the Terran settlement; on the winning side of a decisive peace it keeps the world it took', async () => {
@@ -462,6 +467,121 @@ const { startProbe } = require('./probe-harness.cjs');
       assert.equal(x.category, 'diplomacy', `filed under ${x.category}: ${x.id}`);
       assert.equal(x.dominion, false);
     }
+  });
+
+  // formal wars vs static hostility (correction to 3bbcf15) ----------------------------------------
+  const NOT_AT_WAR = ['romulan', 'cardassian', 'breen', 'tholian', 'hirogen', 'suliban', 'gorn', 'dominion', 'dominion_remnant'];
+  await check('baseline-defect', 'START-WARS-FORMAL a new Terran game starts with exactly the declared formal wars: the empire and the Terran government at war with the Klingons, and nothing else', async () => {
+    await fresh('wp-start');
+    const r = await ev((others) => {
+      const t = testBM1;
+      const pairs = t.campaignWarPairs().filter((p) => p.status === 'war').map((p) => [p.a, p.b].sort().join(':')).sort();
+      const empire = Object.fromEntries(['klingon', ...others].map((f) => [f, t.playerRelation(f).status]));
+      const terran = Object.fromEntries(others.map((f) => [f, t.formalRelation ? t.formalRelation('terran', f).status : t.buildCampaignWorld(true).relation('terran', f)]));
+      return { pairs, empire, terran };
+    }, NOT_AT_WAR);
+    assert.deepEqual(r.pairs, ['klingon:player', 'klingon:terran'], `formal wars at start: ${r.pairs}`);
+    assert.equal(r.empire.klingon, 'war');
+    for (const f of NOT_AT_WAR) assert.notEqual(r.empire[f], 'war', `the empire starts formally at war with ${f}`);
+    for (const f of NOT_AT_WAR.filter((f) => !['dominion', 'dominion_remnant'].includes(f))) assert.notEqual(r.terran[f], 'war', `the Terran government starts formally at war with ${f}`);
+  });
+
+  await check('baseline-defect', 'GORN-DORMANT the dormant Gorn never acquire a formal war through static hostility, over time or through the evaluator', async () => {
+    await fresh('wp-gorn');
+    const r = await ev(() => {
+      const t = testBM1;
+      window.__advance(40);
+      const gorn = t.campaignWarPairs().filter((p) => [p.a, p.b].includes('gorn')).map((p) => `${p.a}:${p.b}:${p.status}`);
+      const states = Object.keys(t.campaign().warStates || {}).filter((k) => k.split(':').includes('gorn'));
+      return { gorn, states, empire: t.playerRelation('gorn').status };
+    });
+    assert.deepEqual(r.gorn, [], `formal Gorn wars: ${r.gorn}`);
+    assert.deepEqual(r.states, []);
+    assert.notEqual(r.empire, 'war');
+  });
+
+  await check('preservation', 'STATIC-LOCAL a hostile-but-not-at-war power still behaves hostile locally: attitude, and its ships on sight', async () => {
+    await fresh('wp-static');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      const out = {};
+      for (const f of ['romulan', 'cardassian']) {
+        const npc = t.createNpcShip({ id: `static-${f}`, shipId: f === 'romulan' ? 29 : 314, faction: f, from: t.playerWorldPosition() });
+        s.npcShips.push(npc);
+        t.reconcileDiplomacy();
+        out[f] = { attitude: t.getFactionAttitude(f), hostile: Boolean(npc.hostile), formal: t.formalRelation ? t.formalRelation('terran', f).status : null };
+      }
+      return out;
+    });
+    for (const f of ['romulan', 'cardassian']) {
+      assert.equal(r[f].attitude, 'hostile', `${f} is no longer hostile on sight`);
+      assert.equal(r[f].hostile, true);
+    }
+  });
+
+  await check('baseline-defect', 'STATIC-ESCALATES incidents with a hostile-but-not-at-war power escalate to a real formal war with a fresh war instance', async () => {
+    await fresh('wp-escalate');
+    const r = await ev(() => {
+      const t = testBM1;
+      const before = t.playerRelation('cardassian');
+      const steps = [];
+      for (let i = 0; i < 4; i++) steps.push(t.recordPlayerHostileAct('cardassian', 'ship'));
+      const after = t.playerRelation('cardassian');
+      window.__advance(1);
+      const listed = t.campaignWarPairs().some((p) => [p.a, p.b].sort().join(':') === 'cardassian:player' && p.status === 'war');
+      const st = t.campaign().warStates?.['cardassian:player'];
+      // An AI pair: a declaration opens its own instance.
+      t.changeDiplomacy('romulan', 'cardassian', 'war');
+      const ai = t.formalRelation ? t.formalRelation('romulan', 'cardassian') : null;
+      return { before: before.status, steps, after: after.status, warId: after.warId, listed, instance: st?.warId, ai: ai && { status: ai.status, warId: ai.warId, started: ai.warStarted } };
+    });
+    assert.equal(r.before, 'peace', `the empire started at ${r.before} with the Cardassians`);
+    assert.equal(r.steps[0], 'peace'); assert.ok(r.steps.includes('crisis'), `no crisis on the way: ${r.steps}`); assert.equal(r.steps.at(-1), 'war');
+    assert.equal(r.after, 'war');
+    assert.ok(r.warId, 'no war instance');
+    assert.ok(r.listed, 'the new war does not reach the war evaluator');
+    assert.equal(r.instance, r.warId);
+    assert.equal(r.ai.status, 'war'); assert.ok(r.ai.warId && r.ai.started != null);
+  });
+
+  await check('new-feature', 'SAVELOAD-FORMAL the explicit formal war set survives save/load exactly, and no static hostility is added on the way back', async () => {
+    await fresh('wp-save-formal');
+    const r = await ev(() => {
+      const t = testBM1;
+      for (let i = 0; i < 4; i++) t.recordPlayerHostileAct('cardassian', 'ship');
+      const read = () => JSON.stringify(t.campaignWarPairs().map((p) => `${[p.a, p.b].sort().join(':')}:${p.status}:${p.warId}`).sort());
+      const before = read();
+      t.saveGame(8); t.startWithFaction('ferengi'); t.loadGame(8);
+      return { before, after: read() };
+    });
+    assert.equal(r.after, r.before);
+    assert.deepEqual(JSON.parse(r.before).map((x) => x.split(':').slice(0, 2).join(':')).sort(), ['cardassian:player', 'klingon:player', 'klingon:terran']);
+  });
+
+  await check('baseline-defect', 'INHERITED-ONE-REPORT an inherited Terran–Klingon settlement is one diplomatic event to the captain; the government and the empire\'s records both move', async () => {
+    await fresh('wp-one-report');
+    const r = await ev(() => {
+      const t = testBM1, s = t.state;
+      window.__advance(3);
+      const qonos = t.getSystemIndexByName('Qonos');
+      const kl = window.__worldsOf('klingon').filter((i) => i !== qonos);
+      for (const i of kl.slice(0, Math.ceil(kl.length * 0.4))) window.__take(i, 'terran', 'klingon');
+      window.__grind('terran', 'klingon', { keepA: 0.9, keepB: 0.2 });
+      const from = s.day;
+      window.__advance(2);
+      const news = t.galaxyNewsBook();
+      const rows = [...news.items, ...news.pending].filter((x) => x.day >= from && (x.factions || []).includes('klingon') && /peace|settlement|ceasefire/i.test(`${x.kind} ${x.text}`));
+      window.__advance(3);
+      const offers = [...news.items, ...news.pending].filter((x) => x.day >= from && /^diplomacy:offer:/.test(x.id) && (x.factions || []).includes('klingon'));
+      return { gov: window.__status('terran', 'klingon'), empire: t.playerRelation('klingon').status, rows: rows.map((x) => ({ id: x.id, kind: x.kind, text: x.text, category: t.galaxyReportCategory(x) })), offers: offers.map((x) => x.text), inheritedOffer: t.campaign().warStates['klingon:player']?.offer || null };
+    });
+    assert.deepEqual(r.offers, [], 'the inherited war produced an offer of its own');
+    assert.equal(r.inheritedOffer, null);
+    assert.equal(r.gov, 'peace', 'precondition: no settlement');
+    assert.equal(r.empire, 'peace', 'the inherited war did not follow');
+    assert.equal(r.rows.length, 1, `the captain received ${r.rows.length} treaty reports: ${r.rows.map((x) => x.text).join(' | ')}`);
+    assert.match(r.rows[0].text, /settlement also applies to your empire/);
+    assert.equal(r.rows[0].category, 'diplomacy');
   });
 
   // screenshots -----------------------------------------------------------------------------------

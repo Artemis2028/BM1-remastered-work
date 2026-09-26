@@ -9575,7 +9575,7 @@ function collectGalaxyReports(day = state.day) {
   const priorStates = new Map();
   for (let index=0;index<history.length;index++) {
     const e = history[index], pair = [e.a,e.b].sort().join(':');
-    const before = priorStates.get(pair) || (history.length < 120 ? (baseFactionWar(e.a,e.b) ? 'war' : 'peace') : null);
+    const before = priorStates.get(pair) || (history.length < 120 ? (isFormalStartingWar(e.a,e.b) ? 'war' : 'peace') : null);
     priorStates.set(pair,e.status);
     if (index < overlap) continue;
     // War transitions and the captain's own pair records have their own reports, which go through the
@@ -9853,6 +9853,7 @@ function diplomacyBook() {
   const p = ensurePlaytestState();
   const book = (p.diplomacy ||= World.createDiplomacy(fleetBook().campaignId, state.day));
   if (!book.playerSeeded && state.gameStarted) seedPlayerWars(book);
+  else if (book.playerSeeded && book.playerSeeded.version !== 2) reseedPlayerWars(book);
   return book;
 }
 // ---- the player's empire as a party to war (BILATERAL-WAR-PEACE-RULES §7) ----
@@ -9862,11 +9863,33 @@ function diplomacyBook() {
 // raising a flag changes none of them.
 function seedPlayerWars(book) {
   const from = normalizeFactionKey(getPlayerFlag());
-  book.playerSeeded = { from, day: state.day };
+  book.playerSeeded = { from, day: state.day, version: 2 };
   if (!isRecognizedFactionKey(from)) return;
   for (const f of Object.keys(factionNames)) {
     if (!isRecognizedFactionKey(f) || f === from || ['borg', 'pirate'].includes(f)) continue;
-    if (World.relation(book, from, f, baseFactionWar(from, f)).status !== 'war') continue;
+    // Only a formal war is inherited; static hostility is not a war. [correction to 3bbcf15]
+    if (World.relation(book, from, f, isFormalStartingWar(from, f)).status !== 'war') continue;
+    World.setDiplomacy(book, PLAYER_SIDE, f, 'war', state.day, false, `Inherited from the ${formatFaction(from)} cause`);
+    markDiplomacyHistory(book, { seed: true });
+    book.pairs[World.pairKey(PLAYER_SIDE, f)].inheritedFrom = from;
+  }
+}
+// A book seeded by the 3bbcf15 candidate inherited every static hostility as a war. Those records are
+// withdrawn once — only inherited ones, never a war the empire made its own — and the formal list is
+// applied in their place.
+function reseedPlayerWars(book) {
+  const from = book.playerSeeded.from;
+  for (const [key, r] of Object.entries(book.pairs)) {
+    if (!(r.a === PLAYER_SIDE || r.b === PLAYER_SIDE) || !r.inheritedFrom) continue;
+    const other = r.a === PLAYER_SIDE ? r.b : r.a;
+    if (!isFormalStartingWar(r.inheritedFrom, other)) delete book.pairs[key];
+  }
+  book.playerSeeded = { ...book.playerSeeded, version: 2 };
+  if (!isRecognizedFactionKey(from)) return;
+  for (const f of Object.keys(factionNames)) {
+    if (!isRecognizedFactionKey(f) || f === from || !isFormalStartingWar(from, f)) continue;
+    if (book.pairs[World.pairKey(PLAYER_SIDE, f)]) continue;
+    if (World.relation(book, from, f, true).status !== 'war') continue;
     World.setDiplomacy(book, PLAYER_SIDE, f, 'war', state.day, false, `Inherited from the ${formatFaction(from)} cause`);
     markDiplomacyHistory(book, { seed: true });
     book.pairs[World.pairKey(PLAYER_SIDE, f)].inheritedFrom = from;
@@ -9884,13 +9907,19 @@ function playerEmpireAtWar(faction) {
   return isRecognizedFactionKey(faction) && !['borg', 'pirate'].includes(faction) && playerRelation(faction).status === 'war';
 }
 // Relation between two campaign parties, either of which may be the player's empire.
+// Strategic: formal wars only, apart from the arc-owned powers, which keep their authored hostility.
 function campaignPartyRelation(a, b) {
   if (a === b) return 'allied';
-  if (a === PLAYER_SIDE) return isRecognizedFactionKey(b) ? playerRelation(b).status : 'peace';
-  if (b === PLAYER_SIDE) return isRecognizedFactionKey(a) ? playerRelation(a).status : 'peace';
+  if (a === PLAYER_SIDE || b === PLAYER_SIDE) {
+    const other = a === PLAYER_SIDE ? b : a;
+    if (!isRecognizedFactionKey(other)) return 'peace';
+    if (arcOwned(other, other)) return worldRelation(getPlayerFlag(), other).status;
+    return playerRelation(other).status;
+  }
   if (!isRecognizedFactionKey(a) || !isRecognizedFactionKey(b)) return 'peace';
   if (areFactionsAligned(a, b)) return 'allied';
-  return worldRelation(a, b).status;
+  if (arcOwned(a, b)) return worldRelation(a, b).status;
+  return formalRelation(a, b).status;
 }
 // Every pair at war or in ceasefire (or, when asked, any recorded pair) the campaign should consider,
 // with the war instance it is in. Parties are campaign polity ids.
@@ -9899,30 +9928,32 @@ function campaignWarPairs() {
   const out = new Map();
   const add = (a, b, r) => { const key = World.pairKey(a, b); if (!out.has(key)) out.set(key, { a, b, status: r.status, warId: r.warId || `${key}#base`, warStarted: r.warStarted ?? null, inheritedFrom: r.inheritedFrom || null }); };
   for (const r of Object.values(book.pairs)) {
-    if (!r.a || !r.b || campaignOwnsDiplomacy(r.a, r.b)) continue;
+    if (!r.a || !r.b || campaignOwnsDiplomacy(r.a, r.b) || arcOwned(r.a, r.b)) continue;
     if (![r.a, r.b].every((x) => x === PLAYER_SIDE || isRecognizedFactionKey(x))) continue;
     add(r.a, r.b, r);
   }
-  // Wars that exist only in lore (never recorded) are wars too.
-  const keys = Object.keys(factionNames).filter((f) => isRecognizedFactionKey(f) && !['borg', 'pirate'].includes(f) && !campaignOwnsDiplomacy(f, f));
-  for (let i = 0; i < keys.length; i++) for (let j = i + 1; j < keys.length; j++) {
-    const key = World.pairKey(keys[i], keys[j]);
-    if (out.has(key) || !baseFactionWar(keys[i], keys[j])) continue;
-    add(keys[i], keys[j], worldRelation(keys[i], keys[j]));
-  }
-  return [...out.values()];
+  // Declared starting wars that nothing has recorded yet. Static hostility is not a war.
+  for (const [x, y] of FORMAL_STARTING_WARS) if (!out.has(World.pairKey(x, y))) add(x, y, formalRelation(x, y));
+  return [...out.values()].filter((p) => !arcOwned(p.a, p.b));
 }
 // The diplomatic side of a campaign transition: the formal record, the local scene, the news. The
 // model has already stood the pair's operations down, closed their contracts and settled territory.
 function applyWarTransitionEngine(e, day) {
   const book = diplomacyBook();
-  const record = World.setDiplomacy(book, e.a, e.b, e.to, day, e.a !== PLAYER_SIDE && e.b !== PLAYER_SIDE && baseFactionWar(e.a, e.b),
+  const record = World.setDiplomacy(book, e.a, e.b, e.to, day, e.a !== PLAYER_SIDE && e.b !== PLAYER_SIDE && isFormalStartingWar(e.a, e.b),
     e.to === 'ceasefire' ? `Ceasefire: ${e.reason}` : `${e.basis === 'decisive' ? 'Dictated peace' : 'Peace settlement'}: ${e.reason}`);
   markDiplomacyHistory(book, { transition: e.to, key: e.key, warId: e.warId });
+  book.pairs[World.pairKey(e.a, e.b)].formalPeace = true;
   reconcileDiplomacy();
+  // An inherited war that follows its government is one treaty to the captain, not two: the record is
+  // kept in step, and the government's report says it also binds the empire. [correction to 3bbcf15]
+  if (e.source === 'inherited') return record;
   reportWarTransition(e, day);
+  const bindsEmpire = (e.alsoBinds || []).some((k) => k.split(':').includes(PLAYER_SIDE));
   if (e.a === PLAYER_SIDE || e.b === PLAYER_SIDE)
     setLog(`${e.to === 'ceasefire' ? 'Ceasefire' : 'Peace'} with ${formatFaction(e.a === PLAYER_SIDE ? e.b : e.a)}: ${e.reason}.`);
+  else if (bindsEmpire)
+    setLog(`${formatFaction(e.a)} / ${formatFaction(e.b)}: ${e.to}. ${e.reason}. It also applies to your empire.`);
   return record;
 }
 function warPartyName(id) { return id === PLAYER_SIDE ? 'your empire' : formatFaction(id); }
@@ -9942,6 +9973,7 @@ function warTermsText(terms, known = true) {
 // and not at all about two powers they have never had contact with.
 function warTransitionSource(e) {
   if (e.a === PLAYER_SIDE || e.b === PLAYER_SIDE) return 'party';
+  if ((e.alsoBinds || []).some((k) => k.split(':').includes(PLAYER_SIDE))) return 'bound';
   if (![e.a, e.b].every((f) => campaignPowerContact(f))) return 'none';
   const ctx = campaignIntelContext();
   let best = 'rumour';
@@ -9966,14 +9998,15 @@ function reportWarTransition(e, day) {
   const base = e.to === 'ceasefire'
     ? `${who} agreed a ceasefire: ${e.reason}.${occupiedLeft.length ? ` ${occupiedLeft.join(', ')} ${occupiedLeft.length === 1 ? 'remains' : 'remain'} occupied; no settlement yet.` : ''}`
     : `${who} signed a peace${e.winner ? `; ${warPartyName(e.winner)} dictated the terms` : ''}: ${e.reason}.`;
+  const binds = source === 'bound';
   const delay = source === 'relay' ? WAR_REPORT_RELAY_DELAY
     : source === 'rumour' ? 5 + Math.floor(intelRandom(`${fleetBook().campaignId}:war-news:${e.key}:${e.warId}:${e.to}`)() * 6) : 0;
   const detailed = source !== 'rumour';
   const report = {
     id: `diplomacy:war:${e.key}:${e.warId || ''}:${e.to}`, day: day + delay, kind, category: 'diplomacy',
-    factions: [e.a, e.b].filter(isRecognizedFactionKey), playerRelated: source === 'party',
-    confidence: source === 'party' ? 'Signed by your government' : source === 'rumour' ? 'Unconfirmed civilian report' : source === 'relay' ? 'Relay dispatch' : 'Confirmed local observation',
-    text: `${base}${e.to === 'peace' ? warTermsText(e.terms, detailed) : ''}`,
+    factions: [e.a, e.b].filter(isRecognizedFactionKey), playerRelated: source === 'party' || binds,
+    confidence: source === 'party' ? 'Signed by your government' : binds ? 'Binding on your empire' : source === 'rumour' ? 'Unconfirmed civilian report' : source === 'relay' ? 'Relay dispatch' : 'Confirmed local observation',
+    text: `${base}${e.to === 'peace' ? warTermsText(e.terms, detailed) : ''}${binds ? (e.to === 'ceasefire' ? ' The ceasefire also applies to your empire.' : ' The settlement also applies to your empire.') : ''}`,
   };
   if (delay === 0) return addGalaxyReport(report);
   const news = galaxyNewsBook();
@@ -10045,13 +10078,42 @@ function answerWarOffer(key, accept) {
   updateStats();
   return true;
 }
+// Static hostility: the lore table of who distrusts whom. It shapes local attitude and targeting —
+// who a patrol treats as an enemy on sight — and nothing strategic. [correction to 3bbcf15]
 function baseFactionWar(a, b) {
   return Boolean(
     factionRelations[a]?.hostile?.includes(b) || factionRelations[b]?.hostile?.includes(a),
   );
 }
+// Formal wars at campaign start. A formal war is a strategic state — operations, the war evaluator,
+// settlements, the empire's inherited wars — and it exists only where the campaign declares it: here,
+// or by a later incident, escalation or declaration recorded in the diplomacy book. Static hostility is
+// never promoted into one. (BILATERAL-WAR-PEACE-RULES §1a)
+const FORMAL_STARTING_WARS = Object.freeze([['terran', 'klingon']]);
+function isFormalStartingWar(a, b) {
+  const key = World.pairKey(a, b);
+  return FORMAL_STARTING_WARS.some(([x, y]) => World.pairKey(x, y) === key);
+}
+// Powers whose hostilities are owned by a campaign arc rather than by the diplomacy book: the Dominion
+// expedition and the Blender garrison raid under their own authored rules. Their pairs are not formal
+// bilateral wars (never evaluated, never inherited by the captain's empire); the campaign keeps reading
+// their authored hostility, as it did before. [correction to 3bbcf15]
+const ARC_OWNED_HOSTILITY = Object.freeze(['dominion', 'dominion_remnant']);
+function arcOwned(a, b) { return ARC_OWNED_HOSTILITY.includes(a) || ARC_OWNED_HOSTILITY.includes(b); }
+// The formal state of a pair: its diplomacy record if it has one, otherwise war only for a declared
+// starting war.
+function formalRelation(a, b) {
+  return World.relation(ensurePlaytestState().diplomacy, a, b, isFormalStartingWar(a, b));
+}
+// The relation local attitude and targeting read. A formal war is a war; a formal ceasefire or peace
+// the pair actually concluded (formalPeace) ends local hostility too; otherwise static hostility still
+// applies, whatever crisis or talks the incident roll has recorded.
 function worldRelation(a, b) {
-  return World.relation(ensurePlaytestState().diplomacy, a, b, baseFactionWar(a, b));
+  const book = ensurePlaytestState().diplomacy;
+  const record = book?.pairs?.[World.pairKey(a, b)];
+  if (!record) return World.relation(book, a, b, baseFactionWar(a, b) || isFormalStartingWar(a, b));
+  if (record.status === 'war' || record.formalPeace || !baseFactionWar(a, b)) return record;
+  return { ...record, status: 'war', staticHostility: true };
 }
 // A war the campaign arc owns is not a neighbour dispute, and the ordinary roll must not settle it.
 // The Dominion's is the case: its expedition ends by being destroyed or expelled, by its route being
@@ -10111,7 +10173,7 @@ function advanceWorldDiplomacy(day) {
   coolPlayerIncidents(day);
   const book = diplomacyBook(),
     last = book.history.at(-1);
-  World.advanceDiplomacy(book, day, diplomaticPairs(), baseFactionWar);
+  World.advanceDiplomacy(book, day, diplomaticPairs(), isFormalStartingWar);
   const event = book.history.at(-1);
   if (event !== last && event) {
     reconcileDiplomacy();
@@ -10135,14 +10197,17 @@ function changeDiplomacy(a, b, status) {
   if (!isRecognizedFactionKey(a) || !isRecognizedFactionKey(b))
     throw new Error('Unknown diplomatic faction.');
   // Ending or suspending a war from the debug menu takes the same path as any settlement. [bilateral peace]
-  if ((status === 'peace' || status === 'ceasefire') && ['war', 'ceasefire'].includes(worldRelation(a, b).status) && status !== worldRelation(a, b).status) {
+  if ((status === 'peace' || status === 'ceasefire') && ['war', 'ceasefire'].includes(formalRelation(a, b).status) && status !== formalRelation(a, b).status) {
     const book = campaign();
     const effects = Campaign.forceWarTransition(book, buildCampaignWorld(true), a, b, status, state.day, 'Directed settlement');
     applyCampaignEffects(effects, state.day);
     campaignWorldCache = null;
     return `${formatFaction(a)} and ${formatFaction(b)}: ${status}.`;
   }
-  const event = World.setDiplomacy(diplomacyBook(), a, b, status, state.day, baseFactionWar(a, b));
+  const event = World.setDiplomacy(diplomacyBook(), a, b, status, state.day, isFormalStartingWar(a, b));
+  // An explicit peace from the debug menu is a concluded peace: it ends local hostility too.
+  if (status === 'peace') diplomacyBook().pairs[World.pairKey(a, b)].formalPeace = true;
+  else if (status === 'war') delete diplomacyBook().pairs[World.pairKey(a, b)].formalPeace;
   if (status === 'war' || status === 'crisis')
     for (let i = 0; i < state.planets.length; i++) {
       if (![a, b].includes(getSystemFaction(i))) continue;

@@ -1616,7 +1616,7 @@ export function failMission(book, id, day, reason) { const m = book.missions.fin
 // between two AI powers ends when it is eligible; a war the player's empire is party to produces an
 // offer the captain answers. Either way the transition goes through one path that stands down the
 // pair's operations, closes war-only contracts and applies the territorial terms.
-const LOCKED_WAR_PARTIES = Object.freeze(['dominion']);
+const LOCKED_WAR_PARTIES = Object.freeze(['dominion', 'dominion_remnant']); // arc-owned hostility, never a formal bilateral war
 // Pairs the model should consider: { a, b, status, warId, warStarted }. The engine supplies them from
 // the diplomacy book; a world without an engine is read through its relation function.
 function warPairsInView(book, world, includeSettled = false) {
@@ -1698,6 +1698,9 @@ export function evaluateWars(book, world, day, effects) {
   for (const pair of warPairsInView(book, world)) {
     if (LOCKED_WAR_PARTIES.includes(pair.a) || LOCKED_WAR_PARTIES.includes(pair.b)) continue;
     if (!book.polities[pair.a] || !book.polities[pair.b]) continue;
+    // An inherited war is its government's war: it follows that war's ceasefire and settlement and is
+    // not evaluated (or offered) on its own. A war the empire made its own carries no inheritance.
+    if (pair.inheritedFrom) continue;
     const key = warKey(pair.a, pair.b);
     let st = book.warStates[key];
     if (!st || (st.warId !== (pair.warId || 'static')) || (st.status === 'peace')) {
@@ -1767,6 +1770,7 @@ function applyWarTransitionInModel(book, world, st, t, day, effects, source = 'e
   // was fighting the government's war, and the government's settlement binds it, with the same
   // cleanup. A war the empire made its own (an incident, a seizure) has no inheritance and is not
   // touched; nor is anything the captain does afterwards, which is an incident like any other.
+  const bound = [];
   if (st.a !== 'player' && st.b !== 'player' && source !== 'inherited') {
     for (const [side, other] of [[st.a, st.b], [st.b, st.a]]) {
       const inherited = warPairsInView(book, world).find((p) => [p.a, p.b].includes('player') && [p.a, p.b].includes(other) && p.inheritedFrom === side && ['war', 'ceasefire'].includes(p.status));
@@ -1782,10 +1786,11 @@ function applyWarTransitionInModel(book, world, st, t, day, effects, source = 'e
         ? settlementTerms(t.basis === 'decisive' ? 'decisive' : 'settlement', pwinner, pairOccupations(book, world, pst), Object.fromEntries([pst.a, pst.b].map((id) => [id, polityReadiness(book, world, id).strength])))
         : [];
       applyWarTransitionInModel(book, world, pst, { to: t.to, basis: 'co-belligerent', winner: pwinner, loser: pwinner ? (pwinner === 'player' ? other : 'player') : null,
-        reason: `the ${world.factionName(side)}–${world.factionName(other)} ${t.to === 'ceasefire' ? 'ceasefire' : 'settlement'} binds your empire`, terms: pterms }, day, effects, 'inherited');
+        reason: `the ${world.factionName(side)}–${world.factionName(other)} ${t.to === 'ceasefire' ? 'ceasefire' : 'settlement'} binds your empire`, terms: pterms, parentKey: st.key }, day, effects, 'inherited');
+      bound.push(pkey);
     }
   }
-  effects.push({ type: t.to === 'peace' ? 'warResolved' : 'warCeasefire', key: st.key, a: st.a, b: st.b, warId: st.warId, to: t.to, basis: t.basis, winner: t.winner, loser: t.loser, reason: t.reason, terms: applied, standDown: closed, source, day });
+  effects.push({ type: t.to === 'peace' ? 'warResolved' : 'warCeasefire', key: st.key, a: st.a, b: st.b, warId: st.warId, to: t.to, basis: t.basis, winner: t.winner, loser: t.loser, reason: t.reason, terms: applied, standDown: closed, source, parentKey: t.parentKey || null, alsoBinds: bound, day });
 }
 // Operations between the pair stand down the same day, in any phase, in both directions. A battle the
 // loaded scene owns is marked and stood down when the scene releases it. Escort and blockade contracts

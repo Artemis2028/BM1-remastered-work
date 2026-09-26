@@ -203,7 +203,11 @@ const EXPORTS = 'window.testBM1={state,startWithFaction,advanceFleetCalendar,fle
     const r = await ev(() => {
       const t = testBM1, s = t.state, book = t.campaign();
       const c = book.config; const phases = [];
-      const step = (days) => { let left = days; while (left > 0) { const n = Math.min(10, left); t.advanceFleetCalendar(n, t.Fleet.nextId(t.fleetBook(), 'journey')); left -= n; phases.push([s.day, book.dominion.phase, book.operations.filter((o) => o.faction === 'dominion').length]); } };
+      const step = (days) => { let left = days; while (left > 0) { const n = Math.min(10, left); t.advanceFleetCalendar(n, t.Fleet.nextId(t.fleetBook(), 'journey')); left -= n; phases.push([s.day, book.dominion.phase, book.operations.filter((o) => o.faction === 'dominion').length]);
+        // The expedition as launched: resolved operations are pruned once the book is full, and a quicker
+        // front can resolve and prune it before the last step.
+        const x = book.operations.find((o) => o.id === book.dominion.expeditionOpId); if (x && !expedition) expedition = { targetSystem: x.targetSystem, kind: x.kind }; } };
+      let expedition = null;
       // Three hundred warp-days of ordinary play with the strategic case out of reach. Days are the only
       // thing changing, which is the point: the calendar is not an input, so nothing happens. (The
       // matrix gate carries the same claim across a full grid of ages and histories.)
@@ -221,7 +225,7 @@ const EXPORTS = 'window.testBM1={state,startWithFaction,advanceFleetCalendar,fle
       step(c.dominionReconDwellDays + 10);
       const staging = { phase: book.dominion.phase, ops: book.operations.filter((o) => o.faction === 'dominion').length, warnings: book.dominion.warnings.length, hullsAtStaging: book.polities.dominion.hulls.filter((h) => h.systemIndex === 58).length };
       step(c.dominionStagingDwellDays + 60);
-      const inv = book.dominion; const op = book.operations.find((o) => o.id === inv.expeditionOpId);
+      const inv = book.dominion; const op = expedition;
       return { quiet, recon, staging, phase: inv.phase, warnings: inv.warnings.map((w) => [w.day, w.id]),
         entry: inv.entrySystem, stagingSystem: inv.stagingSystem, target: op?.targetSystem, kind: op?.kind,
         convoys: inv.convoys, maxConvoys: c.dominionMaxConvoys,

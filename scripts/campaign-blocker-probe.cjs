@@ -1444,11 +1444,17 @@ const { startProbe } = require('./probe-harness.cjs');
         // ...and one already outbound from the same world, which the book still files there.
         s.playerFleet.push({ id: 'outbound', shipId: Number(ship.id), name: 'Courier', systemIndex: target, assignment: 'transit',
           destroyed: false, vessel: { hull: 400, maxHull: 400, condition: 'operational' } });
+        // The attacker must be formally at war with the captain's empire and with the world's holder. Static
+        // hostility is no longer a war (docs/playtest/BILATERAL-WAR-PEACE-RULES-260130ZSEP26.md §1a), so the
+        // fixture declares the two wars this reproduction always had through lore: the Tholians against the
+        // empire (through incidents) and against the holder (a declaration).
+        for (let i = 0; i < 4; i++) t.recordPlayerHostileAct('tholian', 'ship');
+        t.changeDiplomacy('tholian', t.campaignFactionKeyFor(world.systems[target].controller), 'war');
         const w2 = t.buildCampaignWorld(true);
         const attacker = Object.keys(book.polities).find((id) => id !== 'player' && id !== w2.systems[target].controller
           && book.polities[id].hulls.length >= 20
-          && t.worldRelation(flag, t.campaignFactionKeyFor(id)).status === 'war');
-        if (!attacker) return { fail: `no power at war with ${flag} had twenty hulls to attack it` };
+          && w2.relation(id, w2.playerRelationSide || flag) === 'war');
+        if (!attacker) return { fail: `no power formally at war with the captain had twenty hulls to attack it` };
         const hulls = book.polities[attacker].hulls.slice(0, 20);
         for (const h of hulls) h.systemIndex = target;
         t.Campaign.launchOperation(book, w2, attacker, hulls, target, s.day, 1, 'assault');
