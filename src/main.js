@@ -10079,14 +10079,20 @@ function strategicOpSource(systemIndex, own) {
   if (control.playerControlled) return 'local';
   return campaignIntelSource(systemIndex);
 }
+// Crews that passed through a blockade saw it: for a while after, what they saw is as good as a ship on
+// station, and it is dated. [FORMATION-ROUTE]
+const BLOCKADE_SIGHTING_DAYS = 30;
 function blockadeKnowledge(b) {
-  const source = strategicOpSource(b.target, b.power === PLAYER_SIDE);
+  let source = strategicOpSource(b.target, b.power === PLAYER_SIDE);
+  const seen = Number(b.sightings?.[PLAYER_SIDE]);
+  const sighted = Number.isFinite(seen) && state.day - seen <= BLOCKADE_SIGHTING_DAYS;
+  if (sighted && (source === 'none' || source === 'rumour' || source === 'relay')) source = 'fleet';
   if (source === 'none') return null;
   const exact = source === 'own' || source === 'local' || source === 'fleet';
   const n = b.hulls.length;
   const band = exact ? `${n}` : source === 'relay' ? `${Math.max(1, Math.floor(n * 0.6))}–${Math.ceil(n * 1.5)}` : null;
   const coverage = source === 'rumour' ? 'unknown' : Campaign.blockadeTier(b.coverage);
-  return { source, exact, coverage, force: band, supply: exact ? (b.supply >= 0.7 ? 'stable' : b.supply >= Campaign.CAMPAIGN_RULES.blockadeMinSupply ? 'strained' : 'failing') : null };
+  return { source, exact, coverage, force: band, supply: exact ? (b.supply >= 0.7 ? 'stable' : b.supply >= Campaign.CAMPAIGN_RULES.blockadeMinSupply ? 'strained' : 'failing') : null, ...(sighted ? { seenDay: seen } : {}) };
 }
 function evacuationKnowledge(e) {
   const source = strategicOpSource(e.origin, e.sponsor === PLAYER_SIDE);
@@ -23317,6 +23323,7 @@ const MAP_OVERLAY_LAYERS = Object.freeze([
   // engine's own route colour is invisible, because it lands on top of a line that is already there.
   { key: 'routes', label: 'Route to objective', color: '#d3a6ff' },
   { key: 'operations', label: 'Evacuations & blockades', color: '#ff6f8a', kind: 'conditions' },
+  { key: 'formations', label: 'Formations under way', color: '#9fe870' },
 ]);
 function mapOverlayState() {
   const p = ensurePlaytestState();
@@ -23519,7 +23526,7 @@ function mapOverlayLegendCounts() {
   }
   counts.lanes = known;
   counts.security = known;
-  { const ops = mapStrategicOps(); counts.operations = ops.evacs.length + ops.blocks.length; }
+  { const ops = mapStrategicOps(); counts.operations = ops.evacs.length + ops.blocks.length; } counts.formations = mapFormationTravels().length;
   return { layers, counts, unknown };
 }
 // The rails' contents. Rebuilt as HTML and written only when it changes, so a button is never replaced
@@ -23603,7 +23610,7 @@ function drawMapOverlayLegend() {
   }
   counts.lanes = known;
   counts.security = known;
-  { const ops = mapStrategicOps(); counts.operations = ops.evacs.length + ops.blocks.length; }
+  { const ops = mapStrategicOps(); counts.operations = ops.evacs.length + ops.blocks.length; } counts.formations = mapFormationTravels().length;
   const rect = getStarChartPanelRect();
   const x = rect.left + 14;
   const y = rect.bottom - 18 - MAP_OVERLAY_LAYERS.length * 18;
@@ -23735,6 +23742,7 @@ function drawInterstellarMapOverlay() {
     drawMapObjectiveOverlay();
     drawMapSecurityOverlay();
     drawMapStrategicOpsOverlay();
+    drawMapFormationTravelOverlay();
     for (let i = 0; i < state.planets.length; i++) {
       drawPlanetMarker(state.planets[i], i);
     }
@@ -26295,6 +26303,11 @@ function acknowledgeCampaignOrders() {
   // however well that system is connected. The calendar runs this after the day's arrivals, so a ship
   // that reached the end of her leg today is standing there.
   const receivable = (o) => {
+    // A formation in warp receives nothing until its leg ends, as a single ship does. [§5]
+    if (o.order === 'dispatch') {
+      const tr = formationTravel(formationById(o.formationId));
+      return !tr || formationTravelPosition(tr).standing;
+    }
     if (o.order !== 'fleet') return true;
     const f = state.playerFleet.find((x) => x.id === o.fleetId);
     if (fleetCommandInWarp(f)) return false;
@@ -26304,9 +26317,22 @@ function acknowledgeCampaignOrders() {
     if (o.command === 'trade-start' && f && fleetVesselCondition(f) === 'disabled') return false;
     return true;
   };
+  // A queued order to a formation under way is addressed to the formation: where it stands today, or
+  // where its leg ends.
+  for (const o of book.orders || []) {
+    if (o.status !== 'queued' || o.order !== 'dispatch') continue;
+    const tr = formationTravel(formationById(o.formationId));
+    if (!tr) continue;
+    const pos = formationTravelPosition(tr);
+    o.systemIndex = pos.standing ? pos.system : pos.legEnd;
+  }
   const acked = Campaign.acknowledgeQueuedOrders(book, state.day, connected, receivable);
   for (const o of acked) {
-    if (o.order === 'dispatch') dispatchFleetFormation(o.formationId, { fromRelay: true });
+    if (o.order === 'dispatch') {
+      const g = formationById(o.formationId);
+      if (g && Number.isFinite(Number(o.destination))) g.destination = Number(o.destination);
+      dispatchFleetFormation(o.formationId, { fromRelay: true, purpose: o.purpose || null });
+    }
     if (o.order === 'fleet') {
       const f = state.playerFleet.find((x) => x.id === o.fleetId && !x.destroyed);
       if (f) {
@@ -26691,6 +26717,54 @@ function drawMapStrategicOpsOverlay() {
     ctx.fillStyle = l.color; ctx.fillText(l.text, p.x, y);
   }
   ctx.textAlign = 'left';
+  ctx.restore();
+}
+// The captain's own formations under way: the route flown solid, the route ahead dashed, and the
+// formation where it is — in a system today, or partway along its leg.
+function mapFormationTravels() {
+  return fleetBook().formations.map((g) => ({ g, tr: formationTravel(g) })).filter((x) => x.tr && isChartSystemVisible(x.tr.plotFrom ?? x.tr.from));
+}
+function drawMapFormationTravelOverlay() {
+  if (!mapOverlayState().formations) return;
+  const list = mapFormationTravels();
+  if (!list.length) return;
+  const color = MAP_OVERLAY_LAYERS.find((l) => l.key === 'formations').color;
+  ctx.save();
+  ctx.lineCap = 'round';
+  for (const { g, tr } of list) {
+    const nodes = [Number(tr.plotFrom ?? tr.from), ...tr.path.map(Number)];
+    const pts = nodes.map((i) => getStarChartSystemScreen(i));
+    const done = tr.legIndex; // legs before the current one are flown
+    const pos = formationTravelPosition(tr);
+    const span = Math.max(1, Number(tr.legArrivalDay) - Number(tr.legDepartDay));
+    const frac = pos.standing ? 0 : Math.min(0.95, Math.max(0.05, (Number(state.day) - Number(tr.legDepartDay)) / span));
+    const a = pts[done], b = pts[done + 1];
+    const here = { x: a.x + (b.x - a.x) * frac, y: a.y + (b.y - a.y) * frac };
+    const path = (from, to) => { ctx.beginPath(); for (let n = from; n <= to; n++) (n === from ? ctx.moveTo(pts[n].x, pts[n].y) : ctx.lineTo(pts[n].x, pts[n].y)); };
+    ctx.setLineDash([]); ctx.strokeStyle = 'rgba(6, 8, 18, 0.85)'; ctx.lineWidth = 7; path(0, pts.length - 1); ctx.stroke();
+    ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.beginPath(); for (let n = 0; n <= done; n++) (n ? ctx.lineTo(pts[n].x, pts[n].y) : ctx.moveTo(pts[n].x, pts[n].y)); ctx.lineTo(here.x, here.y); ctx.stroke();
+    ctx.setLineDash([6, 6]); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(here.x, here.y); for (let n = done + 1; n < pts.length; n++) ctx.lineTo(pts[n].x, pts[n].y); ctx.stroke();
+    ctx.setLineDash([]);
+    // Systems crossed on this plot are ticked.
+    ctx.fillStyle = color;
+    for (let n = 1; n <= done; n++) { ctx.beginPath(); ctx.arc(pts[n].x, pts[n].y, 4, 0, Math.PI * 2); ctx.fill(); }
+    // The formation itself: a chevron pointing along its leg.
+    const ang = Math.atan2(b.y - a.y, b.x - a.x);
+    ctx.save(); ctx.translate(here.x, here.y); ctx.rotate(ang);
+    ctx.fillStyle = 'rgba(6, 8, 18, 0.9)'; ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(-9, -10); ctx.lineTo(-4, 0); ctx.lineTo(-9, 10); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-7, -7); ctx.lineTo(-3, 0); ctx.lineTo(-7, 7); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    const text = `${g.name} → ${state.planets[tr.destination]?.name || '?'} · leg ${tr.legIndex + 1}/${tr.path.length} · day ${tr.etaDay}`;
+    ctx.font = canvasUiFont(11); ctx.textAlign = 'center';
+    const w = ctx.measureText(text).width + 8;
+    // Beneath the chevron, on the side away from the leg, so the route does not run through it.
+    let nx = -Math.sin(ang), ny = Math.cos(ang);
+    if (ny < 0) { nx = -nx; ny = -ny; }
+    const lx = here.x + nx * 30 + (nx >= 0 ? w / 2 : -w / 2) * Math.abs(nx), ly = here.y + ny * 30 + 4;
+    ctx.fillStyle = 'rgba(6, 8, 18, 0.88)'; ctx.fillRect(lx - w / 2, ly - 11, w, 14);
+    ctx.fillStyle = color; ctx.fillText(text, lx, ly);
+    ctx.textAlign = 'left';
+  }
   ctx.restore();
 }
 // ---- Wars & treaties (BILATERAL-WAR-PEACE-RULES) ----
@@ -27494,7 +27568,7 @@ function renderFleetManager(open = false) {
       ${trade?.stops?.length && fleetVesselCondition(f) === 'operational' ? `<p>Calls: ${escapeHtml(trade.stops.map((i) => state.planets[i]?.name || '?').join(' → '))} · circuit ends day ${trade.etaDay}</p>` : ''}
       <p>${trade?.expectedProfit != null ? `This circuit ${trade.expectedProfit} L expected` : `Last circuit ${trade?.tripProfit ?? 0} L`} · Total ${trade?.cumulative ?? 0} L over ${trade?.circuits ?? 0} circuits</p>
       <p>Shipments ${trade?.contractIncome ?? 0} L · Commodities ${trade?.commodityIncome ?? 0} L</p></div>`;
-      return `<details><summary>${escapeHtml(f.name)} · ${v ? Math.round((v.hull / v.maxHull) * 100) + '% hull' : 'Ready'} · ${escapeHtml(v?.condition || 'operational')} · ${upkeepPerDay(f.shipId)} L/day · ${escapeHtml(state.planets[f.assignment === 'escort' ? state.currentPlanet : f.systemIndex]?.name || 'Transit')}${tradeLine}</summary>
+      return `<details><summary>${escapeHtml(f.name)} · ${v ? Math.round((v.hull / v.maxHull) * 100) + '% hull' : 'Ready'} · ${escapeHtml(v?.condition || 'operational')} · ${upkeepPerDay(f.shipId)} L/day · ${escapeHtml(f.transit?.formationId ? `in warp → ${state.planets[f.transit.to]?.name || '?'} (day ${f.transit.arrivalDay})` : state.planets[f.assignment === 'escort' ? state.currentPlanet : f.systemIndex]?.name || 'Transit')}${tradeLine}</summary>
     <label>Formation<select data-fleet-group="${escapeHtml(f.id)}">${options(
       b.formations.map((g) => [g.id, g.name]),
       group?.id,
@@ -27564,7 +27638,7 @@ function renderFleetManager(open = false) {
     <select data-fleet-destination="${escapeHtml(g.id)}">${options(
       state.planets.map((p, i) => [i, chartSystemLabel(i)]).filter(([i])=>isChartSystemVisible(i)),
       g.destination ?? state.currentPlanet,
-    )}</select>${btn('dispatch', 'Dispatch to system', g.id)}${btn('trade-start-group', 'Trade with formation', g.id)}${btn('trade-stop-group', 'Stop formation trading', g.id)}</div>`,
+    )}</select>${btn('dispatch', formationTravel(g) ? 'Redirect to system' : 'Dispatch to system', g.id)}${btn('dispatch-attack', 'Dispatch to attack', g.id)}${formationTravel(g) ? btn('dispatch-cancel', 'Stop at next system', g.id) : ''}${btn('trade-start-group', 'Trade with formation', g.id)}${btn('trade-stop-group', 'Stop formation trading', g.id)}${g.travel ? `<p class="formation-travel" data-formation-travel="${escapeHtml(g.id)}" data-travel-status="${escapeHtml(g.travel.status)}">${escapeHtml(formationTravelLine(g))}</p>` : ''}</div>`,
     )
     .join('');
   const ships = hasServiceChannel() ? getShipyardStock() : [];
@@ -27616,6 +27690,8 @@ document.addEventListener('click', (event) => {
   if (action === 'transfer') transferFleetCommand(id);
   if (action === 'rescue') recoverDisabledPlayer();
   if (action === 'dispatch') dispatchFleetFormation(id);
+  if (action === 'dispatch-attack') dispatchFleetFormation(id, { purpose: 'attack' });
+  if (action === 'dispatch-cancel') cancelFormationTravel(id);
   // Every order to a fleet ship goes through command delivery: immediate where a link reaches her,
   // queued where none does. [playtest]
   if (action === 'trade-start') sendFleetCommand(id, { command: 'trade-start', risk: selectedFleetTradeRisk(id) });
@@ -27918,11 +27994,103 @@ function recoverDisabledPlayer() {
   setLog('Recovery crew stabilizing propulsion. Unpaid costs are recorded as debt.');
   return true;
 }
-function dispatchFleetFormation(id, { fromRelay = false } = {}) {
+// ---- formation strategic route traversal (FORMATION-ROUTE-TRAVERSAL-RULES-261700ZSEP26) ----
+// A dispatched formation flies its route one leg at a time, as a single body. Its journey is a record on
+// the formation — route, leg, departure and arrival days, destination, the vessels flying it — and the
+// members carry nothing but the leg they are on. Every system on the way is reached, crossed and
+// observed the day the leg ends, exactly once; the formation is only ever in one system or on one leg.
+function formationTravel(g) {
+  return g && g.travel && g.travel.status === 'underway' ? g.travel : null;
+}
+function formationById(id) {
+  return fleetBook().formations.find((g) => g.id === id) || null;
+}
+// Where the formation is: standing in a system today (at its origin on the day it leaves, or at a
+// system it crossed today), or in warp towards the end of its leg.
+function formationTravelPosition(tr) {
+  if (!tr) return null;
+  const standing = Number(tr.legDepartDay) === Number(state.day);
+  return { standing, system: standing ? Number(tr.from) : null, legEnd: Number(tr.path[tr.legIndex]), arrivalDay: Number(tr.legArrivalDay) };
+}
+function formationTravelMembers(tr) {
+  return state.playerFleet.filter((f) => tr.members.includes(f.id) && !f.destroyed);
+}
+function formationWarStamp(target) {
+  return Campaign.warAuthorityStamp(campaignBook(), buildCampaignWorld(), PLAYER_SIDE, Number(target));
+}
+function formationWarHolds(stamp) {
+  return Campaign.warAuthorityHolds(campaignBook(), buildCampaignWorld(), stamp);
+}
+function formationLegDays(tr, i) {
+  return Math.max(1, Math.round(finiteNumber(tr.legDays[i], 1)));
+}
+function formationEta(tr) {
+  let eta = Number(tr.legArrivalDay);
+  for (let i = tr.legIndex + 1; i < tr.path.length; i++) eta += formationLegDays(tr, i);
+  return eta;
+}
+// Put every member on the formation's current leg.
+function scheduleFormationLeg(g, tr) {
+  const to = Number(tr.path[tr.legIndex]);
+  tr.legArrivalDay = Number(tr.legDepartDay) + formationLegDays(tr, tr.legIndex);
+  tr.etaDay = formationEta(tr);
+  for (const f of formationTravelMembers(tr)) {
+    f.assignment = 'transit';
+    f.transit = { from: Number(tr.from), to, arrivalDay: tr.legArrivalDay, formationId: g.id, travelId: tr.id, leg: tr.legIndex };
+  }
+  state.npcShips = state.npcShips.filter((n) => !tr.members.includes(n.fleetId));
+}
+// Plot a journey for the formation from `from`, beginning on `day`. The members must all be standing
+// at `from`.
+function beginFormationTravel(g, members, from, destination, purpose, war, day, prior = null) {
+  const origin = Number(from), dest = Number(destination);
+  const route = origin === dest ? { systems: [origin], legs: [] } : getPlottedRoute(origin, dest);
+  if (!route) return null;
+  const tr = {
+    id: `ftravel:${g.id}:${origin}:${dest}:${day}:${(prior?.seq ?? 0) + 1}`,
+    seq: (prior?.seq ?? 0) + 1,
+    origin: prior ? Number(prior.origin) : origin,
+    plotFrom: origin,
+    from: origin,
+    destination: dest,
+    path: (route.systems || []).map(Number).slice(1),
+    legDays: routeLegDays(route),
+    legIndex: 0,
+    legDepartDay: Number(day),
+    legArrivalDay: Number(day),
+    startDay: prior ? Number(prior.startDay) : Number(day),
+    etaDay: Number(day),
+    members: members.map((f) => f.id),
+    vids: Object.fromEntries(members.map((f) => [f.id, ensureFleetVesselIdentity(f).vid])),
+    purpose,
+    war: war || null,
+    crossed: prior ? prior.crossed : [],
+    encounters: prior ? prior.encounters : [],
+    detached: prior ? prior.detached : [],
+    replots: prior ? [...(prior.replots || []), { day: Number(day), at: origin, from: Number(prior.destination), to: dest }] : [],
+    pending: null,
+    status: 'underway',
+    endDay: null,
+    endReason: null,
+    arrivedDay: null,
+    note: '',
+  };
+  g.travel = tr;
+  g.destination = dest;
+  if (!tr.path.length) { arriveFormation(g, tr, origin, Number(day)); return tr; }
+  scheduleFormationLeg(g, tr);
+  return tr;
+}
+function dispatchFleetFormation(id, { fromRelay = false, purpose = null } = {}) {
   const b = fleetBook(),
     g = b.formations.find((g) => g.id === id);
   if (!g || g.destination === null || !state.planets[g.destination]) return false;
+  const moving = formationTravel(g);
+  // A formation already under way is given a new destination: it cannot turn round in warp, so the
+  // order takes effect where the leg ends and the rest of the route is replotted from there. [§5]
+  if (moving) return redirectFormationTravel(g, moving, { fromRelay, purpose });
   const members = state.playerFleet.filter((f) => g.members.includes(f.id) && !f.destroyed);
+  if (!members.length) { setLog(`${g.name} has no ships to dispatch.`); return false; }
   if (
     members.some((f) => fleetLocalActor(f.id)?.condition === 'disabled' || f.vessel?.condition === 'disabled')
   ) {
@@ -27937,61 +28105,307 @@ function dispatchFleetFormation(id, { fromRelay = false } = {}) {
   // would move her in one jump away from the system it is to be flown from. [playtest]
   const underWay = members.filter((f) => {
     const t = fleetTradeState(f);
-    return t && (t.stage === 'outbound' || t.stage === 'passage' || (t.active && f.transit)
-      || Boolean(t.order && t.order.arrivedDay == null));
+    return Boolean(f.transit) || (t && (t.stage === 'outbound' || t.stage === 'passage' || (t.active && f.transit)
+      || Boolean(t.order && t.order.arrivedDay == null)));
   });
   if (underWay.length) {
     setLog(`${underWay.map((f) => f.name).join(', ')} ${underWay.length === 1 ? 'is' : 'are'} under way on ${underWay.length === 1 ? 'her' : 'their'} own route or under orders; stop or cancel before dispatching ${g.name}.`);
     return false;
   }
+  // One formation, one place: a formation whose ships are in different systems is not one body that
+  // can fly one route. They are brought together first. [FORMATION-ROUTE]
+  const at = [...new Set(members.map((f) => fleetShipSystem(f)))];
+  if (at.length > 1) {
+    setLog(`${g.name} is split between ${at.map((i) => state.planets[i]?.name || '?').join(' and ')}; bring the ships together before dispatching it.`);
+    return false;
+  }
+  const origin = at[0];
+  const want = purpose === 'attack' ? 'attack' : 'move';
+  let war = null;
+  if (want === 'attack') {
+    war = formationWarStamp(g.destination);
+    if (!war) {
+      setLog(`${g.name}: no war authority to attack ${state.planets[g.destination]?.name}; its holder is not formally at war with you.`);
+      return false;
+    }
+  }
   // Relays are command links: an order to ships in another system needs a relay link to reach them.
   // Without one the order is queued and acknowledged when a link exists; local orders always work.
-  const distant = [...new Set(members.map((f) => (f.assignment === 'escort' ? Number(state.currentPlanet) : Number(f.systemIndex))))].filter((i) => i !== Number(state.currentPlanet) && !isSystemRelayConnected(i));
-  if (distant.length && !fromRelay) {
+  if (origin !== Number(state.currentPlanet) && !isSystemRelayConnected(origin) && !fromRelay) {
     const book = campaign();
     if (!book.orders.some((o) => o.status === 'queued' && o.formationId === id)) {
-      const queued = Campaign.queueDistantOrder(book, { order: 'dispatch', formationId: id, systemIndex: distant[0], destination: g.destination, label: g.name }, state.day, false);
+      const queued = Campaign.queueDistantOrder(book, { order: 'dispatch', formationId: id, systemIndex: origin, destination: g.destination, purpose: want, label: g.name }, state.day, false);
       if (!queued) setLog(`${g.name}: dispatch refused — the relay queue is full.`);
-      else setLog(`No relay link to ${state.planets[distant[0]]?.name}: the dispatch order for ${g.name} is queued and will be acknowledged when a link exists.`);
+      else setLog(`No relay link to ${state.planets[origin]?.name}: the dispatch order for ${g.name} is queued and will be acknowledged when a link exists.`);
     } else setLog(`${g.name}: dispatch order already queued, awaiting a relay link.`);
+    return false;
+  }
+  if (origin !== Number(g.destination) && !getPlottedRoute(origin, g.destination)) {
+    setLog(`No plottable route from ${state.planets[origin]?.name} to ${state.planets[g.destination]?.name} for ${g.name}.`);
     return false;
   }
   captureShipPowerState();
   for (const f of members) {
-    const route = getPlottedRoute(
-      f.assignment === 'escort' ? state.currentPlanet : f.systemIndex,
-      g.destination,
-    );
-    if (!route) return false;
-  }
-  for (const f of members) {
-    const from = f.assignment === 'escort' ? state.currentPlanet : f.systemIndex,
-      route = getPlottedRoute(from, g.destination);
     // The dispatch is the captain's newest word for her: trading she would have resumed after a repair
     // does not start again under it, and her row stops saying she was ever disabled. [§6]
     const mt = fleetTradeState(f);
     if (mt) { mt.resumeTrade = false; mt.disabledAt = null; if (!mt.active && !mt.order) mt.note = `Dispatched with ${g.name}.`; }
-    f.assignment = 'transit';
-    f.transit = {
-      from,
-      to: g.destination,
-      arrivalDay: state.day + (from === g.destination ? 0 : Fleet.travelDays(route.distance)),
-    };
+    if (f.assignment === 'escort') { f.systemIndex = Number(state.currentPlanet); f.assignment = 'defense'; }
   }
-  state.npcShips = state.npcShips.filter((n) => !members.some((f) => f.id === n.fleetId));
-  completeFleetJourneys();
-  setLog(`${g.name} dispatched; arrival follows calendar travel days.`);
+  if (g.warOrder) delete g.warOrder;
+  const tr = beginFormationTravel(g, members, origin, g.destination, want, war, Number(state.day));
+  if (!tr) return false;
+  if (tr.status === 'underway')
+    setLog(`${g.name} dispatched${want === 'attack' ? ' to attack' : ''}: ${tr.path.length} leg${tr.path.length === 1 ? '' : 's'} to ${state.planets[tr.destination]?.name}, next ${state.planets[tr.path[0]]?.name} day ${tr.legArrivalDay}, arriving day ${tr.etaDay}.`);
   return true;
 }
+// A new destination for a formation already under way, or a cancel (a destination at the end of the
+// leg it is on). Standing in a system today, it is replotted from there at once; in warp, where the
+// leg ends. The order reaches it as any order does: from the captain's own system or over a relay.
+function redirectFormationTravel(g, tr, { fromRelay = false, purpose = null } = {}) {
+  const pos = formationTravelPosition(tr);
+  const want = purpose === 'attack' ? 'attack' : 'move';
+  const dest = Number(g.destination);
+  const reach = pos.standing ? pos.system : pos.legEnd;
+  if (!fromRelay && reach !== Number(state.currentPlanet) && !isSystemRelayConnected(reach)) {
+    const book = campaign();
+    if (!book.orders.some((o) => o.status === 'queued' && o.formationId === g.id)) {
+      const queued = Campaign.queueDistantOrder(book, { order: 'dispatch', formationId: g.id, systemIndex: reach, destination: dest, purpose: want, label: g.name }, state.day, false);
+      setLog(queued ? `No relay link to ${g.name} ${pos.standing ? 'at' : 'bound for'} ${state.planets[reach]?.name}: the new orders are queued until a link reaches it.` : `${g.name}: orders refused — the relay queue is full.`);
+    } else setLog(`${g.name}: orders already queued, awaiting a relay link.`);
+    return false;
+  }
+  let war = null;
+  if (want === 'attack') {
+    war = formationWarStamp(dest);
+    if (!war) { setLog(`${g.name}: no war authority to attack ${state.planets[dest]?.name}.`); return false; }
+  }
+  if (pos.standing) {
+    const members = formationTravelMembers(tr);
+    for (const f of members) { f.systemIndex = pos.system; f.assignment = 'defense'; delete f.transit; }
+    if (pos.system !== dest && !getPlottedRoute(pos.system, dest)) {
+      scheduleFormationLeg(g, tr);
+      setLog(`No plottable route from ${state.planets[pos.system]?.name} to ${state.planets[dest]?.name}; ${g.name} keeps its course.`);
+      g.destination = tr.destination;
+      return false;
+    }
+    tr.status = 'superseded'; tr.endDay = Number(state.day); tr.endReason = 'superseded';
+    const next = beginFormationTravel(g, members, pos.system, dest, want, war, Number(state.day), tr);
+    if (next?.status === 'underway') setLog(`${g.name} replots at ${state.planets[pos.system]?.name}: ${next.path.length} leg${next.path.length === 1 ? '' : 's'} to ${state.planets[dest]?.name}, arriving day ${next.etaDay}.`);
+    return Boolean(next);
+  }
+  tr.pending = { destination: dest, purpose: want, war, day: Number(state.day) };
+  tr.note = dest === pos.legEnd ? `Holding at ${state.planets[dest]?.name} on arrival` : `Replotting for ${state.planets[dest]?.name} at ${state.planets[pos.legEnd]?.name}`;
+  setLog(`${g.name} acknowledges: ${dest === pos.legEnd ? 'it will hold at' : `new destination ${state.planets[dest]?.name}, replotted at`} ${state.planets[pos.legEnd]?.name} on day ${pos.arrivalDay}.`);
+  return true;
+}
+// Stop the formation where its current leg ends (at once if it is standing in a system today).
+function cancelFormationTravel(id) {
+  const g = formationById(id), tr = formationTravel(g);
+  if (!tr) return false;
+  const pos = formationTravelPosition(tr);
+  g.destination = pos.standing ? pos.system : pos.legEnd;
+  return redirectFormationTravel(g, tr, { purpose: 'move' });
+}
+// The formation passes through a system held under a hostile blockade: the blockade is met there, seen
+// by the crews that crossed it, and on the record — both the formation's and the blockade's. Running
+// it faster or cloaked is not modelled yet; the formation is not stopped by it.
+function encounterFormationBlockades(g, tr, at, day) {
+  const book = campaignBook();
+  const met = [];
+  for (const b of book.blockades || []) {
+    if (b.status !== 'active' || Number(b.target) !== Number(at) || b.power === PLAYER_SIDE) continue;
+    if (tr.encounters.some((e) => e.blockadeId === b.id && e.leg === tr.legIndex && e.seq === tr.seq)) continue;
+    b.sightings = { ...(b.sightings || {}), [PLAYER_SIDE]: Number(day) };
+    b.breaches = [...(b.breaches || []), { day: Number(day), by: tr.id, kind: 'formation' }].slice(-30);
+    const e = { system: Number(at), day: Number(day), leg: tr.legIndex, seq: tr.seq, blockadeId: b.id, power: b.power, coverage: Campaign.blockadeTier(b.coverage), force: b.hulls.length };
+    tr.encounters.push(e);
+    met.push(e);
+    const where = state.planets[at]?.name || `system ${at}`;
+    campaignReport({ id: `formation:${tr.id}:blockade:${b.id}:${tr.legIndex}`, systemIndex: Number(at), day: Number(day), kind: `Blockade encountered — ${where}`,
+      confidence: 'Fleet observation', factions: [campaignFactionKeyFor(b.power)].filter(isRecognizedFactionKey), playerRelated: true,
+      text: `${g.name} passed through the ${formatFaction(campaignFactionKeyFor(b.power))} blockade at ${where}: ${e.force} ship${e.force === 1 ? '' : 's'} on station, ${e.coverage} coverage.` });
+    setLog(`${g.name} met the ${formatFaction(campaignFactionKeyFor(b.power))} blockade at ${where} (${e.coverage} coverage, ${e.force} ships).`);
+  }
+  return met;
+}
+function detachFormationMember(tr, f, at, day, reason) {
+  tr.members = tr.members.filter((id) => id !== f.id);
+  tr.detached.push({ id: f.id, vid: ensureFleetVesselIdentity(f).vid, system: Number(at), day: Number(day), reason });
+  if (f.transit?.formationId) delete f.transit;
+  if (!f.destroyed && f.assignment === 'transit') f.assignment = 'defense';
+}
+function arriveFormation(g, tr, at, day) {
+  if (tr.status !== 'underway') return false;
+  const where = state.planets[at]?.name || 'its destination';
+  tr.status = 'arrived';
+  tr.endDay = Number(day);
+  tr.arrivedDay = Number(day);
+  tr.endReason = 'arrived';
+  tr.note = `Arrived at ${where} day ${day}.`;
+  const members = formationTravelMembers(tr);
+  for (const f of members) {
+    f.systemIndex = Number(at);
+    f.assignment = 'defense';
+    delete f.transit;
+    if (!state.warp.active && f.systemIndex === state.currentPlanet && !fleetLocalActor(f.id))
+      state.npcShips.push(...getPlayerFleetNpcShips().filter((n) => n.fleetId === f.id));
+  }
+  if (tr.purpose === 'attack') {
+    g.order = 'attack';
+    g.targetId = null;
+    g.point = null;
+    g.warOrder = { ...tr.war, since: Number(day), travelId: tr.id };
+  }
+  setLog(`${g.name} has arrived at ${where}${tr.purpose === 'attack' ? ' and takes up the attack' : ''}.`);
+  return true;
+}
+function haltFormation(g, tr, at, day, reason, text) {
+  tr.status = 'halted';
+  tr.endDay = Number(day);
+  tr.endReason = reason;
+  tr.note = text;
+  for (const f of formationTravelMembers(tr)) { f.systemIndex = Number(at); f.assignment = 'defense'; delete f.transit; }
+  g.destination = Number(at);
+  if (g.order === 'attack') g.order = 'hold';
+  delete g.warOrder;
+  campaignReport({ id: `formation:${tr.id}:halt:${reason}`, systemIndex: Number(at), day: Number(day), kind: `${g.name} halted — ${state.planets[at]?.name || '?'}`,
+    confidence: 'Campaign record', factions: [], playerRelated: true, text });
+  setLog(text);
+}
+// One leg has ended: the formation is in the system at its end. Everything that happens to a vessel
+// reaching a system happens here, once: she is there, the system is observed, the crossing is rolled,
+// a blockade there is met. Then the formation goes on, is replotted, stops, or has arrived.
+function crossFormationLeg(g, tr) {
+  const day = Number(tr.legArrivalDay), at = Number(tr.path[tr.legIndex]);
+  const where = state.planets[at]?.name || `system ${at}`;
+  // A crossing is processed once. A record already carrying this leg of this journey is not crossed
+  // again, whatever calls this.
+  if (tr.crossed.some((c) => c.seq === tr.seq && c.leg === tr.legIndex)) return;
+  tr.crossed.push({ system: at, day, leg: tr.legIndex, seq: tr.seq });
+  tr.from = at;
+  const members = formationTravelMembers(tr);
+  for (const f of members) { f.systemIndex = at; f.assignment = 'defense'; delete f.transit; }
+  // Ships lost before the leg ended leave the journey.
+  for (const id of [...tr.members]) {
+    const f = state.playerFleet.find((x) => x.id === id);
+    if (!f || f.destroyed) { tr.members = tr.members.filter((x) => x !== id); tr.detached.push({ id, vid: tr.vids[id] || null, system: at, day, reason: 'lost' }); }
+  }
+  if (members.length) fleetTradeObserve(members[0], at);
+  // The crossing is rolled for every member, as it is for any ship reaching a system on a route.
+  for (const f of members) {
+    if (!tr.members.includes(f.id)) continue;
+    // A warship with no trading record is rolled against a scratch one: the crossing does not give
+    // her a trade state she never had.
+    const t = fleetTradeState(f) ? ensureFleetTradeState(f) : { manifest: [], paid: 0, active: false, stage: 'idle', stops: [] };
+    const outcome = resolveFleetTradeLegRisk(f, t, at, day, tr.id);
+    if (outcome === 'destroyed') { detachFormationMember(tr, f, at, day, 'destroyed'); continue; }
+    if (outcome === 'disabled' || fleetVesselCondition(f) === 'disabled') {
+      if (outcome !== 'disabled') markFleetShipDisabled(f, t, at);
+      detachFormationMember(tr, f, at, day, 'disabled');
+    }
+  }
+  encounterFormationBlockades(g, tr, at, day);
+  // Ships that are no longer the formation's, or that were given orders of their own on the way, leave
+  // it here, where the leg ended: a ship is never carried on under an order that is not hers. [§5]
+  for (const f of formationTravelMembers(tr)) {
+    const t = fleetTradeState(f);
+    if (!g.members.includes(f.id)) detachFormationMember(tr, f, at, day, 'reassigned');
+    else if (t && t.order && t.order.pending) detachFormationMember(tr, f, at, day, 'ordered');
+    else if (t && t.active) detachFormationMember(tr, f, at, day, 'trading');
+  }
+  if (!tr.members.length) {
+    tr.status = 'halted'; tr.endDay = day; tr.endReason = 'no ships'; tr.note = `No ships left with ${g.name} at ${where}.`;
+    g.destination = at;
+    return;
+  }
+  // A war order is only as good as the war it was given under.
+  const warGone = tr.purpose === 'attack' && !formationWarHolds(tr.war);
+  const pendingMove = tr.pending && tr.pending.purpose !== 'attack';
+  if (warGone && !pendingMove) {
+    haltFormation(g, tr, at, day, 'war-authority',
+      `${g.name} halted at ${where}: the war it was sent to fight is over or its target changed hands; the attack on ${state.planets[tr.destination]?.name} is called off.`);
+    return;
+  }
+  if (tr.pending) {
+    const p = tr.pending;
+    tr.pending = null;
+    if (p.purpose === 'attack' && !formationWarHolds(p.war)) {
+      haltFormation(g, tr, at, day, 'war-authority', `${g.name} halted at ${where}: the attack it was redirected to has no war behind it any more.`);
+      return;
+    }
+    tr.status = 'superseded'; tr.endDay = day; tr.endReason = 'superseded';
+    const next = beginFormationTravel(g, formationTravelMembers(tr), at, p.destination, p.purpose, p.war, day, tr);
+    if (!next) {
+      haltFormation(g, tr, at, day, 'no-route', `${g.name} holds at ${where}: no plottable route to ${state.planets[p.destination]?.name}.`);
+      return;
+    }
+    if (next.status === 'underway') setLog(`${g.name} replots at ${where}: ${next.path.length} leg${next.path.length === 1 ? '' : 's'} to ${state.planets[next.destination]?.name}, arriving day ${next.etaDay}.`);
+    return;
+  }
+  if (tr.legIndex + 1 < tr.path.length) {
+    tr.legIndex += 1;
+    tr.legDepartDay = day;
+    scheduleFormationLeg(g, tr);
+    return;
+  }
+  arriveFormation(g, tr, at, day);
+}
+// Every formation's journey, one leg at a time, up to today. The loop is bounded by the route itself.
+function advanceFormationTravels() {
+  for (const g of fleetBook().formations) {
+    let tr = formationTravel(g), guard = 0;
+    while (tr && Number(tr.legArrivalDay) <= Number(state.day) && guard++ < 256) {
+      crossFormationLeg(g, tr);
+      tr = formationTravel(g);
+    }
+    // In warp when the war lapsed: it cannot turn round, and it will stop where this leg ends.
+    if (tr && tr.purpose === 'attack' && !tr.pending && !formationWarHolds(tr.war) && !tr.warLapsedDay) {
+      tr.warLapsedDay = Number(state.day);
+      tr.note = `War authority lapsed; halting at ${state.planets[tr.path[tr.legIndex]]?.name} day ${tr.legArrivalDay}`;
+    }
+    // A formation that arrived to attack keeps that order only while the war does.
+    if (g.warOrder && !formationTravel(g) && !formationWarHolds(g.warOrder)) {
+      const at = state.planets[g.warOrder.target]?.name || '?';
+      delete g.warOrder;
+      if (g.order === 'attack') g.order = 'hold';
+      campaignReport({ id: `formation:${g.id}:warorder:${state.day}`, systemIndex: Number(state.currentPlanet), day: Number(state.day), kind: `${g.name} stands down`, confidence: 'Campaign record', factions: [], playerRelated: true,
+        text: `${g.name} stands down at ${at}: the war it was attacking under is over or its target changed hands.` });
+      setLog(`${g.name} stands down at ${at}; its attack order no longer has a war behind it.`);
+    }
+  }
+}
 function completeFleetJourneys() {
+  advanceFormationTravels();
+  // A leg that belongs to no journey any more (the record was lost) ends as an ordinary transit.
   for (const f of state.playerFleet)
-    if (f.transit && f.transit.arrivalDay <= state.day) {
+    if (f.transit?.formationId) {
+      const tr = formationTravel(formationById(f.transit.formationId));
+      if (!tr || tr.id !== f.transit.travelId || !tr.members.includes(f.id)) { delete f.transit.formationId; delete f.transit.travelId; delete f.transit.leg; }
+    }
+  for (const f of state.playerFleet)
+    if (f.transit && !f.transit.formationId && f.transit.arrivalDay <= state.day) {
       f.systemIndex = f.transit.to;
       f.assignment = 'defense';
       delete f.transit;
       if (!state.warp.active && f.systemIndex === state.currentPlanet && !fleetLocalActor(f.id))
         state.npcShips.push(...getPlayerFleetNpcShips().filter((n) => n.fleetId === f.id));
     }
+}
+// What the formation's row says about its journey.
+function formationTravelLine(g) {
+  const tr = g?.travel;
+  if (!tr) return '';
+  const name = (i) => state.planets[i]?.name || '?';
+  const crossed = tr.crossed.filter((c) => c.seq === tr.seq).map((c) => name(c.system));
+  if (tr.status === 'underway') {
+    const pos = formationTravelPosition(tr);
+    const head = `${tr.purpose === 'attack' ? 'Attack on' : 'En route to'} ${name(tr.destination)} · leg ${tr.legIndex + 1}/${tr.path.length} ${name(tr.from)} → ${name(tr.path[tr.legIndex])} ${pos.standing ? `departed day ${tr.legDepartDay}` : 'in warp'}, arrives day ${tr.legArrivalDay} · destination day ${tr.etaDay}`;
+    return `${head}${crossed.length ? ` · crossed ${crossed.join(', ')}` : ''}${tr.note ? ` · ${tr.note}` : ''}`;
+  }
+  if (tr.status === 'arrived') return `Arrived at ${name(tr.destination)} day ${tr.arrivedDay}${crossed.length > 1 ? ` via ${crossed.slice(0, -1).join(', ')}` : ''}`;
+  if (tr.status === 'halted') return tr.note || `Halted at ${name(tr.from)}`;
+  return '';
 }
 
 // ---------- autonomous fleet trading ----------
@@ -28605,7 +29019,7 @@ function scheduleFleetTradeLeg(f, t, from, day) {
 }
 // The leg is rolled against the system the ship is in, on the day it is there — not against the record
 // the route was planned on, and not at a destination it may never reach.
-function resolveFleetTradeLegRisk(f, t, at, day = state.day) {
+function resolveFleetTradeLegRisk(f, t, at, day = state.day, tripKey = null) {
   const threat = trueThreat(at);
   const protection = trueProtection(at);
   const chance = Math.max(
@@ -28613,7 +29027,8 @@ function resolveFleetTradeLegRisk(f, t, at, day = state.day) {
     (TRADE_ENCOUNTER_BASE[threat.band] || 0) - (TRADE_ENCOUNTER_RELIEF[protection.band] || 0),
   );
   if (chance <= 0) return null;
-  const trip = t.tripId || `${t.origin}:${t.destination}`;
+  // A formation's crossing is rolled under its own journey, not under a circuit she is not flying.
+  const trip = tripKey || t.tripId || `${t.origin}:${t.destination}`;
   if (tradeSeed(`trade-encounter:${f.id}:${trip}:${at}:${day}`) >= chance) return null;
   const severity = tradeSeed(`trade-harm:${f.id}:${trip}:${at}:${day}`);
   const v = ensureFleetVesselSnapshot(f);
@@ -28979,6 +29394,11 @@ function fleetTradeStatusLine(f) {
     if (t?.order && t.order.pending) parts.push(`${fleetPassageOrderLabel(t.order)} unresolved`);
     else if (t?.resumeTrade) parts.push(`trading (${TRADE_RISK_LABELS[t.risk]}) resumes when repaired`);
     return parts.join(' · ');
+  }
+  // Flying with her formation: the formation's journey is hers.
+  if (f?.transit?.formationId) {
+    const g = formationById(f.transit.formationId), tr = formationTravel(g);
+    if (tr) return `With ${g.name} · ${state.planets[f.transit.to]?.name || '?'} day ${f.transit.arrivalDay} · ${state.planets[tr.destination]?.name || '?'} day ${tr.etaDay}${t?.order?.pending ? ` · ${fleetPassageOrderLabel(t.order)} — leaves the formation at ${state.planets[f.transit.to]?.name || '?'}` : ''}`;
   }
   if (!t) return '';
   const order = t.order ? fleetPassageOrderLabel(t.order) : '';

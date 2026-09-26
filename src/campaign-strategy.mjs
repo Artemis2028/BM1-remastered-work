@@ -2067,6 +2067,23 @@ export function endPact(book, world, government, partner, day, effects = [], rea
 }
 // ---------- formal declarations, expeditions, withdrawal, followers (DOMINION-FORMAL-WAR-RULES) ----------
 function formallyAtWar(world, a, b) { return world.relation(relSide(world, a), relSide(world, b)) === 'war'; }
+// The authority a war order rests on, stamped when the order is given: who holds the target, which war
+// between the pair, and which instance of it. An order stays good only while that same war is still a
+// formal war and the target is still held by the same enemy. A ceasefire, a peace, a new war after a
+// settlement, or the target changing hands each end it. [FORMATION-ROUTE-TRAVERSAL-RULES]
+export function warAuthorityStamp(book, world, power, target) {
+  const holder = world.systems[Number(target)]?.controller ?? null;
+  if (holder == null || holder === power || !formallyAtWar(world, power, holder)) return null;
+  const key = warKey(power, holder);
+  const st = book.warStates?.[key];
+  if (st && st.status !== 'war') return null;
+  return { power, holder, target: Number(target), key, instance: st?.instance ?? 0, warId: st?.warId ?? null };
+}
+export function warAuthorityHolds(book, world, stamp) {
+  if (!stamp) return false;
+  const now = warAuthorityStamp(book, world, stamp.power, stamp.target);
+  return Boolean(now && now.holder === stamp.holder && now.key === stamp.key && now.instance === stamp.instance && now.warId === stamp.warId);
+}
 function commandFollowers(book, government) {
   return Object.entries(book.commandBindings || {}).filter(([, b]) => b?.to === government).map(([id]) => id);
 }

@@ -63,6 +63,8 @@
     "test:dominion-war:ingame": "node scripts/dominion-war-gate.cjs",
     "test:evac-blockade": "node scripts/evac-blockade-test.mjs",
     "test:evac-blockade:ingame": "node scripts/evac-blockade-gate.cjs",
+    "test:formation-route": "node scripts/formation-route-test.mjs",
+    "test:formation-route:ingame": "node scripts/formation-route-gate.cjs",
     "bench:map": "node scripts/map-render-bench.cjs",
     "screens:section6": "node scripts/section6-screens.cjs"
   },
