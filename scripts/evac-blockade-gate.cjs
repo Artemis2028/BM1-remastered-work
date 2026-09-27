@@ -46,11 +46,19 @@ const { startProbe } = require('./probe-harness.cjs');
       t.applyCampaignEffects(fx, t.state.day);
       return r.ok ? r.record.id : r.reason;
     };
+    // Convoy-era helpers (BLOCKADE-RUNNING-RULES): civilian freighters (the Tarellian hauler: unarmed,
+    // slow) as transports, and what an evacuation delivered over a window of days.
+    // A world of the captain's that the Klingon war does not reach in the first weeks (Orion can fall
+    // within ten days on these seeds, which ends a convoy test for the wrong reason).
+    window.__Q = () => { const i = t.getSystemIndexByName('Alpha Centauri'); if (t.getSystemControl(i).controller !== 'player') { t.transferSystemControlToPlayer(i); t.markSystemVisited(i); } return i; };
+    window.__freighters = (prefix, at, n = 2) => Array.from({ length: n }, (_, k) => window.__ship(`${prefix}${k}`, at, 215, 600));
+    window.__window = (e, days) => { const m0 = e.moved; window.__adv(days); return e.moved - m0; };
+    window.__runs = (e) => (t.campaign().blockades || []).flatMap((b) => (b.runs || []).filter((x) => String(x.by).startsWith(e.id)).map((x) => ({ ...x, blockade: b.id })));
     window.__fleetStrategic = () => JSON.stringify(t.state.playerFleet.filter((f) => !f.destroyed).map((f) => [f.id, f.strategicOp || null, f.strategicRole || null, f.systemIndex, window.__vid(f.id)]));
   });
 
   // 1 ---------------------------------------------------------------------------------------------
-  await check('new-feature', 'EVAC-FINITE an evacuation moves a finite capacity over several strategic days, at the rate its real transports allow', async () => {
+  await check('new-feature', 'EVAC-FINITE an evacuation moves a finite capacity over strategic days: its convoy delivers the transports\' lift each time it reaches the destination (BLOCKADE-RUNNING-RULES convoy), nothing in between', async () => {
     await fresh('eb-finite');
     const r = await ev(() => {
       const t = testBM1;
@@ -61,17 +69,18 @@ const { startProbe } = require('./probe-harness.cjs');
       if (!res.ok) return { fail: res.reason };
       const e = res.record;
       const days = [];
-      for (let k = 0; k < 3; k++) { window.__adv(1); days.push(e.moved); }
+      for (let k = 0; k < 7; k++) { window.__adv(1); days.push(e.moved); }
       const lift = e.transports.reduce((n, x) => n + x.lift, 0);
       return { fail: null, days, target: e.target, lift, trip: 2 * (e.route.length - 1) + 1, status: e.status };
     });
     assert.ok(!r.fail, r.fail);
-    assert.ok(r.days[0] > 0 && r.days[0] < r.target, `day one moved ${r.days[0]} of ${r.target}`);
-    assert.ok(r.days[1] > r.days[0] && r.days[2] > r.days[1], `no progress over days: ${r.days}`);
-    assert.equal(r.days[0], Math.floor(r.lift / r.trip), 'throughput is not the transports\' lift over the round trip');
-    assert.equal(r.status, 'active');
+    const steps = r.days.map((m, i) => m - (i ? r.days[i - 1] : 0)).filter((x) => x > 0);
+    assert.ok(steps.length >= 2, `deliveries over a week: ${r.days}`);
+    // Every delivery is a full lift, except a last one that finishes the target.
+    steps.forEach((x, i) => assert.ok(x === r.lift || (i === steps.length - 1 && r.days[r.days.length - 1] === r.target), `a delivery of ${x} for a lift of ${r.lift}: ${r.days}`));
+    assert.ok(r.days[0] === 0, 'people arrived before the convoy could have');
+    assert.ok(r.days[r.days.length - 1] < r.target || r.status === 'completed');
   });
-
   await check('new-feature', 'EVAC-NO-CAPACITY with no transport capacity an evacuation cannot start, and one whose transports are all gone stops without progress', async () => {
     await fresh('eb-nocap');
     const r = await ev(() => {
@@ -95,24 +104,23 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.equal(r.status, 'failed'); assert.match(r.why, /no transport capacity/);
   });
 
-  await check('new-feature', 'EVAC-LOSS-REDUCES losing a transport lowers the throughput, and the loss is recorded against the vessel\'s vid', async () => {
+  await check('new-feature', 'EVAC-LOSS-REDUCES losing a transport lowers what each trip delivers, and the loss is recorded against the vessel\'s vid', async () => {
     await fresh('eb-loss');
     const r = await ev(() => {
       const t = testBM1, s = t.state;
       const P = window.__P();
       window.__ship('tA', P, 1); window.__ship('tB', P, 1); window.__ship('tC', P, 1);
       const vid = window.__vid('tC');
-      const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ['tA', 'tB', 'tC'], { target: 60000 }).record;
-      window.__adv(1); const full = e.lastThroughput;
+      const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ['tA', 'tB', 'tC'], { target: 600000 }).record;
+      window.__adv(3); const full = e.lastDelivery?.delivered;
       s.playerFleet.find((f) => f.id === 'tC').destroyed = true;
-      window.__adv(1);
-      return { full, reduced: e.lastThroughput, transports: e.transports.length, lost: e.lost, vid };
+      window.__adv(3);
+      return { full, reduced: e.lastDelivery?.delivered, transports: e.transports.length, lost: e.lost, vid };
     });
     assert.equal(r.transports, 2);
-    assert.ok(r.reduced < r.full && Math.abs(r.reduced - r.full * 2 / 3) <= 2, `throughput ${r.full} → ${r.reduced}`);
+    assert.ok(r.full > 0 && r.reduced === Math.round(r.full * 2 / 3), `per trip ${r.full} → ${r.reduced}`);
     assert.equal(r.lost[0]?.vid, r.vid);
   });
-
   await check('new-feature', 'EVAC-SAVELOAD progress, assigned vessels (with their vids) and route survive save/load exactly', async () => {
     await fresh('eb-save');
     const r = await ev(() => {
@@ -125,7 +133,7 @@ const { startProbe } = require('./probe-harness.cjs');
       const before = read();
       t.saveGame(5); t.startWithFaction('ferengi'); t.loadGame(5);
       const after = read();
-      window.__adv(1);
+      window.__adv(4);
       return { before, after, moving: window.__evacById(e.id).moved > JSON.parse(before).e.moved };
     });
     assert.equal(r.after, r.before);
@@ -195,69 +203,75 @@ const { startProbe } = require('./probe-harness.cjs');
   });
 
   // 9–11 ------------------------------------------------------------------------------------------
-  await check('new-feature', 'BLOCKADE-STRONG-REDUCES a strong blockade cuts the evacuation\'s throughput hard; the route reads as interdicted', async () => {
-    await fresh('eb-strong');
-    const r = await ev(() => {
+  await check('new-feature', 'BLOCKADE-STRONG-REDUCES a strong blockade turns an unescorted freighter convoy back far more than it lets through: deliveries fall hard and the route reads heavily interdicted', async () => {
+    const one = async (blockade) => { await fresh('eb-strong'); return ev((blockade) => {
       const t = testBM1;
-      const P = window.__P();
-      window.__ship('tA', P, 1); window.__ship('tB', P, 2);
-      const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ['tA', 'tB'], { target: 60000 }).record;
-      window.__adv(1); const clear = e.lastThroughput;
-      const id = window.__aiBlockade('klingon', P, 12);
-      window.__adv(1);
-      const b = window.__block(id);
-      return { clear, blocked: e.lastThroughput, factor: e.lastFactor, coverage: b.coverage, tier: t.Campaign.blockadeTier(b.coverage) };
-    });
-    assert.equal(r.tier, 'heavy', `coverage ${r.coverage}`);
-    assert.ok(r.blocked < r.clear * 0.5, `throughput ${r.clear} → ${r.blocked}`);
+      const P = window.__Q();
+      const ids = window.__freighters('fr', P, 2);
+      const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ids, { target: 5000000 }).record;
+      const id = blockade ? window.__aiBlockade('klingon', P, 28) : null;
+      const moved = window.__window(e, 15);
+      const b = id ? window.__block(id) : null;
+      window.__adv(0);
+      const route = t.evacRouteAssessment(e);
+      return { moved, runs: window.__runs(e).map((x) => x.outcome), tier: b ? t.Campaign.blockadeTier(b.coverage) : null, route: e.status === 'active' ? route.status : 'ended', estimate: route.estimate, status: e.status };
+    }, blockade); };
+    const clear = await one(false);
+    const blocked = await one(true);
+    assert.equal(blocked.tier, 'heavy');
+    assert.ok(blocked.runs.length > 0, 'no run was made');
+    assert.ok(blocked.moved < clear.moved * 0.5, `delivered ${clear.moved} clear → ${blocked.moved} blockaded (${blocked.runs})`);
+    assert.equal(clear.route, 'Clear'); assert.ok(['Heavily interdicted', 'ended'].includes(blocked.route), `route ${blocked.route}`);
   });
-
-  await check('new-feature', 'BLOCKADE-WEAK-LEAKS a weak blockade leaks: the evacuation keeps most of its throughput', async () => {
-    await fresh('eb-weak');
-    const r = await ev(() => {
+  await check('new-feature', 'BLOCKADE-WEAK-LEAKS a weak blockade leaks: the convoy slips through most of the time, without a fight, and keeps most of its deliveries', async () => {
+    const one = async (blockade) => { await fresh('eb-weak'); return ev((blockade) => {
       const t = testBM1;
-      const P = window.__P();
-      window.__ship('tA', P, 1); window.__ship('tB', P, 2);
-      const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ['tA', 'tB'], { target: 60000 }).record;
-      window.__adv(1); const clear = e.lastThroughput;
-      const id = window.__aiBlockade('klingon', P, 1);
-      window.__adv(1);
-      const b = window.__block(id);
-      return { clear, weak: e.lastThroughput, tier: t.Campaign.blockadeTier(b.coverage), moved: e.moved };
-    });
-    assert.notEqual(r.tier, 'heavy');
-    assert.ok(r.weak > 0 && r.weak >= r.clear * 0.5, `throughput ${r.clear} → ${r.weak}`);
+      const P = window.__Q();
+      const ids = window.__freighters('fr', P, 2);
+      const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ids, { target: 5000000 }).record;
+      const id = blockade ? window.__aiBlockade('klingon', P, 1) : null;
+      const moved = window.__window(e, 15);
+      return { moved, runs: window.__runs(e).map((x) => x.outcome), tier: id ? t.Campaign.blockadeTier(window.__block(id).coverage) : null };
+    }, blockade); };
+    const clear = await one(false), weak = await one(true);
+    assert.notEqual(weak.tier, 'heavy');
+    assert.ok(weak.moved >= clear.moved * 0.5, `delivered ${clear.moved} → ${weak.moved}`);
+    const quiet = weak.runs.filter((o) => ['slipped_through', 'challenged_but_passed'].includes(o)).length;
+    assert.ok(quiet >= weak.runs.length / 2, `runs ${weak.runs}`);
   });
-
-  await check('new-feature', 'BLOCKADE-WEAKENED escorts soften it, losses weaken it, and a blockade whose force is gone ends: throughput recovers', async () => {
-    await fresh('eb-weaken');
-    const r = await ev(() => {
-      const t = testBM1, book = t.campaign();
-      const P = window.__P();
-      window.__ship('tA', P, 1); window.__ship('tB', P, 2);
-      for (let i = 0; i < 4; i++) window.__ship(`esc${i}`, P, 4, 1400);
-      const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ['tA', 'tB'], { target: 60000 }).record;
+  await check('new-feature', 'BLOCKADE-WEAKENED escorts get the convoy through and cost the blockade ships; a blockade whose force is gone ends and deliveries return to full', async () => {
+    const one = async (escorts) => { await fresh('eb-weaken'); return ev((escorts) => {
+      const t = testBM1;
+      const P = window.__Q();
+      const ids = window.__freighters('fr', P, 2);
+      const esc = window.__squadron('esc', P, escorts);
+      const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ids, { target: 5000000, escorts: esc }).record;
       const id = window.__aiBlockade('klingon', P, 8);
-      window.__adv(1); const blocked = e.lastThroughput;
-      t.assignPlayerEscorts(e.id, ['esc0', 'esc1', 'esc2', 'esc3']);
-      window.__adv(1); const escorted = e.lastThroughput;
       const b = window.__block(id);
-      // The blockade's ships are destroyed (by whatever): it is weaker, then gone.
-      const kl = book.polities.klingon.hulls;
-      const mine = b.hulls.map((x) => x.hullId);
-      for (const h of kl) if (mine.slice(0, 4).includes(h.id)) { h.status = 'lost'; h.hull = 0; }
-      window.__adv(1); const thinner = { throughput: e.lastThroughput, coverage: b.coverage };
-      for (const h of kl) if (mine.includes(h.id)) { h.status = 'lost'; h.hull = 0; }
+      const hulls0 = b.hulls.length, cov0 = b.coverage;
+      const moved = window.__window(e, 15);
+      return { moved, runs: window.__runs(e).map((x) => x.outcome), hulls0, hulls: b.hulls.length, cov0, cov: b.coverage, status: b.status };
+    }, escorts); };
+    const bare = await one(0), escorted = await one(4);
+    assert.ok(escorted.moved > bare.moved, `escorts did not help: ${bare.moved} → ${escorted.moved}`);
+    assert.ok(escorted.hulls < escorted.hulls0 || escorted.status !== 'active' || escorted.cov < escorted.cov0, `the blockade lost nothing to the escorts: ${JSON.stringify(escorted)}`);
+    await fresh('eb-weaken-gone');
+    const gone = await ev(() => {
+      const t = testBM1, book = t.campaign();
+      const P = window.__Q();
+      const ids = window.__freighters('fr', P, 2);
+      const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ids, { target: 5000000 }).record;
+      const id = window.__aiBlockade('klingon', P, 8);
+      const b = window.__block(id);
+      for (const h of book.polities.klingon.hulls) if (b.hulls.some((x) => x.hullId === h.id)) { h.status = 'lost'; h.hull = 0; }
       window.__adv(1);
-      return { blocked, escorted, thinner, status: b.status, why: b.endReason, after: e.lastThroughput, clearFactor: e.lastFactor };
+      const lift = e.transports.reduce((n, x) => n + x.lift, 0);
+      window.__adv(6);
+      return { status: b.status, why: b.endReason, factor: e.lastFactor, delivered: e.lastDelivery?.delivered, lift };
     });
-    assert.ok(r.escorted > r.blocked, `escorts did not help: ${r.blocked} → ${r.escorted}`);
-    assert.ok(r.thinner.throughput >= r.escorted, 'losses did not weaken the blockade');
-    assert.equal(r.status, 'broken'); assert.match(r.why, /gone/);
-    assert.equal(r.clearFactor, 1, 'throughput did not recover after the blockade ended');
+    assert.equal(gone.status, 'broken'); assert.match(gone.why, /gone/);
+    assert.equal(gone.factor, 1); assert.equal(gone.delivered, gone.lift, 'deliveries did not return to full');
   });
-
-  // 12 --------------------------------------------------------------------------------------------
   await check('new-feature', 'BLOCKADE-THROUGHPUT a blockade slows market restocking, resupply and production at the world, and the shelf recovers once it lifts', async () => {
     await fresh('eb-market');
     const r = await ev(() => {
@@ -322,27 +336,28 @@ const { startProbe } = require('./probe-harness.cjs');
     await ev(() => testBM1.closeCampaignPanel());
   });
 
-  await check('new-feature', 'EVAC-THROUGH-CEASEFIRE an evacuation is not hostile: it continues through a ceasefire, at full rate once the blockade is closed', async () => {
+  await check('new-feature', 'EVAC-THROUGH-CEASEFIRE an evacuation is not hostile: it continues through a ceasefire; the blockade closes and no interception fires after it', async () => {
     await fresh('eb-evac-cease');
     const r = await ev(() => {
       const t = testBM1;
-      const P = window.__P();
-      window.__ship('tA', P, 1); window.__ship('tB', P, 2);
-      const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ['tA', 'tB'], { target: 60000 }).record;
-      const id = window.__aiBlockade('klingon', P, 10);
-      window.__adv(1); const blocked = e.lastFactor;
+      const P = window.__Q();
+      const ids = window.__freighters('fr', P, 3);
+      const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ids, { target: 5000000, escorts: window.__squadron('esc', P, 3) }).record;
+      const id = window.__aiBlockade('klingon', P, 6);
+      window.__adv(4);
+      const runsBefore = window.__runs(e).length;
       t.changeDiplomacy('terran', 'klingon', 'ceasefire');
       const empire = t.playerRelation('klingon').status;
-      window.__adv(1);
-      return { blocked, empire, status: e.status, factor: e.lastFactor, block: window.__block(id).status };
+      const n0 = t.campaign().stats.interceptions || 0;
+      window.__adv(7);
+      return { runsBefore, empire, status: e.status, factor: e.lastFactor, block: window.__block(id).status, newRuns: (t.campaign().stats.interceptions || 0) - n0, delivered: e.lastDelivery?.delivered, lift: e.transports.reduce((n, x) => n + x.lift, 0) };
     });
-    assert.ok(r.blocked < 1);
+    assert.ok(r.runsBefore > 0, 'precondition: no run before the ceasefire');
     assert.equal(r.empire, 'ceasefire', 'precondition: the empire\'s inherited war did not follow');
     assert.equal(r.block, 'closed');
-    assert.equal(r.status, 'active'); assert.equal(r.factor, 1);
+    assert.equal(r.newRuns, 0, 'an interception fired after the ceasefire');
+    assert.equal(r.status, 'active'); assert.equal(r.factor, 1); assert.equal(r.delivered, r.lift);
   });
-
-  // 15 & 16 ---------------------------------------------------------------------------------------
   await check('new-feature', 'DEST-VALID the captain can pick a valid destination: own and friendly worlds within reach', async () => {
     await fresh('eb-dest');
     const r = await ev(() => {
@@ -484,25 +499,26 @@ const { startProbe } = require('./probe-harness.cjs');
   // combined --------------------------------------------------------------------------------------
   const integration = async (saveMid) => ev((saveMid) => {
     const t = testBM1;
-    const P = window.__P();
+    const P = window.__Q();
     for (const i of [P, 0]) t.markSystemVisited(i);
-    window.__ship('tA', P, 1); window.__ship('tB', P, 2); window.__ship('tC', P, 1);
-    for (let i = 0; i < 4; i++) window.__ship(`esc${i}`, P, 4, 1400);
-    const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ['tA', 'tB', 'tC'], { target: 60000 }).record;
+    const ids = window.__freighters('fr', P, 4);
+    // Heavy escorts: six Sovereign-class command cruisers.
+    const esc = Array.from({ length: 6 }, (_, k) => window.__ship(`esc${k}`, P, 329, 2000));
+    const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ids, { target: 4000000 }).record;
     const trace = [];
-    const step = (label) => { window.__adv(1); const x = window.__evacById(e.id); trace.push([label, x.moved, x.lastThroughput, x.status]); };
-    step('clear'); step('clear');
-    const id = window.__aiBlockade('klingon', P, 10);
-    step('blockade'); step('blockade');
+    const phase = (label, days) => { const m0 = window.__evacById(e.id).moved; window.__adv(days); const x = window.__evacById(e.id); trace.push([label, x.moved, x.moved - m0, x.status]); };
+    phase('clear', 6);
+    const id = window.__aiBlockade('klingon', P, 20);
+    phase('blockade', 15);
     if (saveMid) { t.saveGame(3); t.startWithFaction('ferengi'); t.loadGame(3); }
-    t.assignPlayerEscorts(e.id, ['esc0', 'esc1', 'esc2', 'esc3']);
-    step('escorted'); step('escorted');
+    t.assignPlayerEscorts(e.id, esc);
+    phase('escorted', 15);
     const book = t.campaign();
     const b = window.__block(id);
     for (const h of book.polities.klingon.hulls) if (b.hulls.some((x) => x.hullId === h.id)) { h.status = 'lost'; h.hull = 0; }
-    for (let i = 0; i < 12; i++) step('broken');
+    phase('broken', 12);
     const x = window.__evacById(e.id);
-    return { trace, status: x.status, moved: x.moved, target: x.target, block: window.__block(id).status };
+    return { trace, status: x.status, moved: x.moved, target: x.target, block: window.__block(id).status, runs: window.__runs(x).map((r) => r.outcome) };
   }, saveMid);
   await check('new-feature', 'EVAC-BLOCKADE-INTEGRATION evacuation progresses, a blockade cuts it, escorts and losses break the blockade, it recovers and completes; saving mid-way changes nothing', async () => {
     await fresh('eb-integration');
@@ -512,9 +528,9 @@ const { startProbe } = require('./probe-harness.cjs');
     await ev(() => testBM1.closeCampaignPanel());
     await fresh('eb-integration');
     const b = await integration(true);
-    const tp = (label) => a.trace.filter((x) => x[0] === label).map((x) => x[2]);
-    assert.ok(Math.max(...tp('blockade')) < Math.min(...tp('clear')), `the blockade did not cut throughput: ${JSON.stringify(a.trace)}`);
-    assert.ok(Math.min(...tp('escorted')) > Math.max(...tp('blockade')), 'escorts did not raise throughput');
+    const gain = (label) => { const x = a.trace.find((y) => y[0] === label); return x[2] / ({ clear: 6, blockade: 15, escorted: 15, broken: 12 }[label]); };
+    assert.ok(gain('blockade') < gain('clear'), `the blockade did not cut deliveries: ${JSON.stringify(a.trace)} ${a.runs}`);
+    assert.ok(gain('escorted') > gain('blockade'), `escorts did not raise deliveries: ${JSON.stringify(a.trace)}`);
     assert.equal(a.block, 'broken');
     assert.ok(['completed', 'active'].includes(a.status));
     assert.equal(JSON.stringify(b), JSON.stringify(a), 'save/load mid-way changed the outcome');

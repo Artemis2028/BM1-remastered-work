@@ -80,6 +80,11 @@ const { startProbe } = require('./probe-harness.cjs');
     await fresh('wp-calendar');
     const r = await ev(() => {
       const t = testBM1;
+      // This check is about the diplomacy calendar. AI evacuations and blockades are switched off so
+      // that the front moves only as the fixture moves it: under BLOCKADE-RUNNING-RULES an AI
+      // evacuation convoy runs differently, and on this seed that alone decided whether a fourth
+      // Cardassian world fell and a (legitimate) decisive settlement ended the war. [f2837a7]
+      t.campaign().config.aiStrategicOps = false;
       t.changeDiplomacy('romulan', 'cardassian', 'war');
       const rom = window.__worldsOf('romulan'), car = window.__worldsOf('cardassian');
       const statuses = [];

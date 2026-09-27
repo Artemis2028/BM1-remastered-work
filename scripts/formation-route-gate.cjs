@@ -207,7 +207,7 @@ const { startProbe } = require('./probe-harness.cjs');
 
   // 5 ---------------------------------------------------------------------------------------------
   const BROUTE = { A: 'Earth', B: 'Alpha Centauri', C: 'Paso', D: 'Ferenginar' };
-  await check('new-feature', 'BLOCKADE-AT-C a blockade that appears at C while the formation is en route is met at C — on the crossing day, on the record and in the captain\'s knowledge — not ignored, and not met at B', async () => {
+  await check('new-feature', 'BLOCKADE-AT-C a blockade that appears at C while the formation is en route is met at C — on the crossing day — and run through the interception engine (BLOCKADE-RUNNING-RULES supersedes the 4860070 pass-through): one run on the record, what the crews saw, one report; turned back means back towards B', async () => {
     await fresh('fr-block');
     const r = await ev((R) => {
       const t = testBM1, s = t.state;
@@ -243,8 +243,10 @@ const { startProbe } = require('./probe-harness.cjs');
       }
       const crossC = tr.crossed.find((c) => c.system === C);
       const knownAfter = t.blockadeKnowledge(b);
-      const reports = t.galaxyNewsBook().items.filter((x) => String(x.id).startsWith('formation:') && String(x.id).includes(`blockade:${b.id}`)).map((x) => ({ day: x.day, text: x.text, systemIndex: x.systemIndex }));
-      return { fail: null, B, C, holder, bStatus: b.status, encounters: tr.encounters, atB, crossC, breaches: b.breaches, sightings: b.sightings, knownBefore, knownAfter, reports, day: s.day };
+      const reports = t.galaxyNewsBook().items.filter((x) => String(x.id).startsWith('blockade-run:') && String(x.id).includes(b.id)).map((x) => ({ day: x.day, kind: x.kind, text: x.text, systemIndex: x.systemIndex }));
+      const g = window.__g(gid);
+      return { fail: null, B, C, holder, bStatus: b.status, encounters: tr.encounters, atB, crossC, runs: b.runs || [], breaches: b.breaches, sightings: b.sightings, knownBefore, knownAfter, reports, day: s.day,
+        after: { status: g.travel.status, retreatFrom: g.travel.retreatFrom ?? null, destination: g.travel.destination, oldEnd: tr.endReason } };
     }, BROUTE);
     evidence.push({ check: 'BLOCKADE-AT-C', ...r });
     assert.ok(!r.fail, r.fail);
@@ -252,12 +254,15 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.equal(r.encounters.length, 1, `encounters: ${JSON.stringify(r.encounters)}`);
     assert.equal(r.encounters[0].system, r.C);
     assert.equal(r.encounters[0].day, r.crossC.day, 'met on a day other than the crossing');
-    assert.ok(r.breaches.some((x) => x.kind === 'formation' && x.day === r.crossC.day), 'the blockade has no record of the formation passing');
-    assert.equal(r.sightings?.player, r.crossC.day);
-    assert.equal(r.knownAfter?.source, 'fleet', `knowledge after the crossing: ${JSON.stringify(r.knownAfter)}`);
-    assert.equal(r.knownAfter?.exact, true);
-    assert.equal(r.reports.length, 1, `reports: ${JSON.stringify(r.reports)}`);
-    assert.equal(r.reports[0].systemIndex, r.C);
+    const enc = r.encounters[0];
+    assert.ok(['slipped_through', 'challenged_but_passed', 'fought_through', 'intercepted_minor_damage', 'intercepted_forced_back', 'intercepted_losses', 'blockade_broken'].includes(enc.outcome), `outcome ${enc.outcome}`);
+    assert.equal(r.runs.filter((x) => x.sponsor === 'player' && x.day === r.crossC.day).length, 1, `runs on the blockade: ${JSON.stringify(r.runs)}`);
+    assert.deepEqual(r.sightings?.player, enc.observed, 'the captain\'s sighting is not what the crews saw');
+    assert.ok(r.knownAfter, 'the captain knows nothing of it after running it');
+    assert.ok(r.reports.length >= 1 && r.reports.every((x) => x.systemIndex === r.C), `reports: ${JSON.stringify(r.reports)}`);
+    const passed = ['slipped_through', 'challenged_but_passed', 'fought_through', 'intercepted_minor_damage', 'blockade_broken'].includes(enc.outcome);
+    if (passed) assert.ok(r.breaches.some((x) => x.day === r.crossC.day), 'passage not on the blockade\'s record');
+    else { assert.equal(r.after.oldEnd, 'forced-back'); assert.equal(r.after.retreatFrom, r.C); assert.equal(r.after.destination, r.B, 'turned back somewhere other than B'); }
   });
 
   // 6 ---------------------------------------------------------------------------------------------

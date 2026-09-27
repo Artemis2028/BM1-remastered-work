@@ -3770,7 +3770,9 @@ function getRouteOtherEnd(route, index) {
   return null;
 }
 
-function getPlottedRoute(from = state.currentPlanet, to = state.selectedPlanet) {
+// `avoid`, when given, is a set of systems the route may not pass through (its ends excepted): a formation
+// rerouting round a blockade it knows of. [BLOCKADE-RUNNING-RULES]
+function getPlottedRoute(from = state.currentPlanet, to = state.selectedPlanet, avoid = null) {
   if (!isChartSystemVisible(from) || !isChartSystemVisible(to)) return null;
   if (from === to) {
     return { from, to, legs: [], systems: [from], distance: 0, antimatter: 0 };
@@ -3797,6 +3799,7 @@ function getPlottedRoute(from = state.currentPlanet, to = state.selectedPlanet) 
     if (!isChartSystemVisible(route.from) || !isChartSystemVisible(route.to)) continue;
       const next = getRouteOtherEnd(route, current);
       if (next === null || visited.has(next)) continue;
+      if (avoid && avoid.has(next) && next !== to) continue;
       const candidate = distance[current] + getRouteWarpDistance(route);
       if (candidate < distance[next]) {
         distance[next] = candidate;
@@ -10006,6 +10009,22 @@ function applyFollowerBoundEngine(e, day) {
     text: campaignMaskText(`${formatFaction(e.follower)} has ${e.reason}: it is now under ${formatFaction(e.government)} command.${wars.length ? ` It is party to the ${formatFaction(e.government)} war${wars.length > 1 ? 's' : ''} with ${wars.join(', ')}.` : ' It is at war with no one on that account.'}`) });
   setLog(`${formatFaction(e.follower)} is now under ${formatFaction(e.government)} command.`);
 }
+// ---- blockade running: what a ship is, as the interception engine reads it (BLOCKADE-RUNNING-RULES) ----
+// Dash speed: the class's own top speed. Strategic travel days do not vary by class, so this is the
+// speed a runner makes through a blockaded system, not how long its journey takes.
+function shipRunSpeed(shipId) { return Math.max(1, finiteNumber(getShipStats(shipId)?.topSpeed, 45)); }
+function shipWeaponSlots(shipId, vessel = null) {
+  const slots = Array.isArray(vessel?.weaponSlots) ? vessel.weaponSlots : getOriginalShipWeaponSlots(shipId) || [];
+  return slots.filter(Boolean).map(Number);
+}
+// A cloaking device fitted in one of her slots (her own, or the class's as built).
+function shipClassCloak(shipId, vessel = null) { return shipWeaponSlots(shipId, vessel).some((id) => isCloakingDevice(getWeapon(id))); }
+// Fighting value, 0–1: combat weapons fitted (two make a warship), much less for a civilian hauler.
+function shipClassCombat(shipId, vessel = null) {
+  const guns = shipWeaponSlots(shipId, vessel).filter((id) => isCombatWeapon(getWeapon(id))).length;
+  const civilian = /freighter|transport|tanker|hauler|cargo|liner|shuttle|yacht/i.test(String(getShipStats(shipId)?.name || ''));
+  return Math.round(Math.min(1, guns / 2) * (civilian ? 0.25 : 1) * 100) / 100;
+}
 // ---- strategic evacuation and blockade (EVACUATION-BLOCKADE-RULES-261530ZSEP26) ----
 // The model owns the operations; the engine holds the captain's real vessels to them, answers the
 // captain's controls, and tells the captain what they can actually know.
@@ -10082,17 +10101,144 @@ function strategicOpSource(systemIndex, own) {
 // Crews that passed through a blockade saw it: for a while after, what they saw is as good as a ship on
 // station, and it is dated. [FORMATION-ROUTE]
 const BLOCKADE_SIGHTING_DAYS = 30;
+// What the captain's own crews last saw of a blockade by running it: sighted (that it is there, and how
+// thick), contact (a range for its force) or engaged (a count). A save written before this round kept a
+// bare day; it is read as contact without a count.
+function blockadeSighting(b) {
+  const s = b.sightings?.[PLAYER_SIDE];
+  if (s == null) return null;
+  if (typeof s === 'number') return { day: s, level: 'contact', tier: Campaign.blockadeTier(b.coverage), force: null };
+  return s && typeof s === 'object' && Number.isFinite(Number(s.day)) ? s : null;
+}
 function blockadeKnowledge(b) {
-  let source = strategicOpSource(b.target, b.power === PLAYER_SIDE);
-  const seen = Number(b.sightings?.[PLAYER_SIDE]);
-  const sighted = Number.isFinite(seen) && state.day - seen <= BLOCKADE_SIGHTING_DAYS;
-  if (sighted && (source === 'none' || source === 'rumour' || source === 'relay')) source = 'fleet';
+  const source = strategicOpSource(b.target, b.power === PLAYER_SIDE);
+  const seen = blockadeSighting(b);
+  const fresh = seen && state.day - Number(seen.day) <= BLOCKADE_SIGHTING_DAYS;
+  const live = source === 'own' || source === 'local' || source === 'fleet';
+  // A crew's sighting is better than a relay or hearsay, and it is what they saw then — not the live force.
+  if (!live && fresh) {
+    return { source: 'sighting', level: seen.level, exact: seen.level === 'engaged', coverage: seen.tier || 'unknown', force: seen.force || null, supply: null, seenDay: Number(seen.day) };
+  }
   if (source === 'none') return null;
-  const exact = source === 'own' || source === 'local' || source === 'fleet';
   const n = b.hulls.length;
-  const band = exact ? `${n}` : source === 'relay' ? `${Math.max(1, Math.floor(n * 0.6))}–${Math.ceil(n * 1.5)}` : null;
+  const band = live ? `${n}` : source === 'relay' ? `${Math.max(1, Math.floor(n * 0.6))}–${Math.ceil(n * 1.5)}` : null;
   const coverage = source === 'rumour' ? 'unknown' : Campaign.blockadeTier(b.coverage);
-  return { source, exact, coverage, force: band, supply: exact ? (b.supply >= 0.7 ? 'stable' : b.supply >= Campaign.CAMPAIGN_RULES.blockadeMinSupply ? 'strained' : 'failing') : null, ...(sighted ? { seenDay: seen } : {}) };
+  return { source, exact: live, coverage, force: band, supply: live ? (b.supply >= 0.7 ? 'stable' : b.supply >= Campaign.CAMPAIGN_RULES.blockadeMinSupply ? 'strained' : 'failing') : null, ...(seen ? { seenDay: Number(seen.day) } : {}) };
+}
+// ---- the captain's ships running a blockade (BLOCKADE-RUNNING-RULES) ----
+function fleetRunnerHull(f) {
+  const v = f.vessel && Number(f.vessel.maxHull) > 0 ? f.vessel : null;
+  const d = v ? null : getNpcCombatDurability(f.shipId);
+  return { hullId: `pf:${f.id}`, vid: ensureFleetVesselIdentity(f).vid, shipId: Number(f.shipId), hull: v ? Number(v.hull) : d.hull, maxHull: v ? Number(v.maxHull) : d.hull,
+    role: f.strategicRole || (shipClassCombat(f.shipId, v) >= 0.5 ? 'escort' : 'transport'), cloak: shipClassCloak(f.shipId, v), combat: shipClassCombat(f.shipId, v), speed: shipRunSpeed(f.shipId) };
+}
+function fleetRunner(key, ships, kind) {
+  return { key, sponsor: PLAYER_SIDE, kind, hulls: ships.filter((f) => !f.destroyed).map(fleetRunnerHull) };
+}
+// The blockades at a system that bear on the captain's ships, read from the campaign book.
+function playerApplicableBlockadesAt(systemIndex) {
+  const book = campaignBook();
+  if (!(book.blockades || []).some((b) => b.status === 'active' && Number(b.target) === Number(systemIndex))) return [];
+  return Campaign.applicableBlockadesAt(book, buildCampaignWorld(), Number(systemIndex), PLAYER_SIDE);
+}
+// A run's damage, on the persistent vessels: the fleet damage model classifies it; a disabled ship stops
+// under §6; a destroyed one is retired with her identity. Nothing is replaced or re-created.
+function applyRunToFleet(run, at) {
+  const out = { lost: [], disabled: [], damaged: [] };
+  for (const x of run.hulls || []) {
+    const f = fleetEntryForHull(x.hullId);
+    if (!f || !(Number(x.hull) < Number(x.before))) continue;
+    const v = ensureFleetVesselSnapshot(f);
+    v.hull = Math.max(0, Math.min(Number(v.maxHull), Number(x.hull)));
+    v.shields = 0;
+    const was = v.condition || 'operational';
+    v.condition = Fleet.classifyDamage(v.hull, v.maxHull);
+    const actor = fleetLocalActor(f.id);
+    if (actor) { actor.combatHull = v.hull; actor.combatShields = 0; actor.condition = v.condition; actor.destroyed = v.condition === 'destroyed'; }
+    if (v.condition === 'destroyed') {
+      f.destroyed = true; f.vessel = v; f.systemIndex = Number(at);
+      if (f.transit) delete f.transit;
+      const t = fleetTradeState(f); if (t) { t.active = false; t.stage = 'holding'; t.note = `Lost at ${state.planets[at]?.name || 'a blockade'}.`; }
+      Fleet.removeVessel(fleetBook(), f.id);
+      retireStrategicVessel(ensureFleetVesselIdentity(f), 'destroyed', Number(at));
+      state.npcShips = state.npcShips.filter((n) => n.fleetId !== f.id);
+      out.lost.push(f);
+    } else if (v.condition === 'disabled') {
+      if (was !== 'disabled') { const t = ensureFleetTradeState(f); markFleetShipDisabled(f, t, Number(at)); }
+      out.disabled.push(f);
+    } else out.damaged.push(f);
+  }
+  return out;
+}
+const BLOCKADE_RUN_HEADS = { slipped_through: 'Blockade run succeeded', challenged_but_passed: 'Blockade run succeeded', fought_through: 'Blockade run forced', intercepted_minor_damage: 'Blockade run succeeded',
+  intercepted_forced_back: 'Blockade run failed', intercepted_losses: 'Blockade run failed', blockade_broken: 'Blockade broken' };
+function describeRunners(run, noun) {
+  const n = (run.hulls || []).length;
+  const words = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve'];
+  return `${words[n] || n} ${noun}${n === 1 ? '' : 's'}`;
+}
+// Concise reports. The captain's own runs go to the Captain's Log; one of his blockades stopping someone
+// else's does too; anyone else's runs are Wars & fronts news at the quality his sources allow.
+function reportBlockadeRun(run, fleetResult = null) {
+  const where = state.planets[run.target]?.name || 'a blockaded system';
+  const power = formatFaction(campaignFactionKeyFor(run.power));
+  const lost = fleetResult ? fleetResult.lost.length : (run.hulls || []).filter((x) => x.condition === 'destroyed').length;
+  const disabled = fleetResult ? fleetResult.disabled.length : (run.hulls || []).filter((x) => x.condition === 'disabled').length;
+  const bl = run.blockaderLosses || {};
+  const weakened = (bl.lost || 0) + (bl.disabled || 0) > 0;
+  const noun = run.kind === 'evacuation' ? 'transport' : run.kind === 'trade' ? 'freighter' : 'ship';
+  if (run.sponsor === PLAYER_SIDE) {
+    const routine = ['slipped_through', 'challenged_but_passed'].includes(run.outcome);
+    if (routine && run.kind === 'evacuation' && !run.firstAfterFailure) return;
+    const group = run.kind === 'evacuation' ? 'the convoy' : run.kind === 'trade' ? 'she' : 'the formation';
+    const text = {
+      slipped_through: `${describeRunners(run, noun)} slipped through the ${power} screen.`,
+      challenged_but_passed: `${describeRunners(run, noun)} were challenged by the ${power} screen and got through.`,
+      intercepted_minor_damage: `The ${power} screen intercepted ${group}; it got through with light damage.`,
+      fought_through: `Escort action forced passage through the ${power} blockade.`,
+      blockade_broken: `The ${power} blockade was beaten off station.`,
+      intercepted_forced_back: `The ${power} screen intercepted ${group} and turned it back.`,
+      intercepted_losses: `${lost ? `${lost === 1 ? 'One' : lost} ${noun}${lost === 1 ? ' was' : 's were'} lost` : disabled ? `${disabled === 1 ? 'One' : disabled} ${noun}${disabled === 1 ? ' was' : 's were'} disabled` : 'Ships were damaged'} and ${group} turned back.`,
+    }[run.outcome];
+    campaignReport({ id: `blockade-run:${run.blockadeId}:${run.key}:${run.day}`, systemIndex: run.target, day: run.day, kind: `${BLOCKADE_RUN_HEADS[run.outcome]} — ${where}`, confidence: 'Campaign record',
+      factions: [campaignFactionKeyFor(run.power)].filter(isRecognizedFactionKey), playerRelated: true, text });
+    if (weakened && run.outcome !== 'blockade_broken')
+      campaignReport({ id: `blockade-weakened:${run.blockadeId}:${run.key}:${run.day}`, systemIndex: run.target, day: run.day, kind: `Blockade weakened — ${where}`, confidence: 'Campaign record',
+        factions: [campaignFactionKeyFor(run.power)].filter(isRecognizedFactionKey), playerRelated: true, text: `Escort action forced part of the ${power} blockade off station.` });
+    return;
+  }
+  if (run.power === PLAYER_SIDE) {
+    if (['slipped_through', 'challenged_but_passed'].includes(run.outcome)) return;
+    const who = formatFaction(campaignFactionKeyFor(run.sponsor));
+    campaignReport({ id: `blockade-held:${run.blockadeId}:${run.key}:${run.day}`, systemIndex: run.target, day: run.day, kind: `${run.continues ? 'Blockade run through' : 'Blockade held'} — ${where}`, confidence: 'Campaign record',
+      factions: [campaignFactionKeyFor(run.sponsor)].filter(isRecognizedFactionKey), playerRelated: true,
+      text: run.continues ? `A ${who} ${run.kind === 'evacuation' ? 'convoy' : 'group'} got past your blockade.` : `Your blockade turned back a ${who} ${run.kind === 'evacuation' ? 'convoy' : 'group'}${lost ? `; ${lost} of its ships ${lost === 1 ? 'was' : 'were'} lost` : ''}.` });
+    return;
+  }
+  if (['slipped_through', 'challenged_but_passed', 'intercepted_minor_damage'].includes(run.outcome)) return;
+  const who = campaignFactionKeyFor(run.sponsor), by = campaignFactionKeyFor(run.power);
+  reportCampaignEvent({ id: `blockade-run:${run.blockadeId}:${run.key}:${run.day}`, systemIndex: run.target, day: run.day, kind: `${run.continues ? 'Blockade run' : 'Convoy turned back'} — ${where}`,
+    factions: [who, by], attacker: by, observationKind: 'raid', playerRelated: false,
+    direct: run.continues ? `A ${formatFaction(who)} convoy fought through the ${formatFaction(by)} blockade at ${where}.` : `The ${formatFaction(by)} blockade at ${where} turned back a ${formatFaction(who)} convoy${lost ? ` and destroyed ${lost === 1 ? 'a ship' : `${lost} ships`}` : ''}.`,
+    rumour: () => `Ships are said to have been turned back at ${where}.` });
+}
+// The captain's estimate of a run, from what he knows: live odds where he can see the blockade (his
+// own, a world he holds, a ship on station); from the coverage his crews or relays reported otherwise;
+// nothing on hearsay. Qualitative.
+const BLOCKADE_TIER_MID = { light: 0.15, moderate: 0.4, heavy: 0.75 };
+function blockadeRunEstimate(b, runner) {
+  const k = blockadeKnowledge(b);
+  if (!k || !k.coverage || k.coverage === 'unknown') return { label: 'Unknown', known: false };
+  const book = campaignBook(), world = buildCampaignWorld();
+  let a;
+  if (k.exact && k.source !== 'sighting') a = Campaign.assessBlockadeRun(book, world, b, runner);
+  else {
+    const cov = BLOCKADE_TIER_MID[k.coverage] ?? 0.4;
+    const D = Campaign.localDefenseStrength(book, world, b.target);
+    const S = cov / (1 - cov) * (D + book.config.blockadeTrafficScale);
+    a = Campaign.assessBlockadeRun(book, world, b, runner, { S, coverage: cov, speed: book.config.interceptRefSpeed, n: 0, hulls: [], D });
+  }
+  return { label: a.estimate[0].toUpperCase() + a.estimate.slice(1), known: true, estimate: a.estimate };
 }
 function evacuationKnowledge(e) {
   const source = strategicOpSource(e.origin, e.sponsor === PLAYER_SIDE);
@@ -10121,11 +10267,27 @@ function applyStrategicOpEffect(e, day) {
       break;
     }
     case 'strategicShipsAssigned': if (e.sponsor === PLAYER_SIDE) holdFleetForOperation(e.hulls, e.id, e.role, e.systemIndex); break;
-    case 'strategicShipReleased': if (e.sponsor === PLAYER_SIDE) releaseFleetFromOperation([e.hullId], e.id); break;
+    case 'strategicShipReleased': {
+      if (e.sponsor !== PLAYER_SIDE) break;
+      // Disabled on a run: released where it happened, not where the operation began.
+      const f = e.at != null ? fleetEntryForHull(e.hullId) : null;
+      releaseFleetFromOperation([e.hullId], e.id);
+      if (f) f.systemIndex = Number(e.at);
+      break;
+    }
     case 'evacuationHalfway': break;
-    case 'evacuationLoss': {
-      reportStrategicOp({ id: `evac:${e.id}:loss:${e.hullId}`, systemIndex: e.origin, day: d, kind: `Transport lost — ${nameOf(e.origin)}`, own: e.sponsor === PLAYER_SIDE, factions: [campaignFactionKeyFor(e.sponsor), campaignFactionKeyFor(e.by)], attacker: campaignFactionKeyFor(e.by),
-        direct: `A transport running the blockade at ${nameOf(e.origin)} was destroyed.`, rumour: `A civilian transport is overdue out of ${nameOf(e.origin)}.` });
+    // A transport lost on a run is told in the run's own report. [BLOCKADE-RUNNING-RULES]
+    case 'evacuationLoss': break;
+    case 'blockadeRun': {
+      if (e.engineApplied) break;
+      const res = e.sponsor === PLAYER_SIDE ? applyRunToFleet(e, e.target) : null;
+      reportBlockadeRun(e, res);
+      break;
+    }
+    // The convoy is where it is: the captain's transports and escorts sail with it.
+    case 'evacuationConvoyMoved': {
+      if (e.sponsor !== PLAYER_SIDE) break;
+      for (const hid of e.hulls || []) { const f = fleetEntryForHull(hid); if (f && f.strategicOp === e.id) f.systemIndex = Number(e.systemIndex); }
       break;
     }
     case 'evacuationEnded': {
@@ -25389,7 +25551,7 @@ function buildCampaignWorld(force = false) {
     playerOpportunity: campaignPlayerOpportunity(),
     isFaction: (id) => isRecognizedFactionKey(id) && id !== 'pirate' && (id !== 'gorn' || getCampaignDiscoveries().gorn),
     factionName: (id) => (id === 'player' ? `${state.captainName || 'Captain'}'s empire` : formatFaction(id)),
-    shipStats: (id) => { const s = state.shipStatsById[Number(id)]; if (!s) return null; return { price: getShipPrice(s), mass: finiteNumber(s.mass, 1), combatHull: getNpcCombatDurability(Number(id)).hull, faction: getShipFaction(Number(id)), cargo: Math.max(0, finiteNumber(s.cargoCapacity, 0)) }; },
+    shipStats: (id) => { const s = state.shipStatsById[Number(id)]; if (!s) return null; return { price: getShipPrice(s), mass: finiteNumber(s.mass, 1), combatHull: getNpcCombatDurability(Number(id)).hull, faction: getShipFaction(Number(id)), cargo: Math.max(0, finiteNumber(s.cargoCapacity, 0)), speed: shipRunSpeed(Number(id)), cloak: shipClassCloak(Number(id)), combat: shipClassCombat(Number(id)) }; },
     pickHull: (polityId, u) => { if (polityId === 'player') return null; const key = campaignFactionKeyFor(polityId); const seed = Math.floor(u * 100000) + 1; for (const role of ['fleetAttack', 'patrol', 'traffic']) { const id = getNpcShipIdForFaction(key, seed, role); if (id != null) return Number(id); } return null; },
     // A culture's catalogue for the purposes of captured industry: everything it actually builds, less
     // the named exceptions. Filtering this by the retail rule is what made capturing a Dominion major
@@ -25998,7 +26160,7 @@ function applyCampaignEffects(effects, day = state.day) {
         applyWarDeclarationEngine(e, e.day ?? day);
         break;
       }
-      case 'evacuationStarted': case 'strategicShipsAssigned': case 'strategicShipReleased': case 'evacuationHalfway': case 'evacuationLoss': case 'evacuationEnded':
+      case 'evacuationStarted': case 'strategicShipsAssigned': case 'strategicShipReleased': case 'evacuationHalfway': case 'evacuationLoss': case 'evacuationEnded': case 'blockadeRun': case 'evacuationConvoyMoved':
       case 'blockadeStarted': case 'blockadeActive': case 'blockadeCoverage': case 'blockadeEnded':
         applyStrategicOpEffect(e, day);
         break;
@@ -26551,6 +26713,31 @@ function renderOpsShipPicker(ships, role) {
   return `<ul class="ops-picker">${ships.map((f) => `<li><label><input type="checkbox" data-ops-pick="${escapeHtml(String(f.id))}" ${opsForm.picked.has(String(f.id)) ? 'checked' : ''}> ${opsShipLabel(f, role === 'transport' ? ` · ${evacLiftOfFleetShip(f).toLocaleString()} per trip` : '')}</label></li>`).join('')}</ul>`;
 }
 function routeStatusText(factor) { return factor >= 0.95 ? 'Clear' : factor >= 0.5 ? 'Contested' : 'Heavily interdicted'; }
+// An evacuation's route as the captain knows it: the blockades on it he has word of, the worst of them,
+// and (his own convoy only) his estimate of getting through them. [BLOCKADE-RUNNING-RULES]
+function evacRouteAssessment(e) {
+  const book = campaignBook(), world = buildCampaignWorld();
+  const blocks = e.route.flatMap((i) => Campaign.applicableBlockadesAt(book, world, i, e.sponsor)).filter((b) => blockadeKnowledge(b));
+  if (!blocks.length) return { status: 'Clear', estimate: null, blocks };
+  const rank = { heavy: 3, moderate: 2, light: 1, unknown: 0 };
+  const worst = blocks.map((b) => blockadeKnowledge(b).coverage).sort((a, b) => rank[b] - rank[a])[0];
+  const status = worst === 'heavy' ? 'Heavily interdicted' : worst === 'unknown' ? 'Interdicted' : 'Contested';
+  if (e.sponsor !== PLAYER_SIDE) return { status, estimate: null, blocks };
+  const ships = [...e.transports, ...e.escorts.filter((t) => !t.joining)].map((t) => fleetEntryForHull(t.hullId)).filter(Boolean);
+  const order = { Unknown: -1, Poor: 0, Risky: 1, Favorable: 2 };
+  const ests = blocks.map((b) => blockadeRunEstimate(b, fleetRunner('estimate', ships, 'evacuation')).label);
+  const estimate = ests.includes('Unknown') ? 'Unknown' : ests.sort((a, b) => order[a] - order[b])[0];
+  return { status, estimate, blocks };
+}
+function convoyLine(e) {
+  const cv = e.convoy;
+  if (!cv) return '';
+  const at = state.planets[e.route[Math.max(0, Math.min(e.route.length - 1, cv.pos))]]?.name || '?';
+  const phase = cv.phase === 'loading' ? `loading at ${at}` : cv.phase === 'outbound' ? `outbound, at ${at}` : `returning, at ${at}`;
+  const last = cv.attempts?.[cv.attempts.length - 1];
+  const lastText = last ? ` · last run day ${last.day} at ${state.planets[last.at]?.name || '?'}: ${last.outcomes.map((o) => o.replace(/_/g, ' ')).join(', ')}` : '';
+  return `Convoy trip ${cv.trip}: ${phase}${lastText}`;
+}
 function renderEvacuationCard(e, book) {
   const k = evacuationKnowledge(e);
   if (!k) return '';
@@ -26562,11 +26749,12 @@ function renderEvacuationCard(e, book) {
   const pct = e.moved / Math.max(1, e.target);
   const remaining = Math.max(0, e.target - e.moved);
   const eta = active && e.lastThroughput > 0 ? Math.ceil(remaining / e.lastThroughput) : null;
-  const status = active ? `Route status: ${routeStatusText(e.lastFactor ?? 1)}${(e.lastFactor ?? 1) < 0.999 ? ` · throughput ${opsPct(e.lastFactor)}` : ''}` : `${e.status === 'completed' ? 'Completed' : e.status === 'cancelled' ? 'Cancelled' : e.status === 'partial' ? 'Ended' : 'Failed'} day ${e.endDay}${e.endReason ? ` · ${escapeHtml(e.endReason)}` : ''}`;
+  const route = active ? evacRouteAssessment(e) : null;
+  const status = active ? `Route status: <b data-ops-route>${route.status}</b>${route.estimate ? ` · Estimated chance of passage: <b data-ops-passage>${route.estimate}</b>` : ''}` : `${e.status === 'completed' ? 'Completed' : e.status === 'cancelled' ? 'Cancelled' : e.status === 'partial' ? 'Ended' : 'Failed'} day ${e.endDay}${e.endReason ? ` · ${escapeHtml(e.endReason)}` : ''}`;
   const open = opsForm.openDetails.has(e.id);
   const lift = e.transports.reduce((n, t) => n + t.lift, 0);
   const trip = Math.max(1, 2 * (e.route.length - 1) + (book.config.evacLoadingDays ?? 1));
-  const details = open ? `<dl class="ops-details"><div>Moved: ${e.moved.toLocaleString()} / ${e.target.toLocaleString()}</div><div>Transport capacity: ${lift.toLocaleString()} per trip · ${trip}-day round trip</div><div>Route: ${e.route.map((i) => escapeHtml(state.planets[i]?.name || i)).join(' → ')}</div><div>Losses: ${e.lost.length} lost · ${e.removed.length} withdrawn</div>${own || k.exact ? `<div>Last day: ${Number(e.lastThroughput || 0).toLocaleString()} moved</div>` : ''}</dl>` : '';
+  const details = open ? `<dl class="ops-details"><div>Moved: ${e.moved.toLocaleString()} / ${e.target.toLocaleString()}</div><div>Transport capacity: ${lift.toLocaleString()} per trip · ${trip}-day round trip</div><div>Route: ${e.route.map((i) => escapeHtml(state.planets[i]?.name || i)).join(' → ')}</div><div>Losses: ${e.lost.length} lost · ${e.removed.filter((x) => x.reason === 'disabled').length} disabled · ${e.removed.filter((x) => x.reason !== 'disabled').length} withdrawn</div>${own || k.exact ? `<div>Last delivery: ${Number(e.lastDelivery?.delivered || 0).toLocaleString()} (day ${e.lastDelivery?.day ?? '—'})</div>` : ''}</dl>` : '';
   const buttons = [`<button data-ops-details="${escapeHtml(e.id)}">${open ? 'Hide' : 'Details'}</button>`, `<button data-ops-map="${e.origin}">Show on map</button>`];
   if (own && active) buttons.push(`<button data-ops-escort="${escapeHtml(e.id)}">Assign escort</button>`, `<button data-ops-cancel="${escapeHtml(e.id)}">Cancel</button>`);
   const picker = own && active && opsForm.picker === `escort:${e.id}` ? `<div class="ops-inline">${renderOpsShipPicker(freeFleetShipsAt(e.origin), 'escort')}<button data-ops-escort-confirm="${escapeHtml(e.id)}">Assign selected</button></div>` : '';
@@ -26574,7 +26762,7 @@ function renderEvacuationCard(e, book) {
     <div class="ops-bar" role="progressbar" aria-valuenow="${Math.round(pct * 100)}" aria-valuemin="0" aria-valuemax="100"><span style="width:${Math.round(pct * 100)}%"></span></div>
     <p class="ops-figures"><b>${opsPct(pct)}</b> · ${e.moved.toLocaleString()} evacuated · ${remaining.toLocaleString()} remaining</p>
     <p>${e.transports.length} transport${e.transports.length === 1 ? '' : 's'}${e.escorts.length ? ` · ${e.escorts.length} escort${e.escorts.length === 1 ? '' : 's'}` : ''}</p>
-    <p>${status}</p>${eta != null ? `<p>Estimated completion: ${eta} day${eta === 1 ? '' : 's'}</p>` : ''}${details}<p class="ops-actions">${buttons.join(' ')}</p>${picker}</article>`;
+    <p>${status}</p>${active && (own || k.exact) && e.convoy ? `<p class="meta" data-ops-convoy>${escapeHtml(convoyLine(e))}</p>` : ''}${eta != null ? `<p>Estimated completion: ${eta} day${eta === 1 ? '' : 's'}</p>` : ''}${details}<p class="ops-actions">${buttons.join(' ')}</p>${picker}</article>`;
 }
 function renderBlockadeCard(b, book) {
   const k = blockadeKnowledge(b);
@@ -26586,13 +26774,20 @@ function renderBlockadeCard(b, book) {
   if (!active) return `<article class="ops-card" data-ops-blockade="${escapeHtml(b.id)}">${head}<p>${b.status === 'broken' ? 'Broken' : b.status === 'closed' ? 'Lifted' : b.status === 'completed' ? 'Ended' : 'Withdrawn'} day ${b.endDay} · ${escapeHtml(b.endReason || '')}</p></article>`;
   if (k.coverage === 'unknown') return `<article class="ops-card ops-blockade" data-ops-blockade="${escapeHtml(b.id)}">${head}<p>Coverage: Unknown</p><p>Traffic losses reported.</p><p class="ops-actions"><button data-ops-map="${b.target}">Show on map</button></p></article>`;
   const c = book.config;
-  const effects = b.status === 'forming' ? '<li>Forming</li>' : [`<li>Evacuation throughput −${opsPct(b.coverage * c.blockadeEvacImpact)}</li>`, `<li>Trade traffic −${opsPct(b.coverage * c.blockadeRestockImpact)}</li>`,
-    `<li>Reinforcements ${b.coverage >= 0.55 ? 'severely restricted' : b.coverage >= 0.25 ? 'restricted' : 'slowed'}</li>`].join('');
+  const cov = BLOCKADE_TIER_MID[k.coverage] ?? b.coverage;
+  const effects = b.status === 'forming' ? '<li>Forming</li>' : [`<li>Trade traffic −${opsPct(cov * c.blockadeRestockImpact)}</li>`,
+    `<li>Reinforcements ${cov >= 0.55 ? 'severely restricted' : cov >= 0.25 ? 'restricted' : 'slowed'}</li>`].join('');
+  // What running it would take: an unescorted transport of his, as an estimate from what he knows.
+  const bears = !own && b.status === 'active' && playerApplicableBlockadesAt(b.target).includes(b);
+  const probe = bears ? blockadeRunEstimate(b, { key: 'estimate', sponsor: PLAYER_SIDE, kind: 'estimate', hulls: [{ hullId: 'probe', shipId: estimateTransportClass(), hull: 1, maxHull: 1, combat: 0, cloak: false }] }).label : null;
+  const seen = blockadeSighting(b);
+  const runs = (b.runs || []).filter((r) => r.sponsor === PLAYER_SIDE);
   const buttons = [`<button data-ops-map="${b.target}">Show on map</button>`];
   if (own) buttons.push(`<button data-ops-reinforce="${escapeHtml(b.id)}">Reinforce</button>`, `<button data-ops-withdraw="${escapeHtml(b.id)}">Withdraw</button>`);
   const picker = own && opsForm.picker === `reinforce:${b.id}` ? `<div class="ops-inline">${renderOpsShipPicker(freeFleetShipsAt([b.target, ...(buildCampaignWorld().neighbours(b.target) || [])]), 'blockade')}<button data-ops-reinforce-confirm="${escapeHtml(b.id)}">Reinforce with selected</button></div>` : '';
   return `<article class="ops-card ops-blockade" data-ops-blockade="${escapeHtml(b.id)}">${head}
-    <p>Coverage: <b data-ops-coverage>${k.coverage[0].toUpperCase()}${k.coverage.slice(1)}</b></p>${k.force ? `<p>${k.exact ? 'Force' : 'Known force'}: ${k.force} ship${k.force === '1' ? '' : 's'}</p>` : ''}${k.supply ? `<p>Supply: ${k.supply}</p>` : ''}
+    <p>Coverage: <b data-ops-coverage>${k.coverage[0].toUpperCase()}${k.coverage.slice(1)}</b></p>${k.force ? `<p data-ops-force>${k.exact ? 'Force' : 'Known force'}: ${k.force} ship${k.force === '1' ? '' : 's'}</p>` : ''}${k.supply ? `<p>Supply: ${k.supply}</p>` : ''}
+    ${probe ? `<p>Running it, unescorted transport: <b data-ops-run-estimate>${probe}</b></p>` : ''}${seen && !own ? `<p class="meta" data-ops-seen>Seen by your ships day ${seen.day} (${seen.level})</p>` : ''}${runs.length ? `<p class="meta">Your runs: ${runs.filter((r) => Campaign.blockadeRunContinues(r.outcome)).length} of ${runs.length} got through</p>` : ''}
     <p>Effects:</p><ul>${effects}</ul><p class="ops-actions">${buttons.join(' ')}</p>${picker}</article>`;
 }
 function renderStrategicOperations(book, world) {
@@ -26616,12 +26811,50 @@ function renderStrategicOperations(book, world) {
   const blockForm = enemies.length ? `<label>Target <select data-ops-target>${enemies.map((s) => `<option value="${s.index}" ${s.index === opsForm.target ? 'selected' : ''}>${escapeHtml(s.name)} · ${escapeHtml(formatFaction(campaignFactionKeyFor(s.controller)))}</option>`).join('')}</select></label>
     <label>Purpose <select data-ops-purpose>${book.config.blockadePurposes.map((p) => `<option value="${p}" ${p === opsForm.purpose ? 'selected' : ''}>${p.replace(/_/g, ' ')}</option>`).join('')}</select></label>
     ${renderOpsShipPicker(freeFleetShipsAt([opsForm.target, ...(world.neighbours(opsForm.target) || [])]), 'blockade')}<button data-ops-start-blockade>Start blockade</button>` : '<p class="meta">No enemy world within reach of your free ships.</p>';
+  const formationRows = renderFormationBlockadeRows();
   return `<section data-ops-evacuations><h3>Active evacuations</h3>${liveE || '<p>None.</p>'}</section>
     <section data-ops-blockades><h3>Active blockades</h3>${liveB || '<p>None known.</p>'}</section>
+    ${formationRows ? `<section data-ops-formations><h3>Formations and blockades</h3>${formationRows}</section>` : ''}
     ${opsForm.message ? `<p class="ops-message" data-ops-message>${escapeHtml(opsForm.message)}</p>` : ''}
     <section class="ops-new"><details ${opsForm.picker === 'new-evac' ? 'open' : ''} data-ops-new="new-evac"><summary>New evacuation</summary>${evacForm}</details>
     <details ${opsForm.picker === 'new-blockade' ? 'open' : ''} data-ops-new="new-blockade"><summary>New blockade</summary>${blockForm}</details></section>
     ${ended ? `<section><h3>Recently ended</h3>${ended}</section>` : ''}`;
+}
+// A transport class for the unescorted estimate: the slowest civilian hauler in his fleet, or a common one.
+function estimateTransportClass() {
+  const civ = state.playerFleet.filter((f) => !f.destroyed && shipClassCombat(f.shipId) < 0.5).sort((a, b) => shipRunSpeed(a.shipId) - shipRunSpeed(b.shipId))[0];
+  return Number(civ?.shipId ?? 215);
+}
+// Formations under way whose remaining route runs through a blockade the captain knows of: where, how it
+// looks, and the standing order — run it, wait, or reroute.
+function renderFormationBlockadeRows() {
+  const rows = [];
+  for (const g of fleetBook().formations) {
+    const tr = formationTravel(g);
+    if (!tr) continue;
+    const ahead = [...new Set(tr.path.slice(tr.legIndex).map(Number))];
+    const blocks = ahead.flatMap((i) => playerApplicableBlockadesAt(i)).filter((b) => blockadeKnowledge(b));
+    if (!blocks.length && !tr.waiting) continue;
+    const ships = formationTravelMembers(tr);
+    const policy = g.blockadePolicy || 'run';
+    const parts = blocks.map((b) => { const k = blockadeKnowledge(b); return `${escapeHtml(state.planets[b.target]?.name || '?')} (${escapeHtml(formatFaction(campaignFactionKeyFor(b.power)))}, ${k.coverage}) · passage <b data-ops-formation-estimate>${blockadeRunEstimate(b, fleetRunner('estimate', ships, 'formation')).label}</b>`; });
+    const btn = (p, label) => `<button data-ops-policy="${escapeHtml(g.id)}:${p}" aria-pressed="${policy === p}"${policy === p ? ' class="ops-on"' : ''}>${label}</button>`;
+    rows.push(`<article class="ops-card" data-ops-formation="${escapeHtml(g.id)}"><h4>${escapeHtml(g.name.toUpperCase())} → ${escapeHtml(String(state.planets[tr.destination]?.name || '?').toUpperCase())}</h4>
+      <p>${tr.waiting ? `Waiting at ${escapeHtml(state.planets[tr.waiting.at]?.name || '?')}` : `Leg ${tr.legIndex + 1}/${tr.path.length}`} · ${ships.length} ship${ships.length === 1 ? '' : 's'}</p>
+      ${parts.map((x) => `<p>Blockade at ${x}</p>`).join('')}
+      <p class="ops-actions">${btn('run', 'Run blockade')} ${btn('wait', 'Wait')} ${btn('reroute', 'Reroute')}</p></article>`);
+  }
+  return rows.join('');
+}
+function setFormationBlockadePolicy(id, policy) {
+  const g = formationById(id);
+  if (!g || !['run', 'wait', 'reroute'].includes(policy)) return false;
+  g.blockadePolicy = policy;
+  // A formation already waiting reconsiders at once.
+  const tr = formationTravel(g);
+  if (tr && tr.waiting) departFormationLeg(g, tr, Number(state.day));
+  setLog(`${g.name}: at blockades, ${policy === 'run' ? 'run them' : policy === 'wait' ? 'wait for them to lift' : 'reroute round them'}.`);
+  return true;
 }
 function opsResult(r, ok) { opsForm.message = r?.ok ? ok : (r?.reason || 'Refused.'); if (r?.ok) opsForm.picked.clear(); setLog(opsForm.message); renderCampaignPanel(); }
 document.addEventListener('change', (e) => {
@@ -26648,6 +26881,7 @@ document.addEventListener('click', (e) => {
   if ((el = q('[data-ops-reinforce]'))) { const key = `reinforce:${el.dataset.opsReinforce}`; opsForm.picker = opsForm.picker === key ? null : key; opsForm.picked.clear(); renderCampaignPanel(); return; }
   if ((el = q('[data-ops-reinforce-confirm]'))) { opsResult(reinforcePlayerBlockade(el.dataset.opsReinforceConfirm, [...opsForm.picked]), 'Blockade reinforced.'); opsForm.picker = null; return; }
   if ((el = q('[data-ops-withdraw]'))) { opsResult(withdrawPlayerBlockade(el.dataset.opsWithdraw), 'Blockade withdrawn.'); return; }
+  if ((el = q('[data-ops-policy]'))) { const raw = el.dataset.opsPolicy; const i = raw.lastIndexOf(':'); setFormationBlockadePolicy(raw.slice(0, i), raw.slice(i + 1)); renderCampaignPanel(); return; }
 });
 // Map: evacuation routes (dashed, with chevrons pointing the way the people go) and blockade rings.
 function mapStrategicOps() {
@@ -26754,7 +26988,7 @@ function drawMapFormationTravelOverlay() {
     ctx.fillStyle = 'rgba(6, 8, 18, 0.9)'; ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(-9, -10); ctx.lineTo(-4, 0); ctx.lineTo(-9, 10); ctx.closePath(); ctx.fill();
     ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-7, -7); ctx.lineTo(-3, 0); ctx.lineTo(-7, 7); ctx.closePath(); ctx.fill();
     ctx.restore();
-    const text = `${g.name} → ${state.planets[tr.destination]?.name || '?'} · leg ${tr.legIndex + 1}/${tr.path.length} · day ${tr.etaDay}`;
+    const text = tr.waiting ? `${g.name} → ${state.planets[tr.destination]?.name || '?'} · waiting: blockade ahead` : `${g.name} → ${state.planets[tr.destination]?.name || '?'} · leg ${tr.legIndex + 1}/${tr.path.length} · day ${tr.etaDay}`;
     ctx.font = canvasUiFont(11); ctx.textAlign = 'center';
     const w = ctx.measureText(text).width + 8;
     // Beneath the chevron, on the side away from the leg, so the route does not run through it.
@@ -27638,7 +27872,7 @@ function renderFleetManager(open = false) {
     <select data-fleet-destination="${escapeHtml(g.id)}">${options(
       state.planets.map((p, i) => [i, chartSystemLabel(i)]).filter(([i])=>isChartSystemVisible(i)),
       g.destination ?? state.currentPlanet,
-    )}</select>${btn('dispatch', formationTravel(g) ? 'Redirect to system' : 'Dispatch to system', g.id)}${btn('dispatch-attack', 'Dispatch to attack', g.id)}${formationTravel(g) ? btn('dispatch-cancel', 'Stop at next system', g.id) : ''}${btn('trade-start-group', 'Trade with formation', g.id)}${btn('trade-stop-group', 'Stop formation trading', g.id)}${g.travel ? `<p class="formation-travel" data-formation-travel="${escapeHtml(g.id)}" data-travel-status="${escapeHtml(g.travel.status)}">${escapeHtml(formationTravelLine(g))}</p>` : ''}</div>`,
+    )}</select>${btn('dispatch', formationTravel(g) ? 'Redirect to system' : 'Dispatch to system', g.id)}${btn('dispatch-attack', 'Dispatch to attack', g.id)}<select data-fleet-blockade-policy="${escapeHtml(g.id)}" aria-label="At blockades">${options([['run', 'At blockades: run'], ['wait', 'At blockades: wait'], ['reroute', 'At blockades: reroute']], g.blockadePolicy || 'run')}</select>${formationTravel(g) ? btn('dispatch-cancel', 'Stop at next system', g.id) : ''}${btn('trade-start-group', 'Trade with formation', g.id)}${btn('trade-stop-group', 'Stop formation trading', g.id)}${g.travel ? `<p class="formation-travel" data-formation-travel="${escapeHtml(g.id)}" data-travel-status="${escapeHtml(g.travel.status)}">${escapeHtml(formationTravelLine(g))}</p>` : ''}</div>`,
     )
     .join('');
   const ships = hasServiceChannel() ? getShipyardStock() : [];
@@ -27758,6 +27992,7 @@ document.addEventListener('change', (event) => {
       if (g.order === 'attack' && t) markPlayerEscortAttackOrder(t, gameNow());
     }
   }
+  if (el.dataset.fleetBlockadePolicy) setFormationBlockadePolicy(el.dataset.fleetBlockadePolicy, el.value);
   if (el.dataset.fleetDestination) {
     const g = b.formations.find((g) => g.id === el.dataset.fleetDestination);
     if (g) g.destination = Number(el.value);
@@ -28009,7 +28244,7 @@ function formationById(id) {
 // system it crossed today), or in warp towards the end of its leg.
 function formationTravelPosition(tr) {
   if (!tr) return null;
-  const standing = Number(tr.legDepartDay) === Number(state.day);
+  const standing = Boolean(tr.waiting) || Number(tr.legDepartDay) === Number(state.day);
   return { standing, system: standing ? Number(tr.from) : null, legEnd: Number(tr.path[tr.legIndex]), arrivalDay: Number(tr.legArrivalDay) };
 }
 function formationTravelMembers(tr) {
@@ -28042,7 +28277,7 @@ function scheduleFormationLeg(g, tr) {
 }
 // Plot a journey for the formation from `from`, beginning on `day`. The members must all be standing
 // at `from`.
-function beginFormationTravel(g, members, from, destination, purpose, war, day, prior = null) {
+function beginFormationTravel(g, members, from, destination, purpose, war, day, prior = null, opts = {}) {
   const origin = Number(from), dest = Number(destination);
   const route = origin === dest ? { systems: [origin], legs: [] } : getPlottedRoute(origin, dest);
   if (!route) return null;
@@ -28078,7 +28313,7 @@ function beginFormationTravel(g, members, from, destination, purpose, war, day, 
   g.travel = tr;
   g.destination = dest;
   if (!tr.path.length) { arriveFormation(g, tr, origin, Number(day)); return tr; }
-  scheduleFormationLeg(g, tr);
+  if (opts.skipGate) scheduleFormationLeg(g, tr); else departFormationLeg(g, tr, Number(day));
   return tr;
 }
 function dispatchFleetFormation(id, { fromRelay = false, purpose = null } = {}) {
@@ -28155,7 +28390,8 @@ function dispatchFleetFormation(id, { fromRelay = false, purpose = null } = {}) 
   if (g.warOrder) delete g.warOrder;
   const tr = beginFormationTravel(g, members, origin, g.destination, want, war, Number(state.day));
   if (!tr) return false;
-  if (tr.status === 'underway')
+  if (tr.status === 'underway' && tr.waiting) setLog(`${g.name} dispatched${want === 'attack' ? ' to attack' : ''}; ${tr.note.toLowerCase()}.`);
+  else if (tr.status === 'underway')
     setLog(`${g.name} dispatched${want === 'attack' ? ' to attack' : ''}: ${tr.path.length} leg${tr.path.length === 1 ? '' : 's'} to ${state.planets[tr.destination]?.name}, next ${state.planets[tr.path[0]]?.name} day ${tr.legArrivalDay}, arriving day ${tr.etaDay}.`);
   return true;
 }
@@ -28210,24 +28446,81 @@ function cancelFormationTravel(id) {
 // The formation passes through a system held under a hostile blockade: the blockade is met there, seen
 // by the crews that crossed it, and on the record — both the formation's and the blockade's. Running
 // it faster or cloaked is not modelled yet; the formation is not stopped by it.
-function encounterFormationBlockades(g, tr, at, day) {
-  const book = campaignBook();
-  const met = [];
-  for (const b of book.blockades || []) {
-    if (b.status !== 'active' || Number(b.target) !== Number(at) || b.power === PLAYER_SIDE) continue;
+// The formation reaches a system under a blockade that bears on it: it runs it, through the one
+// interception engine every runner uses. Damage lands on the same persistent hulls; a disabled or
+// destroyed member leaves the formation where it happened. [BLOCKADE-RUNNING-RULES]
+function runFormationBlockades(g, tr, at, day) {
+  const out = { turnedBack: false, runs: [] };
+  const blocks = playerApplicableBlockadesAt(at);
+  if (!blocks.length) return out;
+  const book = campaign(); syncPlayerPolity(book); const world = buildCampaignWorld(true);
+  for (const b of blocks) {
     if (tr.encounters.some((e) => e.blockadeId === b.id && e.leg === tr.legIndex && e.seq === tr.seq)) continue;
-    b.sightings = { ...(b.sightings || {}), [PLAYER_SIDE]: Number(day) };
-    b.breaches = [...(b.breaches || []), { day: Number(day), by: tr.id, kind: 'formation' }].slice(-30);
-    const e = { system: Number(at), day: Number(day), leg: tr.legIndex, seq: tr.seq, blockadeId: b.id, power: b.power, coverage: Campaign.blockadeTier(b.coverage), force: b.hulls.length };
-    tr.encounters.push(e);
-    met.push(e);
-    const where = state.planets[at]?.name || `system ${at}`;
-    campaignReport({ id: `formation:${tr.id}:blockade:${b.id}:${tr.legIndex}`, systemIndex: Number(at), day: Number(day), kind: `Blockade encountered — ${where}`,
-      confidence: 'Fleet observation', factions: [campaignFactionKeyFor(b.power)].filter(isRecognizedFactionKey), playerRelated: true,
-      text: `${g.name} passed through the ${formatFaction(campaignFactionKeyFor(b.power))} blockade at ${where}: ${e.force} ship${e.force === 1 ? '' : 's'} on station, ${e.coverage} coverage.` });
-    setLog(`${g.name} met the ${formatFaction(campaignFactionKeyFor(b.power))} blockade at ${where} (${e.coverage} coverage, ${e.force} ships).`);
+    const ships = formationTravelMembers(tr).filter((f) => fleetVesselCondition(f) === 'operational');
+    if (!ships.length) break;
+    const effects = [];
+    const run = Campaign.resolveBlockadeRun(book, world, b, fleetRunner(`${tr.id}:leg${tr.legIndex}`, ships, 'formation'), Number(day), effects, { meta: { engineApplied: true, formationId: g.id, travelId: tr.id } });
+    const res = applyRunToFleet(run, at);
+    for (const f of res.lost) detachFormationMember(tr, f, at, day, 'destroyed');
+    for (const f of res.disabled) detachFormationMember(tr, f, at, day, 'disabled');
+    tr.encounters.push({ system: Number(at), day: Number(day), leg: tr.legIndex, seq: tr.seq, blockadeId: b.id, power: b.power, outcome: run.outcome, estimate: run.estimate,
+      coverage: run.observed.tier, force: run.observed.force, observed: run.observed, lost: res.lost.map((f) => ensureFleetVesselIdentity(f).vid), disabled: res.disabled.map((f) => ensureFleetVesselIdentity(f).vid), blockaderLosses: run.blockaderLosses });
+    applyCampaignEffects(effects, day);
+    campaignWorldCache = null;
+    reportBlockadeRun(run, res);
+    setLog(`${g.name} at ${state.planets[at]?.name}: ${run.outcome.replace(/_/g, ' ')}.`);
+    out.runs.push(run);
+    if (!run.continues) { out.turnedBack = true; break; }
   }
-  return met;
+  return out;
+}
+// Turned back: the formation goes back to the system it came from, as one body; an order it was given
+// on the way is kept and flown from there.
+function retreatFormation(g, tr, at, day) {
+  const prev = Number(tr.legIndex > 0 ? tr.path[tr.legIndex - 1] : tr.plotFrom);
+  const where = state.planets[at]?.name || 'the blockade';
+  const pending = tr.pending; tr.pending = null;
+  tr.status = 'halted'; tr.endDay = Number(day); tr.endReason = 'forced-back'; tr.note = `Turned back at ${where}`;
+  if (g.order === 'attack') g.order = 'hold';
+  const back = beginFormationTravel(g, formationTravelMembers(tr), at, prev, 'move', null, Number(day), tr, { skipGate: true });
+  if (back) { back.retreatFrom = Number(at); back.note = `Turned back at ${where}`; if (pending) back.pending = pending; }
+}
+// Before a leg into a system under a blockade the captain knows of, the formation's standing order for
+// blockades decides: run it, wait where it is until it lifts, or reroute round it (waiting if there is
+// no way round). A blockade nobody has reported is simply met.
+function knownBlockadeAt(sys) { return playerApplicableBlockadesAt(sys).find((b) => blockadeKnowledge(b)) || null; }
+function departFormationLeg(g, tr, day) {
+  const policy = g.blockadePolicy || 'run';
+  const next = Number(tr.path[tr.legIndex]);
+  const name = (i) => state.planets[i]?.name || '?';
+  const b = policy === 'run' ? null : knownBlockadeAt(next);
+  if (b && policy === 'reroute') {
+    const avoid = new Set((campaignBook().blockades || []).filter((x) => x.status === 'active' && blockadeKnowledge(x) && playerApplicableBlockadesAt(x.target).includes(x)).map((x) => Number(x.target)));
+    avoid.delete(Number(tr.destination));
+    avoid.delete(Number(tr.from));
+    const route = avoid.has(next) ? getPlottedRoute(Number(tr.from), Number(tr.destination), avoid) : null;
+    if (route && route.systems.length > 1 && !route.systems.slice(1).some((i) => avoid.has(Number(i)))) {
+      tr.path = route.systems.slice(1).map(Number); tr.legDays = routeLegDays(route); tr.legIndex = 0; tr.plotFrom = Number(tr.from);
+      tr.replots.push({ day: Number(day), at: Number(tr.from), from: Number(tr.destination), to: Number(tr.destination), reason: 'reroute', avoided: next });
+      tr.note = `Rerouted round the blockade at ${name(next)}`;
+      delete tr.waiting;
+      tr.legDepartDay = Number(day);
+      scheduleFormationLeg(g, tr);
+      return true;
+    }
+  }
+  if (b) {
+    tr.waiting = { at: Number(tr.from), system: next, blockadeId: b.id, since: tr.waiting?.since ?? Number(day), policy };
+    tr.note = `Waiting at ${name(tr.from)}: blockade at ${name(next)}${policy === 'reroute' ? ', no way round' : ''}`;
+    tr.legDepartDay = Number(day);
+    tr.legArrivalDay = null;
+    for (const f of formationTravelMembers(tr)) { f.systemIndex = Number(tr.from); f.assignment = 'defense'; delete f.transit; }
+    return false;
+  }
+  if (tr.waiting) { delete tr.waiting; tr.note = ''; }
+  tr.legDepartDay = Number(day);
+  scheduleFormationLeg(g, tr);
+  return true;
 }
 function detachFormationMember(tr, f, at, day, reason) {
   tr.members = tr.members.filter((id) => id !== f.id);
@@ -28305,7 +28598,7 @@ function crossFormationLeg(g, tr) {
       detachFormationMember(tr, f, at, day, 'disabled');
     }
   }
-  encounterFormationBlockades(g, tr, at, day);
+  const runs = runFormationBlockades(g, tr, at, day);
   // Ships that are no longer the formation's, or that were given orders of their own on the way, leave
   // it here, where the leg ended: a ship is never carried on under an order that is not hers. [§5]
   for (const f of formationTravelMembers(tr)) {
@@ -28319,6 +28612,7 @@ function crossFormationLeg(g, tr) {
     g.destination = at;
     return;
   }
+  if (runs.turnedBack) { retreatFormation(g, tr, at, day); return; }
   // A war order is only as good as the war it was given under.
   const warGone = tr.purpose === 'attack' && !formationWarHolds(tr.war);
   const pendingMove = tr.pending && tr.pending.purpose !== 'attack';
@@ -28345,8 +28639,7 @@ function crossFormationLeg(g, tr) {
   }
   if (tr.legIndex + 1 < tr.path.length) {
     tr.legIndex += 1;
-    tr.legDepartDay = day;
-    scheduleFormationLeg(g, tr);
+    departFormationLeg(g, tr, day);
     return;
   }
   arriveFormation(g, tr, at, day);
@@ -28355,7 +28648,14 @@ function crossFormationLeg(g, tr) {
 function advanceFormationTravels() {
   for (const g of fleetBook().formations) {
     let tr = formationTravel(g), guard = 0;
-    while (tr && Number(tr.legArrivalDay) <= Number(state.day) && guard++ < 256) {
+    // Waiting short of a known blockade: looked at again every day, under whatever standing order it
+    // has now.
+    if (tr && tr.waiting && tr.purpose === 'attack' && !formationWarHolds(tr.war)) {
+      haltFormation(g, tr, tr.from, Number(state.day), 'war-authority', `${g.name} halted at ${state.planets[tr.from]?.name}: the war it was sent to fight is over or its target changed hands.`);
+      tr = null;
+    }
+    if (tr && tr.waiting) departFormationLeg(g, tr, Number(state.day));
+    while (tr && !tr.waiting && tr.legArrivalDay != null && Number(tr.legArrivalDay) <= Number(state.day) && guard++ < 256) {
       crossFormationLeg(g, tr);
       tr = formationTravel(g);
     }
@@ -28398,11 +28698,18 @@ function formationTravelLine(g) {
   if (!tr) return '';
   const name = (i) => state.planets[i]?.name || '?';
   const crossed = tr.crossed.filter((c) => c.seq === tr.seq).map((c) => name(c.system));
+  if (tr.status === 'underway' && tr.waiting) {
+    return `${tr.purpose === 'attack' ? 'Attack on' : 'En route to'} ${name(tr.destination)} · waiting at ${name(tr.waiting.at)} since day ${tr.waiting.since}: blockade at ${name(tr.waiting.system)}${tr.waiting.policy === 'reroute' ? ', no way round' : ''}${crossed.length ? ` · crossed ${crossed.join(', ')}` : ''}`;
+  }
+  if (tr.status === 'underway' && tr.retreatFrom != null && !tr.pending) {
+    return `Turned back at ${name(tr.retreatFrom)} by the blockade · returning to ${name(tr.destination)}, arrives day ${tr.etaDay}`;
+  }
   if (tr.status === 'underway') {
     const pos = formationTravelPosition(tr);
     const head = `${tr.purpose === 'attack' ? 'Attack on' : 'En route to'} ${name(tr.destination)} · leg ${tr.legIndex + 1}/${tr.path.length} ${name(tr.from)} → ${name(tr.path[tr.legIndex])} ${pos.standing ? `departed day ${tr.legDepartDay}` : 'in warp'}, arrives day ${tr.legArrivalDay} · destination day ${tr.etaDay}`;
     return `${head}${crossed.length ? ` · crossed ${crossed.join(', ')}` : ''}${tr.note ? ` · ${tr.note}` : ''}`;
   }
+  if (tr.status === 'arrived' && tr.retreatFrom != null) return `Turned back at ${name(tr.retreatFrom)} by the blockade · holding at ${name(tr.destination)} since day ${tr.arrivedDay}`;
   if (tr.status === 'arrived') return `Arrived at ${name(tr.destination)} day ${tr.arrivedDay}${crossed.length > 1 ? ` via ${crossed.slice(0, -1).join(', ')}` : ''}`;
   if (tr.status === 'halted') return tr.note || `Halted at ${name(tr.from)}`;
   return '';
@@ -29090,6 +29397,24 @@ function fleetTradeObserve(f, at) {
   recordConditionObservation(i, reading);
   return reading;
 }
+function runTraderBlockades(f, t, at, day) {
+  const blocks = playerApplicableBlockadesAt(at);
+  if (!blocks.length) return null;
+  const book = campaign(); syncPlayerPolity(book); const world = buildCampaignWorld(true);
+  for (const b of blocks) {
+    if (fleetVesselCondition(f) !== 'operational') break;
+    const effects = [];
+    const run = Campaign.resolveBlockadeRun(book, world, b, fleetRunner(`${f.id}:${t.tripId || 'trip'}:${t.legIndex}`, [f], 'trade'), day, effects, { meta: { engineApplied: true } });
+    const res = applyRunToFleet(run, at);
+    applyCampaignEffects(effects, day);
+    campaignWorldCache = null;
+    reportBlockadeRun(run, res);
+    if (res.lost.length) return 'destroyed';
+    if (res.disabled.length) return 'disabled';
+    if (!run.continues) return 'turned-back';
+  }
+  return null;
+}
 function crossFleetTradeSystem(f, t, day = state.day) {
   const at = Number(t.path[t.legIndex]);
   if (!Number.isFinite(at) || !state.planets[at]) return null;
@@ -29101,6 +29426,30 @@ function crossFleetTradeSystem(f, t, day = state.day) {
   if (outcome !== 'destroyed' && outcome !== 'disabled' && fleetVesselCondition(f) === 'disabled') {
     markFleetShipDisabled(f, t, at);
     outcome = 'disabled';
+  }
+  // A blockade here that bears on her: she runs it, through the same engine as everyone else.
+  // [BLOCKADE-RUNNING-RULES]
+  if (outcome !== 'destroyed' && outcome !== 'disabled') {
+    const turned = runTraderBlockades(f, t, at, day);
+    if (turned) outcome = turned;
+  }
+  if (outcome === 'turned-back') {
+    const prev = Number(t.legIndex > 0 ? t.path[t.legIndex - 1] : t.origin);
+    const back = Number.isFinite(prev) && state.planets[prev] ? prev : at;
+    f.systemIndex = back;
+    f.assignment = 'defense';
+    delete f.transit;
+    t.etaDay = null; t.legEtaDay = null; t.stops = [];
+    const where = state.planets[at]?.name || 'the blockade';
+    // A passage she was flying ends where she was turned back to: the captain decides what next. A
+    // circuit is broken off there and planned again from where she is.
+    if (t.order && t.stage === 'passage') {
+      t.order = { ...t.order, kind: 'hold', to: back, pending: false, arrivedDay: Number(day) };
+      t.stage = 'holding';
+    } else t.stage = t.active ? 'idle' : 'holding';
+    t.path = []; t.legDays = []; t.legIndex = 0;
+    t.note = `Turned back at ${where} by the blockade.`;
+    return outcome;
   }
   if (outcome === 'destroyed' || outcome === 'disabled') {
     f.systemIndex = at;
@@ -29286,7 +29635,7 @@ function advanceFleetTrading(day = state.day) {
     if (t.stage === 'passage') { advanceFleetTradePassage(f, t, day); continue; }
     if (t.stage === 'outbound') {
       const outcome = crossFleetTradeSystem(f, t, day);
-      if (outcome === 'destroyed' || outcome === 'disabled') continue;
+      if (outcome === 'destroyed' || outcome === 'disabled' || outcome === 'turned-back') continue;
       const reached = Number(t.path[t.legIndex]);
       if (t.stops.includes(reached) && !fleetTradeCall(f, t, reached, day)) continue;
       // An order given while she was on a leg takes effect where the leg ends: what belongs at this
@@ -29817,7 +30166,7 @@ function arriveFleetTradePassage(f, t, at, day = state.day) {
 // scheduled, or she has arrived.
 function advanceFleetTradePassage(f, t, day = state.day) {
   const outcome = crossFleetTradeSystem(f, t, day);
-  if (outcome === 'destroyed' || outcome === 'disabled') return;
+  if (outcome === 'destroyed' || outcome === 'disabled' || outcome === 'turned-back') return;
   const reached = Number(t.path[t.legIndex]);
   // An order changed while she was on a leg is replotted from the system she has actually reached,
   // not from where the passage began.

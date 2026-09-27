@@ -4867,3 +4867,5 @@ button:disabled {
 #campaign-panel .ops-new summary {cursor:pointer;font-weight:600;}
 #campaign-panel .ops-new label {display:block;margin:6px 0;}
 #campaign-panel .ops-message {color:#ffe38a;}
+#campaign-panel [data-ops-formation] {border-left:4px solid #9fe870;}
+#campaign-panel .ops-actions button.ops-on {outline:2px solid #9fe870;outline-offset:1px;}

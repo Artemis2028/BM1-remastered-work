@@ -65,6 +65,8 @@
     "test:evac-blockade:ingame": "node scripts/evac-blockade-gate.cjs",
     "test:formation-route": "node scripts/formation-route-test.mjs",
     "test:formation-route:ingame": "node scripts/formation-route-gate.cjs",
+    "test:blockade-running": "node scripts/blockade-running-test.mjs",
+    "test:blockade-running:ingame": "node scripts/blockade-running-gate.cjs",
     "bench:map": "node scripts/map-render-bench.cjs",
     "screens:section6": "node scripts/section6-screens.cjs"
   },

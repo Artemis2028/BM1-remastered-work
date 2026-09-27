@@ -9,7 +9,7 @@
 //
 // Every number in CAMPAIGN_RULES is first-pass tuning (units documented inline), not measured balance.
 
-import { stableHash, bounded, copy, planStanding } from './ship-fleet.mjs';
+import { stableHash, bounded, copy, planStanding, classifyDamage } from './ship-fleet.mjs';
 import * as Identity from './vessel-identity.mjs';
 import { evaluateWar, settlementTerms, WAR_RULES } from './war-termination.mjs';
 
@@ -142,6 +142,7 @@ export const CAMPAIGN_RULES = Object.freeze({
   evacProtectedShare: 10,           // evacuees per unit of the world's population figure an evacuation sets out to move (bounded, abstract)
   evacMinTarget: 2000, evacMaxTarget: 60000,
   evacLoadingDays: 1,               // a round trip is two days a jump plus a day loading
+  evacRetryDays: 3,                 // a convoy turned back at the origin's blockade waits this long before trying again
   evacMaxHops: 6,                   // a destination further than this is not a viable route
   evacLossRate: 0.12,               // per day, at full effective interdiction, the chance-equivalent of losing an unescorted transport
   evacAbandonLossShare: 0.5,        // an AI sponsor abandons an evacuation once it has lost this share of its transports
@@ -164,6 +165,17 @@ export const CAMPAIGN_RULES = Object.freeze({
   blockadeRetryDays: 180,           // an AI does not blockade again a world where its last blockade failed, for this long
   blockadeStallDays: 45,            // an AI turns to blockade only after this long at war without being able to mount an assault
   blockadeMinSupply: 0.3, blockadeUnsuppliedDays: 10,
+  // Blockade interception and running (BLOCKADE-RUNNING-RULES-270100ZSEP26): one engine for every
+  // runner — a formation, a trader's passage, an evacuation convoy.
+  interceptRefSpeed: 45,            // the strategic dash speed a blockader is assumed to have when its class gives none
+  interceptCloakFactor: 0.3,        // detection multiplier when every running ship has a working cloak
+  interceptCloakMinCondition: 0.5,  // a cloak works only on a ship with at least this share of her hull
+  interceptBreakRatio: 2,           // runner combat strength this many times the blockade's forces the fight its way
+  interceptDamageScale: 0.3,        // share of a runner's hull an intercept at full pressure costs
+  interceptCoverRatio: 0.75,        // escorts fielding this share of the blockade's strength screen the convoy: it fights through
+  interceptEscortWeight: 1.5,       // how much an armed ship's strength weighs against the blockade's in the engagement
+  interceptBlockadeDamage: 0.25,    // share of the runner's combat strength an engagement lands on the blockade
+  interceptMaxLossesPerRun: 1,      // a single crossing never destroys more than this many runners
   maxBlockadesPerPolity: 1,
   // Strategic resolution of the opening war: no calendar roll ends it; it ends when one belligerent
   // loses its home world and cannot contest it, or loses every world.
@@ -2372,7 +2384,7 @@ export function startEvacuation(book, world, spec, day, effects = []) {
   const target = Math.max(1, Math.round(Number(spec.target) || evacuationTargetFor(book, world, origin)));
   const rec = { id: nextCampaignId(book, 'evac'), kind: 'evacuation', sponsor, origin: Number(origin), destination: Number(destination), route: dest.route,
     target, moved: 0, transports: tp.list, escorts: es.list, startDay: day, deadlineDay, status: 'active', endDay: null, endReason: null, reason,
-    lost: [], removed: [], riskBank: 0, lastThroughput: 0, lastFactor: 1, initialTransports: tp.list.length, carry: 0 };
+    lost: [], removed: [], lastThroughput: 0, lastFactor: 1, initialTransports: tp.list.length, convoy: null };
   for (const t of [...tp.list, ...es.list]) { const h = hullOf(book, sponsor, t.hullId); h.status = 'assigned'; h.opId = rec.id; }
   book.evacuations.push(rec);
   addHistory(book, day, 'evacuation', `${world.factionName(sponsor)} began evacuating ${o.name} to ${world.systems[destination].name}: ${reason}.`, { id: rec.id, systemIndex: rec.origin });
@@ -2390,7 +2402,10 @@ export function assignEvacuationEscorts(book, world, id, hullIds, day, effects =
     if (Number(h.systemIndex) !== e.origin) return { ok: false, reason: `${hid} is not at ${world.systems[e.origin]?.name}.` };
     added.push({ hullId: h.id, vid: h.vid || null, shipId: Number(h.shipId), lift: 0 });
   }
-  for (const a of added) { const h = hullOf(book, e.sponsor, a.hullId); h.status = 'assigned'; h.opId = e.id; e.escorts.push(a); }
+  // Escorts join the convoy at the origin: if it is away, they wait there for it rather than appear
+  // beside it. [BLOCKADE-RUNNING-RULES]
+  const away = e.convoy && !(e.convoy.phase === 'loading' && e.convoy.pos === 0);
+  for (const a of added) { const h = hullOf(book, e.sponsor, a.hullId); h.status = 'assigned'; h.opId = e.id; if (away) a.joining = true; e.escorts.push(a); }
   if (added.length) effects.push({ type: 'strategicShipsAssigned', id: e.id, sponsor: e.sponsor, role: 'escort', hulls: added.map((a) => a.hullId), systemIndex: e.origin, day });
   return { ok: true, added: added.length };
 }
@@ -2415,18 +2430,18 @@ export function cancelEvacuation(book, world, id, day, effects = [], reason = 'c
   endEvacuation(book, world, e, day, e.moved > 0 ? 'partial' : 'cancelled', reason, effects);
   return { ok: true, record: e };
 }
+// What the blockade actually fields: its hulls on station that can still fight. A disabled hull adds
+// nothing; a damaged one adds what its hull is worth.
 function blockadeStrength(book, world, b) {
-  return b.hulls.reduce((n, t) => { const h = hullOf(book, b.power, t.hullId); return n + (h ? hullStrength(book, world, h) : 0); }, 0);
+  return b.hulls.reduce((n, t) => { const h = hullOf(book, b.power, t.hullId); return n + (h && !hullOutOfAction(h) ? hullStrength(book, world, h) : 0); }, 0);
 }
-// What an evacuation's escorts field against the blockades it meets.
-function escortStrength(book, world, e) {
-  return e.escorts.reduce((n, t) => { const h = hullOf(book, e.sponsor, t.hullId); return n + (h ? hullStrength(book, world, h) : 0); }, 0);
+function hullOutOfAction(h) {
+  return !h || h.status === 'lost' || !(h.hull > 0) || classifyDamage(h.hull, h.maxHull) !== 'operational';
 }
-// Escorts of evacuations at a system count as defenders against a blockade of it.
+// The world's own defence against a blockade of it. Escorts no longer count here: they act where they
+// actually are, when their convoy runs the blockade (BLOCKADE-RUNNING-RULES).
 function blockadeOpposition(book, world, b) {
-  let d = localDefenseStrength(book, world, b.target);
-  for (const e of book.evacuations || []) if (e.status === 'active' && e.origin === Number(b.target) && formallyAtWar(world, b.power, e.sponsor)) d += escortStrength(book, world, e);
-  return d;
+  return localDefenseStrength(book, world, b.target);
 }
 export function startBlockade(book, world, spec, day, effects = []) {
   strategicBook(book);
@@ -2534,6 +2549,8 @@ function settleBlockadeDay(book, world, b, day, effects, opening = false) {
     const h = hullOf(book, b.power, t.hullId);
     if (!h) return false;
     if (h.opId !== b.id || Number(h.systemIndex) !== b.target) { effects.push({ type: 'strategicShipReleased', id: b.id, sponsor: b.power, hullId: t.hullId, day }); return false; }
+    // Disabled on station: out of the blockade, and off to repair.
+    if (hullOutOfAction(h)) { h.status = 'repairing'; h.opId = null; effects.push({ type: 'strategicShipReleased', id: b.id, sponsor: b.power, hullId: t.hullId, day }); return false; }
     return true;
   });
   if (!b.hulls.length) return endBlockade(book, world, b, day, 'broken', 'the blockading force is gone', effects);
@@ -2560,8 +2577,7 @@ function settleBlockadeDay(book, world, b, day, effects, opening = false) {
   // Attrition: the defence wears the blockade down; the weakest hull goes first.
   // Only ships can sortie against it: installations shield the world's traffic (they count in the
   // coverage) but do not hunt the blockade down.
-  const mobile = defendingPolityIds(book, world, b.target).reduce((n, pid) => n + (book.polities[pid]?.hulls || []).filter((h) => h.status === 'ready' && Number(h.systemIndex) === b.target).reduce((m, h) => m + hullStrength(book, world, h), 0), 0)
-    + (book.evacuations || []).filter((e) => e.status === 'active' && e.origin === b.target && formallyAtWar(world, b.power, e.sponsor)).reduce((n, e) => n + escortStrength(book, world, e), 0);
+  const mobile = defendingPolityIds(book, world, b.target).reduce((n, pid) => n + (book.polities[pid]?.hulls || []).filter((h) => h.status === 'ready' && Number(h.systemIndex) === b.target).reduce((m, h) => m + hullStrength(book, world, h), 0), 0);
   if (!opening && mobile > 0) {
     b.damageBank += mobile * c.blockadeAttrition;
     const weakest = () => b.hulls.map((t) => ({ t, h: hullOf(book, b.power, t.hullId) })).filter((x) => x.h).sort((x, y) => hullStrength(book, world, x.h) - hullStrength(book, world, y.h) || String(x.h.id).localeCompare(String(y.h.id)))[0];
@@ -2575,7 +2591,14 @@ function settleBlockadeDay(book, world, b, day, effects, opening = false) {
     }
     if (!b.hulls.length) return endBlockade(book, world, b, day, 'broken', 'the blockading force was destroyed', effects);
   }
+  refreshBlockadeCoverage(book, world, b, day, effects);
+}
+// Coverage is always read off the force actually on station, the day it changes — never a label kept
+// from when the blockade was stronger.
+function refreshBlockadeCoverage(book, world, b, day, effects) {
+  const c = book.config;
   const S2 = blockadeStrength(book, world, b);
+  const D = blockadeOpposition(book, world, b);
   b.strength = Math.round(S2);
   b.coverage = Math.round(Math.min(0.95, S2 / (S2 + D + c.blockadeTrafficScale)) * 1000) / 1000;
   const tier = blockadeTier(b.coverage);
@@ -2601,6 +2624,308 @@ export function blockadeCoverageOn(b, day) {
   for (const s of b.segments || []) { if (s.day <= day) cov = s.coverage; else break; }
   return cov;
 }
+// ---------- blockade interception and running (BLOCKADE-RUNNING-RULES-270100ZSEP26) ----------
+// One engine for every ship or group that reaches a blockaded system on a route: a player formation, a
+// trader's passage, an evacuation convoy, and later AI missions. It separates being seen from being
+// caught, and being caught from what the fight costs; each step reads what the ships actually are.
+export const BLOCKADE_RUN_OUTCOMES = Object.freeze(['slipped_through', 'challenged_but_passed', 'fought_through', 'intercepted_minor_damage', 'intercepted_forced_back', 'intercepted_losses', 'blockade_broken']);
+const RUN_MINOR = 0.45, RUN_LOSSES = 0.9; // pressure thresholds: below the first, minor damage; from the second, losses
+const RUN_CONTINUES = new Set(['slipped_through', 'challenged_but_passed', 'fought_through', 'intercepted_minor_damage', 'blockade_broken']);
+export function blockadeRunContinues(outcome) { return RUN_CONTINUES.has(outcome); }
+// Does this blockade bear on this sponsor's ships crossing its system? Only an active blockade, still
+// resting on its war, and only against a power it is formally at war with. (Neutral traffic is not
+// fired on: inspection regimes are a later treaty term.)
+export function blockadeApplies(book, world, b, sponsor) {
+  if (!b || b.status !== 'active' || b.power === sponsor) return false;
+  const holder = world.systems[Number(b.target)]?.controller;
+  if (!holder || holder === b.power || !formallyAtWar(world, b.power, holder)) return false;
+  const st = b.warKey ? book.warStates?.[b.warKey] : null;
+  if (st && st.status !== 'war') return false;
+  return formallyAtWar(world, b.power, sponsor);
+}
+export function applicableBlockadesAt(book, world, systemIndex, sponsor) {
+  return activeBlockadesAt(book, systemIndex).filter((b) => blockadeApplies(book, world, b, sponsor));
+}
+// The ships running it, read from their records: condition, dash speed, cloak, fighting value.
+// A runner is { key, sponsor, kind, hulls: [{ hullId, vid, shipId, hull, maxHull, role }] }; class facts
+// come from world.shipStats (speed, cloak, combat, mass) and a hull may override them.
+function runnerProfile(book, world, runner) {
+  const c = book.config;
+  const members = (runner.hulls || []).map((x) => {
+    const st = world.shipStats(x.shipId) || {};
+    const maxHull = Number(x.maxHull) > 0 ? Number(x.maxHull) : Math.max(1, Number(st.combatHull) || 100);
+    const hull = Math.max(0, Math.min(maxHull, Number(x.hull ?? maxHull)));
+    const cond = classifyDamage(hull, maxHull);
+    const frac = hull / maxHull;
+    const cloak = Boolean(x.cloak ?? st.cloak) && cond === 'operational' && frac >= (c.interceptCloakMinCondition ?? 0.5);
+    const combat = bounded(Number(x.combat ?? st.combat ?? 1), 0, 1);
+    const strength = hullStrength(book, world, { shipId: x.shipId, hull, maxHull, crew: x.crew ?? 1 });
+    return { ...x, hull, maxHull, cond, frac, cloak, combat, strength, speed: Number(x.speed ?? st.speed) || c.interceptRefSpeed, mass: Math.max(1, Number(st.mass) || 3) };
+  }).filter((m) => m.cond !== 'destroyed');
+  const active = members.filter((m) => m.cond === 'operational');
+  const E = active.reduce((n, m) => n + m.strength * m.combat, 0);
+  const speed = active.length ? Math.min(...active.map((m) => m.speed)) : 0;
+  // Stealth is the least stealthy ship's: one uncloaked freighter gives the whole group away.
+  const cloakAll = active.length > 0 && active.every((m) => m.cloak);
+  const signature = bounded(0.7 + 0.02 * active.length + 0.3 * Math.min(1, Math.max(...active.map((m) => m.mass), 1) / 10), 0.6, 1.5);
+  const condition = active.length ? active.reduce((n, m) => n + m.frac, 0) / active.length : 0;
+  return { members, active, E, speed, cloakAll, signature, condition };
+}
+// The blockade's side, from the hulls actually on station and able to act.
+function blockadeForce(book, world, b) {
+  const c = book.config;
+  const hulls = b.hulls.map((t) => hullOf(book, b.power, t.hullId)).filter((h) => h && !hullOutOfAction(h));
+  const S = hulls.reduce((n, h) => n + hullStrength(book, world, h), 0);
+  const speeds = hulls.map((h) => Number(world.shipStats(h.shipId)?.speed) || c.interceptRefSpeed);
+  const speed = speeds.length ? speeds.reduce((a, v) => a + v, 0) / speeds.length : c.interceptRefSpeed;
+  const D = blockadeOpposition(book, world, b);
+  const coverage = Math.min(0.95, S / (S + D + c.blockadeTrafficScale));
+  return { hulls, S, speed, coverage, D, n: hulls.length };
+}
+// The odds, separated. Detection: coverage, the group's signature, its speed and (only if every ship
+// has one working) cloak. Interception, once seen: coverage, relative speed, and how much fight the
+// group carries. What the engagement costs: the blockade's strength against the group's, and the
+// group's condition.
+export function assessBlockadeRun(book, world, b, runner, force = null) {
+  const c = book.config;
+  const f = force || blockadeForce(book, world, b);
+  const r = runnerProfile(book, world, runner);
+  const rel = bounded((r.speed || f.speed) / Math.max(1, f.speed), 0.4, 2.5);
+  const stealth = r.cloakAll ? (c.interceptCloakFactor ?? 0.3) * (1 + (b.cloakDetection || 0)) : 1;
+  const pDetect = bounded((0.2 + 0.85 * f.coverage) * r.signature * stealth * (1.2 - 0.2 * rel), 0.02, 0.97);
+  const deterrence = r.E > 0 ? f.S / (f.S + (c.interceptEscortWeight ?? 1.5) * r.E) : 1;
+  const pCatch = bounded((0.25 + 0.75 * f.coverage) * (1.35 - 0.45 * rel) * deterrence, 0.03, 0.95);
+  const ratio = f.S > 0 ? r.E / f.S : Infinity;
+  const base = r.E + f.S > 0 ? f.S / (f.S + (c.interceptEscortWeight ?? 1.5) * r.E) : 0;
+  const condFactor = 1 + 0.6 * (1 - r.condition);
+  // How hard an interception presses: the balance of force, the runner's condition, and how much of the
+  // blockade can be brought to bear (its coverage). pressure = k × (0.6 + 0.8u), u uniform.
+  const k = base * condFactor * (0.35 + 0.65 * f.coverage);
+  const pBelow = (x) => { if (k <= 0) return 1; return bounded((x / k - 0.6) / 0.8, 0, 1); };
+  const forced = ratio >= (c.interceptCoverRatio ?? 0.75);
+  const pMinor = forced ? 1 : pBelow(RUN_MINOR);
+  const pPass = 1 - pDetect * pCatch * (1 - pMinor);
+  const estimate = pPass >= 0.8 ? 'favorable' : pPass >= 0.5 ? 'risky' : 'poor';
+  return { pDetect, pCatch, pMinor, pLoss: forced ? 0 : 1 - pBelow(RUN_LOSSES), pPass, estimate, rel, ratio, E: r.E, S: f.S, coverage: f.coverage, pressureScale: k, cloakAll: r.cloakAll, speed: r.speed, blockadeSpeed: f.speed, signature: r.signature, condition: r.condition, profile: r, force: f };
+}
+// What the runner's crews could see of the blockade, by how close they came: a group that slipped by
+// saw that it was there and roughly how thick; one that was challenged saw part of it; one that fought
+// it counted it. Stored as observed then, never re-read from the live force.
+function runObservation(outcome, f, day, u) {
+  const n = f.n;
+  const tier = blockadeTier(f.coverage);
+  if (outcome === 'slipped_through') return { day, level: 'sighted', tier, force: null };
+  if (['fought_through', 'blockade_broken'].includes(outcome)) return { day, level: 'engaged', tier, force: String(n) };
+  const lo = Math.max(1, Math.floor(n * (0.5 + 0.3 * u))), hi = Math.max(lo + 1, Math.ceil(n * (1.3 + 0.4 * u)));
+  return { day, level: 'contact', tier, force: `${lo}–${hi}` };
+}
+// Damage on the blockade from an engagement: the weakest hull on station first, each hull classified by
+// the fleet damage model — disabled hulls leave the station, destroyed ones are lost.
+function damageBlockade(book, world, b, amount, day, effects, by) {
+  const out = { damaged: [], disabled: [], lost: [] };
+  let left = amount;
+  const order = () => b.hulls.map((t) => hullOf(book, b.power, t.hullId)).filter((h) => h && !hullOutOfAction(h))
+    .sort((x, y) => hullStrength(book, world, x) - hullStrength(book, world, y) || String(x.id).localeCompare(String(y.id)));
+  let guard = 0;
+  while (left > 0 && guard++ < 20) {
+    const h = order()[0];
+    if (!h) break;
+    const perPoint = hullStrength(book, world, h) / Math.max(1, h.hull);
+    const pts = Math.min(h.hull, left / Math.max(1e-9, perPoint));
+    h.hull = Math.max(0, Math.round((h.hull - pts) * 10) / 10);
+    left -= pts * perPoint;
+    const cond = classifyDamage(h.hull, h.maxHull);
+    if (cond === 'destroyed') { loseHull(book, world, b.power, h.id, b.target, day, effects, by); b.losses++; b.hulls = b.hulls.filter((t) => t.hullId !== h.id); out.lost.push(h.id); }
+    else if (cond === 'disabled') { h.status = 'repairing'; h.opId = null; b.hulls = b.hulls.filter((t) => t.hullId !== h.id); out.disabled.push(h.id); effects.push({ type: 'strategicShipReleased', id: b.id, sponsor: b.power, hullId: h.id, day }); }
+    else { out.damaged.push(h.id); break; }
+  }
+  return out;
+}
+// Resolve one crossing. Deterministic for a given book seed and key: the same runner reaching the same
+// blockade on the same day gets the same answer after a reload. Applies everything it decides to the
+// book (blockade hulls, the runner's polity hulls where the book holds them) and reports the rest in
+// the result and one 'blockadeRun' effect for the engine.
+export function resolveBlockadeRun(book, world, b, runner, day, effects = [], opts = {}) {
+  const c = book.config;
+  book.stats.interceptions = (book.stats.interceptions || 0) + 1;
+  const f = blockadeForce(book, world, b);
+  const a = assessBlockadeRun(book, world, b, runner, f);
+  const u = (tag) => seededUnit(book.seed, 'blockade-run', b.id, runner.key, day, tag);
+  const detected = u('detect') < a.pDetect;
+  const caught = detected && u('catch') < a.pCatch;
+  let outcome, pressure = 0;
+  if (!detected) outcome = 'slipped_through';
+  else if (!caught) outcome = 'challenged_but_passed';
+  // Escorts strong enough to screen the convoy engage the blockade and hold it off: the convoy goes on
+  // while they take the fight.
+  else if (a.ratio >= (c.interceptCoverRatio ?? 0.75)) outcome = 'fought_through';
+  else {
+    pressure = a.pressureScale * (0.6 + 0.8 * u('fight'));
+    outcome = pressure < RUN_MINOR ? 'intercepted_minor_damage' : pressure < RUN_LOSSES ? 'intercepted_forced_back' : 'intercepted_losses';
+  }
+  // The runner's damage. Escorts and armed ships stand between the blockade and the rest: they take the
+  // damage first, in proportion to the fight they carry.
+  const results = a.profile.members.map((m) => ({ hullId: m.hullId, vid: m.vid ?? null, shipId: m.shipId, role: m.role || null, before: m.hull, hull: m.hull, maxHull: m.maxHull, condition: m.cond }));
+  const byId = new Map(results.map((x) => [x.hullId, x]));
+  const hit = (m, share) => { const x = byId.get(m.hullId); x.hull = Math.max(0, Math.round((x.hull - m.maxHull * share) * 10) / 10); x.condition = classifyDamage(x.hull, x.maxHull); };
+  if (['intercepted_minor_damage', 'intercepted_forced_back', 'intercepted_losses', 'fought_through'].includes(outcome)) {
+    const fightRatio = outcome === 'fought_through' ? bounded(1 / Math.max(0.5, a.ratio), 0.1, 1) : Math.min(1, pressure);
+    const dmg = (c.interceptDamageScale ?? 0.3) * fightRatio;
+    const fighters = a.profile.active.filter((m) => m.combat >= 0.5);
+    const cover = fighters.length && a.E > 0 ? (outcome === 'fought_through' ? 0.9 : Math.min(0.85, a.E / (a.E + a.S))) : 0;
+    for (const m of a.profile.active) {
+      const roll = 0.5 + 0.6 * u(`hit:${m.hullId}`);
+      const share = fighters.includes(m) ? dmg * roll * (cover > 0 ? 1.3 : 1) : dmg * roll * (1 - cover);
+      hit(m, Math.min(0.5, share));
+    }
+    if (outcome === 'intercepted_losses') {
+      // The ship that is caught: escorts put themselves in the way as often as they cover the convoy
+      // (the weakest of them takes it); otherwise the most exposed — least armed, worst condition.
+      const byExposure = (list) => [...list].sort((x, y) => (x.combat - y.combat) || (x.frac - y.frac) || String(x.hullId).localeCompare(String(y.hullId)));
+      const screened = fighters.length && u('screen') < cover;
+      const exposed = screened ? [...fighters].sort((x, y) => (x.frac - y.frac) || String(x.hullId).localeCompare(String(y.hullId)))[0] : byExposure(a.profile.active)[0];
+      if (exposed) {
+        const x = byId.get(exposed.hullId);
+        const kill = u('kill') < 0.35 * (1 - cover);
+        x.hull = kill ? 0 : Math.min(x.hull, Math.max(1, Math.floor(x.maxHull * 0.08)));
+        x.condition = classifyDamage(x.hull, x.maxHull);
+      }
+    }
+    // Bounded: never more than one runner destroyed in a single crossing.
+    let kills = results.filter((x) => x.condition === 'destroyed');
+    for (const x of kills.slice(c.interceptMaxLossesPerRun ?? 1)) { x.hull = Math.max(1, Math.floor(x.maxHull * 0.05)); x.condition = classifyDamage(x.hull, x.maxHull); }
+  }
+  // The blockade's damage: what the group's fighting ships land on it when there is a fight.
+  let blockaderLosses = { damaged: [], disabled: [], lost: [] };
+  if (caught) {
+    const dealt = a.E * (c.interceptBlockadeDamage ?? 0.25) * (0.5 + u('return')) * (outcome === 'fought_through' ? 1.5 : 1);
+    if (dealt > 0) blockaderLosses = damageBlockade(book, world, b, dealt, day, effects, runner.sponsor);
+  }
+  // Apply the runner's damage to the hulls the book holds for its sponsor (an AI's, or the mirror of the
+  // captain's fleet, which the engine re-reads from the effect).
+  for (const x of results) {
+    const h = hullOf(book, runner.sponsor, x.hullId);
+    if (!h) continue;
+    h.hull = x.hull;
+    if (x.condition === 'destroyed') { h.status = 'lost'; h.opId = null; const p = book.polities[runner.sponsor]; if (p) p.lostHulls = (p.lostHulls || 0) + 1; book.stats.hullsLost++; }
+  }
+  // A blockade whose force is gone, or now badly outmatched by the local defence, breaks.
+  let broken = false;
+  if (b.status === 'active') {
+    const live = blockadeForce(book, world, b);
+    if (!live.n) { endBlockade(book, world, b, day, 'broken', 'its force was beaten off by a convoy', effects); broken = true; }
+    else if (a.ratio >= (c.interceptBreakRatio ?? 2) * 2 && blockaderLosses.lost.length + blockaderLosses.disabled.length > 0) { endBlockade(book, world, b, day, 'broken', 'a superior force fought through it', effects); broken = true; }
+    else refreshBlockadeCoverage(book, world, b, day, effects);
+  }
+  if (broken && RUN_CONTINUES.has(outcome) || broken && outcome === 'fought_through') outcome = 'blockade_broken';
+  const observed = runObservation(outcome, f, day, u('observe'));
+  if (runner.sponsor === 'player') { b.sightings = { ...(b.sightings || {}), player: observed }; }
+  b.runs = [...(b.runs || []), { day, by: runner.key, sponsor: runner.sponsor, kind: runner.kind || null, outcome }].slice(-30);
+  if (RUN_CONTINUES.has(outcome)) { b.breaches.push({ day, by: runner.key, kind: runner.kind || 'run' }); b.breaches = b.breaches.slice(-30); }
+  const out = { blockadeId: b.id, power: b.power, target: b.target, sponsor: runner.sponsor, key: runner.key, kind: runner.kind || null, day, outcome,
+    continues: RUN_CONTINUES.has(outcome), detected, intercepted: caught, estimate: a.estimate,
+    odds: { pDetect: Math.round(a.pDetect * 1000) / 1000, pCatch: Math.round(a.pCatch * 1000) / 1000, pPass: Math.round(a.pPass * 1000) / 1000 },
+    hulls: results, blockaderLosses: { damaged: blockaderLosses.damaged.length, disabled: blockaderLosses.disabled.length, lost: blockaderLosses.lost.length }, broken, observed, ...(opts.meta || {}) };
+  effects.push({ type: 'blockadeRun', ...out });
+  return out;
+}
+
+// ---------- the evacuation convoy ----------
+// The transports and escorts sail the evacuation's route as one convoy, a jump a day: load at the
+// origin, run every applicable blockade they meet on the way out (the origin's on departure), deliver at
+// the destination, run them again coming home. People are delivered when a convoy arrives; a convoy
+// turned back delivers nobody that trip. Population and capacity stay abstract.
+function convoyHulls(book, e) {
+  return [...e.transports.map((t) => ({ t, role: 'transport' })), ...e.escorts.filter((t) => !t.joining).map((t) => ({ t, role: 'escort' }))]
+    .map(({ t, role }) => ({ h: hullOf(book, e.sponsor, t.hullId), t, role })).filter((x) => x.h);
+}
+function convoyRunner(book, e) {
+  return { key: `${e.id}:trip${e.convoy.trip}:${e.convoy.phase}:${e.convoy.pos}`, sponsor: e.sponsor, kind: 'evacuation',
+    hulls: convoyHulls(book, e).map(({ h, t, role }) => ({ hullId: h.id, vid: t.vid || h.vid || null, shipId: h.shipId, hull: h.hull, maxHull: h.maxHull, crew: h.crew, role })) };
+}
+// Run every applicable blockade at a system. The first result that turns the convoy back ends the attempt.
+function convoyCrossing(book, world, e, sysIndex, day, effects) {
+  const results = [];
+  for (const b of applicableBlockadesAt(book, world, sysIndex, e.sponsor)) {
+    const r = resolveBlockadeRun(book, world, b, convoyRunner(book, e), day, effects, { meta: { evacuationId: e.id, trip: e.convoy.trip, phase: e.convoy.phase } });
+    results.push(r);
+    // What the run cost the convoy: a disabled transport or escort drops out where it happened; a
+    // destroyed one is lost (with its vid) — the operation's capacity falls with either.
+    for (const x of r.hulls) {
+      if (x.condition === 'destroyed') {
+        e.transports = e.transports.filter((t) => { if (t.hullId !== x.hullId) return true; e.lost.push({ hullId: t.hullId, vid: t.vid, day, role: 'transport', at: sysIndex }); effects.push({ type: 'evacuationLoss', id: e.id, sponsor: e.sponsor, origin: e.origin, at: sysIndex, hullId: t.hullId, vid: t.vid, by: b.power, day }); return false; });
+        e.escorts = e.escorts.filter((t) => { if (t.hullId !== x.hullId) return true; e.lost.push({ hullId: t.hullId, vid: t.vid, day, role: 'escort', at: sysIndex }); return false; });
+      } else if (x.condition === 'disabled') {
+        for (const list of ['transports', 'escorts']) e[list] = e[list].filter((t) => {
+          if (t.hullId !== x.hullId) return true;
+          const h = hullOf(book, e.sponsor, t.hullId);
+          if (h) { h.status = 'repairing'; h.opId = null; h.systemIndex = Number(sysIndex); }
+          e.removed.push({ hullId: t.hullId, vid: t.vid, day, role: list === 'transports' ? 'transport' : 'escort', reason: 'disabled', at: sysIndex });
+          effects.push({ type: 'strategicShipReleased', id: e.id, sponsor: e.sponsor, hullId: t.hullId, day, disabled: true, at: sysIndex });
+          return false;
+        });
+      }
+    }
+    if (!r.continues) break;
+  }
+  return results;
+}
+function moveConvoy(book, e, sysIndex, day, effects) {
+  const hulls = convoyHulls(book, e);
+  for (const { h } of hulls) h.systemIndex = Number(sysIndex);
+  effects.push({ type: 'evacuationConvoyMoved', id: e.id, sponsor: e.sponsor, systemIndex: Number(sysIndex), hulls: hulls.map(({ h }) => h.id), phase: e.convoy.phase, trip: e.convoy.trip, day });
+}
+function advanceEvacuationConvoy(book, world, e, day, effects) {
+  const c = book.config;
+  const last = e.route.length - 1;
+  const cv = (e.convoy ||= { trip: 1, phase: 'loading', pos: 0, nextDay: e.startDay + (c.evacLoadingDays ?? 1), aboard: 0, attempts: [] });
+  const lift = () => e.transports.reduce((n, t) => n + t.lift, 0);
+  if (day < cv.nextDay) return;
+  const note = (at, results, extra = {}) => { cv.attempts.push({ trip: cv.trip, phase: cv.phase, at, day, outcomes: results.map((r) => r.outcome), ...extra }); cv.attempts = cv.attempts.slice(-20); };
+  if (cv.phase === 'loading') {
+    for (const t of e.escorts) if (t.joining) delete t.joining;
+    // Departure: out through the origin's own blockade, if there is one.
+    const results = convoyCrossing(book, world, e, e.route[0], day, effects);
+    if (results.length) note(e.route[0], results);
+    if (results.some((r) => !r.continues)) { cv.nextDay = day + (c.evacRetryDays ?? 3); cv.turnedBack = (cv.turnedBack || 0) + 1; e.lastFactor = 0; return; }
+    cv.phase = 'outbound'; cv.pos = 0; cv.aboard = lift(); cv.planned = cv.aboard; cv.nextDay = day + 1;
+    return;
+  }
+  if (cv.phase === 'outbound') {
+    cv.pos += 1;
+    const at = e.route[cv.pos];
+    moveConvoy(book, e, at, day, effects);
+    const results = convoyCrossing(book, world, e, at, day, effects);
+    if (results.length) note(at, results);
+    cv.aboard = Math.min(cv.aboard, lift());
+    if (results.some((r) => !r.continues)) { cv.phase = 'inbound'; cv.turnedBack = (cv.turnedBack || 0) + 1; cv.nextDay = day + 1; e.lastFactor = 0; e.lastThroughput = 0; return; }
+    if (cv.pos >= last) {
+      const delivered = Math.min(cv.aboard, e.target - e.moved);
+      const before = e.moved;
+      e.moved = Math.min(e.target, e.moved + delivered);
+      const trip = Math.max(1, 2 * last + (c.evacLoadingDays ?? 1));
+      e.lastThroughput = Math.round(delivered / trip); e.lastFactor = cv.planned > 0 ? Math.round(Math.min(1, cv.aboard / cv.planned) * 1000) / 1000 : 0;
+      e.lastDelivery = { day, trip: cv.trip, delivered };
+      cv.aboard = 0;
+      if (before < e.target / 2 && e.moved >= e.target / 2) effects.push({ type: 'evacuationHalfway', id: e.id, sponsor: e.sponsor, origin: e.origin, destination: e.destination, day });
+      if (e.moved >= e.target) return endEvacuation(book, world, e, day, 'completed', null, effects);
+      cv.phase = 'inbound';
+    }
+    cv.nextDay = day + 1;
+    return;
+  }
+  if (cv.phase === 'inbound') {
+    cv.pos -= 1;
+    const at = e.route[Math.max(0, cv.pos)];
+    moveConvoy(book, e, at, day, effects);
+    const results = convoyCrossing(book, world, e, at, day, effects);
+    if (results.length) note(at, results);
+    if (cv.pos <= 0) { cv.pos = 0; cv.phase = 'loading'; cv.trip += 1; cv.nextDay = day + (c.evacLoadingDays ?? 1); return; }
+    // Turned back on the way home: held a day where it is before trying again.
+    cv.nextDay = day + (results.some((r) => !r.continues) ? 2 : 1);
+    if (results.some((r) => !r.continues)) cv.pos += 1;
+  }
+}
 function settleEvacuationDay(book, world, e, day, effects) {
   const c = book.config;
   const o = world.systems[e.origin], dst = world.systems[e.destination];
@@ -2620,41 +2945,8 @@ function settleEvacuationDay(book, world, e, day, effects) {
   if (lift <= 0) return endEvacuation(book, world, e, day, e.moved > 0 ? 'partial' : 'failed', 'no transport capacity is left', effects);
   if (e.sponsor !== 'player' && e.initialTransports > 0 && e.lost.filter((x) => x.role === 'transport').length / e.initialTransports >= c.evacAbandonLossShare)
     return endEvacuation(book, world, e, day, e.moved > 0 ? 'partial' : 'failed', 'losses became unacceptable', effects);
-  const trip = Math.max(1, 2 * (e.route.length - 1) + (c.evacLoadingDays ?? 1));
-  // Interdiction: every hostile blockade on the route bites, softened by what the escorts can field
-  // against it. A weak blockade leaks; none stops traffic outright.
-  const esc = escortStrength(book, world, e) * c.blockadeEscortWeight;
-  let factor = 1, exposure = 0;
-  for (const sysIndex of e.route) for (const b of activeBlockadesAt(book, sysIndex)) {
-    if (b.power === e.sponsor || !formallyAtWar(world, b.power, e.sponsor) && !formallyAtWar(world, b.power, world.systems[sysIndex]?.controller)) continue;
-    const S = Math.max(1, b.strength);
-    const eff = b.coverage * S / (S + esc);
-    factor *= 1 - eff * c.blockadeEvacImpact;
-    exposure = Math.max(exposure, eff);
-    if (eff > 0) { b.breaches.push({ day, by: e.id, kind: 'evacuation' }); b.breaches = b.breaches.slice(-30); }
-  }
-  const through = lift / trip * factor;
-  const before = e.moved;
-  e.carry += through;
-  const step = Math.floor(e.carry);
-  e.carry -= step;
-  e.moved = Math.min(e.target, e.moved + step);
-  e.lastThroughput = Math.round(through); e.lastFactor = Math.round(factor * 1000) / 1000; e.lastDay = day;
-  if (e.moved >= e.target) return endEvacuation(book, world, e, day, 'completed', null, effects);
-  // Risk: an unescorted transport running an interdicted route can be lost.
-  if (exposure > 0 && !e.escorts.length) {
-    e.riskBank += exposure * c.evacLossRate;
-    if (e.riskBank >= 1 && e.transports.length) {
-      e.riskBank -= 1;
-      const victim = e.transports[e.transports.length - 1];
-      const by = activeBlockadesAt(book, e.origin)[0]?.power || null;
-      loseHull(book, world, e.sponsor, victim.hullId, e.origin, day, effects, by);
-      e.transports = e.transports.filter((t) => t !== victim);
-      e.lost.push({ hullId: victim.hullId, vid: victim.vid, day, role: 'transport' });
-      effects.push({ type: 'evacuationLoss', id: e.id, sponsor: e.sponsor, origin: e.origin, hullId: victim.hullId, by, day });
-    }
-  }
-  if (before < e.target / 2 && e.moved >= e.target / 2) effects.push({ type: 'evacuationHalfway', id: e.id, sponsor: e.sponsor, origin: e.origin, destination: e.destination, day });
+  advanceEvacuationConvoy(book, world, e, day, effects);
+  if (e.status === 'active' && !e.transports.reduce((n, t) => n + t.lift, 0)) return endEvacuation(book, world, e, day, e.moved > 0 ? 'partial' : 'failed', 'no transport capacity is left', effects);
 }
 // AI: blockade a world it cannot assault; evacuate a world that is about to fall; escort an evacuation
 // that is being interdicted. Each needs a reason and the force to do it.
@@ -2690,7 +2982,7 @@ function aiStrategicOps(book, world, day, effects) {
   // Escorts for interdicted AI evacuations.
   for (const e of book.evacuations || []) {
     if (e.status !== 'active' || e.sponsor === 'player' || e.escorts.length) continue;
-    if (!activeBlockadesAt(book, e.origin).some((b) => formallyAtWar(world, b.power, e.sponsor))) continue;
+    if (!e.route.some((i) => applicableBlockadesAt(book, world, i, e.sponsor).length)) continue;
     const spare = free(e.sponsor, e.origin).filter((h) => !e.transports.some((t) => t.hullId === h.id)).slice(0, 3);
     if (spare.length) assignEvacuationEscorts(book, world, e.id, spare.map((h) => h.id), day, effects);
   }
