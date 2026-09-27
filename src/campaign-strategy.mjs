@@ -599,6 +599,10 @@ function settleCampaignDay(book, world, day, effects) {
   advanceOperations(book, world, day, effects);
   advanceDominion(book, world, day, effects);
   advanceStrategicOps(book, world, day, effects);
+  // Faction doctrine (DOCTRINE-RUNTIME-PHASE1): persistent incidents, per-observer knowledge, shadow
+  // evaluation and the pilot responses. Supplied by the engine with the loaded doctrine; a world
+  // without it (every pure fixture) runs exactly as before.
+  world.doctrineStep?.(book, world, day, effects);
   evaluateWars(book, world, day, effects);
   advanceRecoveries(book, world, day, effects);
   expireMissions(book, day, effects);
@@ -2308,7 +2312,7 @@ export function evacuationLift(book, world, hull) {
   const cargo = Math.max(0, Number((world.shipStats(hull.shipId) || {}).cargo) || 0);
   return Math.floor(cargo * book.config.evacPeoplePerCargo);
 }
-function shortestRoute(world, from, to, polityId) {
+export function shortestRoute(world, from, to, polityId) {
   const prev = new Map([[Number(from), null]]); const q = [Number(from)];
   while (q.length) {
     const cur = q.shift();

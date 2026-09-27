@@ -67,6 +67,8 @@
     "test:formation-route:ingame": "node scripts/formation-route-gate.cjs",
     "test:blockade-running": "node scripts/blockade-running-test.mjs",
     "test:blockade-running:ingame": "node scripts/blockade-running-gate.cjs",
+    "test:doctrine": "node scripts/doctrine-runtime-test.mjs",
+    "test:doctrine:ingame": "node scripts/doctrine-runtime-gate.cjs",
     "bench:map": "node scripts/map-render-bench.cjs",
     "screens:section6": "node scripts/section6-screens.cjs"
   },

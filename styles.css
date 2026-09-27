@@ -4869,3 +4869,11 @@ button:disabled {
 #campaign-panel .ops-message {color:#ffe38a;}
 #campaign-panel [data-ops-formation] {border-left:4px solid #9fe870;}
 #campaign-panel .ops-actions button.ops-on {outline:2px solid #9fe870;outline-offset:1px;}
+
+/* Cheats & Debug: faction doctrine runtime tables (debug only) */
+#cheats-debug table.doctrine-debug { width: 100%; border-collapse: collapse; font-size: 12px; margin: 4px 0 10px; }
+#cheats-debug table.doctrine-debug th, #cheats-debug table.doctrine-debug td { text-align: left; vertical-align: top; padding: 3px 6px; border-bottom: 1px solid rgba(160, 180, 210, 0.25); }
+#cheats-debug table.doctrine-debug th { color: #9fb4d6; font-weight: 600; }
+#cheats-debug table.doctrine-debug code { font-size: 11px; word-break: break-all; }
+#cheats-debug [data-doctrine-section] h4 { margin: 10px 0 2px; }
+#cheats-debug table.doctrine-debug td:first-child code { word-break: normal; white-space: nowrap; }

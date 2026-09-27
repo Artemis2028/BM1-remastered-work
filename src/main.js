@@ -2,6 +2,8 @@ import * as World from './faction-world.mjs';
 import { assessIntel, intelRandom } from './galaxy-intelligence.mjs';
 import * as StationRoles from './station-roles.mjs';
 import * as Campaign from './campaign-strategy.mjs';
+import * as Doctrine from './doctrine-runtime.mjs';
+import * as DoctrineCampaign from './doctrine-campaign.mjs';
 const TRANSPORTER_RANGE = 2500;
 const WORLD_CARGO_DROPOFF_RANGE = 600;
 const JUMP_BACKGROUND_REPORT_LIMIT = 6;
@@ -8614,6 +8616,8 @@ function applyDebugCommand(raw) {
     message = triggerDebugMission(args[0]);
   } else if (command === 'campaign' && args.length >= 1) {
     message = triggerCampaignDebug(args);
+  } else if (command === 'doctrine' && args.length >= 1) {
+    message = triggerDoctrineDebug(args);
   } else if (command === 'repair' && !args.length) {
     state.hull = 100;
     state.shields = 100;
@@ -8658,6 +8662,7 @@ function syncDebugVesselCondition() {
 
 function refreshDebugReadout() {
   const bulletin=debugMenuEl.querySelector('[data-diplomacy-bulletin]');if(bulletin)bulletin.innerHTML=renderDiplomacyBulletin();
+  const doctrinePanel=debugMenuEl.querySelector('[data-doctrine-debug]');if(doctrinePanel)doctrinePanel.innerHTML=renderDoctrineDebug();
   const resource = debugMenuEl.querySelector('[name="resource"]').value;
   debugMenuEl.querySelector('[name="amount"]').max = debugResourceFields[resource].max();
   const faction = debugMenuEl.querySelector('[name="faction"]').value;
@@ -8724,12 +8729,14 @@ function openDebugMenu() {
       <button data-debug-code="campaign discover gorn">Gorn discovery (override)</button><button data-campaign-open>Open Empire panel</button></div>
       <form data-debug-form="campaign-polity"><label>Power<select name="campaign-faction">${factionOptions}</select></label><label>Treasury (latinum)<input name="campaign-treasury" type="number" min="0" max="2000000" step="1000" value="250000"></label><label>Ready hulls<input name="campaign-hulls" type="number" min="0" max="120" step="1" value="20"></label><button type="submit" data-campaign-set="treasury">Set treasury (override)</button><button type="submit" data-campaign-set="readiness">Set ready hulls (override)</button></form>
       <p>Wars still come from the diplomacy controls above. Operations, captures, integration, recovery contracts and relay orders follow the model; nothing here spawns Dominion forces outside the wormhole route.</p></section>
+    <section data-doctrine-section><h3>Faction doctrine (debug)</h3><div data-doctrine-debug>${renderDoctrineDebug()}</div></section>
     <section><h3>Cheat codes</h3><form data-debug-form="code"><label>Code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="standing romulan 50" required></label><button type="submit">Run code</button></form>
       <details><summary>Remaster code list</summary><p>Codes are case-insensitive. Faction keys appear in the selector above.</p><ul>
         <li><code>crisis romulan klingon</code>, <code>war romulan klingon</code>, <code>peace romulan klingon</code> — change bilateral relations.</li><li><code>standing romulan 50</code> — set one faction's standing.</li><li><code>latinum 10000</code>, <code>duranium 500</code>, <code>antimatter 6</code> — set resources.</li>
         <li><code>hull 50</code>, <code>shields 0</code> — set ship condition; hull minimum is 1%.</li><li><code>repair</code>, <code>refill</code> — restore condition or fuel.</li>
         <li><code>god on</code>, <code>god off</code> — toggle God Mode.</li><li><code>ship ${state.playership}</code> — switch to a loaded ship ID and enable God Mode.</li>
         <li><code>feat vexBorgDown on</code>, <code>feat bajoranFleetDown off</code> — set or reset a milestone.</li>
+        <li><code>doctrine status</code>, <code>doctrine patrol romulan</code>, <code>doctrine lose</code>, <code>doctrine relay &lt;incident&gt; &lt;from&gt; &lt;to&gt;</code>, <code>doctrine off</code> — faction doctrine runtime (debug; relay and lose are overrides).</li>
         <li><code>campaign advance 10</code>, <code>campaign phase staging</code>, <code>campaign treasury klingon 500000</code>, <code>campaign readiness romulan 30</code>, <code>campaign damage</code>, <code>campaign restore</code>, <code>campaign stock current deplete</code>, <code>campaign mission relief</code>, <code>campaign discover gorn</code> — campaign and empire controls.</li></ul></details></section>`;
   const faction = debugMenuEl.querySelector('[name="faction"]').value;
   debugMenuEl.querySelector('[name="standing"]').value = getFactionStanding(faction);
@@ -8774,6 +8781,7 @@ debugMenuEl?.addEventListener('submit', (event) => {
   if (form.dataset.debugForm === 'resource') runDebugCommand(`${form.elements.resource.value} ${form.elements.amount.value}`);
   if (form.dataset.debugForm === 'ship') runDebugCommand(`ship ${form.elements.ship.value}`);
   if (form.dataset.debugForm === 'code') runDebugCommand(form.elements.code.value);
+  if (form.dataset.debugForm === 'doctrine-relay') runDebugCommand(`doctrine relay ${form.elements['doctrine-incident'].value} ${form.elements['doctrine-from'].value} ${form.elements['doctrine-to'].value}`);
   if (form.dataset.debugForm === 'campaign-polity') {
     const which = event.submitter?.dataset.campaignSet || 'treasury';
     runDebugCommand(`campaign ${which} ${form.elements['campaign-faction'].value} ${which === 'treasury' ? form.elements['campaign-treasury'].value : form.elements['campaign-hulls'].value}`);
@@ -10329,6 +10337,209 @@ function applyStrategicOpEffect(e, day) {
   }
   campaignWorldCache = null;
   return true;
+}
+// ---------- Faction doctrine runtime, phase 1 (docs/doctrine/DOCTRINE-RUNTIME-PHASE1.md) ----------
+// The v0.2.1 doctrine package is loaded as data from docs/doctrine/ and validated before anything uses
+// it. A package that fails validation is a clear development error and leaves doctrine switched off;
+// the game itself runs exactly as it does without it.
+const DOCTRINE_DATA_SRC = 'docs/doctrine/bm1-faction-doctrine.v0.2.1.json';
+const DOCTRINE_SCHEMA_SRC = 'docs/doctrine/bm1-faction-doctrine.schema.json';
+let doctrineRuntime = null;
+let doctrineLoadState = { state: 'loading', error: null, warnings: [] };
+async function loadDoctrineData() {
+  const [data, schema] = await Promise.all([fetchJsonOrNull(`${DOCTRINE_DATA_SRC}?v=${SOURCE_DATA_VERSION}`), fetchJsonOrNull(`${DOCTRINE_SCHEMA_SRC}?v=${SOURCE_DATA_VERSION}`)]);
+  return installDoctrine(data, schema, { missing: !data ? DOCTRINE_DATA_SRC : !schema ? DOCTRINE_SCHEMA_SRC : null });
+}
+// Validates a doctrine package and, only if it is valid (and `install` is not false), makes it the
+// runtime. Returns the outcome; never throws into the game loop.
+function installDoctrine(data, schema, opts = {}) {
+  let compiled = null, error = null;
+  try {
+    if (opts.missing) throw new Doctrine.DoctrineLoadError(`Doctrine package file not found: ${opts.missing}`);
+    compiled = Doctrine.loadDoctrine(data, schema, { onWarning: (m) => console.warn(`[doctrine] ${m}`) });
+  } catch (e) {
+    error = String(e?.message || e);
+    console.error(`[doctrine] Doctrine NOT loaded — development error:\n${error}`);
+  }
+  if (opts.install === false) return { ok: !error, error };
+  if (error) { doctrineRuntime = null; doctrineLoadState = { state: 'failed', error, warnings: [] }; }
+  else {
+    doctrineRuntime = compiled;
+    doctrineLoadState = { state: 'loaded', error: null, version: compiled.doctrineVersion, designStatus: compiled.designStatus,
+      profiles: Object.keys(compiled.data.profiles).length, cultures: Object.keys(compiled.data.cultures).length, warnings: compiled.warnings };
+  }
+  campaignWorldCache = null;
+  return { ok: !error, error };
+}
+function getDoctrineRuntime() { return doctrineRuntime; }
+function doctrineStatus() { return { ...doctrineLoadState, warnings: [...(doctrineRuntime?.warnings || doctrineLoadState.warnings || [])] }; }
+function doctrineBookState() { return DoctrineCampaign.doctrineBook(campaign()); }
+// The doctrine overlay for a tactical NPC, for inspection only: native fields (role, playerEscort,
+// fleetId, combat-credit fields) are read and never renamed. Command, not hull origin, picks the
+// profile: a materialised campaign hull answers to its polity; a Dominion ship is Central only with
+// Central command, scenario activation and orders.
+function npcDoctrineOverlay(npc) {
+  if (!doctrineRuntime || !npc) return null;
+  const book = campaignBook();
+  let polity = null;
+  if (npc.campaignHullId) for (const [id, p] of Object.entries(book.polities || {})) if ((p.hulls || []).some((h) => h.id === npc.campaignHullId)) { polity = id; break; }
+  // A Dominion ship that is not a hull of a Central operation answers to no Central command: the
+  // doctrine default (the Remnant) applies, whatever its hull.
+  if (!polity) polity = npc.faction === 'dominion' ? 'dominion_remnant' : npc.faction;
+  const ctx = DoctrineCampaign.dominionContext(book, polity, DoctrineCampaign.doctrineBook(book));
+  const escort = isPlayerEscortNpc(npc) || Boolean(npc.fleetId);
+  return Doctrine.actorDoctrine(doctrineRuntime, { ...(escort ? { runtimeFaction: getPlayerFlag() } : ctx), nativeRole: npc.role || null, playerEscort: isPlayerEscortNpc(npc), fleetId: npc.fleetId || null, doctrineRole: npc.doctrineRole || null });
+}
+// The engine's own physical firing conditions for one NPC against one target, as doctrine facts. These
+// are read from exactly what fireNpcWeapon and updateNpcShips check — live sensor track, an installed
+// usable weapon, readiness and cooldown, the equipped weapon's range, a target still there — so a
+// doctrine decision composed from them can never be a shortcut around range or tracking.
+function npcPhysicalFireFacts(npc, target, targetType = 'ship', now = gameNow()) {
+  const actual = targetType === 'player' ? state : target;
+  const weaponId = npc ? fleetNpcWeapon(npc) : null;
+  const weapon = weaponId ? getWeapon(weaponId) : null;
+  const known = npc && actual ? sensorPursuitPoint(npc, actual, targetType) : null;
+  const range = npc ? getNpcWeaponRange(npc) : 0;
+  const cooldown = weapon ? getScaledWeaponCooldown(npc.shipId, weapon, NPC_WEAPON_COOLDOWN_SCALE, NPC_WEAPON_FLOOR_SCALE) : Infinity;
+  const facts = {};
+  if (npc && actual && sensorCanTrack(npc, actual)) facts.live_weapon_track = true;
+  if (weapon && !npc.destroyed && npc.condition !== 'disabled') facts.weapon_usable = true;
+  if (weapon && now >= (npc.weaponReadyAt || 0) && now - (npc.lastShotAt || 0) >= cooldown) facts.weapon_ready = true;
+  if (known && range > 0 && sensorDistance(npc, known) <= range) facts.inside_equipped_range = true;
+  if (actual && !actual.destroyed && !(targetType === 'player' && state.gameOver)) facts.target_actionable = true;
+  return facts;
+}
+// A doctrine fire check for inspection and tests: the authority facts the caller supplies (war order,
+// verified target, an active engagement objective) AND the physical facts above.
+function doctrineFireCheck(npc, target, targetType = 'ship', authorityFacts = {}, now = gameNow()) {
+  if (!doctrineRuntime) return { allowed: false, failed: ['doctrine_not_loaded'] };
+  const overlay = npcDoctrineOverlay(npc);
+  if (!overlay?.profileId) return { allowed: false, failed: ['no_profile'], overlay };
+  // Physical facts come from the engine only: whatever a caller claims about track, weapon, range or
+  // target is discarded before the engine's own readings are added.
+  const authority = Object.fromEntries(Object.entries(authorityFacts).filter(([k]) => !['live_weapon_track', 'weapon_usable', 'weapon_ready', 'inside_equipped_range', 'target_actionable'].includes(k)));
+  const facts = { ...authority, ...npcPhysicalFireFacts(npc, target, targetType, now) };
+  return { ...Doctrine.fireDecision(doctrineRuntime, { profileId: overlay.profileId, role: overlay.role, facts }), overlay, physical: npcPhysicalFireFacts(npc, target, targetType, now) };
+}
+// What the captain can see of doctrine at work: a search group leaving, a hail for an overdue ship, a
+// vessel working a debris field, survivors taken off. Each goes only through a source the captain
+// actually has at that system, and none carries a reason, a profile or a culprit.
+function applyDoctrineEffect(e, day) {
+  const d = e.day ?? day;
+  const nameOf = (i) => state.planets[i]?.name || `system ${i}`;
+  const who = campaignFactionKeyFor(e.polity);
+  switch (e.type) {
+    case 'doctrineVisible': {
+      if (e.kind === 'search-departed') reportDoctrineTrace({ id: `doctrine:${e.objectiveId}:departed`, systemIndex: e.systemIndex, day: d, kind: `Search group departing — ${nameOf(e.systemIndex)}`, factions: [who],
+        direct: `A ${formatFaction(who)} search group was observed leaving ${nameOf(e.systemIndex)}.`, rumour: `Warships were seen leaving ${nameOf(e.systemIndex)} in a hurry.` });
+      else if (e.assetFaction) reportDoctrineTrace({ id: `doctrine:${e.objectiveId}:hail:${e.systemIndex}`, systemIndex: e.systemIndex, day: d, kind: `${formatFaction(campaignFactionKeyFor(e.assetFaction))} ${e.assetRole || 'ship'} overdue`, factions: [who],
+        direct: `${formatFaction(who)} ships at ${nameOf(e.systemIndex)} are hailing for an overdue ${formatFaction(campaignFactionKeyFor(e.assetFaction))} ${e.assetRole || 'ship'}.`, rumour: `Word near ${nameOf(e.systemIndex)} is that a patrol has failed to report in.` });
+      break;
+    }
+    case 'doctrineOnSite': {
+      if (e.response === 'rescue') reportDoctrineTrace({ id: `doctrine:${e.id}:onsite`, systemIndex: e.systemIndex, day: d, kind: `Relief ship searching — ${nameOf(e.systemIndex)}`, factions: [who],
+        direct: `A ${formatFaction(who)} relief ship is searching ${nameOf(e.systemIndex)}.`, rumour: `A relief ship is said to be searching near ${nameOf(e.systemIndex)}.` });
+      else reportDoctrineTrace({ id: `doctrine:${e.id}:onsite`, systemIndex: e.systemIndex, day: d, kind: e.lead === 'evidence' ? `Debris investigated — ${nameOf(e.systemIndex)}` : `Search under way — ${nameOf(e.systemIndex)}`, factions: [who],
+        direct: e.lead === 'evidence' ? `A ${formatFaction(who)} vessel is investigating debris at ${nameOf(e.systemIndex)}.` : `A ${formatFaction(who)} vessel is searching ${nameOf(e.systemIndex)}.`,
+        rumour: e.lead === 'evidence' ? `A ship is reported sifting wreckage near ${nameOf(e.systemIndex)}.` : `A ship is reported searching near ${nameOf(e.systemIndex)}.` });
+      break;
+    }
+    case 'doctrineRescued':
+      reportDoctrineTrace({ id: `doctrine:${e.id}:rescued`, systemIndex: e.systemIndex, day: d, kind: `Survivors recovered — ${nameOf(e.systemIndex)}`, factions: [who],
+        direct: `A ${formatFaction(who)} relief ship took survivors aboard at ${nameOf(e.systemIndex)}.`, rumour: `Survivors are said to have been picked up near ${nameOf(e.systemIndex)}.` });
+      break;
+    // Incidents, knowledge, assignments and objectives are internal to the powers concerned: they are
+    // inspectable in Cheats & Debug and nowhere else.
+    default: break;
+  }
+  campaignWorldCache = null;
+}
+function reportDoctrineTrace(spec) {
+  const index = Number(spec.systemIndex);
+  const source = campaignIntelSource(index);
+  if (source === 'none') return false;
+  const stake = campaignEventStake(index, []);
+  const base = { id: spec.id, systemIndex: index, kind: spec.kind, category: CAMPAIGN_REPORT_KIND, factions: (spec.factions || []).filter(isRecognizedFactionKey), claimedAttacker: null, playerRelated: stake.personal };
+  if (source === 'local') return campaignReport({ ...base, day: spec.day, confidence: 'Confirmed local observation', text: spec.direct });
+  const news = galaxyNewsBook();
+  if (source === 'relay') news.pending.push({ ...base, day: spec.day + CAMPAIGN_RELAY_REPORT_DELAY_DAYS, confidence: 'Relay dispatch — identity confirmed, strength unverified', text: spec.direct });
+  else if (source === 'fleet') news.pending.push({ ...base, day: spec.day + 1, confidence: 'Fleet assessment', text: spec.direct });
+  else news.pending.push({ ...base, day: spec.day + 2 + Math.floor(intelRandom(`${fleetBook().campaignId}:doctrine:${spec.id}`)() * 3), confidence: 'Unconfirmed civilian report', factions: [], text: spec.rumour });
+  news.pending = news.pending.slice(-120);
+  return true;
+}
+// Cheats & Debug: doctrine controls. Forced overrides are labelled as such in their results.
+function triggerDoctrineDebug(args) {
+  const [sub, ...rest] = args;
+  if (sub === 'status') { const s = doctrineStatus(); return s.state === 'loaded' ? `Doctrine ${s.version} loaded: ${s.profiles} profiles, ${s.cultures} cultures.` : `Doctrine ${s.state}${s.error ? `: ${s.error.split('\n')[0]}` : ''}.`; }
+  if (!doctrineRuntime) throw new Error('Doctrine is not loaded; see the doctrine section for the error.');
+  const book = campaign();
+  const db = DoctrineCampaign.doctrineBook(book);
+  if (sub === 'on' || sub === 'off') { db.config = { ...db.config, enabled: sub === 'on' }; return `Doctrine runtime ${sub === 'on' ? 'enabled' : 'disabled'} for this campaign.`; }
+  if (sub === 'patrol' && rest.length >= 1) {
+    const polity = normalizeFactionKey(rest[0]);
+    return runCampaignAuthored((b, world, effects) => {
+      const hull = (b.polities[polity]?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && world.systems[h.systemIndex]?.controller === polity).sort((x, y) => String(x.id).localeCompare(String(y.id)))[0];
+      if (!hull) return `No free ${formatFaction(polity)} vessel at a ${formatFaction(polity)} world.`;
+      const target = rest[1] != null ? getSystemIndexByName(rest.slice(1).join(' ')) : world.neighbours(hull.systemIndex).map(Number).find((n) => world.systems[n]?.controller !== polity);
+      if (target == null || target < 0) return 'No frontier system to patrol.';
+      const r = DoctrineCampaign.issuePatrol(b, world, polity, hull.id, target, state.day, effects);
+      return r.ok ? `${formatFaction(polity)} patrol ${hull.id} ordered to ${state.planets[target]?.name} (check-in due day ${r.assignment.milestones.at(-1).dueDay}).` : `Patrol refused: ${r.reason}.`;
+    });
+  }
+  if (sub === 'lose') {
+    const a = rest[0] && rest[0] !== 'latest' ? db.assignments.find((x) => x.id === rest[0] && x.status === 'active') : [...db.assignments].reverse().find((x) => x.status === 'active' && ['patrol', 'exploration'].includes(x.kind));
+    if (!a) return 'No active patrol or survey to lose.';
+    const r = DoctrineCampaign.loseAssignmentHullUnwitnessed(book, buildCampaignWorld(true), a.id, state.day, rest[1] === 'disabled' ? 'disabled' : 'destroyed');
+    campaignWorldCache = null;
+    return r.ok ? `Override: ${a.polity} vessel ${a.hullId} ${r.mode} unwitnessed at ${state.planets[r.systemIndex]?.name}. Its owner will know only when it misses its check-in.` : r.reason;
+  }
+  if (sub === 'relay' && rest.length === 3) {
+    const [incidentId, from, to] = rest;
+    const k = DoctrineCampaign.relayReport(book, buildCampaignWorld(true), incidentId, from, to, state.day);
+    return k ? `Override: report on ${incidentId} relayed from ${from} to ${to} (what ${from} knew on day ${state.day}).` : 'Nothing relayed: the sender does not know that incident, or it was already relayed.';
+  }
+  throw new Error('Doctrine codes: doctrine status | on | off | patrol <faction> [system] | lose [assignment] [disabled] | relay <incident> <from> <to>');
+}
+function renderDoctrineDebug() {
+  const s = doctrineStatus();
+  const head = s.state === 'loaded'
+    ? `<p>Doctrine ${escapeHtml(s.version)} loaded as runtime data (${s.profiles} profiles, ${s.cultures} cultures). Package status: ${escapeHtml(s.designStatus)}. Most decisions run in shadow; live this round: Romulan command investigates its own overdue ships, a Delpin explorer investigates recoverable evidence, a Vulcan relief ship rescues known survivors.</p>${s.warnings.length ? `<p class="debug-error">Warnings: ${s.warnings.map(escapeHtml).join('; ')}</p>` : ''}`
+    : `<p class="${s.state === 'failed' ? 'debug-error' : ''}">Doctrine ${escapeHtml(s.state)}${s.error ? `: <code>${escapeHtml(s.error)}</code>` : ''}. The campaign runs without doctrine.</p>`;
+  if (!doctrineRuntime || !state.gameStarted) return head;
+  const book = campaignBook();
+  if (!book.initialized) return head;
+  const sum = DoctrineCampaign.debugSummary(book);
+  const db = DoctrineCampaign.doctrineBook(book);
+  const loc = (id) => escapeHtml(String(id || '—'));
+  const rows = (list, cols) => list.length ? `<table class="doctrine-debug"><thead><tr>${cols.map(([h]) => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>${list.map((x) => `<tr>${cols.map(([, f]) => `<td>${f(x)}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '<p class="meta">None.</p>';
+  const incidents = rows(sum.incidents, [
+    ['Incident', (i) => `<code>${escapeHtml(i.id.split(':').slice(-2).join(':'))}</code>`], ['Asset', (i) => `${escapeHtml(formatFaction(campaignFactionKeyFor(i.polity)))} ${escapeHtml(i.assetId)}`],
+    ['Milestone site', (i) => loc(i.locationId)], ['Since', (i) => `day ${i.createdDay}`], ['Status', (i) => escapeHtml(i.status + (i.resolution ? ` (${i.resolution.status})` : ''))],
+    ['Who knows (provenance · confidence · evidence · survivors · links)', (i) => i.observers.map((o) => `<div><code>${escapeHtml(o.observerId)}</code> ${escapeHtml(o.provenance)} · ${escapeHtml(o.confidence)} · ${o.evidence} · ${o.survivors ? 'yes' : 'no'}${o.linkedLosses.length ? ` · links ${escapeHtml(o.linkedLosses.join(','))}` : ''}${o.resolution ? ` · knows: ${escapeHtml(o.resolution)}` : ''}</div>`).join('')],
+  ]);
+  // Observers who know something first; the watched commands that know nothing after them.
+  const evals = rows(sum.evaluations.slice().sort((a, b) => a.incident.localeCompare(b.incident) || (a.proposal === 'ignore_unknown') - (b.proposal === 'ignore_unknown') || a.actor.localeCompare(b.actor)), [
+    ['Actor', (e) => `<code>${escapeHtml(e.actor)}</code>`], ['Profile / role', (e) => `${escapeHtml(e.profile || '—')} / ${escapeHtml(e.role || '—')}${e.culture ? ` (${escapeHtml(e.culture)})` : ''}`],
+    ['Known facts', (e) => escapeHtml(e.knownFacts.join(', ') || '—')], ['Matched rule', (e) => escapeHtml(e.matchedRule || '—')], ['Proposal', (e) => `<b>${escapeHtml(e.proposal)}</b>${e.live ? ' (live)' : ''}`],
+    ['Objective / why not acting', (e) => e.objective ? `<code>${escapeHtml(e.objective.split(':').pop())}</code>` : escapeHtml(e.notActing || '')], ['Day', (e) => e.day],
+  ]);
+  const objectives = rows(sum.objectives, [
+    ['Objective', (o) => `<code>${escapeHtml(o.id.split(':').pop())}</code>`], ['Actor', (o) => `<code>${escapeHtml(o.actor)}</code>`], ['Response', (o) => escapeHtml(o.response)], ['Vessel (vid)', (o) => escapeHtml(o.vid)],
+    ['Target', (o) => loc(o.target)], ['Created', (o) => `day ${o.createdDay}`], ['Deadline', (o) => `day ${o.deadline.value} (${escapeHtml(o.deadline.clock)})`], ['Status', (o) => escapeHtml(o.status + (o.resolution ? `: ${o.resolution.reasons.join(', ')}` : ''))],
+  ]);
+  const assignments = rows(sum.assignments, [
+    ['Assignment', (a) => `<code>${escapeHtml(a.id.split(':').pop())}</code>`], ['Kind', (a) => escapeHtml(a.kind)], ['Power', (a) => escapeHtml(formatFaction(campaignFactionKeyFor(a.polity)))], ['Vessel (vid)', (a) => escapeHtml(a.vid)],
+    ['At', (a) => escapeHtml(state.planets[a.at]?.name || '—')], ['Milestones', (a) => a.milestones.map((m) => `<div>${escapeHtml(m)}</div>`).join('')],
+  ]);
+  const observers = [...new Set([...Object.keys(db.knowledge), ...Object.keys(db.designations || {}).flatMap((p) => Object.keys(db.designations[p]).map((h) => `hull:${h}`)), ...(db.config.watchCommands || []).map((p) => `command:${p}`)])].sort();
+  const incOpts = sum.incidents.map((i) => `<option value="${escapeHtml(i.id)}">${escapeHtml(i.id.split(':').slice(-2).join(':'))} — ${escapeHtml(i.polity)}</option>`).join('');
+  const obsOpts = observers.map((o) => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join('');
+  return `${head}
+    <div class="debug-actions"><button type="button" data-debug-code="doctrine patrol romulan">Romulan patrol now</button><button type="button" data-debug-code="doctrine lose">Lose latest patrol/survey (override, unwitnessed)</button><button type="button" data-debug-code="doctrine lose latest disabled">Disable latest (override)</button><button type="button" data-debug-code="doctrine ${db.config.enabled ? 'off' : 'on'}">Doctrine ${db.config.enabled ? 'off' : 'on'}</button><button type="button" data-debug-refresh>Refresh</button></div>
+    ${sum.incidents.length ? `<form data-debug-form="doctrine-relay"><label>Incident<select name="doctrine-incident">${incOpts}</select></label><label>From<select name="doctrine-from">${obsOpts}</select></label><label>To<select name="doctrine-to">${obsOpts}</select></label><button type="submit">Relay report (override)</button></form>` : ''}
+    <h4>Active incidents</h4>${incidents}<h4>Last shadow evaluation per observer</h4>${evals}<h4>Doctrine objectives</h4>${objectives}<h4>Routine doctrine assignments</h4>${assignments}
+    <p class="meta">Evaluations ${sum.stats.shadowEvaluations} · deferred ${sum.stats.deferred} · reports ${sum.stats.reports} · blockade runs ${sum.stats.blockadeRuns}. Debug only: nothing in this section is sent to the captain's reports.</p>`;
 }
 // Authored events and controls for this round. Each goes through the model; none writes a war by hand.
 function runCampaignAuthored(fn) {
@@ -24549,6 +24760,7 @@ showIntroStory();
 syncLegacyState();
 resizeCanvasDisplay();
 loadSourceData().then(loadPlanetModels);
+loadDoctrineData();
 loadFlaHints();
 loadShipManifest();
 loop();
@@ -25598,6 +25810,10 @@ function buildCampaignWorld(force = false) {
     // relation — and all three have to advance at the same rate per day whether the caller stepped one
     // day or jumped two hundred.
     settleDay: (view, day, dayEffects) => settleCampaignEngineDay(view, day, dayEffects),
+    // Faction doctrine, phase 1 (docs/doctrine/DOCTRINE-RUNTIME-PHASE1.md): present only once the
+    // doctrine package has loaded and validated. Without it the campaign runs exactly as before.
+    // Without a loaded doctrine the step still runs, only to release anything a save left on a doctrine job.
+    doctrineStep: (b, w, d, fx) => DoctrineCampaign.advanceDoctrineDay(b, w, d, fx, doctrineRuntime),
     // There is deliberately no second "extra defence" term here. The captain's vessels are the player
     // polity's hulls, synchronised from the real fleet by syncPlayerPolity, so they are counted exactly
     // once and — because they are ordinary hulls to the model — they can be damaged and lost like any
@@ -26216,6 +26432,10 @@ function applyCampaignEffects(effects, day = state.day) {
       }
       case 'missionExpired': break;
       case 'hullBuilt': case 'playerHullDelivered': break;
+      case 'doctrineAssigned': case 'doctrineMoved': case 'doctrineIncident': case 'doctrineIncidentResolved': case 'doctrineObjective':
+      case 'doctrineOnSite': case 'doctrineEvidenceRecovered': case 'doctrineRescued': case 'doctrineSighting': case 'doctrineVisible': case 'doctrineReleased':
+        applyDoctrineEffect(e, day);
+        break;
       default: break;
     }
   }
