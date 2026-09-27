@@ -47,12 +47,13 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
     window.__P = (id) => t.campaign().polities[id];
     window.__ready = (polity, at = null) => (window.__P(polity)?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && (at == null || h.systemIndex === at)).sort((a, b) => String(a.id).localeCompare(String(b.id)));
     // Routine pilot generation off: each scenario issues exactly the jobs it needs.
-    window.__quiet = () => { const db = window.__D(); db.config = { ...db.config, patrols: {}, explorers: {} }; };
+    window.__quiet = () => { const db = window.__D(); db.config = { ...db.config, patrols: {}, explorers: {}, merchants: {}, projects: {} }; };
     window.__authored = (fn) => t.runCampaignAuthored(fn);
     window.__patrol = (polity, hullId, target, opts = {}) => window.__authored((book, world, fx) => t.DoctrineCampaign.issuePatrol(book, world, polity, hullId, target, t.state.day, fx, opts));
     window.__assign = (spec) => window.__authored((book, world, fx) => t.DoctrineCampaign.issueAssignment(book, world, spec, t.state.day, fx));
-    window.__lose = (asgId, mode = 'destroyed') => t.DoctrineCampaign.loseAssignmentHullUnwitnessed(t.campaign(), t.buildCampaignWorld(true), asgId, t.state.day, mode);
-    window.__relay = (inc, from, to) => t.DoctrineCampaign.relayReport(t.campaign(), t.buildCampaignWorld(true), inc, from, to, t.state.day);
+    // Phase 1's losses are silent (the ship's comms went with it); phase 2's distress calls are gated separately.
+    window.__lose = (asgId, mode = 'destroyed') => t.DoctrineCampaign.loseAssignmentHullUnwitnessed(t.campaign(), t.buildCampaignWorld(true), asgId, t.state.day, mode, { silent: true });
+    window.__relay = (inc, from, to, opts = {}) => t.DoctrineCampaign.relayReport(t.campaign(), t.buildCampaignWorld(true), inc, from, to, t.state.day, opts);
     window.__eval = (obs, inc) => window.__D().lastEval[`${obs}|${inc}`] || null;
     window.__incOf = (polity) => Object.values(window.__D().incidents).filter((i) => i.polity === polity);
     window.__reports = () => (t.galaxyNewsBook().items || []).concat(t.galaxyNewsBook().pending || []);
@@ -118,7 +119,9 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
     assert.ok(r.incidents > 0, `a Romulan ship lost at Aldnas went unnoticed: no incident, no search (${r.build})`);
     assert.equal(r.early, 0, 'the incident appeared before the check-in plus grace had passed');
     assert.equal(r.createdDay, r.detectDay);
-    assert.deepEqual(r.knowers, ['command:romulan']);
+    // Romulan command, and (phase 2) the crew it sends, briefed by their orders: nobody else.
+    assert.ok(r.knowers.includes('command:romulan'), JSON.stringify(r.knowers));
+    assert.deepEqual(r.knowers.filter((o) => o !== 'command:romulan'), r.obj ? [`hull:${r.obj.hullId}`] : [], JSON.stringify(r.knowers));
     assert.ok(r.anySearch, 'nobody was sent');
     assert.notEqual(r.obj.hullId, r.lostHull);
     assert.equal(r.stillOne, 1, 'the incident was recreated');
@@ -173,7 +176,8 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
     });
     evidence.push({ check: 'DEFER-NO-SPAWN', ...r });
     assert.equal(r.deferred.proposal, 'defer:investigate', JSON.stringify(r.deferred));
-    assert.match(r.deferred.notActing, /can_respond.*no spare armed vessel/);
+    assert.ok(r.deferred.failed.includes('can_respond'), JSON.stringify(r.deferred.failed));
+    assert.match(r.deferred.notActing, /^defer:investigate — no spare armed vessel/);
     assert.equal(r.stillDeferred.proposal, 'defer:investigate');
     assert.equal(r.objectives0, 0); assert.equal(r.n1, r.n0, 'a vessel appeared');
     // Screenshot while deferred, then release and let it act.
@@ -399,12 +403,16 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
       const inc = window.__incOf('romulan')[0];
       const relief = Object.keys(db.designations.vulcan || {})[0];
       const who = ['command:klingon', `hull:${dh.id}`, `hull:${relief}`, 'command:delpin', 'command:vulcan'];
-      return { inc: inc?.id, day: t.state.day, knowers: Object.entries(db.knowledge).filter(([, s]) => s[inc?.id]).map(([o]) => o), before: Object.fromEntries(who.map((o) => [o, window.__eval(o, inc?.id)?.proposal ?? null])),
+      return { romulanHulls: window.__P('romulan').hulls.map((h) => h.id), inc: inc?.id, day: t.state.day, knowers: Object.entries(db.knowledge).filter(([, s]) => s[inc?.id]).map(([o]) => o), before: Object.fromEntries(who.map((o) => [o, window.__eval(o, inc?.id)?.proposal ?? null])),
         romulan: window.__eval('command:romulan', inc?.id), objectives: db.objectives.map((o) => [o.id, o.actor, o.response, o.status]), dh: dh.id, relief, delpinSighted: Boolean(db.sightings?.[`hull:${dh.id}`]) };
     });
     evidence.push({ check: 'E2E stage 1 (only the owner knows)', ...s1 });
     assert.ok(s1.inc, 'no incident');
-    assert.deepEqual(s1.knowers, ['command:romulan']);
+    // Romulan command, and (phase 2) the crew it sent with its orders: nobody else.
+    const romulanCrew = s1.objectives.filter(([, a]) => a === 'command:romulan').map(([id]) => id);
+    assert.ok(s1.knowers.includes('command:romulan'), JSON.stringify(s1.knowers));
+    assert.equal(s1.knowers.filter((o) => o !== 'command:romulan').length, romulanCrew.length, JSON.stringify(s1.knowers));
+    assert.ok(s1.knowers.filter((o) => o !== 'command:romulan').every((o) => s1.romulanHulls.includes(o.slice(5))), JSON.stringify(s1.knowers));
     for (const [o, p] of Object.entries(s1.before)) assert.equal(p, 'ignore_unknown', `${o} reacted to an incident it never received`);
     assert.equal(s1.romulan.proposal, 'investigate'); assert.equal(s1.objectives.length, 1);
     assert.ok(s1.delpinSighted, 'the Delpin survey never saw the debris');
@@ -439,12 +447,15 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
       const t = testBM1;
       // What the Delpin crew found goes to Klingon command and to the Vulcan relief ship.
       window.__relay(s1.inc, `hull:${s1.dh}`, 'command:klingon');
-      window.__relay(s1.inc, `hull:${s1.dh}`, `hull:${s1.relief}`);
+      // Phase 2: the people found alive are a distress incident of their own (opened by whoever found them,
+      // since the hulk's comms were silent); the Delpin crew pass that survivor report to the relief ship.
+      const dist = Object.values(window.__D().incidents).find((i) => i.eventType === 'distress' && window.__D().knowledge[`hull:${s1.dh}`]?.[i.id]?.survivors);
+      if (dist) window.__relay(dist.id, `hull:${s1.dh}`, `hull:${s1.relief}`, { include: 'survivor_report' });
       window.__adv(8);
       const db = window.__D();
       const keys = db.objectives.map((o) => `${o.incidentId}|${o.actor}|${o.response}`);
       const reliefHull = window.__P('vulcan').hulls.find((h) => h.id === s1.relief);
-      return { klingon: window.__eval('command:klingon', s1.inc), vulcan: window.__eval(`hull:${s1.relief}`, s1.inc), objectives: db.objectives.map((o) => ({ actor: o.actor, response: o.response, status: o.status, reasons: o.resolution?.reasons || [], vid: o.assigned.vid })),
+      return { distress: dist?.id || null, klingon: window.__eval('command:klingon', s1.inc), vulcan: dist ? window.__eval(`hull:${s1.relief}`, dist.id) : null, objectives: db.objectives.map((o) => ({ actor: o.actor, response: o.response, status: o.status, reasons: o.resolution?.reasons || [], vid: o.assigned.vid })),
         duplicates: keys.length - new Set(keys).size, attributions: Object.values(db.knowledge).flatMap((st) => Object.values(st)).filter((k) => k.attribution).length, reliefVid: reliefHull?.identity?.vid,
         survivors: Object.values(db.ground.evidence).map((e) => e.survivors), shadow: db.shadow.filter((x) => x.incident === s1.inc) };
     }, s1);

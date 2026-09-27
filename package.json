@@ -69,6 +69,8 @@
     "test:blockade-running:ingame": "node scripts/blockade-running-gate.cjs",
     "test:doctrine": "node scripts/doctrine-runtime-test.mjs",
     "test:doctrine:ingame": "node scripts/doctrine-runtime-gate.cjs",
+    "test:doctrine:p2": "node scripts/doctrine-phase2-test.mjs",
+    "test:doctrine:p2:ingame": "node scripts/doctrine-phase2-gate.cjs",
     "bench:map": "node scripts/map-render-bench.cjs",
     "screens:section6": "node scripts/section6-screens.cjs"
   },

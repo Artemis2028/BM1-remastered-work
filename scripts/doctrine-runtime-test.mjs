@@ -1,4 +1,6 @@
-// Pure tests for faction doctrine runtime phase 1 (docs/doctrine/DOCTRINE-RUNTIME-PHASE1.md).
+// Pure tests for faction doctrine runtime phase 1 (docs/doctrine/DOCTRINE-RUNTIME-PHASE1.md), kept green under
+// phase 2. Phase 1's losses are silent (the ship's comms went with it): no distress call goes out, so what
+// anyone learns comes from the owner's records, sightings and reports, exactly as phase 1 specified.
 // The doctrine package is loaded from docs/doctrine/ exactly as the game loads it; the campaign runs on
 // the shared synthetic galaxy with three extra systems: Delpi, Vulcan and Aldnas, an unclaimed frontier
 // between Romulan, Klingon and Delpin space.
@@ -56,6 +58,8 @@ function mk(seed, opts = {}) {
   return { world, book, db, relations };
 }
 const P = (book, id) => C.getPolity(book, id);
+const lose = (book, world, id, day, mode = 'destroyed', opts = {}) => DC.loseAssignmentHullUnwitnessed(book, world, id, day, mode, { silent: true, ...opts });
+const distressOf = (db) => Object.values(db.incidents).filter((i) => i.eventType === 'distress');
 const ready = (book, id, at = null) => P(book, id).hulls.filter((h) => h.status === 'ready' && !h.opId && (at == null || h.systemIndex === at)).sort((a, b) => String(a.id).localeCompare(String(b.id)));
 const incidentsOf = (db, polity) => Object.values(db.incidents).filter((i) => i.polity === polity);
 const evalOf = (db, obs, inc) => db.lastEval[`${obs}|${inc}`];
@@ -68,7 +72,7 @@ function romulanPatrolLost(env, { mode = 'destroyed', from = 1 } = {}) {
   const r = DC.issuePatrol(book, world, 'romulan', h.id, IDX.Aldnas, from, []);
   assert.ok(r.ok, r.reason);
   run(book, world, from + 1, from + 1);            // arrives at Aldnas: arrival milestone met
-  const lost = DC.loseAssignmentHullUnwitnessed(book, world, r.assignment.id, from + 1, mode);
+  const lost = lose(book, world, r.assignment.id, from + 1, mode);
   assert.ok(lost.ok, lost.reason);
   return { hull: h, assignment: r.assignment, checkInDue: r.assignment.milestones.at(-1).dueDay, grace: r.assignment.milestones.at(-1).grace };
 }
@@ -170,7 +174,7 @@ test('6/7. Klingon command told of the Romulan loss records it; evidence later l
   const kh = ready(book, 'klingon', IDX.Border)[0];
   const kr = DC.issuePatrol(book, world, 'klingon', kh.id, IDX.Aldnas, 2, []);
   run(book, world, 3, 3);
-  DC.loseAssignmentHullUnwitnessed(book, world, kr.assignment.id, 3, 'destroyed');
+  lose(book, world, kr.assignment.id, 3, 'destroyed');
   run(book, world, 4, x.checkInDue + x.grace + 1);
   const [inc] = incidentsOf(db, 'romulan');
   const day = book.settled;
@@ -250,11 +254,16 @@ test('9/10. a Vulcan relief ship with a usable survivor report rescues (live); t
   DC.issueAssignment(b.book, b.world, { polity: 'delpin', hullId: dh.id, kind: 'exploration', doctrineRole: 'explorer', stops: [{ systemIndex: IDX.Aldnas, dwell: 8, milestone: 'arrival' }, { systemIndex: IDX.Delpi, milestone: 'check_in' }] }, b.book.settled, []);
   DC.relayReport(b.book, b.world, b.inc.id, 'command:romulan', `hull:${dh.id}`, b.book.settled);
   run(b.book, b.world, b.book.settled + 1, b.book.settled + 2);
-  assert.ok(b.db.knowledge[`hull:${dh.id}`][b.inc.id].survivors, 'the explorer did not see the survivors');
-  DC.relayReport(b.book, b.world, b.inc.id, `hull:${dh.id}`, `hull:${b.relief}`, b.book.settled);
+  assert.ok(!b.db.knowledge[`hull:${dh.id}`][b.inc.id].survivors, 'survivors were attached to the overdue record');
+  // No call went out: the survivors are a distress incident opened by the ship that found them.
+  const [dist] = distressOf(b.db);
+  assert.ok(dist && b.db.knowledge[`hull:${dh.id}`]?.[dist.id]?.survivors, JSON.stringify(dist));
+  DC.relayReport(b.book, b.world, dist.id, `hull:${dh.id}`, `hull:${b.relief}`, b.book.settled, { include: 'survivor_report' });
   run(b.book, b.world, b.book.settled + 1, b.book.settled + 6);
   const o = b.db.objectives.find((y) => y.actor === `hull:${b.relief}`);
-  assert.ok(o, JSON.stringify(evalOf(b.db, `hull:${b.relief}`, b.inc.id)));
+  assert.ok(o, JSON.stringify(evalOf(b.db, `hull:${b.relief}`, dist.id)));
+  assert.equal(o.incidentId, dist.id);
+  assert.equal(dist.status, 'resolved'); assert.equal(dist.resolution.status, 'survivors_rescued');
   assert.equal(o.response, 'rescue'); assert.equal(o.role, 'relief'); assert.equal(o.status, 'completed', JSON.stringify(o.resolution));
   const site = Object.values(b.db.ground.evidence)[0];
   assert.equal(site.survivors.rescued, true);
@@ -267,7 +276,7 @@ test('11. unknown cargo never reveals a hidden manifest: the owner knows it, a r
   const h = ready(book, 'romulan', IDX.Romulus)[0];
   const r = DC.issuePatrol(book, world, 'romulan', h.id, IDX.Aldnas, 1, [], { cargo: { knowledge: 'verified', manifest: [{ cargoId: 'hidden:design-samples', quantity: 4 }] } });
   run(book, world, 2, 2);
-  DC.loseAssignmentHullUnwitnessed(book, world, r.assignment.id, 2);
+  lose(book, world, r.assignment.id, 2);
   run(book, world, 3, r.assignment.milestones.at(-1).dueDay + 3);
   const [inc] = incidentsOf(db, 'romulan');
   const own = DC.overdueEventFor(db, 'command:romulan', inc.id);
@@ -312,7 +321,7 @@ test('13/14/15. a secret Dominion pact is known to its signatory commands only; 
   const dh = P(book, 'dominion').hulls.find((h) => h.status === 'ready');
   dh.systemIndex = IDX.Aldnas;
   const dx = DC.issueAssignment(book, world, { polity: 'dominion', hullId: dh.id, kind: 'patrol', doctrineRole: 'patrol', stops: [{ systemIndex: IDX.Aldnas, dwell: 20 }] }, 2, []);
-  DC.loseAssignmentHullUnwitnessed(book, world, dx.assignment.id, 2);
+  lose(book, world, dx.assignment.id, 2);
   run(book, world, 3, x.checkInDue + x.grace + 1);
   const [inc] = incidentsOf(db, 'romulan');
   run(book, world, book.settled + 1, book.settled + 4); // the Romulan investigator examines the site
@@ -514,7 +523,7 @@ test('28. a ship lost before its first milestone misses both: one incident (the 
   const { world, book, db } = env;
   const h = ready(book, 'romulan', IDX.Romulus)[0];
   const r = DC.issuePatrol(book, world, 'romulan', h.id, IDX.Aldnas, 1, []);
-  DC.loseAssignmentHullUnwitnessed(book, world, r.assignment.id, 1); // lost at Romulus, before arriving anywhere
+  lose(book, world, r.assignment.id, 1); // lost at Romulus, before arriving anywhere
   run(book, world, 2, 30);
   const incs = incidentsOf(db, 'romulan');
   assert.equal(incs.length, 1, incs.map((i) => i.id).join(', '));
@@ -569,7 +578,7 @@ test('32. saved doctrine state stays bounded over a long campaign with incidents
   const { world, book, db } = env;
   for (let d = 2; d <= 400; d++) {
     run(book, world, d, d);
-    if (d % 25 === 0) { const a = db.assignments.find((y) => y.status === 'active' && y.kind === 'patrol'); if (a) DC.loseAssignmentHullUnwitnessed(book, world, a.id, d); }
+    if (d % 25 === 0) { const a = db.assignments.find((y) => y.status === 'active' && y.kind === 'patrol'); if (a) lose(book, world, a.id, d); }
   }
   const size = JSON.stringify(book.doctrine).length;
   log.boundedSize = { size, incidents: Object.keys(db.incidents).length, assignments: db.assignments.length, shadow: db.shadow.length, evidence: Object.keys(db.ground.evidence).length };
@@ -582,7 +591,7 @@ test('33. a ship that came back and is then lost again is a new disappearance: a
   const h = ready(book, 'romulan', IDX.Romulus)[0];
   const r = DC.issueAssignment(book, world, { polity: 'romulan', hullId: h.id, kind: 'patrol', doctrineRole: 'patrol', stops: [{ systemIndex: IDX.Aldnas, dwell: 0, milestone: 'arrival' }, { systemIndex: IDX.Delpi, dwell: 0, milestone: 'arrival' }, { systemIndex: IDX.Romulus, milestone: 'check_in' }] }, 1, []);
   run(book, world, 2, 2); // at Aldnas
-  DC.loseAssignmentHullUnwitnessed(book, world, r.assignment.id, 2, 'disabled');
+  lose(book, world, r.assignment.id, 2, 'disabled');
   run(book, world, 3, 8);
   const first = incidentsOf(db, 'romulan');
   assert.equal(first.length, 1, 'no incident for the missed Delpi arrival');
@@ -591,7 +600,7 @@ test('33. a ship that came back and is then lost again is a new disappearance: a
   run(book, world, 9, 9); // reaches Delpi late and reports in
   assert.equal(first[0].resolution?.status, 'asset_returned', JSON.stringify(first[0]));
   assert.equal(r.assignment.milestones.at(-1).status, 'pending', 'the check-in was not re-expected');
-  DC.loseAssignmentHullUnwitnessed(book, world, r.assignment.id, book.settled, 'destroyed'); // lost on the way home
+  lose(book, world, r.assignment.id, book.settled, 'destroyed'); // lost on the way home
   run(book, world, book.settled + 1, book.settled + 8);
   const all = incidentsOf(db, 'romulan');
   assert.equal(all.length, 2, 'the second loss joined the settled incident');
@@ -612,7 +621,7 @@ test('E2E (model). the whole incident: only the owner knows; reports reach chose
   const kh = ready(book, 'klingon', IDX.Border)[0];
   const kr = DC.issuePatrol(book, world, 'klingon', kh.id, IDX.Aldnas, 2, []);
   run(book, world, 3, 3);
-  DC.loseAssignmentHullUnwitnessed(book, world, kr.assignment.id, 3);
+  lose(book, world, kr.assignment.id, 3);
   const dh = ready(book, 'delpin', IDX.Delpi)[0];
   DC.issueAssignment(book, world, { polity: 'delpin', hullId: dh.id, kind: 'exploration', doctrineRole: 'explorer', stops: [{ systemIndex: IDX.Aldnas, dwell: 10, milestone: 'arrival' }, { systemIndex: IDX.Delpi, milestone: 'check_in' }] }, 3, []);
   run(book, world, 4, x.checkInDue + x.grace + 1);
@@ -626,10 +635,12 @@ test('E2E (model). the whole incident: only the owner knows; reports reach chose
   assert.equal(evalOf(db, 'command:klingon', inc.id).proposal, 'record_only');
   assert.ok(db.objectives.some((o) => o.actor === `hull:${dh.id}` && o.response === 'investigate'), 'Delpin did not investigate');
   DC.relayReport(book, world, inc.id, `hull:${dh.id}`, 'command:klingon', book.settled);
-  DC.relayReport(book, world, inc.id, `hull:${dh.id}`, `hull:${relief}`, book.settled);
+  const [dist] = distressOf(db);
+  assert.ok(dist, 'the explorer found no survivors');
+  DC.relayReport(book, world, dist.id, `hull:${dh.id}`, `hull:${relief}`, book.settled, { include: 'survivor_report' });
   run(book, world, book.settled + 1, book.settled + 8);
   assert.ok(evalOf(db, 'command:klingon', inc.id).knownFacts.includes('linked_own_losses'));
-  assert.ok(db.objectives.some((o) => o.actor === `hull:${relief}` && o.response === 'rescue' && o.status === 'completed'), JSON.stringify(evalOf(db, `hull:${relief}`, inc.id)));
+  assert.ok(db.objectives.some((o) => o.actor === `hull:${relief}` && o.response === 'rescue' && o.status === 'completed'), JSON.stringify(evalOf(db, `hull:${relief}`, dist.id)));
   const keys = db.objectives.map((o) => `${o.incidentId}|${o.actor}|${o.response}`);
   assert.equal(new Set(keys).size, keys.length, 'duplicate missions');
   assert.ok(Object.values(db.knowledge).every((s) => Object.values(s).every((k) => k.attribution === null)), 'an attribution appeared');
