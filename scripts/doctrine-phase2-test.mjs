@@ -59,7 +59,7 @@ function mk(seed, opts = {}) {
   book.config.planningIntervalDays = 1e9;
   world.doctrineStep = (b, w, d, fx) => DC.advanceDoctrineDay(b, w, d, fx, doctrine);
   const db = DC.doctrineBook(book);
-  db.config = { ...db.config, patrols: opts.patrols || {}, explorers: opts.explorers || {}, reliefShips: opts.reliefShips || {}, merchants: opts.merchants || {}, projects: opts.projects || {} };
+  db.config = { ...db.config, patrols: opts.patrols || {}, explorers: opts.explorers || {}, reliefShips: opts.reliefShips || {}, merchants: opts.merchants || {}, projects: opts.projects || {}, patrolAreas: opts.patrolAreas || {} };
   return { world, book, db, relations };
 }
 const P = (book, id) => C.getPolity(book, id);
@@ -634,7 +634,9 @@ test('P2-17b. two hulks at one place are two crews: one repaired and gone leaves
   const calls = distress(db);
   assert.equal(calls.length, 2, JSON.stringify(calls.map((c) => c.id)));
   const h2 = hullById(book, 'delpin', a2.id);
-  h2.hull = h2.maxHull; h2.status = 'ready'; h2.opId = null; h2.systemIndex = IDX.Delpi; // repaired and gone
+  // Recovered and repaired by a real recovery (phase 3: campaign days alone never do this — it stands in
+  // for a tow to a yard), then gone.
+  h2.hull = h2.maxHull; h2.status = 'ready'; h2.opId = null; h2.systemIndex = IDX.Delpi; delete h2.stranded;
   run(book, world, 5, 5);
   const c1 = calls.find((c) => c.assetId === a1.identity.vid), c2 = calls.find((c) => c.assetId === a2.identity.vid);
   assert.equal(c2.status, 'resolved'); assert.equal(c2.resolution.status, 'vessel_under_way');

@@ -47,7 +47,7 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
     window.__P = (id) => t.campaign().polities[id];
     window.__ready = (polity, at = null) => (window.__P(polity)?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && (at == null || h.systemIndex === at)).sort((a, b) => String(a.id).localeCompare(String(b.id)));
     // Routine pilot generation off: each scenario issues exactly the jobs it needs.
-    window.__quiet = () => { const db = window.__D(); db.config = { ...db.config, patrols: {}, explorers: {}, merchants: {}, projects: {} }; };
+    window.__quiet = () => { const db = window.__D(); db.config = { ...db.config, patrols: {}, explorers: {}, merchants: {}, projects: {}, patrolAreas: {}, militaryResponses: false }; };
     window.__authored = (fn) => t.runCampaignAuthored(fn);
     window.__patrol = (polity, hullId, target, opts = {}) => window.__authored((book, world, fx) => t.DoctrineCampaign.issuePatrol(book, world, polity, hullId, target, t.state.day, fx, opts));
     window.__assign = (spec) => window.__authored((book, world, fx) => t.DoctrineCampaign.issueAssignment(book, world, spec, t.state.day, fx));
@@ -251,6 +251,8 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
     const r = await ev(() => {
       const t = testBM1;
       const A = window.__idx('Aldnas'), R = window.__idx('Romulus'), E = window.__idx('Earth');
+      // Phase 1's routine traffic as it was: no phase 3 area patrols or witnessed-attack defence here.
+      { const db = window.__D(); db.config = { ...db.config, patrolAreas: {}, militaryResponses: false }; }
       const scenes = [];
       for (let d = 0; d < 60; d++) {
         const at = [A, R, E][d % 3];

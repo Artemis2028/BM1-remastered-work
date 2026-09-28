@@ -10421,6 +10421,49 @@ function doctrineFireCheck(npc, target, targetType = 'ship', authorityFacts = {}
   const facts = { ...authority, ...npcPhysicalFireFacts(npc, target, targetType, now) };
   return { ...Doctrine.fireDecision(doctrineRuntime, { profileId: overlay.profileId, role: overlay.role, facts }), overlay, physical: npcPhysicalFireFacts(npc, target, targetType, now) };
 }
+// Phase 3: the authority facts for one NPC against one target, read from the engine's own authority
+// sources — witnessed aggression here, the system-defence rules, formal war, an operation it is on — never
+// from anything a caller or doctrine claims. Together with the physical facts above this is the chain
+// debug shows for a proposed attack: known target → applicable objective → authority → physical gates.
+// The tactical fire path itself is unchanged: this is inspection and can only ever say "no" where the
+// engine would say "no".
+function npcAuthorityFacts(npc, target, targetType = 'ship', now = gameNow()) {
+  const facts = {};
+  const actual = targetType === 'player' ? state : target;
+  if (!npc || !actual) return { facts, objective: null };
+  const mySide = getNpcSideId(npc);
+  const targetSide = targetType === 'player' ? PLAYER_SIDE : targetType === 'station' ? getStationOwner(actual, state.currentPlanet) : getNpcSideId(actual);
+  const attackedMe = targetType === 'player' ? hasRecentPlayerAggressionAgainst(mySide, now) : hasRecentAggressionAgainst(actual, mySide, now);
+  if (attackedMe) facts.attack_on_self_verified = true;
+  const defender = isNpcSystemDefender(npc);
+  if (defender || isPlayerEscortNpc(npc)) facts.defense_obligation_active = true;
+  const attacker = targetType === 'ship' && isNpcSystemAttacker(actual, npc, now);
+  const book = campaignBook();
+  const holder = getDefendingSideId(state.currentPlanet);
+  let protectSource = null;
+  if (defender && attacker && (hasRecentAggressionAgainst(actual, holder, now) || isRaidingHere(actual))) protectSource = 'witnessed attack on this system';
+  // The captain's own security policy is an explicit standing order for the captain's ships: under
+  // "defend" the engine's attacker test (hostile to the captain, or at war with the flag) is the order.
+  else if (defender && attacker && mySide === PLAYER_SIDE && getPlayerRoeAt(state.currentPlanet) === 'defend') protectSource = 'security policy: defend';
+  // A holder's forces in the holder's own system against a power it is formally at war with.
+  else if (defender && attacker && holder && mySide !== PLAYER_SIDE && sidesAligned(mySide, holder) && targetSide && Campaign.warAuthorityStamp(book, buildCampaignWorld(), holder, state.currentPlanet) != null && formalRelation(holder, targetSide)?.status === 'war') protectSource = 'system defence against a formal enemy';
+  if (protectSource) facts.attack_on_protected_verified = true;
+  // A war order is a formal war AND this ship on a war task: an operation hull or a doctrine raid.
+  const hullOp = npc.campaignHullId ? (book.operations || []).find((o) => o.status !== 'resolved' && (o.hullIds || []).includes(npc.campaignHullId)) : null;
+  const raid = npc.campaignHullId ? (book.doctrine?.objectives || []).find((o) => o.status === 'active' && o.kind === 'raid' && o.assigned.hullId === npc.campaignHullId) : null;
+  const formalWar = targetSide && mySide && Campaign.warAuthorityStamp(book, buildCampaignWorld(), mySide, state.currentPlanet) != null && sidesOpposed(mySide, targetSide);
+  if (formalWar) facts.war_target_verified = true;
+  if (formalWar && (hullOp || (raid && Campaign.warAuthorityHolds(book, buildCampaignWorld(), raid.authority.stamp)))) facts.war_order_active = true;
+  const objective = raid ? `raid ${String(raid.id).split(':').pop()}` : hullOp ? `operation ${hullOp.id}` : attackedMe ? 'self-defence' : protectSource ? protectSource : npc.securityObjective ? 'security objective' : null;
+  if (objective) facts.engagement_objective_active = true;
+  return { facts, objective, protectSource, engineEngages: Boolean(defender && attacker) };
+}
+function doctrineEngageChain(npc, target, targetType = 'ship', now = gameNow()) {
+  const auth = npcAuthorityFacts(npc, target, targetType, now);
+  const check = doctrineFireCheck(npc, target, targetType, auth.facts, now);
+  const actual = targetType === 'player' ? state : target;
+  return { knownTarget: Boolean(npc && actual && sensorCanTrack(npc, actual)), objective: auth.objective, authority: auth.facts, engineDefends: auth.engineEngages, modes: check.modes || [], physical: check.physical || {}, allowed: Boolean(check.allowed), failed: check.failed || [], role: check.role || null, profile: check.overlay?.profileId || null };
+}
 // What the captain can see of doctrine at work: a search group leaving, a hail for an overdue ship, a
 // vessel working a debris field, survivors taken off. Each goes only through a source the captain
 // actually has at that system, and none carries a reason, a profile or a culprit.
@@ -10442,6 +10485,8 @@ function applyDoctrineEffect(e, day) {
         direct: `A ${formatFaction(who)} relief vessel has left ${nameOf(e.systemIndex)}.`, rumour: `A relief ship is said to have left ${nameOf(e.systemIndex)} in a hurry.` });
       else if (e.kind === 'reroute') reportDoctrineTrace({ id: `doctrine:${e.objectiveId}:reroute`, systemIndex: e.systemIndex, day: d, kind: e.cause === 'missed-delivery' ? `${formatFaction(who)} traffic rerouted after missed delivery.` : `${formatFaction(who)} traffic rerouted.`, factions: [who],
         direct: `${formatFaction(who)} freighters at ${nameOf(e.systemIndex)} have changed course.`, rumour: `${formatFaction(who)} merchants near ${nameOf(e.systemIndex)} are said to be avoiding their usual lane.` });
+      else if (e.kind === 'defense-departed') reportDoctrineTrace({ id: `doctrine:${e.objectiveId}:defense`, systemIndex: e.systemIndex, day: d, kind: `${formatFaction(who)} ships moving to defend ${nameOf(e.to)}.`, factions: [who],
+        direct: `${formatFaction(who)} warships left ${nameOf(e.systemIndex)} for ${nameOf(e.to)}.`, rumour: `Warships were seen leaving ${nameOf(e.systemIndex)}.` });
       else if (e.kind === 'escort-assigned') reportDoctrineTrace({ id: `doctrine:${e.objectiveId}:escort`, systemIndex: e.systemIndex, day: d, kind: `${formatFaction(who)} escort assigned to ${e.chargeKind === 'construction' ? 'construction convoy' : 'merchant convoy'}.`, factions: [who],
         direct: `A ${formatFaction(who)} warship has joined a ${e.chargeKind === 'construction' ? 'construction' : 'merchant'} convoy at ${nameOf(e.systemIndex)}.`, rumour: `${formatFaction(who)} convoys near ${nameOf(e.systemIndex)} are said to be sailing under guard.` });
       else if (e.assetFaction) reportDoctrineTrace({ id: `doctrine:${e.objectiveId}:hail:${e.systemIndex}`, systemIndex: e.systemIndex, day: d, kind: `${formatFaction(campaignFactionKeyFor(e.assetFaction))} ${e.assetRole || 'ship'} overdue`, factions: [who],
@@ -10460,6 +10505,12 @@ function applyDoctrineEffect(e, day) {
       reportDoctrineTrace({ id: `doctrine:${e.id}:rescued`, systemIndex: e.systemIndex, day: d, kind: `Survivors recovered — ${nameOf(e.systemIndex)}`, factions: [who],
         direct: `A ${formatFaction(who)} relief ship took survivors aboard at ${nameOf(e.systemIndex)}.`, rumour: `Survivors are said to have been picked up near ${nameOf(e.systemIndex)}.` });
       break;
+    case 'hullStranded': {
+      const f = campaignFactionKeyFor(e.polityId);
+      reportDoctrineTrace({ id: `stranded:${e.hullId}:${d}`, systemIndex: e.systemIndex, day: d, kind: `Disabled ${formatFaction(f)} vessel adrift — ${nameOf(e.systemIndex)}`, factions: [f],
+        direct: `A disabled ${formatFaction(f)} vessel is adrift at ${nameOf(e.systemIndex)}.`, rumour: `A crippled ship is said to be adrift near ${nameOf(e.systemIndex)}.` });
+      break;
+    }
     // Incidents, knowledge, assignments and objectives are internal to the powers concerned: they are
     // inspectable in Cheats & Debug and nowhere else.
     default: break;
@@ -10534,17 +10585,48 @@ function triggerDoctrineDebug(args) {
       return r.ok ? `${formatFaction(polity)} project ${r.contract.id.split(':').pop()}: ${state.planets[depot]?.name} → ${state.planets[site]?.name}, ${r.contract.deliveriesNeeded} loads by day ${r.contract.dueDay}${r.tender ? `; first tender ${r.tender.hullId}` : '; no free tender at the depot yet'}.` : `Project refused: ${r.reason}.`;
     });
   }
-  throw new Error('Doctrine codes: doctrine status | on | off | patrol <faction> [system] | delivery <faction> <system> | project <faction> <depot> > <site> | lose [assignment|latest] [disabled] [silent] | relay <incident> <from> <to> [full|overdue_notice|findings|survivor_report] [override|network]');
+  if (sub === 'areapatrol' && rest.length >= 2) {
+    const polity = normalizeFactionKey(rest[0]);
+    return runCampaignAuthored((b, world, effects) => {
+      const at = getSystemIndexByName(rest.slice(1).join(' '));
+      const hull = (b.polities[polity]?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && Number(h.systemIndex) === at && Campaign.hullIsDisabled(h) === false).sort((x, y) => String(x.id).localeCompare(String(y.id)))[0];
+      if (!hull) return `No free ${formatFaction(polity)} vessel at ${state.planets[at]?.name || rest.slice(1).join(' ')}.`;
+      const r = DoctrineCampaign.startAreaPatrol(b, world, polity, hull.id, at, state.day, effects);
+      return r.ok ? `${formatFaction(polity)} area patrol ${r.patrol.id.split(':').pop()}: ${hull.id} around ${state.planets[at]?.name} (${r.patrol.area.map((i) => state.planets[i]?.name).join(', ')}).` : `Patrol refused: ${r.reason}.`;
+    });
+  }
+  if (sub === 'raid' && rest.length >= 2) {
+    const polity = normalizeFactionKey(rest[0]);
+    return runCampaignAuthored((b, world, effects) => {
+      const target = getSystemIndexByName(rest.slice(1).join(' '));
+      if (target == null || target < 0) return 'Name the target system.';
+      const hull = (b.polities[polity]?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && !Campaign.hullIsDisabled(h) && (world.shipStats(h.shipId)?.combat ?? 1) >= 0.5)
+        .map((h) => ({ h, hops: world.routeHops([Number(h.systemIndex)], target, polity) })).filter((x) => x.hops != null).sort((x, y) => x.hops - y.hops || String(x.h.id).localeCompare(String(y.h.id)))[0]?.h;
+      if (!hull) return `No free armed ${formatFaction(polity)} vessel.`;
+      const r = DoctrineCampaign.orderRaid(b, world, { power: polity, target, hullId: hull.id, day: state.day, doctrine: doctrineRuntime, by: 'debug' }, effects);
+      return r.ok ? `Campaign raid order: ${hull.id} to strike ${state.planets[target]?.name} under ${r.objective.authority.detail}.` : `Raid order refused: ${r.reason}.`;
+    });
+  }
+  if (sub === 'surrender' && rest.length >= 1) {
+    const r = DoctrineCampaign.recordSurrender(book, buildCampaignWorld(true), rest[0], state.day, { acceptedBy: rest[1] || null });
+    campaignWorldCache = null;
+    return r.ok ? `Override: surrender accepted at ${rest[0]}.` : r.reason;
+  }
+  if (sub === 'recover' && rest.length >= 2) {
+    const r = Campaign.recoverStrandedHull(book, buildCampaignWorld(true), normalizeFactionKey(rest[0]), rest[1], state.day, 'debug');
+    return r.ok ? `Override: ${rest[1]} brought into the yard.` : `Not recovered: ${r.reason}.`;
+  }
+  throw new Error('Doctrine codes: doctrine status | on | off | patrol <faction> [system] | areapatrol <faction> <system> | raid <faction> <system> | surrender <incident> [acceptedBy] | recover <faction> <hull> | delivery <faction> <system> | project <faction> <depot> > <site> | lose [assignment|latest] [disabled] [silent] | relay <incident> <from> <to> [full|overdue_notice|findings|survivor_report] [override|network]');
 }
 function renderDoctrineDebug() {
   const s = doctrineStatus();
   const head = s.state === 'loaded'
-    ? `<p>Doctrine ${escapeHtml(s.version)} loaded as runtime data (${s.profiles} profiles, ${s.cultures} cultures). Source package status: ${escapeHtml(s.designStatus)} · Runtime integration: Phase 2. Most decisions run in shadow; live this round: Romulan command investigates its own overdue ships, a Delpin explorer investigates recoverable evidence, a Vulcan relief ship rescues survivors it has a report of, a Ferengi freighter reroutes a threatened contract, and Tholian command escorts a threatened project's next load.</p>${s.warnings.length ? `<p class="debug-error">Warnings: ${s.warnings.map(escapeHtml).join('; ')}</p>` : ''}`
+    ? `<p>Doctrine ${escapeHtml(s.version)} loaded as runtime data (${s.profiles} profiles, ${s.cultures} cultures). Source package status: ${escapeHtml(s.designStatus)} · Runtime integration: Phase 3. Most decisions run in shadow; live this round: Romulan command investigates its own overdue ships, a Delpin explorer investigates recoverable evidence, a Vulcan relief ship rescues survivors it has a report of, a Ferengi freighter reroutes a threatened contract, and Tholian command escorts a threatened project's next load; Romulan, Klingon and Terran area patrols respond inside their areas, their commands defend their own attacked worlds, and a campaign raid order under a formal war is carried out. Disabled hulls stay disabled until recovered.</p>${s.warnings.length ? `<p class="debug-error">Warnings: ${s.warnings.map(escapeHtml).join('; ')}</p>` : ''}`
     : `<p class="${s.state === 'failed' ? 'debug-error' : ''}">Doctrine ${escapeHtml(s.state)}${s.error ? `: <code>${escapeHtml(s.error)}</code>` : ''}. The campaign runs without doctrine.</p>`;
   if (!doctrineRuntime || !state.gameStarted) return head;
   const book = campaignBook();
   if (!book.initialized) return head;
-  const sum = DoctrineCampaign.debugSummary(book);
+  const sum = DoctrineCampaign.debugSummary(book, null, doctrineRuntime, buildCampaignWorld(true));
   const db = DoctrineCampaign.doctrineBook(book);
   const loc = (id) => escapeHtml(String(id || '—'));
   const rows = (list, cols) => list.length ? `<table class="doctrine-debug"><thead><tr>${cols.map(([h]) => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>${list.map((x) => `<tr>${cols.map(([, f]) => `<td>${f(x)}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '<p class="meta">None.</p>';
@@ -10579,9 +10661,50 @@ function renderDoctrineDebug() {
   const conflicts = rows(sum.conflicts.slice().reverse().slice(0, 20), [
     ['Day', (c) => c.day], ['Actor', (c) => `<code>${escapeHtml(c.actor)}</code>`], ['Vessel', (c) => escapeHtml(c.hullId || '—')], ['Wanted', (c) => escapeHtml(c.wanted)], ['Committed to', (c) => escapeHtml(c.committedTo)], ['Decision', (c) => `<b>${escapeHtml(c.decision)}</b>`],
   ]);
+  const military = rows(sum.military, [
+    ['Objective', (o) => `<code>${escapeHtml(o.id.split(':').pop())}</code>`], ['Kind', (o) => `<b>${escapeHtml(o.kind)}</b>`], ['Actor', (o) => `<code>${escapeHtml(o.actor)}</code>`], ['Vessel (vid)', (o) => escapeHtml(o.vid)],
+    ['Authority', (o) => `${escapeHtml(o.authority?.source || '—')}<div class="meta">${escapeHtml(o.authority?.detail || '')}</div>`], ['Jurisdiction', (o) => escapeHtml(o.authority?.jurisdiction || '—')],
+    ['Target and what is known', (o) => `${loc(o.target)}${o.knowledge ? `<div class="meta">${escapeHtml(o.knowledge)}</div>` : ''}`],
+    ['Current action', (o) => `${escapeHtml(o.state || '')}${o.lastAction ? `<div class="meta">day ${o.lastAction.day}: ${escapeHtml(o.lastAction.action)} — ${escapeHtml(o.lastAction.detail || '')}</div>` : ''}`],
+    ['Ends when', (o) => `<div>${escapeHtml(o.termination.success.join(' | '))}</div><div class="meta">abort: ${escapeHtml(o.termination.abort.join(' | '))}</div>${o.termination.holding.length ? `<div>holding now: <b>${escapeHtml(o.termination.holding.join(', '))}</b></div>` : ''}`],
+    ['Fire chain (target → objective → authority → physical)', (o) => `<div>${escapeHtml(o.fireChain.target)} → ${escapeHtml(o.fireChain.objective)} → ${escapeHtml(o.fireChain.authority)}</div><div class="meta">${escapeHtml(o.fireChain.physical)}</div>`],
+    ['Deadline', (o) => `day ${o.deadline}`], ['Status', (o) => escapeHtml(o.status + (o.resolution ? `: ${o.resolution.reasons.join(', ')}${o.resolution.note ? ` — ${o.resolution.note}` : ''}` : ''))],
+  ]);
+  const patrols = rows(sum.patrols, [
+    ['Patrol', (p) => `<code>${escapeHtml(p.id.split(':').pop())}</code>`], ['Power', (p) => escapeHtml(formatFaction(campaignFactionKeyFor(p.polity)))], ['Vessel (vid)', (p) => escapeHtml(p.vid)],
+    ['Area', (p) => escapeHtml(p.area.map((i) => state.planets[i]?.name || i).join(', '))], ['Status', (p) => `<b>${escapeHtml(p.status)}</b>${p.responding ? ` (objective ${escapeHtml(p.responding.split(':').pop())})` : ''}${p.endReason ? ` — ${escapeHtml(p.endReason)}` : ''}`],
+    ['Cycles', (p) => p.cycles], ['At', (p) => escapeHtml(state.planets[p.at]?.name || '—')], ['Responses', (p) => escapeHtml(p.responses.map((r) => `day ${r.day} ${r.response}`).join('; ') || '—')],
+  ]);
+  const stranded = rows(sum.stranded, [
+    ['Power', (x) => escapeHtml(formatFaction(campaignFactionKeyFor(x.polity)))], ['Hull (vid)', (x) => escapeHtml(`${x.hullId} (${x.vid})`)], ['Where', (x) => escapeHtml(state.planets[x.systemIndex]?.name || '—')],
+    ['Hull', (x) => `${x.hull}/${x.maxHull}`], ['Stranded', (x) => `day ${x.since} (${x.days} days)`], ['Crew', (x) => `<b>${escapeHtml(x.crew)}</b>${x.crew === 'aboard' ? ` — life support to day ${x.crewUntil}` : x.crewEndDay != null ? ` day ${x.crewEndDay}` : ''}`],
+    ['Recovery', (x) => `<b>${escapeHtml(x.recovery)}</b>${x.recoveredBy ? ` (${escapeHtml(x.recoveredBy)})` : ''}`], ['Job held', (x) => escapeHtml(x.opId || '—')],
+  ]);
+  const raidOrders = rows(sum.raidOrders.slice().reverse().slice(0, 12), [
+    ['Order', (r) => `<code>${escapeHtml(r.id.split(':').pop())}</code>`], ['Power', (r) => escapeHtml(formatFaction(campaignFactionKeyFor(r.power)))], ['Target', (r) => escapeHtml(state.planets[r.target]?.name || r.target)], ['Day', (r) => r.day], ['By', (r) => escapeHtml(r.by)], ['Status', (r) => `<b>${escapeHtml(r.status)}</b>${r.reason ? ` — ${escapeHtml(r.reason)}` : ''}`],
+  ]);
   const contracts = rows(sum.contracts.filter((c) => c.status === 'active' || (state.day - (c.closedDay ?? state.day)) <= 30), [
     ['Contract', (c) => `<code>${escapeHtml(c.id.split(':').pop())}</code>`], ['Kind', (c) => escapeHtml(c.kind)], ['Holder', (c) => escapeHtml(formatFaction(campaignFactionKeyFor(c.holder)))],
     ['Route', (c) => `${loc(c.originLocationId)} → ${loc(c.destinationLocationId)}`], ['Due', (c) => `day ${c.dueDay}`], ['Loads', (c) => c.kind === 'construction' ? `${c.delivered}/${c.deliveriesNeeded}` : String(c.delivered)], ['Status', (c) => escapeHtml(c.status + (c.closeReason ? ` (${c.closeReason})` : ''))],
+  ]);
+  // Here, now: each armed ship in this system against the ship it would engage (or the nearest tracked
+  // stranger), and why fire is or is not authorised — known target → objective → authority → physical gates.
+  const local = [];
+  for (const npc of getLivingNpcShips()) {
+    if (local.length >= 10) break;
+    const defenseTarget = getNpcDefenseTarget(npc);
+    const tgt = defenseTarget?.target || defenseTarget || getLivingNpcShips().filter((x) => x !== npc && !sameSide(getNpcSideId(x), getNpcSideId(npc)) && sensorCanTrack(npc, x)).sort((a, b) => sensorDistance(npc, a) - sensorDistance(npc, b))[0];
+    if (!tgt || tgt === npc) continue;
+    local.push({ npc, tgt, chain: doctrineEngageChain(npc, tgt, 'ship') });
+  }
+  const engage = rows(local, [
+    ['Ship', (x) => `${escapeHtml(x.npc.name || x.npc.id)} <span class="meta">(${escapeHtml(formatFaction(getNpcSideId(x.npc)))}, ${escapeHtml(x.chain.profile || '—')}/${escapeHtml(x.chain.role || '—')})</span>`],
+    ['Target (known?)', (x) => `${escapeHtml(x.tgt.name || x.tgt.id)} — ${x.chain.knownTarget ? 'tracked' : 'not tracked'}`],
+    ['Objective', (x) => escapeHtml(x.chain.objective || 'none')],
+    ['Authority', (x) => escapeHtml(Object.keys(x.chain.authority).join(', ') || 'none')],
+    ['Physical gates', (x) => escapeHtml(Object.entries(x.chain.physical).map(([k, v]) => `${k}:${v ? 'yes' : 'no'}`).join(' '))],
+    ['Fire', (x) => x.chain.allowed ? `authorised (${escapeHtml(x.chain.modes.join(', '))})` : `not authorised — ${escapeHtml(x.chain.failed.join(', '))}`],
+    ['Engine defence rule', (x) => x.chain.engineDefends ? 'engages' : 'holds'],
   ]);
   const assignments = rows(sum.assignments, [
     ['Assignment', (a) => `<code>${escapeHtml(a.id.split(':').pop())}</code>`], ['Kind', (a) => escapeHtml(a.kind)], ['Power', (a) => escapeHtml(formatFaction(campaignFactionKeyFor(a.polity)))], ['Vessel (vid)', (a) => escapeHtml(a.vid)],
@@ -10593,8 +10716,8 @@ function renderDoctrineDebug() {
   return `${head}
     <div class="debug-actions"><button type="button" data-debug-code="doctrine patrol romulan">Romulan patrol now</button><button type="button" data-debug-code="doctrine lose">Lose latest patrol/survey (override, unwitnessed)</button><button type="button" data-debug-code="doctrine lose latest disabled">Disable latest (override)</button><button type="button" data-debug-code="doctrine ${db.config.enabled ? 'off' : 'on'}">Doctrine ${db.config.enabled ? 'off' : 'on'}</button><button type="button" data-debug-refresh>Refresh</button></div>
     ${sum.incidents.length ? `<form data-debug-form="doctrine-relay"><label>Incident<select name="doctrine-incident">${incOpts}</select></label><label>From<select name="doctrine-from">${obsOpts}</select></label><label>To<select name="doctrine-to">${obsOpts}</select></label><label>Carries<select name="doctrine-profile"><option value="full">everything the sender knows</option><option value="overdue_notice">overdue notice</option><option value="findings">findings</option><option value="survivor_report">survivor report</option></select></label><label>Channel<select name="doctrine-channel"><option value="override">at once (override)</option><option value="network">network (delayed)</option></select></label><button type="submit">Send report</button></form>` : ''}
-    <h4>Active incidents</h4>${incidents}<h4>Last shadow evaluation per observer</h4>${evals}<h4>Doctrine objectives (investigation, rescue, reroute, escort)</h4>${objectives}<h4>Reports: pending and delivered (newest first)</h4>${reports}<h4>Reevaluations of the same incident</h4>${reevaluations}<h4>Objective conflicts and pre-emption</h4>${conflicts}<h4>Contracts and projects</h4>${contracts}<h4>Routine doctrine assignments</h4>${assignments}
-    <p class="meta">Incidents ${sum.stats.incidentsCreated || 0} (duplicates prevented ${sum.stats.duplicatesPrevented || 0}) · reports sent ${sum.stats.reportsSent || 0}, delivered ${sum.stats.reportsDelivered || 0}, expired ${sum.stats.reportsExpired || 0} · reevaluations ${sum.stats.reevaluations || 0} · live objectives ${sum.stats.liveObjectives || 0} (completed ${sum.stats.objectivesCompleted || 0}, aborted ${sum.stats.objectivesAborted || 0}, expired ${sum.stats.objectivesExpired || 0}) · deferred ${sum.stats.deferred} · evaluations ${sum.stats.shadowEvaluations} · blockade runs ${sum.stats.blockadeRuns}. Debug only: nothing in this section is sent to the captain's reports.</p>`;
+    <h4>Active incidents</h4>${incidents}<h4>Last shadow evaluation per observer</h4>${evals}<h4>Doctrine objectives (investigation, rescue, reroute, escort)</h4>${objectives}<h4>Reports: pending and delivered (newest first)</h4>${reports}<h4>Reevaluations of the same incident</h4>${reevaluations}<h4>Objective conflicts and pre-emption</h4>${conflicts}<h4>Contracts and projects</h4>${contracts}<h4>Military objectives (patrol, defence, raid)</h4>${military}<h4>Area patrols</h4>${patrols}<h4>Raid orders</h4>${raidOrders}<h4>Disabled hulls: stranded until recovered</h4>${stranded}<h4>Local engagement chain (this system, now)</h4>${engage}<h4>Routine doctrine assignments</h4>${assignments}
+    <p class="meta">Incidents ${sum.stats.incidentsCreated || 0} (duplicates prevented ${sum.stats.duplicatesPrevented || 0}) · reports sent ${sum.stats.reportsSent || 0}, delivered ${sum.stats.reportsDelivered || 0}, expired ${sum.stats.reportsExpired || 0} · reevaluations ${sum.stats.reevaluations || 0} · live objectives ${sum.stats.liveObjectives || 0} (completed ${sum.stats.objectivesCompleted || 0}, aborted ${sum.stats.objectivesAborted || 0}, expired ${sum.stats.objectivesExpired || 0}) · deferred ${sum.stats.deferred} · military objectives ${sum.stats.militaryObjectives || 0} (closed ${sum.stats.militaryClosed || 0}, cancelled by lost war authority ${sum.stats.militaryCancelledByAuthority || 0}) · repeats prevented ${sum.stats.repeatPrevented || 0} · patrols returned ${sum.stats.patrolsReturned || 0} · evaluations ${sum.stats.shadowEvaluations} · blockade runs ${sum.stats.blockadeRuns}. Debug only: nothing in this section is sent to the captain's reports.</p>`;
 }
 // Authored events and controls for this round. Each goes through the model; none writes a war by hand.
 function runCampaignAuthored(fn) {
@@ -26490,6 +26613,7 @@ function applyCampaignEffects(effects, day = state.day) {
       case 'doctrineAssigned': case 'doctrineMoved': case 'doctrineIncident': case 'doctrineIncidentResolved': case 'doctrineObjective':
       case 'doctrineOnSite': case 'doctrineEvidenceRecovered': case 'doctrineRescued': case 'doctrineSighting': case 'doctrineVisible': case 'doctrineReleased':
       case 'doctrineContract': case 'doctrineDistressFound':
+      case 'hullStranded':
         applyDoctrineEffect(e, day);
         break;
       default: break;

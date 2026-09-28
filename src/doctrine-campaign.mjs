@@ -1,6 +1,7 @@
-// Doctrine runtime: the observer-evidence adapter, persistent incidents (asset_overdue, distress), report
-// propagation between actual actors, the shadow evaluator and the pilot responses, on the campaign's
-// real hulls. Rules: docs/doctrine/DOCTRINE-RUNTIME-PHASE1.md and DOCTRINE-RUNTIME-PHASE2.md.
+// Doctrine runtime: the observer-evidence adapter, persistent incidents (asset_overdue, distress,
+// asset_attack), report propagation between actual actors, the shadow evaluator and the pilot responses,
+// and (phase 3) bounded patrol, defence and authorised-raid execution, on the campaign's real hulls.
+// Rules: docs/doctrine/DOCTRINE-RUNTIME-PHASE1.md, -PHASE2.md and -PHASE3.md.
 //
 // Pure, like the campaign model it rides on: it reads a campaign book and a world snapshot, writes only
 // to book.doctrine and to the hulls it actually assigns, and returns effects for the engine. Every draw
@@ -21,13 +22,13 @@
 // on a cancelled jump and never moves while the captain sits still.
 
 import * as D from './doctrine-runtime.mjs';
-import { seededUnit, applicableBlockadesAt, resolveBlockadeRun, shortestRoute, strategicAssignments, warAuthorityStamp, warAuthorityHolds } from './campaign-strategy.mjs';
+import { seededUnit, applicableBlockadesAt, resolveBlockadeRun, shortestRoute, strategicAssignments, warAuthorityStamp, warAuthorityHolds, rescueStrandedCrew, hullIsDisabled, localDefenseStrength, raidStrikeDay, standDownOperation, hullStrength } from './campaign-strategy.mjs';
 import { classifyDamage } from './ship-fleet.mjs';
 
 export const DOCTRINE_BOOK_VERSION = 1;
 // Bumped whenever the pilot configuration changes: a book saved under an older one takes the new defaults
 // (keeping only whether doctrine was switched on). Within a version, a changed config (debug, tests) stands.
-export const DOCTRINE_CONFIG_VERSION = 2;
+export const DOCTRINE_CONFIG_VERSION = 3;
 export const CLOCK = 'strategic_jumps';
 // First-pass pilot tuning. Every duration is in campaign days; none is a measured value.
 export const DOCTRINE_PILOT = Object.freeze({
@@ -40,6 +41,13 @@ export const DOCTRINE_PILOT = Object.freeze({
     // Phase 2: commercial reroute and protection of a threatened project (as an escort of its charge).
     Object.freeze({ profile: 'ferengi', role: 'civilian', response: 'reroute' }),
     Object.freeze({ profile: 'tholian', role: 'commander', response: 'protect' }),
+    // Phase 3: bounded military execution where the authority already exists.
+    ...['romulan', 'klingon', 'terran'].flatMap((p) => [
+      Object.freeze({ profile: p, role: 'patrol', response: 'investigate' }),
+      Object.freeze({ profile: p, role: 'patrol', response: 'protect' }),
+      Object.freeze({ profile: p, role: 'commander', response: 'protect' }),
+      Object.freeze({ profile: p, role: 'raider', response: 'raid' }),
+    ]),
   ]),
   // Routine assignments that give asset_overdue something real to be about. Per polity, how many run at once.
   patrols: Object.freeze({ romulan: 1 }),
@@ -47,6 +55,8 @@ export const DOCTRINE_PILOT = Object.freeze({
   reliefShips: Object.freeze({ vulcan: 1 }),
   merchants: Object.freeze({ ferengi: 1 }),
   projects: Object.freeze({ tholian: 1 }),
+  // Phase 3: one persistent area patrol per power, on a frontier world and the systems next to it.
+  patrolAreas: Object.freeze({ romulan: 1, klingon: 1, terran: 1 }),
   // Observers whose evaluations are always logged, known or not (so "knows nothing, does nothing" is on record).
   watchCommands: Object.freeze(['romulan', 'klingon', 'delpin', 'vulcan', 'cardassian', 'terran', 'dominion', 'dominion_remnant', 'ferengi', 'tholian']),
   patrolEveryDays: 10, patrolDwellDays: 3,
@@ -63,6 +73,13 @@ export const DOCTRINE_PILOT = Object.freeze({
   escortDeadlineDays: 20,
   networkHopsPerDay: 2, maxNetworkDelayDays: 5, messageExpiryDays: 30, messageHistoryLimit: 60,
   conflictLimit: 60, reevaluationLimit: 80,
+  // Phase 3
+  patrolAreaDwellDays: 2, patrolFormEveryDays: 15, patrolResponseHops: 1, closedPatrolLimit: 10,
+  maxMilitaryObjectivesPerPolity: 2, defenseHops: 2, defenseDeadlineDays: 10,
+  raidDeadlineDays: 15, raidStrikeDays: 2, raidEngageRatio: 1.0, raidMinRatio: 0.6, attackHistoryLimit: 30,
+  // Witnessing attacks (and so defending against them) can be switched off for a campaign — the earlier
+  // phases' gates do, so their scenarios run as they did before phase 3.
+  militaryResponses: true,
 });
 
 // ---------- book ----------
@@ -72,8 +89,8 @@ export function doctrineBook(book) {
   if (d.configVersion !== DOCTRINE_CONFIG_VERSION) { d.config = { enabled: d.config?.enabled ?? DOCTRINE_PILOT.enabled }; d.configVersion = DOCTRINE_CONFIG_VERSION; }
   d.config = { ...DOCTRINE_PILOT, ...(d.config || {}) };
   d.counter ??= 0;
-  for (const k of ['incidents', 'knowledge', 'briefings', 'pactTasks', 'orders', 'lastEval', 'designations', 'lastRun', 'contracts']) d[k] ||= {};
-  for (const k of ['assignments', 'objectives', 'reports', 'shadow', 'closed', 'messages', 'conflicts', 'reevaluations']) if (!Array.isArray(d[k])) d[k] = [];
+  for (const k of ['incidents', 'knowledge', 'briefings', 'pactTasks', 'orders', 'lastEval', 'designations', 'lastRun', 'contracts', 'patrols']) d[k] ||= {};
+  for (const k of ['assignments', 'objectives', 'reports', 'shadow', 'closed', 'messages', 'conflicts', 'reevaluations', 'raidOrders']) if (!Array.isArray(d[k])) d[k] = [];
   d.ground ||= {};
   d.ground.evidence ||= {};
   d.ground.fates ||= {};
@@ -208,11 +225,13 @@ export const REPORT_PROFILES = Object.freeze({
   overdue_notice: Object.freeze(['asset', 'assignment', 'missedMilestone', 'detectedAt', 'lastKnown']),
   findings: Object.freeze(['asset', 'assignment', 'missedMilestone', 'detectedAt', 'lastKnown', 'evidence', 'resolution']),
   survivor_report: Object.freeze(['asset', 'survivors', 'hazards', 'urgency', 'lastKnown']),
-  full: Object.freeze(['asset', 'assignment', 'missedMilestone', 'detectedAt', 'lastKnown', 'evidence', 'survivors', 'hazards', 'urgency', 'resolution', 'linkedLosses']),
+  full: Object.freeze(['asset', 'assignment', 'missedMilestone', 'detectedAt', 'lastKnown', 'evidence', 'survivors', 'hazards', 'urgency', 'resolution', 'linkedLosses', 'attacker']),
+  // Phase 3: an attack seen — what attacked, as identified by whoever saw it (or "unknown").
+  attack_report: Object.freeze(['asset', 'lastKnown', 'attacker', 'resolution']),
 });
 function buildPayload(db, book, sender, from, include) {
   const p = { claims: {}, evidence: [], survivors: null, resolution: null, linkedLosses: [], pact: null };
-  for (const name of ['asset', 'assignment', 'missedMilestone', 'detectedAt', 'lastKnown', 'hazards', 'urgency']) if (include.includes(name) && sender.claims[name] != null) p.claims[name] = JSON.parse(JSON.stringify(sender.claims[name]));
+  for (const name of ['asset', 'assignment', 'missedMilestone', 'detectedAt', 'lastKnown', 'hazards', 'urgency', 'attacker']) if (include.includes(name) && sender.claims[name] != null) p.claims[name] = JSON.parse(JSON.stringify(sender.claims[name]));
   // Hidden cargo never travels: the manifest stays with those who hold it.
   p.claims.cargo = { knowledge: 'unknown', manifest: null };
   if (include.includes('evidence')) p.evidence = Object.values(sender.evidence || {}).map((e) => JSON.parse(JSON.stringify(e)));
@@ -301,6 +320,9 @@ function deliverMessage(db, book, world, msg, day, effects = []) {
   for (const l of p.linkedLosses || []) if (!k.linkedLosses.some((x) => x.factionId === l.factionId && x.evidenceId === l.evidenceId)) k.linkedLosses.push({ ...l });
   if (p.resolution && !k.resolution) k.resolution = { ...p.resolution, via: msg.sender };
   if (p.pact) (db.briefings[msg.recipient] ||= []).push({ pactKey: p.pact.pactKey, day, by: msg.sender, via: msg.id });
+  // An attacker named in a report is the sender's identification, received second hand; "unknown" stays unknown.
+  if (p.claims.attacker?.factionId && !k.attribution) k.attribution = { factionId: p.claims.attacker.factionId, provenance: 'received_report', via: msg.sender, day };
+  if (p.surrender && !k.surrender) k.surrender = { ...p.surrender, via: msg.sender };
   relinkSightings(book, world, db, msg.recipient, day);
   refreshLinks(db, msg.recipient, k);
   checkLocated(book, world, db, msg.recipient, k, day, effects);
@@ -402,6 +424,15 @@ export function deriveFacts(doctrine, book, world, db, observerId, incidentId, d
   set('regional_threat_supported', false, 'not derived in phase 1');
   set('identity_known', Boolean(identified), identified ? 'wreck design identified' : 'nothing identified');
   set('actor_attributed', Boolean(k.attribution), k.attribution ? `attributed to ${k.attribution.factionId}` : 'no attribution: an overdue asset names no attacker');
+  // Phase 3: an attack witnessed or reported. Attribution only from an identification someone made.
+  const incMil = db.incidents[incidentId];
+  if (isMilitaryIncident(incMil)) {
+    const where = systemIndexForLocation(db, incMil.locationId);
+    const obligation = defenseObligation(book, world, db, observerId, where);
+    set('attack_on_protected_verified', Boolean(k.attribution) && Boolean(obligation), k.attribution ? `attack by ${k.attribution.factionId} (${k.attribution.provenance})${obligation ? ` on ${obligation}` : ' — not a protected asset of this actor'}` : 'attacker not identified');
+    set('defense_obligation_active', Boolean(obligation), obligation || 'no defence obligation there');
+    set('protected_party_affected', Boolean(obligation) && !f.own_asset_affected, obligation || 'no protected party affected');
+  }
   const ca = contractAffected(book, world, db, observerId, k);
   set('contract_affected', ca.affected && !resolvedKnown, resolvedKnown ? 'known resolved' : ca.why);
   // Compartmented pact knowledge: explicit receipts only.
@@ -513,7 +544,7 @@ function endAssignment(db, book, a, day, status, reason, releaseAt = true) {
   const h = liveHull(book, a.polity, a.hullId);
   if (h && h.opId === a.id && releaseAt) { h.opId = null; if (h.status === 'assigned') h.status = 'ready'; }
 }
-const ROUTINE_KINDS = Object.freeze(['patrol', 'exploration', 'return', 'delivery', 'construction', 'transport']);
+const ROUTINE_KINDS = Object.freeze(['patrol', 'exploration', 'return', 'delivery', 'construction', 'transport', 'area_patrol']);
 function currentSystem(a) { return a.itinerary[a.pos]?.systemIndex; }
 // Runs the hull one leg: a day's jump to the next system, through every blockade that bears on it, with
 // the same interception engine every other runner uses.
@@ -549,6 +580,8 @@ function stepAssignment(book, world, db, a, day, effects) {
       if (ex && ex.condition === 'disabled') e.h.status = 'repairing';
     }
     const x = r.hulls.find((y) => y.hullId === h.id);
+    // Fired on: the crew saw who did it.
+    if (x && (x.condition !== 'operational' || Number(x.hull) < Number(x.before ?? x.hull))) interceptionWitnessed(book, world, db, a, b, day, effects);
     // Whatever the run does to the charge, its escorts were beside it: they end the day where it does.
     const escortsTo = (i) => { for (const e of escorts) if (e.h.status !== 'lost') e.h.systemIndex = Number(i); };
     if (x && x.condition === 'disabled') { h.status = 'repairing'; h.systemIndex = Number(next.systemIndex); escortsTo(next.systemIndex); a.pos += 1; a.dwellLeft = next.dwell; return; }
@@ -616,7 +649,10 @@ function recordFates(book, world, db, day, effects = []) {
     if (fate === 'captured') continue; // taken whole: no wreck, no crew adrift
     const shipFaction = world.shipStats?.(h?.shipId ?? a.shipId)?.faction || a.polity;
     const pods = fate === 'disabled' || (a.pods ?? (seededUnit(book.seed, 'doctrine-pods', a.id, day) < db.config.survivorPodChance));
-    const site = addEvidence(book, world, db, { systemIndex: where, day, wreck: { vid: a.vid, hullId: a.hullId, polity: a.polity, shipId: h?.shipId ?? null, factionId: a.polity, designFaction: shipFaction, condition: fate }, survivors: pods ? { crew: true, untilDay: day + db.config.survivorWindowDays, aboard: fate === 'disabled' ? a.hullId : null } : null, sourceAssignment: a.id });
+    // Aboard a hulk, people last as long as its life support (the campaign's crew clock); in lifeboats, the
+    // survivor window.
+    const until = fate === 'disabled' && h?.stranded?.crewUntil != null ? h.stranded.crewUntil : day + db.config.survivorWindowDays;
+    const site = addEvidence(book, world, db, { systemIndex: where, day, wreck: { vid: a.vid, hullId: a.hullId, polity: a.polity, shipId: h?.shipId ?? null, factionId: a.polity, designFaction: shipFaction, condition: fate }, survivors: pods ? { crew: true, untilDay: until, aboard: fate === 'disabled' ? a.hullId : null } : null, sourceAssignment: a.id });
     // Survivors call for help: a disabled ship on its own comms, a destroyed one's lifeboats on their beacon.
     if (pods && !a.silent) raiseDistress(book, world, db, { site, vid: a.vid, aboard: fate === 'disabled' ? a.hullId : null, polity: a.polity, role: { patrol: 'patrol', exploration: 'explorer', delivery: 'freighter', construction: 'construction_tender', transport: 'refugee_transport' }[a.kind] || 'other', day, urgency: fate === 'disabled' ? 'critical' : 'lifeboats' }, effects);
   }
@@ -839,7 +875,7 @@ function ownVesselObservers(book, db, polity) {
   for (const [hid] of Object.entries(db.designations?.[polity] || {})) out.add(`hull:${hid}`);
   // Only vessels its command still believes are at work: not one whose loss it has on record, nor the
   // missing ship an incident is about (the network cannot reach a hull that is gone either way).
-  for (const a of db.assignments) if (a.status === 'active' && a.polity === polity && ['exploration', 'delivery', 'construction', 'transport'].includes(a.kind) && !a.milestones.some((m) => m.status === 'missed') && liveHull(book, polity, a.hullId)) out.add(`hull:${a.hullId}`);
+  for (const a of db.assignments) if (a.status === 'active' && a.polity === polity && ['exploration', 'delivery', 'construction', 'transport', 'area_patrol'].includes(a.kind) && !a.milestones.some((m) => m.status === 'missed') && liveHull(book, polity, a.hullId)) out.add(`hull:${a.hullId}`);
   return [...out].sort();
 }
 // A command passes what it learns to its own vessels at work — over the network, so a ship far away
@@ -870,6 +906,9 @@ function resolveIncident(book, world, db, inc, day, status, reason, effects, exc
   if (k) { k.resolution = { status, day }; k.updatedDay = day; }
   for (const oid of inc.objectives) {
     const o = db.objectives.find((x) => x.id === oid && x.status === 'active');
+    // A defence whose threat ended or surrendered is not called off: that is its own success condition,
+    // which its termination facts report (threat_ended / surrender_accepted).
+    if (o && o.kind === 'defense' && ['threat_ended', 'surrendered'].includes(status)) continue;
     if (o && o.id !== except && o.polity === inc.polity) o.cancelRequested = `incident ${status}`;
   }
   effects.push({ type: 'doctrineIncidentResolved', id: inc.id, polity: inc.polity, status, day });
@@ -969,6 +1008,7 @@ function generateRoutine(doctrine, book, world, db, day, effects) {
     const r = startProject(book, world, polity, pick.depot, pick.site, day, effects);
     if (r.ok) p.doctrineProjectDay = day;
   }
+  formPatrols(doctrine, book, world, db, day, effects, gen);
   // Relief ships are a designation on a home hull: it stays in the ordinary pool (and can be taken by
   // an operation), which is exactly why capacity is checked when a rescue is wanted.
   for (const [polity, n] of Object.entries(c.reliefShips || {})) {
@@ -1061,7 +1101,7 @@ function detectConvoyDistress(book, world, db, day, effects) {
       const h = hullOf(book, e.sponsor, r.hullId);
       if (!h || h.status === 'lost') continue;
       const site = addEvidence(book, world, db, { systemIndex: r.at, day, wreck: { vid: r.vid || vidOf(h), hullId: h.id, polity: e.sponsor, shipId: h.shipId, factionId: e.sponsor, designFaction: world.shipStats?.(h.shipId)?.faction || e.sponsor, condition: 'disabled' },
-        survivors: { crew: true, refugees: true, untilDay: day + db.config.survivorWindowDays, aboard: h.id } });
+        survivors: { crew: true, refugees: true, untilDay: h.stranded?.crewUntil ?? day + db.config.survivorWindowDays, aboard: h.id } });
       raiseDistress(book, world, db, { site, vid: r.vid || vidOf(h), aboard: h.id, polity: e.sponsor, role: 'refugee_transport', day, urgency: 'critical' }, effects);
     }
   }
@@ -1184,6 +1224,312 @@ function contractAffected(book, world, db, observerId, k) {
   return { affected: false, why: 'the incident is off its contracts\' routes' };
 }
 
+// ---------- military (phase 3): attacks, defence, area patrols, authorised raids ----------
+// Doctrine decides how an authorised military objective is carried out; it never manufactures the
+// authority. Authority comes from: formal war (a stamped war order), witnessed aggression on one's own
+// assets (defence of an own world), an explicit order (a campaign raid order), an escort obligation.
+// Static hostility alone creates nothing.
+const MILITARY_EVENTS = Object.freeze(['asset_attack', 'border_breach']);
+function isMilitaryIncident(inc) { return Boolean(inc) && MILITARY_EVENTS.includes(inc.eventType); }
+function sysName(world, i) { return world.systems[Number(i)]?.name || `system ${i}`; }
+// Why this observer must defend a place, or null: its own world (a command, or a vessel of that power's
+// patrol whose area includes it). Same flag is not same command: only the holder's own command and its
+// own patrols carry the obligation.
+function defenseObligation(book, world, db, observerId, systemIndex) {
+  if (systemIndex == null) return null;
+  const side = observerSide(book, observerId);
+  const holder = world.systems[Number(systemIndex)]?.controller;
+  if (!side || holder !== side) return null;
+  if (observerId.startsWith('command:')) return `own world ${sysName(world, systemIndex)}`;
+  const pat = patrolOfHull(db, observerId.slice(5));
+  if (pat && pat.area.includes(Number(systemIndex))) return `own world ${sysName(world, systemIndex)} in its patrol area`;
+  return null;
+}
+function patrolOfHull(db, hullId) { return Object.values(db.patrols || {}).find((p) => p.hullId === hullId && ['patrolling', 'responding'].includes(p.status)) || null; }
+// An attack is seen by whoever is there: the holder of the system (its own space) and doctrine vessels
+// present. They see who attacked (the ships are identified by sensor), not why.
+function witnessAttack(book, world, db, { id, source, sourceId, attackerFaction, systemIndex, day, force }, effects) {
+  const holder = world.systems[Number(systemIndex)]?.controller;
+  let inc = db.incidents[id];
+  if (!inc) {
+    if (!holder || holder === attackerFaction || !book.polities[holder]) return null;
+    inc = db.incidents[id] = { id, eventType: 'asset_attack', assetId: locationIdFor(world, systemIndex), polity: holder, source, sourceId, locationId: locationIdFor(world, systemIndex),
+      jurisdictionAtOccurrence: jurisdictionAt(world, systemIndex), createdDay: day, detectedBy: `command:${holder}`, status: 'open', resolution: null, objectives: [] };
+    bump(db, 'incidentsCreated'); bump(db, 'incidentsAttack');
+    effects.push({ type: 'doctrineIncident', id, polity: holder, locationId: inc.locationId, systemIndex: Number(systemIndex), day, eventType: 'asset_attack' });
+  }
+  const claims = { asset: { assetId: inc.assetId, kind: 'world', role: 'world', ownerId: `polity:${inc.polity}`, factionId: inc.polity },
+    lastKnown: { locationId: inc.locationId, position: null, observedAt: at(day) }, attacker: { factionId: attackerFaction, identified: true, force, provenance: 'direct_sensor' } };
+  const witnesses = new Set(presentObservers(book, world, db, systemIndex).map((o) => o.observerId));
+  for (const obs of witnesses) {
+    if (observerSide(book, obs) === attackerFaction) continue;
+    const had = knowledgeOf(db, obs, id);
+    if (had && had.updatedDay === day) continue;
+    const k = learn(db, obs, inc, { provenance: 'direct_witness', confidence: 'corroborated', day, observedDay: day, claims, cause: had ? 'attack still under way' : 'attack witnessed' });
+    if (!had) k.version = 1;
+    k.attribution ||= { factionId: attackerFaction, provenance: 'direct_sensor', day };
+  }
+  inc.lastSeenDay = day;
+  return inc;
+}
+function detectAttacks(book, world, db, day, effects) {
+  if (db.config.militaryResponses === false) return;
+  // A campaign operation engaged at somebody's world.
+  for (const op of book.operations || []) {
+    if (op.status !== 'engaged') continue;
+    witnessAttack(book, world, db, { id: `inc:attack:${op.id}`, source: 'operation', sourceId: op.id, attackerFaction: op.faction, systemIndex: op.targetSystem, day, force: (op.hullIds || []).length }, effects);
+  }
+  // A doctrine raid on station at its target.
+  for (const o of db.objectives) {
+    if (o.status !== 'active' || o.kind !== 'raid' || !['engaged', 'shadowing'].includes(o.state)) continue;
+    witnessAttack(book, world, db, { id: `inc:attack:${o.raid.id}`, source: 'raid', sourceId: o.id, attackerFaction: o.polity, systemIndex: o.target.systemIndex, day, force: 1 }, effects);
+  }
+  // The attack ends: the holder sees it end in its own space (the force withdrew, was destroyed, stood
+  // down, surrendered — or took the world).
+  for (const inc of Object.values(db.incidents)) {
+    if (!isMilitaryIncident(inc) || inc.status !== 'open') continue;
+    let ended = null;
+    if (inc.source === 'operation') { const op = (book.operations || []).find((x) => x.id === inc.sourceId); if (!op || op.status === 'resolved') ended = op?.outcome === 'captured' ? 'world_fell' : op?.outcome === 'surrendered' ? 'surrendered' : 'threat_ended'; }
+    else if (inc.source === 'raid') { const o = db.objectives.find((x) => x.id === inc.sourceId); if (!o || o.status !== 'active' || !['engaged', 'shadowing'].includes(o.state)) ended = 'threat_ended'; }
+    else if (inc.source === 'interception' && day - (inc.lastSeenDay ?? inc.createdDay) >= 1) ended = 'threat_ended';
+    if (!ended) continue;
+    resolveIncident(book, world, db, inc, day, ended, `${inc.source} ${shortId(inc.sourceId)} ${ended.replace('_', ' ')}`, effects);
+    // Everyone who is there sees it end.
+    const where = systemIndexForLocation(db, inc.locationId);
+    for (const o of presentObservers(book, world, db, where)) { const k = knowledgeOf(db, o.observerId, inc.id); if (k && !k.resolution) { k.resolution = { status: ended, day }; k.updatedDay = day; k.version = (k.version || 0) + 1; k.lastChange = { day, cause: `attack ${ended.replace('_', ' ')} (seen)` }; } }
+  }
+}
+// A doctrine vessel fired on when running a blockade: its crew saw who (the blockading power).
+function interceptionWitnessed(book, world, db, a, b, day, effects) {
+  if (db.config.militaryResponses === false) return;
+  const id = `inc:attack:${b.id}:${a.id}:${day}`;
+  if (db.incidents[id]) return;
+  const inc = db.incidents[id] = { id, eventType: 'asset_attack', assetId: a.vid, polity: a.polity, source: 'interception', sourceId: b.id, locationId: locationIdFor(world, b.target),
+    jurisdictionAtOccurrence: jurisdictionAt(world, b.target), createdDay: day, lastSeenDay: day, detectedBy: `hull:${a.hullId}`, status: 'open', resolution: null, objectives: [] };
+  bump(db, 'incidentsCreated'); bump(db, 'incidentsAttack');
+  const obs = `hull:${a.hullId}`;
+  const k = learn(db, obs, inc, { provenance: 'direct_witness', confidence: 'corroborated', day, observedDay: day, cause: 'fired on running a blockade',
+    claims: { asset: { assetId: a.vid, kind: 'ship', role: a.doctrineRole, ownerId: `polity:${a.polity}`, factionId: a.polity }, lastKnown: { locationId: inc.locationId, position: null, observedAt: at(day) }, attacker: { factionId: b.power, identified: true, provenance: 'direct_sensor' } } });
+  k.attribution = { factionId: b.power, provenance: 'direct_sensor', day };
+  sendReport(db, book, world, { incidentId: id, from: obs, to: `command:${a.polity}`, day, kind: 'attack_report', include: REPORT_PROFILES.attack_report, channel: 'network' });
+}
+// An applicable surrender (authored or engine-reported): the attacking force stands down; those who
+// accepted it know at once, and a defence objective under it closes.
+export function recordSurrender(book, world, incidentId, day, { acceptedBy, effects = [] } = {}) {
+  const db = doctrineBook(book);
+  const inc = db.incidents[incidentId];
+  if (!inc || !isMilitaryIncident(inc) || inc.status !== 'open') return { ok: false, reason: 'no open attack incident' };
+  inc.surrender = { day, acceptedBy };
+  if (inc.source === 'operation') standDownOperation(book, world, inc.sourceId, day, effects, 'surrendered', `The attacking force at ${inc.locationId} surrendered.`);
+  for (const obs of [acceptedBy, `command:${inc.polity}`].filter(Boolean)) { const k = knowledgeOf(db, obs, incidentId); if (k) { k.surrender = { day, acceptedBy }; k.updatedDay = day; k.version = (k.version || 0) + 1; k.lastChange = { day, cause: 'surrender accepted' }; } }
+  resolveIncident(book, world, db, inc, day, 'surrendered', `surrender accepted by ${acceptedBy}`, effects);
+  return { ok: true };
+}
+
+// ----- area patrols -----
+// A patrol is a persistent assignment of one armed vessel to a bounded area: a frontier world it holds
+// and the systems next to it. It sails the area in cycles (out to one neighbour, back to its world to
+// report in). It may break off for a response inside its area only, and returns to the area afterwards.
+function patrolArea(world, polity, anchor) {
+  return [Number(anchor), ...world.neighbours(Number(anchor)).map(Number).filter((n) => { const c = world.systems[n]?.controller; return !c || c === polity || !atWar(world, polity, c); })].filter((v, i, a) => a.indexOf(v) === i).sort((x, y) => x - y);
+}
+function formPatrols(doctrine, book, world, db, day, effects, gen) {
+  const c = db.config;
+  // Keep each standing patrol sailing — formed here or ordered — whatever this power's formation
+  // settings: a cycle ended, the next begins from wherever the vessel is.
+  for (const pat of Object.values(db.patrols)) {
+    if (!['patrolling', 'responding'].includes(pat.status)) continue;
+    const h = liveHull(book, pat.polity, pat.hullId);
+    if (!h) { endPatrol(db, pat, day, 'vessel lost'); continue; }
+    if (hullIsDisabled(h)) { endPatrol(db, pat, day, 'vessel disabled'); continue; }
+    if (pat.status === 'patrolling' && !activeAssignmentFor(db, h.id) && !h.opId && h.status === 'ready') issuePatrolCycle(book, world, db, pat, day, effects);
+  }
+  for (const [polity, n] of Object.entries(c.patrolAreas || {})) {
+    if (!book.polities[polity] || !gen(polity, 'patrol')) continue;
+    const mine = Object.values(db.patrols).filter((p) => p.polity === polity && ['patrolling', 'responding'].includes(p.status));
+    if (mine.length >= n) continue;
+    const p = book.polities[polity];
+    if (day - (p.doctrinePatrolAreaDay ?? -1e9) < c.patrolFormEveryDays) continue;
+    const spare = spareHulls(book, world, db, polity, (h) => (world.shipStats(h.shipId)?.combat ?? 1) >= 0.5);
+    const frontier = spare.map((h) => Number(h.systemIndex)).filter((i) => world.systems[i]?.controller === polity && world.neighbours(i).some((nb) => world.systems[Number(nb)]?.controller !== polity)).sort((x, y) => x - y);
+    if (!frontier.length) continue;
+    const anchor = frontier[Math.floor(seededUnit(book.seed, 'doctrine-patrol-area', polity, day) * frontier.length)];
+    const hull = spare.find((h) => Number(h.systemIndex) === anchor);
+    const id = nid(book, db, 'pat');
+    const pat = db.patrols[id] = { id, polity, hullId: hull.id, vid: vidOf(hull), anchor, area: patrolArea(world, polity, anchor), status: 'patrolling', formedDay: day, cycles: 0, next: 0, responses: [], endedDay: null, endReason: null };
+    p.doctrinePatrolAreaDay = day;
+    bump(db, 'patrolsFormed');
+    issuePatrolCycle(book, world, db, pat, day, effects);
+  }
+}
+// An authored/debug patrol order: this vessel patrols the area around this world of its power's.
+export function startAreaPatrol(book, world, polity, hullId, anchor, day, effects = []) {
+  const db = doctrineBook(book);
+  const h = liveHull(book, polity, hullId);
+  if (!h || hullIsDisabled(h) || h.opId || h.status !== 'ready') return { ok: false, reason: 'the vessel is not free' };
+  if (world.systems[Number(anchor)]?.controller !== polity) return { ok: false, reason: 'a patrol area is anchored on a world of its own power' };
+  const id = nid(book, db, 'pat');
+  const pat = db.patrols[id] = { id, polity, hullId: h.id, vid: vidOf(h), anchor: Number(anchor), area: patrolArea(world, polity, anchor), status: 'patrolling', formedDay: day, cycles: 0, next: 0, responses: [], endedDay: null, endReason: null };
+  bump(db, 'patrolsFormed');
+  const r = issuePatrolCycle(book, world, db, pat, day, effects);
+  if (!r.ok) { endPatrol(db, pat, day, r.reason); return { ok: false, reason: r.reason }; }
+  return { ok: true, patrol: pat };
+}
+function issuePatrolCycle(book, world, db, pat, day, effects) {
+  const out = pat.area.filter((i) => i !== pat.anchor);
+  const stops = [];
+  if (out.length) { const nb = out[pat.next % out.length]; pat.next++; stops.push({ systemIndex: nb, dwell: db.config.patrolAreaDwellDays, milestone: 'arrival' }); }
+  stops.push({ systemIndex: pat.anchor, dwell: db.config.patrolAreaDwellDays, milestone: 'check_in' });
+  const r = issueAssignment(book, world, { polity: pat.polity, hullId: pat.hullId, kind: 'area_patrol', doctrineRole: 'patrol', patrolId: pat.id, stops }, day, effects);
+  if (r.ok) { r.assignment.patrolId = pat.id; pat.cycles++; pat.assignmentId = r.assignment.id; }
+  return r;
+}
+function endPatrol(db, pat, day, reason) {
+  if (!['patrolling', 'responding'].includes(pat.status)) return;
+  pat.status = 'ended'; pat.endedDay = day; pat.endReason = reason;
+}
+// A response that takes a patrol out of its area is not its to make.
+function patrolBound(book, world, db, hullId, targetSystem) {
+  const pat = patrolOfHull(db, hullId);
+  if (!pat || targetSystem == null) return { ok: true, pat };
+  if (pat.area.includes(Number(targetSystem))) return { ok: true, pat };
+  const r = routeBetween(world, pat.anchor, targetSystem, pat.polity);
+  if (r && r.length - 1 <= db.config.patrolResponseHops) return { ok: true, pat };
+  return { ok: false, pat, reason: `outside its patrol area (${pat.area.map((i) => sysName(world, i)).join(', ')})` };
+}
+
+// ----- defence -----
+function militaryBudget(db, polity, replacing = null) {
+  return db.objectives.filter((o) => o.status === 'active' && o.polity === polity && o.military && o.id !== replacing).length;
+}
+function defenseCapacity(book, world, db, observerId, k, day) {
+  const c = db.config;
+  const out = { ok: false, response: 'protect', hullId: null, vid: null, reason: null };
+  const inc = db.incidents[k?.incidentId];
+  const target = systemIndexForLocation(db, inc?.locationId);
+  const polity = observerSide(book, observerId);
+  if (!polity || !book.polities[polity]) return { ...out, reason: 'no organisation behind this observer' };
+  const obligation = defenseObligation(book, world, db, observerId, target);
+  if (!obligation) return { ...out, reason: 'no defence obligation there' };
+  if (k.resolution) return { ...out, reason: `the attack is known over (${k.resolution.status})` };
+  if (Number(book.polities[polity].supply ?? 1) < c.minSupply) return { ...out, reason: 'supply too low' };
+  let replacing = null;
+  const candidates = [];
+  if (observerId.startsWith('hull:')) {
+    const hid = observerId.slice(5);
+    const h = liveHull(book, polity, hid);
+    if (!h || hullIsDisabled(h)) return { ...out, reason: 'vessel is not operational' };
+    const bound = patrolBound(book, world, db, hid, target);
+    if (!bound.ok) return { ...out, reason: bound.reason };
+    const job = activeAssignmentFor(db, hid);
+    if (job && h.opId === job.id) { const allow = commitmentAllows(db, hid, 'protect'); if (!allow.ok) return { ...out, reason: allow.reason, conflict: { committedTo: allow.com.label } }; replacing = allow.preempts?.objective?.id || null; }
+    else if (h.opId || h.status !== 'ready') return { ...out, reason: `vessel committed to ${h.opId || h.status}` };
+    candidates.push(h);
+  } else {
+    // Spare, armed, and never a world's last defenders — and never the ships already defending there.
+    candidates.push(...spareHulls(book, world, db, polity, (h) => (world.shipStats(h.shipId)?.combat ?? 1) >= 0.5 && Number(h.systemIndex) !== Number(target)));
+    if (!candidates.length) return { ...out, reason: 'no spare armed vessel (garrison floor kept)' };
+  }
+  const busy = militaryBudget(db, polity, replacing);
+  if (busy >= c.maxMilitaryObjectivesPerPolity) return { ...out, reason: `military budget spent (${busy} military objectives running)` };
+  let best = null;
+  for (const h of candidates) {
+    const route = routeBetween(world, h.systemIndex, target, polity);
+    if (!route || route.length - 1 > c.defenseHops) continue;
+    if (!best || route.length < best.route.length) best = { h, route };
+  }
+  if (!best) return { ...out, reason: `no vessel within ${c.defenseHops} jumps of ${sysName(world, target)}` };
+  const allowed = observerId.startsWith('hull:') ? commitmentAllows(db, best.h.id, 'protect') : { ok: true };
+  return { ok: true, response: 'protect', military: 'defense', hullId: best.h.id, vid: vidOf(best.h), route: best.route, hops: best.route.length - 1, target, obligation, preempts: allowed.preempts || null,
+    reason: `${best.h.id} (${best.route.length - 1} jumps) to defend ${sysName(world, target)}${allowed.preempts ? ` — breaks off ${allowed.preempts.label}` : ''}` };
+}
+function startDefense(book, world, db, o, cap, day, effects) {
+  const r = issueAssignment(book, world, { polity: o.polity, hullId: cap.hullId, kind: 'defense', doctrineRole: o.role === 'commander' ? 'defender' : o.role, objectiveId: o.id, stops: [{ systemIndex: cap.target, dwell: 0, milestone: 'arrival' }] }, day, effects);
+  if (!r.ok) return r;
+  o.assignmentId = r.assignment.id;
+  o.kind = 'defense'; o.military = true; o.state = 'moving';
+  o.target = { locationId: locationIdFor(world, cap.target), systemIndex: cap.target, area: [locationIdFor(world, cap.target)] };
+  o.authority = { source: 'defense_obligation', detail: cap.obligation, jurisdiction: `authority:${world.systems[cap.target]?.controller}` };
+  o.deadline = at(day + db.config.defenseDeadlineDays);
+  o.fromSystem = r.assignment.itinerary[0].systemIndex;
+  if (Number(o.fromSystem) === Number(cap.target)) arriveDefense(book, world, db, o, day, effects);
+  effects.push({ type: 'doctrineVisible', kind: 'defense-departed', objectiveId: o.id, polity: o.polity, systemIndex: o.fromSystem, to: cap.target, day });
+  return { ok: true };
+}
+function arriveDefense(book, world, db, o, day, effects) {
+  const h = liveHull(book, o.polity, o.assigned.hullId);
+  if (!h) return;
+  h.defendingAt = Number(o.target.systemIndex);
+  o.state = 'defending'; o.arrivedDay = day;
+  o.actions.push({ day, action: 'defend', detail: `on station at ${o.target.locationId}; counts in its defence` });
+  effects.push({ type: 'doctrineOnSite', id: o.id, polity: o.polity, response: 'protect', systemIndex: o.target.systemIndex, day, lead: 'defense' });
+}
+
+// ----- authorised raids -----
+// The campaign's raid order: a bounded strike on one enemy world, by one named vessel, under a formal war
+// with the world's holder. The order is refused without that war. Doctrine then carries it out — sails
+// through the shared blockade engine, decides each day on station to engage, shadow or withdraw, and
+// stops the moment the war authority ends (a ceasefire, a peace): nothing already under way strikes
+// after that. The AI planner does not issue raid orders this round; the authored/debug order does.
+export function orderRaid(book, world, { power, target, hullId, day, doctrine = null, by = 'campaign' }, effects = []) {
+  const db = doctrineBook(book);
+  const rec = { id: nid(book, db, 'raidorder'), power, target: Number(target), hullId, day, by, status: null, reason: null, objectiveId: null };
+  db.raidOrders.push(rec); if (db.raidOrders.length > 30) db.raidOrders = db.raidOrders.slice(-30);
+  const stamp = warAuthorityStamp(book, world, power, target);
+  if (!stamp) { rec.status = 'refused'; rec.reason = `no formal war with the holder of ${sysName(world, target)}`; bump(db, 'raidOrdersRefused'); return { ok: false, reason: rec.reason, order: rec }; }
+  const h = liveHull(book, power, hullId);
+  if (!h || hullIsDisabled(h) || h.opId || h.status !== 'ready') { rec.status = 'refused'; rec.reason = 'the vessel is not free'; return { ok: false, reason: rec.reason, order: rec }; }
+  const prof = doctrine ? D.resolveProfile(doctrine, dominionContext(book, power, db)).profileId : power;
+  if (!isLive(db, prof, 'raider', 'raid')) { rec.status = 'shadow'; rec.reason = `raider execution is shadow-only for ${prof} this round`; return { ok: false, reason: rec.reason, order: rec }; }
+  const id = nid(book, db, 'obj');
+  const o = { id, incidentId: null, orderId: rec.id, template: 'raid', clock: CLOCK, actor: `command:${power}`, polity: power, profileId: prof, role: 'raider', response: 'raid', kind: 'raid', military: true,
+    assigned: { hullId: h.id, vid: vidOf(h) }, target: { locationId: locationIdFor(world, target), systemIndex: Number(target), area: [locationIdFor(world, target)] },
+    authority: { source: 'formal_war', stamp, detail: `formal war ${stamp.key} against ${stamp.holder}`, jurisdiction: `authority:${stamp.holder}` },
+    createdDay: day, deadline: at(day + db.config.raidDeadlineDays), status: 'active', resolution: null, assignmentId: null, actions: [], dwellDays: 0, arrivedDay: null, workDays: 0, state: 'moving', strikeDays: 0,
+    raid: { id: `${id}:raid`, faction: power, losses: 0, defenderLosses: 0 }, lead: 'raid' };
+  const r = issueAssignment(book, world, { polity: power, hullId: h.id, kind: 'raid', doctrineRole: 'raider', objectiveId: id, stops: [{ systemIndex: target, dwell: 0, milestone: 'arrival' }] }, day, effects);
+  if (!r.ok) { rec.status = 'refused'; rec.reason = r.reason; return { ok: false, reason: r.reason, order: rec }; }
+  o.assignmentId = r.assignment.id; o.fromSystem = r.assignment.itinerary[0].systemIndex;
+  o.actions.push({ day, action: 'assigned', detail: `raid on ${o.target.locationId} under ${o.authority.detail}` });
+  db.objectives.push(o); db.stats.objectives++; bump(db, 'liveObjectives'); bump(db, 'militaryObjectives');
+  rec.status = 'executing'; rec.objectiveId = id;
+  effects.push({ type: 'doctrineObjective', id, incidentId: null, polity: power, response: 'raid', hullId: h.id, vid: o.assigned.vid, to: Number(target), day, status: 'active' });
+  return { ok: true, objective: o, order: rec };
+}
+function advanceRaids(book, world, db, day, effects) {
+  const c = db.config;
+  for (const o of db.objectives) {
+    if (o.status !== 'active' || o.kind !== 'raid') continue;
+    // Authority first, every day: a raid whose war has ended does nothing more — not even a strike already
+    // in reach.
+    if (!warAuthorityHolds(book, world, o.authority.stamp)) {
+      const rel = world.relation(relSide(world, o.polity), relSide(world, o.authority.stamp.holder));
+      o.cancelRequested ||= `war authority ended (${o.polity}–${o.authority.stamp.holder}: ${rel})`;
+      o.cancelledBy = 'authority';
+      o.actions.push({ day, action: 'stand_down', detail: o.cancelRequested });
+      continue;
+    }
+    const a = db.assignments.find((x) => x.id === o.assignmentId);
+    const h = liveHull(book, o.polity, o.assigned.hullId);
+    if (!a || !h || a.status !== 'active' || hullIsDisabled(h)) continue;
+    if (Number(h.systemIndex) !== Number(o.target.systemIndex) || a.pos < a.itinerary.length - 1) continue;
+    if (!o.arrivedDay) { o.arrivedDay = day; o.state = 'engaged'; }
+    // On station: engage, shadow (hold, reassess) or withdraw — decided on what the raider sees there.
+    const mine = hullStrength(book, world, h) * Math.max(0.35, Number(book.polities[o.polity]?.supply ?? 1));
+    const defense = localDefenseStrength(book, world, o.target.systemIndex);
+    const ratio = defense > 0 ? mine / defense : Infinity;
+    if (ratio < c.raidMinRatio) { o.forceRatioPoor = true; o.state = 'withdrawing'; o.actions.push({ day, action: 'withdraw', detail: `force ratio ${ratio.toFixed(2)} < ${c.raidMinRatio}` }); continue; }
+    if (ratio < c.raidEngageRatio) { o.state = 'shadowing'; o.actions.push({ day, action: 'shadow', detail: `force ratio ${ratio.toFixed(2)}: holding, not striking` }); continue; }
+    o.state = 'engaged';
+    const res = raidStrikeDay(book, world, o.raid, [h], o.target.systemIndex, day, effects);
+    o.strikeDays++;
+    o.actions.push({ day, action: 'engage', detail: `strike ${o.strikeDays}/${c.raidStrikeDays}: defenders lost ${res.defenderLosses || 0}, raiders lost ${res.losses || 0}` });
+    if (o.strikeDays >= c.raidStrikeDays) o.found = { complete: true };
+    const hh = hullOf(book, o.polity, o.assigned.hullId);
+    if (!hh || hh.status === 'lost' || hullIsDisabled(hh)) o.forceRatioPoor = true;
+  }
+}
+
 // ---------- objective priority and conflict ----------
 // A vessel already on a job keeps it. The job is authoritative unless an explicit rule lets the new
 // response pre-empt it; otherwise the new response defers, and the conflict is recorded with its reason
@@ -1194,7 +1540,9 @@ export const PREEMPTION = Object.freeze({
   patrol: Object.freeze(['investigate', 'rescue']),
   return: Object.freeze(['investigate', 'rescue', 'protect']),
   investigation: Object.freeze(['rescue']),                // lives before evidence: the one emergency rule
+  area_patrol: Object.freeze(['investigate', 'protect', 'rescue']), // a patrol breaks off for a response in its own area
   rescue: Object.freeze([]), escort: Object.freeze([]), delivery: Object.freeze([]), construction: Object.freeze([]),
+  defense: Object.freeze([]), raid: Object.freeze([]),
 });
 function commitmentOf(db, hullId) {
   const a = activeAssignmentFor(db, hullId);
@@ -1383,7 +1731,7 @@ function joinedEscortsOf(book, db, charge) {
 export function responseCapacity(book, world, db, observerId, response, target, day, k = null) {
   const c = db.config;
   if (response === 'reroute') return rerouteCapacity(book, world, db, observerId, k, day);
-  if (response === 'protect') return escortCapacity(book, world, db, observerId, k, day);
+  if (response === 'protect') return isMilitaryIncident(db.incidents[k?.incidentId]) ? defenseCapacity(book, world, db, observerId, k, day) : escortCapacity(book, world, db, observerId, k, day);
   const polity = observerSide(book, observerId);
   const out = { ok: false, hullId: null, vid: null, route: null, reason: null, response };
   if (!polity || !book.polities[polity]) return { ...out, reason: 'no organisation behind this observer' };
@@ -1417,6 +1765,8 @@ export function responseCapacity(book, world, db, observerId, response, target, 
     const allow = job && h.opId === job.id ? commitmentAllows(db, hid, response) : { ok: !h.opId && h.status === 'ready' };
     if (!allow.ok) return { ...out, reason: allow.reason || (h.opId ? `vessel committed to ${String(h.opId)}` : `vessel is ${h.status}`), conflict: allow.com ? { committedTo: allow.com.label } : null };
     if (classifyDamage(h.hull, h.maxHull) !== 'operational') return { ...out, reason: 'vessel is not operational' };
+    const bound = patrolBound(book, world, db, hid, target.systemIndex);
+    if (!bound.ok) return { ...out, reason: bound.reason };
     candidates.push(h);
   } else {
     // A command assigns one of its own spare, armed ships (never a world's last defenders).
@@ -1474,13 +1824,44 @@ function indexLocations(world, db) {
 function isLive(db, profileId, role, response) {
   return (db.config.live || []).some((x) => x.profile === profileId && x.role === role && x.response === response);
 }
+function closePreempted(db, capacity, observerId, incident, response, day, effects) {
+  const old = capacity.preempts.objective;
+  if (old) {
+    // Ended now, under its own termination rule (cancelled), before the vessel takes the new job.
+    old.cancelRequested = `pre-empted by ${response} for ${incident.id}`;
+    old.status = 'aborted'; old.closedDay = day; bump(db, 'objectivesAborted');
+    old.resolution = { status: 'aborted', reasons: ['objective_cancelled'], alsoSucceeded: [], day, note: old.cancelRequested };
+    old.actions.push({ day, action: 'closed', detail: `aborted: ${old.cancelRequested}` });
+    effects.push({ type: 'doctrineObjective', id: old.id, incidentId: old.incidentId, polity: old.polity, response: old.response, hullId: old.assigned.hullId, vid: old.assigned.vid, to: old.target?.systemIndex ?? null, day, status: old.status, reasons: old.resolution.reasons });
+  }
+  recordConflict(db, { day, actor: observerId, hullId: capacity.hullId, incident: incident.id, wanted: response, committedTo: capacity.preempts.label, decision: 'preempted' });
+}
 function createObjective(book, world, db, doctrine, { observerId, doc, incident, response, capacity, target }, day, effects) {
   // `protect` of a threatened contract is an escort of its named charge: the escort template (strategic
   // clock, closes when the charge is safe), not the tactical immediate-defence one.
-  const tmplId = response === 'protect' ? 'escort' : doctrine.data.responseCatalog[response].objective;
+  const military = response === 'protect' && isMilitaryIncident(incident);
+  const tmplId = military ? 'defense' : response === 'protect' ? 'escort' : doctrine.data.responseCatalog[response].objective;
   const tmpl = doctrine.data.objectiveTemplates[tmplId];
   const polity = observerSide(book, observerId);
   const id = nid(book, db, 'obj');
+  if (military) {
+    // A strategic defence: the package's defence termination facts, on the strategic clock (the tactical
+    // defence of a loaded scene stays with the engine).
+    if (capacity.preempts) closePreempted(db, capacity, observerId, incident, response, day, effects);
+    const job = activeAssignmentFor(db, capacity.hullId);
+    if (job) { for (const m of job.milestones) if (m.status === 'pending') m.status = 'superseded'; endAssignment(db, book, job, day, 'diverted', `diverted to defend ${incident.locationId}`); }
+    const o = { id, incidentId: incident.id, template: 'defense', clock: CLOCK, actor: observerId, polity, profileId: doc.profileId, role: doc.role, response,
+      assigned: { hullId: capacity.hullId, vid: capacity.vid }, target: null, createdDay: day, deadline: at(day + db.config.defenseDeadlineDays), status: 'active', resolution: null, assignmentId: null, actions: [], dwellDays: 0, arrivedDay: null, workDays: 0, lead: 'defense' };
+    const r = startDefense(book, world, db, o, capacity, day, effects);
+    if (!r.ok) return { ok: false, reason: r.reason };
+    if (observerId !== `hull:${capacity.hullId}`) sendReport(db, book, world, { incidentId: incident.id, from: observerId, to: `hull:${capacity.hullId}`, day, kind: `orders:${id}`, include: REPORT_PROFILES.full, channel: 'override' });
+    const pat = patrolOfHull(db, capacity.hullId);
+    if (pat) { pat.status = 'responding'; pat.responding = id; pat.responses.push({ day, objectiveId: id, response }); pat.responses = pat.responses.slice(-10); }
+    db.objectives.push(o); incident.objectives.push(id); db.stats.objectives++; bump(db, 'liveObjectives'); bump(db, 'militaryObjectives');
+    o.actions.push({ day, action: 'assigned', detail: capacity.reason });
+    effects.push({ type: 'doctrineObjective', id, incidentId: incident.id, polity, response, hullId: capacity.hullId, vid: capacity.vid, to: o.target.systemIndex, day, status: 'active' });
+    return { ok: true, objective: o };
+  }
   if (response === 'reroute' || response === 'protect') {
     const o = { id, incidentId: incident.id, template: tmplId, clock: tmpl.clock, actor: observerId, polity, profileId: doc.profileId, role: doc.role, response,
       assigned: { hullId: capacity.hullId, vid: capacity.vid }, target: null, createdDay: day, deadline: at(day + db.config.escortDeadlineDays), status: 'active', resolution: null, assignmentId: null, actions: [], dwellDays: 0, arrivedDay: null, workDays: 0, lead: response };
@@ -1492,18 +1873,7 @@ function createObjective(book, world, db, doctrine, { observerId, doc, incident,
     return { ok: true, objective: o };
   }
   // A pre-emption the rule allows ends the vessel's current objective first, with the reason recorded.
-  if (capacity.preempts) {
-    const old = capacity.preempts.objective;
-    if (old) {
-      // Ended now, under its own termination rule (cancelled), before the vessel takes the new job.
-      old.cancelRequested = `pre-empted by ${response} for ${incident.id}`;
-      old.status = 'aborted'; old.closedDay = day; bump(db, 'objectivesAborted');
-      old.resolution = { status: 'aborted', reasons: ['objective_cancelled'], alsoSucceeded: [], day, note: old.cancelRequested };
-      old.actions.push({ day, action: 'closed', detail: `aborted: ${old.cancelRequested}` });
-      effects.push({ type: 'doctrineObjective', id: old.id, incidentId: old.incidentId, polity: old.polity, response: old.response, hullId: old.assigned.hullId, vid: old.assigned.vid, to: old.target?.systemIndex ?? null, day, status: old.status, reasons: old.resolution.reasons });
-    }
-    recordConflict(db, { day, actor: observerId, hullId: capacity.hullId, incident: incident.id, wanted: response, committedTo: capacity.preempts.label, decision: 'preempted' });
-  }
+  if (capacity.preempts) closePreempted(db, capacity, observerId, incident, response, day, effects);
   const deadlineDays = response === 'rescue' ? db.config.rescueDeadlineDays : db.config.investigationDeadlineDays;
   const dwell = response === 'rescue' ? db.config.rescueDwellDays : db.config.investigationDwellDays;
   // A diverted explorer ends its survey first; its command is told it has broken off.
@@ -1519,6 +1889,7 @@ function createObjective(book, world, db, doctrine, { observerId, doc, incident,
   const r = issueAssignment(book, world, { polity, hullId: capacity.hullId, kind: response === 'rescue' ? 'rescue' : 'investigation', doctrineRole: doc.role === 'commander' ? 'patrol' : doc.role, objectiveId: id,
     stops: [{ systemIndex: target.systemIndex, dwell: 0, milestone: 'arrival' }] }, day, effects);
   if (!r.ok) return { ok: false, reason: r.reason };
+  { const pat = patrolOfHull(db, capacity.hullId); if (pat) { pat.status = 'responding'; pat.responding = id; pat.responses.push({ day, objectiveId: id, response }); pat.responses = pat.responses.slice(-10); } }
   o.assignmentId = r.assignment.id;
   o.fromSystem = r.assignment.itinerary[0].systemIndex;
   // Orders carry the command's picture of the incident to the crew it sends.
@@ -1546,7 +1917,9 @@ function objectiveFacts(book, world, db, o, day) {
   if (pol && Number(pol.supply ?? 1) < db.config.minSupply) f.supply_inadequate = true;
   if (o.found?.evidenceRecovered) f.evidence_recovered = true;
   if (o.found?.complete) f.objective_complete = true;
-  if (o.response === 'protect') Object.assign(f, escortFacts(book, world, db, o));
+  if (o.kind === 'defense') Object.assign(f, defenseFacts(book, world, db, o, day));
+  else if (o.kind === 'raid') { if (o.forceRatioPoor) f.force_ratio_poor = true; if (o.cancelRequested) f.objective_cancelled = true; }
+  else if (o.response === 'protect') Object.assign(f, escortFacts(book, world, db, o));
   if (o.response === 'reroute') {
     const c = contractOf(db, o.contractId);
     const a = db.assignments.find((x) => x.id === o.assignmentId);
@@ -1559,6 +1932,20 @@ function objectiveFacts(book, world, db, o, day) {
     const a = db.assignments.find((x) => x.id === o.assignmentId);
     if (a && a.status === 'active' && day + (a.itinerary.length - 1 - a.pos) + o.dwellDays > o.deadline.value) { f.objective_cancelled = true; o.cancelRequested ||= 'can no longer finish before its deadline'; }
   }
+  return f;
+}
+// A defence ends when its actor knows the threat is over (seen in its own space, or reported), a
+// surrender it accepted, the world lost, the deadline, or the defender no longer able to defend.
+function defenseFacts(book, world, db, o, day) {
+  const f = {};
+  const k = knowledgeOf(db, o.actor, o.incidentId);
+  const crew = knowledgeOf(db, `hull:${o.assigned.hullId}`, o.incidentId);
+  const known = [k, crew].filter(Boolean);
+  if (known.some((x) => x.surrender)) f.surrender_accepted = true;
+  else if (known.some((x) => x.resolution && ['threat_ended', 'surrendered'].includes(x.resolution.status))) f.threat_ended = true;
+  if (known.some((x) => x.resolution?.status === 'world_fell') || world.systems[o.target.systemIndex]?.controller !== o.polity) { f.objective_cancelled = true; o.cancelRequested ||= 'the protected world was lost'; }
+  const h = hullOf(book, o.polity, o.assigned.hullId);
+  if (!h || h.status === 'lost' || hullIsDisabled(h)) { f.objective_cancelled = true; o.cancelRequested ||= 'the defender can no longer defend'; }
   return f;
 }
 function escortFacts(book, world, db, o) {
@@ -1579,7 +1966,13 @@ function escortFacts(book, world, db, o) {
   return f;
 }
 function workObjective(book, world, db, o, day, effects) {
-  if (o.response === 'protect' || o.response === 'reroute') return;
+  if (o.kind === 'defense') {
+    const a = db.assignments.find((x) => x.id === o.assignmentId);
+    const h = liveHull(book, o.polity, o.assigned.hullId);
+    if (o.state === 'moving' && a && h && a.status === 'active' && Number(h.systemIndex) === Number(o.target.systemIndex) && a.pos >= a.itinerary.length - 1 && !hullIsDisabled(h)) arriveDefense(book, world, db, o, day, effects);
+    return;
+  }
+  if (o.kind === 'raid' || o.response === 'protect' || o.response === 'reroute') return;
   const a = db.assignments.find((x) => x.id === o.assignmentId);
   const h = liveHull(book, o.polity, o.assigned.hullId);
   if (!a || !h || a.status !== 'active' || h.opId !== a.id) return;
@@ -1596,6 +1989,8 @@ function workObjective(book, world, db, o, day, effects) {
   if (o.response === 'rescue') {
     if (site?.survivors && !site.survivors.rescued && site.survivors.untilDay >= day) {
       site.survivors.rescued = true; site.survivors.rescuedBy = o.actor; site.survivors.rescuedDay = day;
+      // The people are taken off; every hulk they were aboard stays exactly where and as it is.
+      for (const w of site.wrecks) if (w.hullId && (site.survivors.aboardAll || []).includes(w.hullId)) rescueStrandedCrew(book, w.polity, w.hullId, day, o.actor);
       o.found = { complete: true, rescued: true };
       for (const d of siteDistress(db, site)) if (d.status === 'open') resolveIncident(book, world, db, d, day, 'survivors_rescued', `by ${o.actor}`, effects, o.id);
     } else { o.found = { searched: true, nobody: true }; o.cancelRequested ||= 'nobody left to rescue on site'; }
@@ -1660,18 +2055,33 @@ function closeObjectives(doctrine, book, world, db, day, effects) {
     if (st.status === 'open') continue;
     o.status = st.status; o.closedDay = day;
     bump(db, { completed: 'objectivesCompleted', aborted: 'objectivesAborted', expired: 'objectivesExpired' }[st.status] || 'objectivesClosedOther');
-    if (o.response === 'protect') o.escortState = 'closed';
+    if (o.response === 'protect' && !o.military) o.escortState = 'closed';
+    if (o.military) {
+      bump(db, 'militaryClosed');
+      if (o.kind === 'raid' && o.cancelledBy === 'authority') bump(db, 'militaryCancelledByAuthority');
+      if (st.reasons.includes('objective_deadline_reached')) bump(db, 'militaryExpired');
+      o.state = 'closed';
+      const dh = hullOf(book, o.polity, o.assigned.hullId); if (dh) delete dh.defendingAt;
+      const order = db.raidOrders.find((r) => r.objectiveId === o.id); if (order) order.status = st.status;
+    }
     o.resolution = { status: st.status, reasons: st.reasons, alsoSucceeded: st.alsoSucceeded || [], day, note: o.cancelRequested || null };
     o.actions.push({ day, action: 'closed', detail: `${st.status}: ${st.reasons.join(', ')}` });
     const a = db.assignments.find((x) => x.id === o.assignmentId);
     if (a && a.status === 'active') { for (const m of a.milestones) if (m.status === 'pending') m.status = 'superseded'; endAssignment(db, book, a, day, st.status === 'completed' ? 'completed' : 'ended', `objective ${st.status}`); }
-    // Home under a separate return order: nothing more happens under the closed objective.
+    // Home under a separate return order: nothing more happens under the closed objective. A patrol goes
+    // back to its area and resumes its cycles.
     const h = liveHull(book, o.polity, o.assigned.hullId);
-    if (h && !h.opId && h.status === 'ready' && classifyDamage(h.hull, h.maxHull) === 'operational') {
+    const pat = h && Object.values(db.patrols).find((p) => p.hullId === h.id && p.status === 'responding' && p.responding === o.id);
+    if (pat && h && !h.opId && h.status === 'ready' && !hullIsDisabled(h)) {
+      pat.status = 'patrolling'; pat.responding = null; pat.returnedDay = day;
+      bump(db, 'patrolsReturned');
+      issuePatrolCycle(book, world, db, pat, day, effects);
+    } else if (pat) { endPatrol(db, pat, day, h && hullIsDisabled(h) ? 'vessel disabled' : 'vessel unavailable after its response'); }
+    else if (h && !h.opId && h.status === 'ready' && classifyDamage(h.hull, h.maxHull) === 'operational') {
       const home = nearestHeld(world, o.polity, h.systemIndex);
       if (home != null && home !== Number(h.systemIndex)) issueAssignment(book, world, { polity: o.polity, hullId: h.id, kind: 'return', doctrineRole: o.role === 'commander' ? 'patrol' : o.role, stops: [{ systemIndex: home, dwell: 0, milestone: null }] }, day, effects);
     }
-    effects.push({ type: 'doctrineObjective', id: o.id, incidentId: o.incidentId, polity: o.polity, response: o.response, hullId: o.assigned.hullId, vid: o.assigned.vid, to: o.target.systemIndex, day, status: o.status, reasons: st.reasons });
+    effects.push({ type: 'doctrineObjective', id: o.id, incidentId: o.incidentId, polity: o.polity, response: o.response, hullId: o.assigned.hullId, vid: o.assigned.vid, to: o.target?.systemIndex ?? null, day, status: o.status, reasons: st.reasons, kind: o.kind || null, cancelledBy: o.cancelledBy || null });
     const inc = db.incidents[o.incidentId];
     if (inc && inc.status === 'open' && st.status === 'completed' && o.response === 'rescue') { /* rescue saves crews; the incident stays for whoever still seeks the ship */ }
   }
@@ -1711,9 +2121,12 @@ function trimClosed(db, book) {
   }
   for (const [obs, st] of Object.entries(db.knowledge)) if (!Object.keys(st).length) delete db.knowledge[obs];
   // Per-fact traces are kept for incidents still in play; a settled one keeps its verdicts only.
-  for (const [k, e] of Object.entries(db.lastEval)) { const inc = db.incidents[e.incident]; if (e.trace && inc && inc.status !== 'open' && (db.lastDay ?? 0) - (inc.resolution?.day ?? 0) > 30) delete e.trace; }
+  // (Phase 3: at once — a war's witnessed attacks settle quickly and in numbers.)
+  for (const [k, e] of Object.entries(db.lastEval)) { const inc = db.incidents[e.incident]; if (e.trace && inc && inc.status !== 'open' && (inc.eventType === 'asset_attack' || (db.lastDay ?? 0) - (inc.resolution?.day ?? 0) > 30)) delete e.trace; }
   // A verdict not renewed for two months belongs to the shadow log, not the live table.
   for (const [k, e] of Object.entries(db.lastEval)) if (day - (e.day ?? day) > 60) { delete db.lastEval[k]; delete db.lastRun[k]; }
+  // A verdict signature with no verdict or no incident behind it any more is dropped with them.
+  for (const k of Object.keys(db.lastRun)) if (!db.lastEval[k] || !db.incidents[k.slice(k.lastIndexOf('|') + 1)]) delete db.lastRun[k];
   // A lost vessel's crew knows nothing any more.
   const gone = (obs) => { if (!obs.startsWith('hull:')) return false; const pol = hullPolity(book, obs.slice(5)); return !pol || !liveHull(book, pol, obs.slice(5)); };
   for (const obs of Object.keys(db.knowledge)) if (gone(obs)) delete db.knowledge[obs];
@@ -1729,6 +2142,8 @@ function trimClosed(db, book) {
   for (const id of Object.keys(db.ground.fates)) if (!onBooks.has(id)) delete db.ground.fates[id];
   for (const map of [db.briefings, db.pactTasks]) for (const [obs, list] of Object.entries(map)) { map[obs] = list.filter((b) => db.activePactKeys?.includes(b.pactKey)).slice(-10); if (!map[obs].length) delete map[obs]; }
   for (const [to, list] of Object.entries(db.orders)) db.orders[to] = list.slice(-10);
+  const endedPatrols = Object.values(db.patrols || {}).filter((p) => p.status === 'ended').sort((x, y) => x.endedDay - y.endedDay);
+  for (const p of endedPatrols.slice(0, Math.max(0, endedPatrols.length - db.config.closedPatrolLimit))) delete db.patrols[p.id];
 }
 
 // ---------- evaluation ----------
@@ -1740,7 +2155,7 @@ function observersFor(book, db, incidentId) {
   if (db.incidents[incidentId]?.status !== 'open') { out.delete('player'); return [...out].sort(); }
   for (const p of db.config.watchCommands || []) if (book.polities[p]) out.add(`command:${p}`);
   for (const [polity, des] of Object.entries(db.designations || {})) for (const hid of Object.keys(des)) if (liveHull(book, polity, hid)) out.add(`hull:${hid}`);
-  for (const a of db.assignments) if (a.status === 'active' && ['exploration', 'delivery', 'construction', 'transport'].includes(a.kind) && liveHull(book, a.polity, a.hullId)) out.add(`hull:${a.hullId}`);
+  for (const a of db.assignments) if (a.status === 'active' && ['exploration', 'delivery', 'construction', 'transport', 'area_patrol'].includes(a.kind) && liveHull(book, a.polity, a.hullId)) out.add(`hull:${a.hullId}`);
   out.delete('player');
   return [...out].sort();
 }
@@ -1791,8 +2206,11 @@ function evaluateAll(doctrine, book, world, db, day, effects) {
       // Only the same response, or a deferral because of that very objective, is "already doing it"; a
       // different response deferred for another reason is a genuine deferral.
       const busyHere = Boolean(running && ((ev.deferred && (running.response === ev.response || String(ev.capacity?.reason || '').includes(`objective ${shortId(running.id)}`))) || (live && existing)));
-      if (busyHere) notActing = `objective ${shortId(running.id)} running on this incident`;
-      else if (live && existing) notActing = `objective ${existing.id} already ${existing.status}`;
+      // Another actor of the same power already on it (its command, or one of its patrols): one response each.
+      const handled = live && !existing && db.objectives.find((o) => o.status === 'active' && o.incidentId === inc.id && o.polity === observerSide(book, obs) && o.response === ev.response && o.actor !== obs);
+      if (busyHere) { notActing = `objective ${shortId(running.id)} running on this incident`; if (live) bump(db, 'repeatPrevented'); }
+      else if (live && existing) { notActing = `objective ${shortId(existing.id)} already ${existing.status}`; bump(db, 'repeatPrevented'); }
+      else if (handled) { notActing = `already handled by ${handled.actor} (objective ${shortId(handled.id)})`; bump(db, 'repeatPrevented'); }
       else if (live) {
         const r = createObjective(book, world, db, doctrine, { observerId: obs, doc: { profileId: ev.profileId, role: ev.role }, incident: inc, response: ev.response, capacity: ev.capacity, target: ev.target }, day, effects);
         acted = r.ok ? r.objective.id : null;
@@ -1805,8 +2223,18 @@ function evaluateAll(doctrine, book, world, db, day, effects) {
         proposal: ev.result, response: ev.response, failed: ev.failed, capacity: ev.capacity ? { ok: ev.capacity.ok, reason: ev.capacity.reason, hullId: ev.capacity.hullId } : null,
         live: Boolean(live), objective: acted || existing?.id || null, notActing: acted ? null : notActing, existing: existingActivity(book, world, obs) };
       const key = `${obs}|${inc.id}`;
-      db.lastEval[key] = { ...entry, trace: ev.trace, reason: ev.reason, profileReason: ev.profileReason, roleReason: ev.roleReason };
-      const sig = JSON.stringify([entry.proposal, entry.response, entry.failed, entry.matchedRule, entry.objective, entry.capacity?.ok, entry.knownFacts]);
+      // An observer that has not heard of the incident has nothing to explain beyond that: its verdict is
+      // kept in a compact form (a long war produces many incidents and many such observers).
+      const unknown = ev.result === 'ignore_unknown' && !entry.knownFacts.length && !entry.objective;
+      // A witnessed attack is known to its witnesses and whoever they tell; the rest of the galaxy's
+      // observers are not listed against it at all (a war makes many of these).
+      if (unknown && inc.eventType === 'asset_attack') { delete db.lastEval[key]; delete db.lastRun[key]; continue; }
+      db.lastEval[key] = unknown ? { day, actor: obs, incident: inc.id, profile: ev.profileId, role: ev.role, knownFacts: [], proposal: ev.result, response: null, failed: [], live: false, objective: null, notActing }
+        // The per-fact trace is kept for the facts that decided it: those that hold and those the verdict
+        // names as missing. (The rest are false and carry nothing a reader needs; a long war would pay a
+        // kilobyte per observer per incident for them.)
+        : { ...entry, trace: Object.fromEntries(Object.entries(ev.trace || {}).filter(([f]) => entry.knownFacts.includes(f) || (entry.failed || []).includes(f))), reason: ev.reason, profileReason: ev.profileReason, roleReason: ev.roleReason };
+      const sig = unknown ? 'unknown' : JSON.stringify([entry.proposal, entry.response, entry.failed, entry.matchedRule, entry.objective, entry.capacity?.ok, entry.knownFacts]);
       if (db.lastRun[key] !== sig) {
         // A changed verdict on the same incident is a reevaluation: what changed in this observer's own
         // record (a report delivered, evidence seen) or in its capacity (a vessel back, a job finished).
@@ -1884,7 +2312,9 @@ export function advanceDoctrineDay(book, world, day, effects, doctrine) {
   deliverSightings(book, world, db, day);
   forwardToOwnVessels(book, world, db, day);
   detectSites(book, world, db, day, effects);
+  detectAttacks(book, world, db, day, effects);
   for (const o of db.objectives) if (o.status === 'active') workObjective(book, world, db, o, day, effects);
+  advanceRaids(book, world, db, day, effects);
   closeObjectives(doctrine, book, world, db, day, effects);
   evaluateAll(doctrine, book, world, db, day, effects);
   searchHails(book, world, db, day, effects);
@@ -1911,6 +2341,8 @@ export function releaseDoctrineHulls(book, day, reason = 'doctrine switched off'
   let n = 0;
   for (const o of db.objectives || []) if (o.status === 'active') { o.status = 'aborted'; o.closedDay = day; bump(db, 'objectivesAborted'); o.resolution = { status: 'aborted', reasons: ['objective_cancelled'], day, note: reason }; if (o.response === 'protect') o.escortState = 'closed'; }
   for (const c of Object.values(db.contracts || {})) if (c.status === 'active') { c.status = 'cancelled'; c.closedDay = day; c.closeReason = reason; }
+  for (const pat of Object.values(db.patrols || {})) endPatrol(db, pat, day, reason);
+  for (const o of db.objectives || []) if (o.military) { o.state = 'closed'; const h = hullOf(book, o.polity, o.assigned.hullId); if (h) delete h.defendingAt; }
   for (const a of db.assignments) if (a.status === 'active') {
     for (const m of a.milestones) if (m.status === 'pending') m.status = 'superseded';
     endAssignment(db, book, a, day, 'ended', reason); n++;
@@ -1948,9 +2380,39 @@ export function issueCentralOrder(book, to, from = 'dominion', day = 0) {
 // Debug summary: the incidents and what each observer knows and proposes. Never shown to the player
 // outside Cheats & Debug.
 export { settleDistress as _settleDistress, raiseDistress as _raiseDistress };
-export function debugSummary(book, observerFilter = null) {
+// The chain for a military objective, as debug shows it: known target → objective → authority →
+// physical gates. Strategic: the physical gates are the tactical engine's and are never claimed here.
+function militaryChain(doctrine, book, world, db, o) {
+  const k = o.incidentId ? knowledgeOf(db, o.actor, o.incidentId) : null;
+  const facts = {};
+  if (o.status === 'active') facts.engagement_objective_active = true;
+  if (o.kind === 'defense') {
+    if (k?.attribution) facts.attack_on_protected_verified = true;
+    facts.defense_obligation_active = true;
+  }
+  if (o.kind === 'raid' && world && warAuthorityHolds(book, world, o.authority.stamp)) { facts.war_target_verified = true; facts.war_order_active = true; }
+  let fire = null;
+  if (doctrine && o.profileId) { try { fire = D.fireDecision(doctrine, { profileId: o.profileId, role: o.kind === 'defense' ? 'defender' : o.role, facts }); } catch { fire = null; } }
+  const target = o.kind === 'defense' ? `attack at ${o.target?.locationId}${k?.attribution ? ` by ${k.attribution.factionId} (${k.attribution.provenance})` : ' (attacker unidentified)'}` : `${o.target?.locationId} (${world?.systems[o.target?.systemIndex]?.controller || 'unheld'})`;
+  return { target, objective: `${o.kind} ${shortId(o.id)} ${o.status}`, authority: fire ? (fire.modes.length ? `modes ${fire.modes.join(', ')}${fire.failed.includes('engagement_authorized') ? ' — not authorised' : ' — engagement authorised'}` : 'no engagement mode applies') : Object.keys(facts).join(', '),
+    physical: `physical gates (live track, weapon usable/ready, in equipped range, target actionable) belong to the tactical engine; offscreen the fight is the campaign's attrition model${fire ? ` · unmet now: ${fire.failed.filter((x) => x !== 'engagement_authorized').join(', ')}` : ''}` };
+}
+export function debugSummary(book, observerFilter = null, doctrine = null, world = null) {
   const db = doctrineBook(book);
+  const tmpl = (id) => doctrine?.data?.objectiveTemplates?.[id];
+  const factsOf = (p) => { const out = []; const walk = (x) => { if (!x || typeof x !== 'object') return; if (x.fact) out.push(x.fact); for (const v of [...(x.any || []), ...(x.all || [])]) walk(v); }; walk(p); return out; };
   return {
+    military: db.objectives.filter((o) => o.military).slice(-20).map((o) => {
+      const k = o.incidentId ? knowledgeOf(db, o.actor, o.incidentId) : null;
+      let holding = [];
+      if (o.status === 'active' && world) { try { holding = Object.keys(objectiveFacts(book, world, db, o, db.lastDay ?? 0)).filter(Boolean); } catch { holding = []; } }
+      return { id: o.id, kind: o.kind, actor: o.actor, vid: o.assigned.vid, hullId: o.assigned.hullId, authority: o.authority, target: o.target?.locationId, state: o.state, status: o.status, resolution: o.resolution, deadline: o.deadline.value,
+        lastAction: o.actions.at(-1) || null, knowledge: k ? `${k.attribution ? `attacker ${k.attribution.factionId} (${k.attribution.provenance})` : 'attacker unknown'} · ${k.provenance} · ${k.confidence}${k.resolution ? ` · known ${k.resolution.status}` : ''}` : o.kind === 'raid' ? 'ordered target; seen on arrival' : null,
+        termination: { success: factsOf(tmpl(o.template)?.successWhen), abort: factsOf(tmpl(o.template)?.abortWhen), holding }, fireChain: militaryChain(doctrine, book, world, db, o) };
+    }),
+    patrols: Object.values(db.patrols || {}).map((p) => ({ ...p, at: liveHull(book, p.polity, p.hullId)?.systemIndex ?? null })),
+    stranded: Object.entries(book.polities || {}).flatMap(([pid, pol]) => (pol.hulls || []).filter((h) => h.stranded && h.status !== 'lost').map((h) => ({ polity: pid, hullId: h.id, vid: vidOf(h), systemIndex: h.systemIndex, hull: Math.round(h.hull), maxHull: h.maxHull, since: h.stranded.since, days: (db.lastDay ?? book.settled ?? 0) - h.stranded.since, crew: h.stranded.crew, crewUntil: h.stranded.crewUntil, crewEndDay: h.stranded.crewEndDay, recovery: h.stranded.recovery, recoveredBy: h.stranded.recoveredBy, opId: h.opId || null }))),
+    raidOrders: db.raidOrders.slice(),
     incidents: Object.values(db.incidents).map((i) => ({ ...i, observers: Object.entries(db.knowledge).filter(([, s]) => s[i.id]).map(([o, s]) => ({ observerId: o, provenance: s[i.id].provenance, confidence: s[i.id].confidence, receivedDay: s[i.id].receivedAt.value, evidence: Object.keys(s[i.id].evidence).length, survivors: Boolean(s[i.id].survivors), linkedLosses: s[i.id].linkedLosses.map((l) => l.factionId), resolution: s[i.id].resolution?.status || null })) })),
     evaluations: Object.values(db.lastEval).filter((e) => !observerFilter || e.actor === observerFilter),
     objectives: db.objectives.map((o) => ({ id: o.id, incidentId: o.incidentId, actor: o.actor, response: o.response, template: o.template, hullId: o.assigned.hullId, vid: o.assigned.vid, target: o.target?.locationId ?? null, createdDay: o.createdDay, deadline: o.deadline, status: o.status, resolution: o.resolution,

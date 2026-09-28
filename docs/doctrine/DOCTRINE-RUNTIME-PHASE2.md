@@ -371,6 +371,8 @@ Carried forward:
   incident (a new overdue tender) to be escorted again;
 - a disabled hull repairs itself in a few days under the campaign's §6 rules, so a crew aboard a hulk may
   sail on before a rescue arrives (the distress incident then resolves `vessel_under_way`).
+  **Superseded in phase 3** (DOCTRINE-RUNTIME-PHASE3.md §1): a disabled hull stays disabled until a real
+  recovery brings it into a yard; `vessel_under_way` now follows only such a recovery and repair.
 
 ## 15. Tuning (phase 2 additions; campaign days, first-pass values)
 

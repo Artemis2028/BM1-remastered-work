@@ -36,6 +36,10 @@ export const CAMPAIGN_RULES = Object.freeze({
   workforcePerBerth: 1,
   energyPerHeavyBerth: 2,
   repairPointsPerBerthDay: 200,    // repairing this many hull points occupies one berth for a day
+  // Disabled hulls (DOCTRINE-RUNTIME-PHASE3 §1): stranded until something actually recovers them.
+  crewSurvivalDays: 20,            // a disabled crew's life support; the doctrine survivor window is the same clock
+  strandedRecoveryDays: 2,         // an own yard in the same system (not under blockade) takes this long to bring a hulk in
+  derelictWriteOffDays: 90,        // a crewless hulk nobody recovers is written off this long after its crew were gone
   // Readiness
   strengthPerPrice: 1 / 1000,      // hull strength = price × this × condition × crew × supply
   crewRecoveryPerDay: 0.02,        // crew readiness regained per day at a world with morale effects
@@ -592,6 +596,7 @@ function settleCampaignDay(book, world, day, effects) {
   settleEconomy(book, world, day, effects);
   advanceProduction(book, world, day, effects);
   advanceGarrisons(book, world, day);
+  advanceStranded(book, world, day, effects);
   advanceRepairs(book, world, day);
   advanceIntegrations(book, world, day, effects);
   enforceRelations(book, world, day, effects);
@@ -599,6 +604,8 @@ function settleCampaignDay(book, world, day, effects) {
   advanceOperations(book, world, day, effects);
   advanceDominion(book, world, day, effects);
   advanceStrategicOps(book, world, day, effects);
+  // Anything disabled today (a battle, a blockade run) is stranded before anyone can pick it up.
+  advanceStranded(book, world, day, effects);
   // Faction doctrine (DOCTRINE-RUNTIME-PHASE1): persistent incidents, per-observer knowledge, shadow
   // evaluation and the pilot responses. Supplied by the engine with the loaded doctrine; a world
   // without it (every pure fixture) runs exactly as before.
@@ -853,6 +860,82 @@ function advanceProduction(book, world, day, effects) {
     p.repairedToday = {};
   }
 }
+// ---------- disabled hulls: stranded until recovered (DOCTRINE-RUNTIME-PHASE3 §1) ----------
+// A disabled hull does not repair itself, sail itself, or join anything. Three separate things happen to
+// it, each only when something real does them:
+//   crew      aboard → rescued (someone took them off) | lost (life support ran out: crewSurvivalDays)
+//   recovery  awaiting_recovery → recovering → in_yard  (an own yard in the same system, not blockaded, brings
+//             it in; or an explicit recovery — a tow arriving — recorded by recoverStrandedHull)
+//   repair    only in_yard, by the ordinary yard repair below
+// Campaign days alone change nothing but the crew clock. A crewless hulk nobody recovers is written off.
+export function hullIsDisabled(h) {
+  return Boolean(h) && h.status !== 'lost' && Number(h.maxHull) > 0 && classifyDamage(h.hull, h.maxHull) === 'disabled';
+}
+// What a hull released from a job becomes: available if it can sail, stranded if it cannot.
+function releaseStatus(h) { return hullIsDisabled(h) ? 'repairing' : 'ready'; }
+function ownYardAt(world, polityId, systemIndex) {
+  return world.systems[Number(systemIndex)]?.controller === polityId && (stationEffects(world, Number(systemIndex), polityId).repairCapacity || 0) > 0;
+}
+function strandHull(book, h, polityId, day, effects) {
+  const c = book.config;
+  h.stranded = { since: day, systemIndex: Number(h.systemIndex), recovery: 'awaiting_recovery', recoverySince: null, recoveredBy: null,
+    crew: 'aboard', crewUntil: day + (c.crewSurvivalDays ?? 20), crewEndDay: null };
+  effects.push({ type: 'hullStranded', polityId, hullId: h.id, vid: h.identity?.vid || h.vid || h.id, systemIndex: Number(h.systemIndex), day, crewUntil: h.stranded.crewUntil });
+}
+export function advanceStranded(book, world, day, effects = []) {
+  const c = book.config;
+  for (const [id, p] of Object.entries(book.polities)) {
+    if (id === 'player') continue; // the engine owns the captain's vessels (§6)
+    for (const h of p.hulls) {
+      if (h.status === 'lost') continue;
+      if (!hullIsDisabled(h)) {
+        // Back in operation — only ever by a real repair.
+        if (h.stranded) { effects.push({ type: 'hullRestored', polityId: id, hullId: h.id, vid: h.identity?.vid || h.id, systemIndex: Number(h.systemIndex), day, strandedDays: day - h.stranded.since }); delete h.stranded; }
+        continue;
+      }
+      if (!h.stranded) strandHull(book, h, id, day, effects);
+      const s = h.stranded;
+      // Never available. Whatever job still holds it (an operation mid-battle, a doctrine assignment) keeps
+      // its claim and releases it by its own rules; released, it is stranded, not ready.
+      if (h.status === 'ready' || (h.status === 'assigned' && !h.opId)) h.status = 'repairing';
+      s.systemIndex = Number(h.systemIndex);
+      if (s.crew === 'aboard' && day > s.crewUntil) {
+        s.crew = 'lost'; s.crewEndDay = day; h.crew = 0;
+        effects.push({ type: 'strandedCrewLost', polityId: id, hullId: h.id, vid: h.identity?.vid || h.id, systemIndex: s.systemIndex, day });
+      }
+      const blockaded = applicableBlockadesAt(book, world, s.systemIndex, id).length > 0;
+      if (s.recovery === 'awaiting_recovery' && ownYardAt(world, id, s.systemIndex) && !blockaded) { s.recovery = 'recovering'; s.recoverySince = day; s.recoveredBy = 'yard'; }
+      else if (s.recovery === 'recovering' && (blockaded || !ownYardAt(world, id, s.systemIndex))) { s.recovery = 'awaiting_recovery'; s.recoverySince = null; s.recoveredBy = null; }
+      if (s.recovery === 'recovering' && day - s.recoverySince >= (c.strandedRecoveryDays ?? 2)) {
+        s.recovery = 'in_yard';
+        effects.push({ type: 'hullRecovered', polityId: id, hullId: h.id, vid: h.identity?.vid || h.id, systemIndex: s.systemIndex, day, via: s.recoveredBy });
+      }
+      // Nobody aboard and nobody coming: the owner writes the hulk off. Its identity is retired, never reused.
+      if (s.recovery === 'awaiting_recovery' && s.crew !== 'aboard' && day - s.crewEndDay > (c.derelictWriteOffDays ?? 90)) {
+        h.status = 'lost'; h.hull = 0; h.fate = 'written_off'; h.opId = null;
+        p.lostHulls = (p.lostHulls || 0) + 1; book.stats.hullsLost++;
+        effects.push({ type: 'strandedWrittenOff', polityId: id, hullId: h.id, vid: h.identity?.vid || h.id, systemIndex: s.systemIndex, day });
+      }
+    }
+  }
+}
+// A recovery that actually happened (a tow brought it to a yard, an authored salvage): the hulk is in the
+// yard and the ordinary repair takes over. Refused where there is no own yard to be in.
+export function recoverStrandedHull(book, world, polityId, hullId, day, via = 'recovery') {
+  const h = hullOf(book, polityId, hullId);
+  if (!h || !hullIsDisabled(h)) return { ok: false, reason: 'not a disabled hull' };
+  if (!ownYardAt(world, polityId, h.systemIndex)) return { ok: false, reason: 'no own yard here: it waits for a tow' };
+  h.stranded ||= { since: day, systemIndex: Number(h.systemIndex), crew: 'aboard', crewUntil: day + (book.config.crewSurvivalDays ?? 20), crewEndDay: null };
+  h.stranded.recovery = 'in_yard'; h.stranded.recoverySince = day; h.stranded.recoveredBy = via;
+  return { ok: true };
+}
+// People taken off a hulk: the crew are safe; the hull stays exactly where and as it is.
+export function rescueStrandedCrew(book, polityId, hullId, day, by = null) {
+  const h = hullOf(book, polityId, hullId);
+  if (!h?.stranded || h.stranded.crew !== 'aboard') return false;
+  h.stranded.crew = 'rescued'; h.stranded.crewEndDay = day; h.stranded.rescuedBy = by; h.crew = 0;
+  return true;
+}
 function advanceRepairs(book, world, day) {
   const c = book.config;
   for (const id of Object.keys(book.polities)) {
@@ -863,8 +946,10 @@ function advanceRepairs(book, world, day) {
     p.repairedToday = {};
     for (const h of p.hulls) {
       if (h.status === 'lost' || h.hull >= h.maxHull) { if (h.status === 'repairing') h.status = 'ready'; continue; }
+      // A disabled hull is repaired only once it has been recovered into a yard; it never sails anywhere.
+      if (hullIsDisabled(h) && h.stranded?.recovery !== 'in_yard') continue;
       // A damaged, uncommitted hull with no repair facility here sails to the nearest owned yard.
-      if (h.status === 'ready' && !(budget[h.systemIndex] > 0) && h.hull < h.maxHull * 0.6 && yards.length) {
+      if (h.status === 'ready' && !hullIsDisabled(h) && !(budget[h.systemIndex] > 0) && h.hull < h.maxHull * 0.6 && yards.length) {
         const target = yards.map((i) => ({ i, hops: world.routeHops([h.systemIndex], i, id) })).filter((x) => x.hops != null).sort((a, b) => a.hops - b.hops)[0];
         if (target) { h.status = 'repairing'; h.arriveDay = day + Math.max(1, target.hops); h.systemIndex = target.i; }
         continue;
@@ -873,7 +958,8 @@ function advanceRepairs(book, world, day) {
       if (!(budget[h.systemIndex] > 0)) continue;
       const need = h.maxHull - h.hull, done = Math.min(need, budget[h.systemIndex]);
       h.hull += done; budget[h.systemIndex] -= done; p.repairedToday[h.systemIndex] = (p.repairedToday[h.systemIndex] || 0) + done;
-      h.status = h.hull >= h.maxHull ? 'ready' : 'repairing';
+      // A doctrine job keeps its hull through the repair; it resumes when the hull can sail (§6).
+      if (!(h.opId && String(h.opId).includes('doctrine-') && !hullIsDisabled(h))) h.status = h.hull >= h.maxHull ? 'ready' : 'repairing';
     }
   }
 }
@@ -973,6 +1059,12 @@ export function defendingPolityIds(book, world, systemIndex, attackerId = null) 
   }
   return out;
 }
+// Who stands in a world's defence: its ready hulls, and hulls sent there on a defence objective
+// (DOCTRINE-RUNTIME-PHASE3) once they have arrived. Never a disabled hulk.
+function defendsHere(h, systemIndex) {
+  return Number(h.systemIndex) === Number(systemIndex) && !hullIsDisabled(h)
+    && (h.status === 'ready' || (h.status === 'assigned' && h.defendingAt != null && Number(h.defendingAt) === Number(systemIndex)));
+}
 export function localDefenseStrength(book, world, systemIndex) {
   const sys = world.systems[systemIndex];
   // Only installations owned by the controller (or a side not at war with it) defend the world.
@@ -986,7 +1078,7 @@ export function localDefenseStrength(book, world, systemIndex) {
   }
   let strength = defense * book.config.garrisonStrengthPerDefense;
   for (const id of defendingPolityIds(book, world, systemIndex)) {
-    for (const h of polity(book, id).hulls) if (h.status === 'ready' && h.systemIndex === systemIndex) strength += hullStrength(book, world, h);
+    for (const h of polity(book, id).hulls) if (defendsHere(h, systemIndex)) strength += hullStrength(book, world, h);
   }
   return strength;
 }
@@ -1003,7 +1095,7 @@ function planOperations(book, world, day, effects) {
     // The Dominion's targets are only powers it is formally at war with; with none left in reach it may
     // deliberately escalate against a new one (below). Everyone else plans only against its wars.
     if (!targets.length && id !== 'dominion') continue;
-    const ready = p.hulls.filter((h) => h.status === 'ready');
+    const ready = p.hulls.filter((h) => h.status === 'ready' && !hullIsDisabled(h));
     // A home garrison stays behind at every held world: an offensive never strips a world of its last defenders.
     const perSystem = {};
     for (const h of ready) perSystem[h.systemIndex] = (perSystem[h.systemIndex] || 0) + 1;
@@ -1136,7 +1228,7 @@ function advanceOperations(book, world, day, effects) {
     // hulls become its garrison and no battle is recorded.
     if (world.systems[op.targetSystem]?.controller === op.faction && op.resolvedBy !== 'local') {
       op.status = 'resolved'; op.resolvedDay = day; op.outcome = 'absorbed'; op.resolvedBy = 'offscreen';
-      for (const h of operationHulls(book, op)) { h.opId = null; h.status = 'ready'; h.systemIndex = op.targetSystem; }
+      for (const h of operationHulls(book, op)) { h.opId = null; h.status = releaseStatus(h); h.systemIndex = op.targetSystem; }
       addHistory(book, day, 'operation', `${world.factionName(op.faction)} forces bound for ${world.systems[op.targetSystem]?.name} joined its garrison; the world was already held.`, { opId: op.id, systemIndex: op.targetSystem, faction: op.faction });
       continue;
     }
@@ -1192,8 +1284,29 @@ function resolveOffscreenDay(book, world, op, day, effects) {
     finishOperation(book, world, op, day, 'captured', effects, 'offscreen');
     effects.push({ type: 'captureSystem', systemIndex: op.targetSystem, by: op.faction, from, opId: op.id, day });
     recordCapture(book, world, op.targetSystem, op.faction, from, day);
-    for (const h of operationHulls(book, op)) { h.status = 'ready'; h.opId = null; }
+    for (const h of operationHulls(book, op)) { h.status = releaseStatus(h); h.opId = null; }
   }
+}
+// One day of a bounded raid's strike (DOCTRINE-RUNTIME-PHASE3 §5), resolved by the same attrition model as
+// an offscreen operation day: the raiders and the world's defenders lose hull by the strength ratio. A
+// raid never captures. `raid` carries the counters an operation carries ({ id, faction, losses,
+// defenderLosses }); its authority is the caller's to have checked the same day.
+export function raidStrikeDay(book, world, raid, hulls, targetSystem, day, effects = []) {
+  const c = book.config;
+  const live = hulls.filter((h) => h && h.status !== 'lost' && !hullIsDisabled(h));
+  if (!live.length) return { ok: false, reason: 'no raider can fight' };
+  const attack = live.reduce((n, h) => n + hullStrength(book, world, h), 0) * bounded(polity(book, raid.faction).supply, c.supplyFloor, 1);
+  const defense = localDefenseStrength(book, world, targetSystem);
+  const roll = seededUnit(book.seed, 'raid', raid.id, day);
+  const before = { losses: raid.losses || 0, defenderLosses: raid.defenderLosses || 0 };
+  raid.losses ||= 0; raid.defenderLosses ||= 0;
+  if (defense > 0) {
+    const ratio = attack / (attack + defense);
+    applyLosses(book, world, live, bounded((1 - ratio) * c.attritionPerDay * (0.7 + roll * 0.6), 0, 0.5), raid, day);
+    applyDefenderLosses(book, world, targetSystem, bounded(ratio * c.attritionPerDay * (0.7 + (1 - roll) * 0.6), 0, 0.5), raid, day, effects);
+  }
+  effects.push({ type: 'raidStrike', raidId: raid.id, faction: raid.faction, targetSystem: Number(targetSystem), day, attack: Math.round(attack), defense: Math.round(defense), losses: raid.losses - before.losses, defenderLosses: raid.defenderLosses - before.defenderLosses });
+  return { ok: true, attack, defense, losses: raid.losses - before.losses, defenderLosses: raid.defenderLosses - before.defenderLosses };
 }
 function applyLosses(book, world, hulls, fraction, op, day) {
   let budget = hulls.reduce((n, h) => n + h.maxHull, 0) * fraction;
@@ -1208,7 +1321,7 @@ function applyLosses(book, world, hulls, fraction, op, day) {
 function applyDefenderLosses(book, world, systemIndex, fraction, op, day, effects) {
   for (const id of defendingPolityIds(book, world, systemIndex, op.faction)) {
     const p = polity(book, id);
-    const local = p.hulls.filter((h) => h.status === 'ready' && h.systemIndex === systemIndex);
+    const local = p.hulls.filter((h) => defendsHere(h, systemIndex));
     if (!local.length) continue;
     let budget = local.reduce((n, h) => n + h.maxHull, 0) * fraction, i = 0;
     const report = [];
@@ -1261,12 +1374,21 @@ function finishOperation(book, world, op, day, outcome, effects, resolvedBy, not
   book.stats.battlesResolved++;
   const survivors = operationHulls(book, op);
   for (const h of survivors) {
-    h.opId = null; h.status = 'ready';
-    if (outcome !== 'captured') h.systemIndex = h.originSystem ?? op.originSystem ?? h.systemIndex;
+    h.opId = null; h.status = releaseStatus(h);
+    // A disabled survivor cannot go home: it stays where it was disabled, stranded.
+    if (outcome !== 'captured' && !hullIsDisabled(h)) h.systemIndex = h.originSystem ?? op.originSystem ?? h.systemIndex;
     h.originSystem = null;
   }
   addHistory(book, day, 'battle', note || `${world.factionName(op.faction)} operation at ${world.systems[op.targetSystem]?.name}: ${outcome} (${op.losses} lost, ${op.defenderLosses} defenders lost).`, { opId: op.id, systemIndex: op.targetSystem, outcome, faction: op.faction });
   effects.push({ type: 'operationResolved', opId: op.id, faction: op.faction, targetSystem: op.targetSystem, outcome, losses: op.losses, defenderLosses: op.defenderLosses, day, resolvedBy: op.resolvedBy });
+}
+// A single operation ending by something other than battle (DOCTRINE-RUNTIME-PHASE3: an accepted
+// surrender). Survivors are released the ordinary way.
+export function standDownOperation(book, world, opId, day, effects = [], outcome = 'stood-down', note = null) {
+  const op = (book.operations || []).find((o) => o.id === opId);
+  if (!op || op.status === 'resolved' || op.resolvedBy === 'local') return false;
+  finishOperation(book, world, op, day, outcome, effects, 'doctrine', note);
+  return true;
 }
 // Local scene reconciliation: the engine takes ownership of an engaged operation while the player is
 // present, materialises exactly these hulls, and hands back survivors and an outcome once.
@@ -1286,7 +1408,7 @@ export function reconcileLocalOutcome(book, world, opId, survivorReport, outcome
     else h.hull = bounded(Number(s.hull) || h.hull, 0, h.maxHull);
   }
   finishOperation(book, world, op, day, outcome, effects, 'local');
-  if (outcome === 'captured') { const from = world.systems[op.targetSystem]?.controller || null; recordCapture(book, world, op.targetSystem, op.faction, from, day); for (const h of operationHulls(book, op)) { h.status = 'ready'; h.opId = null; h.systemIndex = op.targetSystem; } }
+  if (outcome === 'captured') { const from = world.systems[op.targetSystem]?.controller || null; recordCapture(book, world, op.targetSystem, op.faction, from, day); for (const h of operationHulls(book, op)) { h.status = releaseStatus(h); h.opId = null; h.systemIndex = op.targetSystem; } }
   return true;
 }
 // The engine reports what it saw for operations that were mid-battle when the scene unloaded.
@@ -2417,8 +2539,8 @@ function releaseHulls(book, polityId, list, systemIndex = null) {
   for (const t of list) {
     const h = hullOf(book, polityId, t.hullId);
     if (!h) continue;
-    h.status = 'ready'; h.opId = null;
-    if (systemIndex != null) h.systemIndex = Number(systemIndex);
+    h.status = releaseStatus(h); h.opId = null;
+    if (systemIndex != null && !hullIsDisabled(h)) h.systemIndex = Number(systemIndex);
   }
 }
 function endEvacuation(book, world, e, day, status, reason, effects) {

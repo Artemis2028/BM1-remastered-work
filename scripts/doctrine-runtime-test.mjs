@@ -54,7 +54,7 @@ function mk(seed, opts = {}) {
   if (opts.doctrine !== false) world.doctrineStep = (b, w, d, fx) => DC.advanceDoctrineDay(b, w, d, fx, doctrine);
   const db = DC.doctrineBook(book);
   // Routine pilot generation off unless a test asks for it: each test issues the jobs it needs.
-  db.config = { ...db.config, patrols: opts.patrols || {}, explorers: opts.explorers || {}, reliefShips: opts.reliefShips || {} };
+  db.config = { ...db.config, patrols: opts.patrols || {}, explorers: opts.explorers || {}, reliefShips: opts.reliefShips || {}, merchants: opts.merchants || {}, projects: opts.projects || {}, patrolAreas: opts.patrolAreas || {} };
   return { world, book, db, relations };
 }
 const P = (book, id) => C.getPolity(book, id);
@@ -552,7 +552,7 @@ test('30. a disabled hulk that is repaired and leaves takes its crew with it: no
   const site = Object.values(db.ground.evidence)[0];
   assert.ok(site.survivors && !site.survivors.rescued);
   const h = P(book, 'romulan').hulls.find((y) => y.id === x.hull.id);
-  h.hull = h.maxHull; h.status = 'ready'; h.systemIndex = IDX.Romulus; // repaired and home (by whatever means)
+  h.hull = h.maxHull; h.status = 'ready'; h.systemIndex = IDX.Romulus; delete h.stranded; // recovered and repaired by a real recovery (phase 3: never by days alone)
   run(book, world, 5, 5);
   assert.ok(site.survivors.untilDay < 5, 'survivors still waiting at an empty site');
   assert.equal(site.wrecks.filter((w) => w.vid === x.hull.identity.vid).length, 0, 'the departed hulk is still a wreck');
