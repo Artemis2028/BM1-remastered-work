@@ -22,8 +22,8 @@ tactical authority chain and the debug tables). Gates:
 | gate | script | result |
 |---|---|---|
 | disabled hulls (pure, runs on the baseline too) | `npm run test:disabled-hulls` | 6/6 (baseline-defect 3/3, preservation 3/3); 6f9e499: 3/6 |
-| phase 3 pure | `npm run test:doctrine:p3` | 29 groups |
-| phase 3 in-game | `npm run test:doctrine:p3:ingame` | 15/15 (baseline-defect 2/2, new-feature 11/11, preservation 2/2); 6f9e499: 1/15 |
+| phase 3 pure | `npm run test:doctrine:p3` | 30 groups |
+| phase 3 in-game | `npm run test:doctrine:p3:ingame` | 15/15 (baseline-defect 2/2, new-feature 12/12, preservation 1/1); 6f9e499: baseline-defect 0/2 |
 | phase 2 pure / in-game | `test:doctrine:p2`, `test:doctrine:p2:ingame` | 27 / 11 of 11 |
 | phase 1 pure / in-game | `test:doctrine`, `test:doctrine:ingame` | 28 / 13 of 13 |
 | long run (measurement) | `node scripts/doctrine-phase3-longrun.cjs` | 1000 days, real game |
@@ -51,7 +51,13 @@ A hull is **disabled** when `classifyDamage(hull, maxHull) === 'disabled'`. A di
 - never sails, never joins anything, is never picked by planning, never counts as a local defender;
 - keeps whatever job still holds it (an operation mid-battle, a doctrine assignment) — the job keeps its
   claim and releases it by its own rules; released, it becomes `repairing` (stranded), never `ready`;
-- is repaired only once it is **in a yard** (`stranded.recovery === 'in_yard'`), by the ordinary yard repair.
+- is repaired only once it is **in a yard** (`stranded.recovery === 'in_yard'`), by the ordinary yard repair;
+- adds nothing to a world's defence, but is within a fight's reach: losses at an attacked world fall on the
+  hulks lying there too (they can be finished off where they lie).
+
+It is stranded the moment it is disabled, before anything else that day can pick it: `advanceStranded` runs
+before the repairs, again right after the day's operations (a defender disabled in battle) and again after
+the strategic operations (a blockade run). Evacuation, escort and blockade orders refuse a disabled hull.
 
 The captain's own vessels are not touched (`player` is skipped): the engine owns them, and §6 (an
 interrupted assignment resumes after repair; Stop remains a hold) is unchanged.
@@ -61,7 +67,7 @@ interrupted assignment resumes after repair; Stop remains a hold) is unchanged.
 | part | states | what moves it | what never moves it |
 |---|---|---|---|
 | **crew** | `aboard` → `rescued` \| `lost` | `rescued`: a rescue objective reaches the hulk and takes them off (`rescueStrandedCrew`). `lost`: life support ends — the day after `crewUntil = since + crewSurvivalDays` (20) — effect `strandedCrewLost` | repair, recovery, the passage of days before `crewUntil` |
-| **recovery** | `awaiting_recovery` → `recovering` → `in_yard` | an own yard in the same system, not under an applicable blockade: `recovering` at once, `in_yard` after `strandedRecoveryDays` (2), effect `hullRecovered`. An explicit recovery that happened (a tow, an authored salvage): `recoverStrandedHull` → `in_yard` (refused where there is no own yard) | days alone; a rescue; a yard under blockade (drops back to `awaiting_recovery`) |
+| **recovery** | `awaiting_recovery` → `recovering` → `in_yard` | an own yard in the same system, not under an applicable blockade: `recovering` at once, `in_yard` after `strandedRecoveryDays` (2), effect `hullRecovered`. An explicit recovery that happened (a tow, an authored salvage): `recoverStrandedHull` → `in_yard` (refused where there is no own yard, or the yard is blockaded) | days alone; a rescue; a yard under blockade (`recovering` drops back to `awaiting_recovery`). In the yard it stays through a later blockade; if the yard itself is lost (world taken, yard destroyed) it is back to `awaiting_recovery` |
 | **repair** | disabled → operational | only `in_yard`, by the ordinary yard repair (existing capacity rules); effect `hullRestored`, `stranded` removed | anything while not `in_yard` |
 | **write-off** | → `lost`, fate `written_off` | nobody aboard (crew rescued or lost) and nobody recovering it for `derelictWriteOffDays` (90) after the crew left; its identity is retired | a hulk with crew still aboard |
 
@@ -83,6 +89,12 @@ crew are lost; the hull does not repair itself on day 3.
   `OP-SURVIVOR-STRANDED`).
 - The distress site's survivor window for a crew aboard a hulk is the hulk's life support (`crewUntil`), not
   the lifeboat window.
+
+A hull whose crew were taken off or lost comes back from the yard with no crew (`crew 0`): it recovers crew
+at worlds with morale, at the campaign's ordinary rate, and fights at the campaign's crew floor meanwhile.
+
+Old saves: a hulk that 6f9e499 had already "sailed" to a yard (status `repairing`, already at the yard world)
+is treated as lying at that yard and is recovered in two days; nothing else in an old save changes.
 
 Earlier tests that moved a hulk home "repaired" (phase 1 test 30, phase 2 `P2-17b`) now say what they model:
 a real recovery and repair, standing in for a tow. Phase 2's doc note that "a disabled hull repairs itself in
@@ -167,6 +179,13 @@ knows unless told (`P3-K`); an unidentified attacker names nobody.
 
 **Capacity:** one existing armed hull (combat ≥ 0.5), free, operational, within `defenseHops` (2), leaving
 the garrison floor; at most `maxMilitaryObjectivesPerPolity` (2) military objectives per power at a time.
+Two safeguards against stripping and waste:
+
+- never from a world that is itself under attack or targeted by an enemy operation;
+- never into a fight it cannot hold: with the ship added, the defence must stand within
+  `defenseHopelessRatio` (2) of the attacking hulls' strength, else `defer:protect — <world> cannot be held
+  with what is spare (attack … against …)`.
+
 No hull → `defer:protect — no spare armed vessel (garrison floor kept)`; nothing is spawned (`P3-20`).
 
 **Execution:** the defender sails by the ordinary route engine (blockades included), arrives, and stands
@@ -210,6 +229,9 @@ objective carries its authority stamp (`formal_war`, the war key, instance and i
 - **On station:** strength ratio against `localDefenseStrength`: below `raidMinRatio` (0.6) it withdraws;
   below `raidEngageRatio` (1.0) it shadows (holds, does not strike); otherwise it strikes — one day of the
   existing offscreen attrition model (`raidStrikeDay`), no capture — for `raidStrikeDays` (2), then goes home.
+  The strike is witnessed by the holder the day it lands; the attack it is ends the day the raid's authority
+  does (`P3-12b`: a ceasefire between strikes — no further strike, the attack incident `threat_ended` the next
+  day).
 - Deadline `raidDeadlineDays` (15). A raid in progress is itself a witnessed attack on the target's holder,
   who may defend under §4.
 
@@ -224,7 +246,8 @@ The tactical fire path is untouched. Doctrine can only ever add a "no".
 `doctrineFireCheck` takes physical facts from the engine only (live track, usable weapon, weapon ready,
 inside equipped range, target actionable); a caller's claims are discarded. New in phase 3,
 `npcAuthorityFacts` reads the authority facts from the engine's own sources (§2) — witnessed aggression here,
-the system-defence rule, the captain's ROE, formal war with an operation or doctrine raid under way — and
+the system-defence rule, the captain's ROE, formal war **with the target's own side** (the formal relation,
+never attitude) with an operation or doctrine raid under way — and
 `doctrineEngageChain` reports the whole chain:
 
 **known target → applicable objective → authority → physical gates → fire / no fire (and why)**
@@ -247,7 +270,7 @@ Offscreen, "fire" is the campaign's attrition model; the strategic chain in the 
 - Every military objective has success and abort conditions (the package templates), a deadline, and closes
   once; closed objectives act no more (`P3-6/18`, `P3-12/13`).
 - An observer running an objective on an incident, or whose power already has one on it, does not open a
-  second: `repeatPrevented` (long run: 426 in 1000 days). No objective is re-created every tick (`P3-4/19`).
+  second: `repeatPrevented` (long run: 290 in 1000 days). No objective is re-created every tick (`P3-4/19`).
 - Budgets: 2 active military objectives per power; one hull per defence; patrols bounded to their area.
 
 ---
@@ -264,7 +287,18 @@ Offscreen, "fire" is the campaign's attrition model; the strategic chain in the 
   reaches a patrol's decisions (`P3-28`).
 - **Earlier gates:** phase 1/2 in-game scenarios run with `militaryResponses: false` and no area patrols
   (their `__quiet`), as they ran before phase 3; phase 1's re-entry check runs the same way. The switch
-  (`militaryResponses`, default on) turns off witnessing attacks for a campaign.
+  (`militaryResponses`, default on; debug `doctrine military on|off`, which also sets the area patrols)
+  turns off witnessing attacks for a campaign.
+- **Fixture-sensitive campaign checks** run with `doctrine military off`, as their own rules are what is
+  under test (the precedent is f2837a7, which did the same with AI evacuations and blockades):
+  - `campaign-probe` "Dominion: … the crossing": with doctrine defence on, in seed `gate-G` the Terrans
+    hold and retake Bajora and the expedition withdraws on day 434 before the check's last step;
+  - `campaign-blocker-probe` F5 (a dead crew's station): a Terran doctrine defender arriving at Vega changes
+    which hull takes the day's losses, so the picket survives the interval;
+  - `war-peace-gate` WAR-NO-CALENDAR: area patrols alone, or defence alone, leave the front as the fixture
+    moves it; both together tip a fifth Romulan world and a legitimate decisive peace.
+
+  These are real effects of live defence on war outcomes (§11 watch items), not defects in the checks.
 
 ---
 
@@ -308,11 +342,13 @@ order; refused without formal war), `doctrine surrender <incident> [acceptedBy]`
 
 ## 11. Measurements (not a balance claim)
 
-**Pure, 400 days** (fixture galaxy, AI offensives on, area patrols on, a raid order every 25 days, ceasefire
-day 200, war again day 260): military objectives 29 created / 28 closed (6 completed, 3 expired), 135
-deferrals, 58 repeats prevented, 8 patrols formed / 5 returned, 16 raid orders (3 refused), 17 witnessed
+**Pure, 400 days** (`MEASURE`: fixture galaxy, AI offensives on, area patrols on, a raid order every 25 days,
+ceasefire day 200, war again day 260): military objectives 22 created / 21 closed (2 completed, 3 expired),
+83 deferrals, 96 repeats prevented, 6 patrols formed / 1 returned, 16 raid orders (5 refused), 10 witnessed
 attacks, max 2 active military objectives (2 per power), longest military objective 9 days, garrison
-breaches 0, stranded hull-days 562.
+breaches 0, stranded hull-days 52. No raid happened to be under way at the day-200 ceasefire in this run
+(cancelled by authority: 0); the ceasefire cancellation is covered by `P3-12/13` (en route), `P3-12b`
+(between strikes) and in-game `DOCTRINE-WAR-AUTHORITY`.
 
 **Rescue by travel time** (`MEASURE-RESCUE`, Vulcan relief, report relayed 2 days after the loss):
 
@@ -321,31 +357,57 @@ breaches 0, stranded hull-days 562.
 | Rigel (2) | lost | rescued day 5 | rescued day 5 | rescued day 5 | rescued day 5 |
 | Ferenginar (3) | lost | rescued day 6 | rescued day 6 | rescued day 6 | rescued day 6 |
 
-A longer trip never succeeds where a shorter one with the same life support failed.
+A longer trip never succeeds where a shorter one with the same life support failed. In the in-game
+`DISABLED-RESCUE-TIME` the relief makes three jumps day by day and takes the crew off inside their 20 days.
 
-**Real game, 1000 days** (`doctrine-phase3-longrun.cjs`, default campaign, real wars, planning on):
+**Real game, 1000 days** (`doctrine-phase3-longrun.cjs`, default campaign, real wars, planning on, fc935e3):
 
 | | day 51 | 251 | 501 | 751 | 1001 |
 |---|---|---|---|---|---|
-| military objectives created (cum.) | 13 | 39 | 53 | 87 | 100 |
-| active at sample | 2 | 1 | 0 | 0 | 0 |
-| stranded hulls | 5 | 7 | 1 | 12 | 5 |
-| doctrine book (bytes) | 383 k | 373 k | 414 k | 419 k | 412 k |
+| military objectives created (cum.) | 1 | 5 | 18 | 39 | 50 |
+| expired (cum.) | 0 | 1 | 4 | 11 | 15 |
+| deferrals (cum.) | 92 | 234 | 496 | 999 | 1191 |
+| repeats prevented (cum.) | 0 | 12 | 122 | 218 | 290 |
+| stranded hulls at sample | 0 | 1 | 2 | 0 | 0 |
+| stranded hull-days (cum.) | 4 | 151 | 470 | 795 | 1272 |
+| doctrine book (bytes) | 221 k | 203 k | 409 k | 369 k | 403 k |
+| whole campaign book (bytes) | 383 k | 481 k | 773 k | 803 k | 891 k |
 
-1000 days: 100 created, 100 closed, 13 expired; max 4 active at once, 2 per power; longest 9 days; 426
-repeats prevented; 3 patrols active at most; stranded hull-days 6546; 0 page errors. Nothing grows without
-bound: incidents stay at the history limit (20), objectives at 40, assignments ~50.
+Max 3 active military objectives at once, 2 per power; longest 9 days; 3 area patrols at most; 10 formed,
+2 returned; 0 page errors. Saved game at day 1000: 1.02 MB per slot (6f9e499, same run: 0.66 MB); all
+three slots saved. Nothing grows without bound: incidents stay at the history limit (20), objectives at 40.
+
+**Campaign balance runs** (`test:campaign:balance`, 300 days, three seeds; worlds / hulls / hulls lost at
+day 301, Terran and Klingon — the formal war — and Cardassian):
+
+| seed | 6f9e499 | candidate | candidate, military doctrine off (disabled-hull rule only) |
+|---|---|---|---|
+| balance-1 | T 13w/69h/L7 · K 13w/74h/L21 · C 8w/53h/L1 | T 15w/65h/L14 · K 11w/76h/L17 · C 8w/53h/L1 | T 19w/55h/L27 · K 9w/66h/L24 · C 7w/53h/L0 |
+| balance-2 | T 13w/59h/L27 · K 12w/61h/L17 · C 10w/50h/L4 | T 16w/51h/L41 · K 9w/49h/L29 · C 8w/52h/L2 | T 17w/56h/L32 · K 8w/56h/L21 · C 7w/23h/L34 |
+| balance-3 | T 14w/77h/L2 · K 11w/69h/L28 · C 8w/56h/L1 | T 19w/53h/L34 · K 6w/56h/L41 · C 9w/51h/L2 | T 11w/54h/L29 · K 10w/65h/L32 · C 8w/56h/L1 |
+
+Wars now cost more hulls: a disabled hull no longer comes back in days, and a hulk can be finished off where
+it lies. The disabled-hull rule on its own already moves the fronts as much as the military doctrine does,
+and not in one direction (Terrans ahead in seeds 1–2, behind in seed 3; a Cardassian collapse in seed 2).
+This is the brief's rule working, not a tuning; the fronts are sensitive, and tuning (crew survival, recovery
+days, a towing mission, write-off) is a separate decision.
 
 **Watch items:**
 
-- *Save size.* The doctrine book is ~0.4 MB in a long war (6f9e499: ~0.02 MB, when doctrine saw almost no
-  incidents). Whole save at day 1000: 1.08 MB vs 0.66 MB; all three slots saved. Storage was bounded this
-  round (unknown observers of an attack are not listed; traces keep only deciding facts; orphaned signatures
-  dropped), but the per-observer knowledge record (phase 1 structure, ~1 KB) is the next thing to compact.
-- *Deferrals* are frequent (1245 in 1000 days): most are powers with no spare armed hull above the garrison
-  floor. That is the garrison rule holding, not doctrine stripping garrisons.
-- *Stranded hulls* accumulate in a long war (write-off after 90 crewless days keeps it bounded); with no
-  towing yet, a hulk away from an own yard is never recovered.
+- *Doctrine and war outcomes.* Live defence and area patrols change how wars go (and so does the
+  disabled-hull rule, above). Three fixture-sensitive
+  campaign checks now run with military doctrine off (§8). In the default long run the defence is selective
+  (50 objectives in 1000 days after the two safeguards; 100 before them). Whether this should be tuned or
+  gated per scenario is a design call.
+- *Save size.* The doctrine book is ~0.2–0.46 MB in a long war (6f9e499: ~0.02 MB, when doctrine saw almost
+  no incidents). Storage was bounded this round (unknown observers of an attack are not listed; traces keep
+  only deciding facts; orphaned signatures are dropped); the per-observer knowledge record (phase 1
+  structure, ~1 KB) is the next thing to compact.
+- *Deferrals* are frequent (1191 in 1000 days), mostly "no spare armed vessel (garrison floor kept)" or
+  "cannot be held with what is spare": that is the garrison floor and the hopeless-fight rule holding, not
+  doctrine stripping garrisons.
+- *Stranded hulls* accumulate in a war (write-off after 90 crewless days keeps it bounded); with no towing
+  yet, a hulk away from an own yard is never recovered.
 - *Doctrine vs campaign strategy:* after a defence closes the hull is back in the ordinary pool; campaign
   strategy may take it for an operation of its own (seen in-game) — that is campaign strategy's call, under
   that operation, never a doctrine order.
@@ -357,7 +419,9 @@ bound: incidents stay at the history limit (20), objectives at 40, assignments ~
 - towing / salvage missions to bring a hulk to a yard (the hook `recoverStrandedHull` exists);
 - a surrender mechanic in the engine (the hook `recordSurrender` exists);
 - campaign strategy issuing raid orders itself (the API exists; only authored/debug orders this round);
-- tactical handoff of a strategic defence/raid into a local battle the captain is in;
+- tactical handoff of a strategic defence/raid into a local battle the captain is in; a hull disabled
+  offscreen in an operation still materialises with that operation (at its damaged hull) when the captain is
+  at the battle — the engine's materialisation is unchanged this round;
 - enforcement, predation, hunt and assimilation modes (shadow);
 - carried forward: evacuation one system per day; non-doctrine AI not using the blockade engine; treaties
   beyond war/ceasefire/peace (DMZs, inspections, tribute, reparations, basing, transit rights).
@@ -370,4 +434,4 @@ Campaign: `crewSurvivalDays 20`, `strandedRecoveryDays 2`, `derelictWriteOffDays
 Doctrine: `patrolAreas {romulan:1, klingon:1, terran:1}`, `patrolAreaDwellDays 2`, `patrolFormEveryDays 15`,
 `patrolResponseHops 1`, `closedPatrolLimit 10`, `maxMilitaryObjectivesPerPolity 2`, `defenseHops 2`,
 `defenseDeadlineDays 10`, `raidDeadlineDays 15`, `raidStrikeDays 2`, `raidEngageRatio 1.0`,
-`raidMinRatio 0.6`, `attackHistoryLimit 30`, `militaryResponses true`. `DOCTRINE_CONFIG_VERSION 3`.
+`raidMinRatio 0.6`, `attackHistoryLimit 30`, `defenseHopelessRatio 2`, `militaryResponses true`. `DOCTRINE_CONFIG_VERSION 3`.
