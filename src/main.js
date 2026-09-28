@@ -10709,7 +10709,7 @@ function renderDoctrineDebug() {
     local.push({ npc, tgt, chain: doctrineEngageChain(npc, tgt, 'ship') });
   }
   const engage = rows(local, [
-    ['Ship', (x) => `${escapeHtml(x.npc.name || x.npc.id)} <span class="meta">(${escapeHtml(formatFaction(getNpcSideId(x.npc)))}, ${escapeHtml(x.chain.profile || '—')}/${escapeHtml(x.chain.role || '—')})</span>`],
+    ['Ship', (x) => `${escapeHtml(x.npc.name || x.npc.id)} <span class="meta">(${escapeHtml(getNpcSideId(x.npc) === PLAYER_SIDE ? "captain's" : formatFaction(getNpcSideId(x.npc)))}, ${escapeHtml(x.chain.profile || '—')}/${escapeHtml(x.chain.role || '—')})</span>`],
     ['Target (known?)', (x) => `${escapeHtml(x.tgt.name || x.tgt.id)} — ${x.chain.knownTarget ? 'tracked' : 'not tracked'}`],
     ['Objective', (x) => escapeHtml(x.chain.objective || 'none')],
     ['Authority', (x) => escapeHtml(Object.keys(x.chain.authority).join(', ') || 'none')],

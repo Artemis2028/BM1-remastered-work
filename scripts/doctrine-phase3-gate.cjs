@@ -473,15 +473,21 @@ const { startProbe } = require('./probe-harness.cjs');
       const here = s.currentPlanet;
       t.transferSystemControlToPlayer(here);
       t.setSecurityPolicyOverride(here, { roe: 'return-fire' });
+      s.npcShips.length = 0; // just the pair under test, so the table shows them
       const base = { x: s.ship?.x ?? 0, y: s.ship?.y ?? 0 };
-      const mk = (id, faction, dx, extra = {}) => { const n = t.createNpcShip({ id, shipId: 334, faction, attitude: extra.attitude || 'neutral', hostile: Boolean(extra.hostile), seed: 7, name: id, from: { x: base.x + dx, y: base.y }, destination: { x: base.x + dx, y: base.y }, role: extra.role || 'patrol' }); t.ensureCombatTargetStats?.(n); s.npcShips.push(n); return n; };
-      mk('Security One', 'terran', 60, { role: 'playerFleet' });
-      mk('Hostile Bird', 'klingon', 200, { attitude: 'hostile', hostile: true });
+      const mk = (id, faction, dx, extra = {}) => { const n = t.createNpcShip({ id, shipId: 334, faction, attitude: extra.attitude || 'neutral', hostile: Boolean(extra.hostile), seed: 7, name: id, from: { x: base.x + dx, y: base.y }, destination: { x: base.x + dx, y: base.y }, role: extra.role || 'patrol' }); t.ensureCombatTargetStats?.(n); Object.assign(n, extra.set || {}); s.npcShips.push(n); return n; };
+      // Under return-fire: Security One holds against a hostile that has not fired; Security Two answers
+      // one that has (witnessed aggression).
+      const sec1 = mk('Security One', 'terran', 60, { role: 'playerFleet', set: { weaponReadyAt: 0, lastShotAt: -1e9 } });
+      mk('Hostile Bird', 'klingon', 180, { attitude: 'hostile', hostile: true });
+      const sec2 = mk('Security Two', 'terran', -60, { role: 'playerFleet', set: { weaponReadyAt: 0, lastShotAt: -1e9 } });
+      const h2 = mk('Raider', 'klingon', -180, { attitude: 'hostile', hostile: true });
+      h2.lastAggressionAt = t.gameNow(); h2.lastAggressionSystemIndex = here; h2.lastAggressionTargetSide = t.getNpcSideId(sec2);
       t.openDebugMenu();
       const sec = document.querySelector('[data-doctrine-section]');
       const text = sec.textContent;
       document.getElementById('cheats-debug').close();
-      return { hasTable: /Local engagement chain/.test(text), row: /Security One/.test(text) && /not authorised/.test(text), reports: window.__reports().filter((x) => /engagement chain|authority|physical gates/i.test(`${x.kind} ${x.text}`)).length };
+      return { hasTable: /Local engagement chain/.test(text), row: /Security One/.test(text) && /not authorised/.test(text) && /Security Two/.test(text) && /authorised \(/.test(text), reports: window.__reports().filter((x) => /engagement chain|authority|physical gates/i.test(`${x.kind} ${x.text}`)).length };
     });
     evidence.push({ check: 'LOCAL-CHAIN-DEBUG', ...r });
     assert.equal(r.hasTable, true); assert.equal(r.row, true); assert.equal(r.reports, 0);
