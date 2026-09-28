@@ -90,8 +90,24 @@ crew are lost; the hull does not repair itself on day 3.
 - The distress site's survivor window for a crew aboard a hulk is the hulk's life support (`crewUntil`), not
   the lifeboat window.
 
-A hull whose crew were taken off or lost comes back from the yard with no crew (`crew 0`): it recovers crew
-at worlds with morale, at the campaign's ordinary rate, and fights at the campaign's crew floor meanwhile.
+### 1a. Recommissioning: a repaired hull needs a crew (correction on 508198a)
+
+508198a let a hull whose crew had been rescued or lost come out of the yard with `crew 0` and sail again —
+patrol, defend, be planned, resume its doctrine job — on the campaign's combat crew floor. That is corrected:
+
+| state | how it is entered | what it may do | how it leaves |
+|---|---|---|---|
+| **repaired, awaiting crew** (`hull.recrew`, status `repairing`, debug: `repaired_awaiting_crew`) | the yard repairs a stranded hull out of the disabled band, its crew were `rescued` or `lost`, and its crew is below `minOperatingCrew` (0.5 of a complement) — effect `hullAwaitingCrew` | nothing: it stays in the yard; no patrol, defence, raid, trade, evacuation, blockade, escort or operation picks it; it adds nothing to the world's defence; an interrupted doctrine job does not resume | the ordinary crew recovery at a world with shore leave (morale) raises its crew by `crewRecoveryPerDay` (0.02) a day; the day it reaches the minimum it is recommissioned (effect `hullRecommissioned`): `ready`, or back to its job (`assigned`) under §6 |
+
+- A hull whose crew never left is repaired and back as before — no recrewing delay.
+- Crew comes only from that existing recovery — never from the combat-strength floor. A yard world without
+  shore leave cannot recrew a hull; it waits there.
+- Same hull and vid throughout; save/load keeps the state exactly.
+- From 0 at the default rate, recommissioning takes ~25 days after the repair (in-game `CREWLESS-REPAIR`:
+  repaired day 15, recommissioned day 29).
+
+Checks: `scripts/disabled-hull-crew-test.mjs` (`test:disabled-hulls:crew`, C1–C8; 508198a: 2/7) and the
+in-game `CREWLESS-REPAIR` (baseline-defect; fails on 508198a).
 
 Old saves: a hulk that 6f9e499 had already "sailed" to a yard (status `repairing`, already at the yard world)
 is treated as lying at that yard and is recovered in two days; nothing else in an old save changes.
@@ -430,7 +446,7 @@ days, a towing mission, write-off) is a separate decision.
 
 ## 13. Tuning (phase 3 additions; campaign days, first-pass values)
 
-Campaign: `crewSurvivalDays 20`, `strandedRecoveryDays 2`, `derelictWriteOffDays 90`.
+Campaign: `crewSurvivalDays 20`, `strandedRecoveryDays 2`, `derelictWriteOffDays 90`, `minOperatingCrew 0.5` (§1a).
 Doctrine: `patrolAreas {romulan:1, klingon:1, terran:1}`, `patrolAreaDwellDays 2`, `patrolFormEveryDays 15`,
 `patrolResponseHops 1`, `closedPatrolLimit 10`, `maxMilitaryObjectivesPerPolity 2`, `defenseHops 2`,
 `defenseDeadlineDays 10`, `raidDeadlineDays 15`, `raidStrikeDays 2`, `raidEngageRatio 1.0`,

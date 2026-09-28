@@ -22,7 +22,7 @@
 // on a cancelled jump and never moves while the captain sits still.
 
 import * as D from './doctrine-runtime.mjs';
-import { seededUnit, applicableBlockadesAt, resolveBlockadeRun, shortestRoute, strategicAssignments, warAuthorityStamp, warAuthorityHolds, rescueStrandedCrew, hullIsDisabled, localDefenseStrength, raidStrikeDay, standDownOperation, hullStrength } from './campaign-strategy.mjs';
+import { seededUnit, applicableBlockadesAt, resolveBlockadeRun, shortestRoute, strategicAssignments, warAuthorityStamp, warAuthorityHolds, rescueStrandedCrew, hullIsDisabled, hullAwaitingCrew, localDefenseStrength, raidStrikeDay, standDownOperation, hullStrength } from './campaign-strategy.mjs';
 import { classifyDamage } from './ship-fleet.mjs';
 
 export const DOCTRINE_BOOK_VERSION = 1;
@@ -553,6 +553,7 @@ function stepAssignment(book, world, db, a, day, effects) {
   if (!h || h.opId !== a.id) return;
   if (a.kind === 'escort' && a.joined) return; // it travels with its charge, moved in the charge's own step
   if (classifyDamage(h.hull, h.maxHull) !== 'operational') return; // disabled where it is
+  if (hullAwaitingCrew(h)) return; // repaired but not yet crewed: it waits in the yard (PHASE3 §1a)
   if (h.status !== 'assigned') h.status = 'assigned'; // a repair tick does not release it
   // Disabled on arriving at a stop and repaired there: it reports in from the stop it did reach.
   const here = a.milestones.find((x) => x.stopIndex === a.pos && (x.status === 'pending' || x.status === 'missed'));
@@ -2442,7 +2443,9 @@ export function debugSummary(book, observerFilter = null, doctrine = null, world
         termination: { success: factsOf(tmpl(o.template)?.successWhen), abort: factsOf(tmpl(o.template)?.abortWhen), holding }, fireChain: militaryChain(doctrine, book, world, db, o) };
     }),
     patrols: Object.values(db.patrols || {}).map((p) => ({ ...p, at: liveHull(book, p.polity, p.hullId)?.systemIndex ?? null })),
-    stranded: Object.entries(book.polities || {}).flatMap(([pid, pol]) => (pol.hulls || []).filter((h) => h.stranded && h.status !== 'lost').map((h) => ({ polity: pid, hullId: h.id, vid: vidOf(h), systemIndex: h.systemIndex, hull: Math.round(h.hull), maxHull: h.maxHull, since: h.stranded.since, days: (db.lastDay ?? book.settled ?? 0) - h.stranded.since, crew: h.stranded.crew, crewUntil: h.stranded.crewUntil, crewEndDay: h.stranded.crewEndDay, recovery: h.stranded.recovery, recoveredBy: h.stranded.recoveredBy, opId: h.opId || null }))),
+    stranded: Object.entries(book.polities || {}).flatMap(([pid, pol]) => (pol.hulls || []).filter((h) => h.stranded && h.status !== 'lost').map((h) => ({ polity: pid, hullId: h.id, vid: vidOf(h), systemIndex: h.systemIndex, hull: Math.round(h.hull), maxHull: h.maxHull, since: h.stranded.since, days: (db.lastDay ?? book.settled ?? 0) - h.stranded.since, crew: h.stranded.crew, crewUntil: h.stranded.crewUntil, crewEndDay: h.stranded.crewEndDay, recovery: h.stranded.recovery, recoveredBy: h.stranded.recoveredBy, opId: h.opId || null })))
+      // Repaired, waiting for a crew (§1a): listed with the stranded until it is recommissioned.
+      .concat(Object.entries(book.polities || {}).flatMap(([pid, pol]) => (pol.hulls || []).filter((h) => h.recrew && h.status !== 'lost').map((h) => ({ polity: pid, hullId: h.id, vid: vidOf(h), systemIndex: h.systemIndex, hull: Math.round(h.hull), maxHull: h.maxHull, since: h.recrew.since, days: (db.lastDay ?? book.settled ?? 0) - h.recrew.since, crew: `${h.recrew.crewLeft}; complement ${Math.round((h.crew ?? 0) * 100)}% of ${Math.round((book.config.minOperatingCrew ?? 0.5) * 100)}% needed`, crewUntil: null, crewEndDay: null, recovery: 'repaired_awaiting_crew', recoveredBy: null, opId: h.opId || null })))),
     raidOrders: db.raidOrders.slice(),
     incidents: Object.values(db.incidents).map((i) => ({ ...i, observers: Object.entries(db.knowledge).filter(([, s]) => s[i.id]).map(([o, s]) => ({ observerId: o, provenance: s[i.id].provenance, confidence: s[i.id].confidence, receivedDay: s[i.id].receivedAt.value, evidence: Object.keys(s[i.id].evidence).length, survivors: Boolean(s[i.id].survivors), linkedLosses: s[i.id].linkedLosses.map((l) => l.factionId), resolution: s[i.id].resolution?.status || null })) })),
     evaluations: Object.values(db.lastEval).filter((e) => !observerFilter || e.actor === observerFilter),

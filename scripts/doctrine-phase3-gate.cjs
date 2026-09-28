@@ -130,6 +130,44 @@ const { startProbe } = require('./probe-harness.cjs');
     evidence.push({ check: 'OP-SURVIVOR-STRANDED', ...r });
     assert.deepEqual(r.seen, [`${r.at0}|-|disabled`]);
   });
+  await check('baseline-defect', 'CREWLESS-REPAIR a Terran hull disabled at Earth, its crew taken off: the yard recovers and repairs it, but it waits in the yard, unavailable, until shore leave at Earth gives it its minimum crew; then it is back, same vid', async () => {
+    await fresh('p3-crewless');
+    const r = await ev(() => {
+      const t = testBM1;
+      window.__quiet();
+      const E = window.__idx('Earth');
+      const book = t.campaign();
+      const h = window.__ready('terran', E)[0];
+      const vid = h.identity?.vid;
+      window.__disable(h); h.status = 'repairing';
+      window.__adv(1);
+      const rescued = t.Campaign.rescueStrandedCrew ? t.Campaign.rescueStrandedCrew(book, 'terran', h.id, t.state.day, 'gate relief') : (h.crew = 0, true);
+      let d = 0;
+      while (h.hull < h.maxHull && d < 80) { window.__adv(1); d++; }
+      window.__adv(1);
+      const min = book.config.minOperatingCrew ?? 0.5;
+      const repaired = { day: t.state.day, hull: `${Math.round(h.hull)}/${h.maxHull}`, cond: window.__cond(h), status: h.status, crew: h.crew, recrew: h.recrew || null, opId: h.opId || null, at: t.state.planets[h.systemIndex]?.name };
+      return { rescued, repaired, min, hullId: h.id, vid };
+    });
+    evidence.push({ check: 'CREWLESS-REPAIR:repaired', ...r });
+    assert.equal(r.rescued, true);
+    assert.equal(r.repaired.cond, 'operational', 'the yard never repaired the hull');
+    assert.ok(r.repaired.crew < r.min, 'precondition: below the minimum crew');
+    assert.equal(r.repaired.status, 'repairing', `a crewless repaired hull is available (${JSON.stringify(r.repaired)})`);
+    assert.equal(r.repaired.opId, null); assert.equal(r.repaired.at, 'Earth');
+    await shotDoctrine('P3-crewless-repaired-awaiting-crew.png', ['Disabled hulls']);
+    const r2 = await ev(({ hullId }) => {
+      const t = testBM1;
+      const h = window.__P('terran').hulls.find((x) => x.id === hullId);
+      const min = t.campaign().config.minOperatingCrew ?? 0.5;
+      const trail = [];
+      for (let i = 0; i < 60 && (h.recrew || h.status !== 'ready'); i++) { window.__adv(1); trail.push(`${t.state.day}:${Math.round(h.crew * 100)}%:${h.status}`); }
+      return { trail: trail.filter((_, i) => i % 5 === 0 || i === trail.length - 1), crew: h.crew, status: h.status, recrew: h.recrew || null, vid: h.identity?.vid, min };
+    }, r);
+    evidence.push({ check: 'CREWLESS-REPAIR:recommissioned', ...r2 });
+    assert.equal(r2.status, 'ready', r2.trail.join(' ')); assert.equal(r2.recrew, null);
+    assert.ok(r2.crew >= r2.min); assert.equal(r2.vid, r.vid);
+  });
   await check('new-feature', 'STRANDED-SHOTS the stranded hulk over several days in the debug view: crew clock running, recovery awaited, never repaired', async () => {
     await fresh('p3-stranded-shot');
     await ev(() => {
@@ -524,7 +562,7 @@ const { startProbe } = require('./probe-harness.cjs');
   });
 
   await check('new-feature', 'SHOTS the phase 3 debug views', async () => {
-    for (const f of ['P3-stranded-day1.png', 'P3-stranded-day8.png', 'P3-stranded-day23.png', 'P3-rescue-after-multijump.png', 'P3-defense-objective.png', 'P3-defense-closed.png', 'P3-patrol-responding.png', 'P3-patrol-returned.png', 'P3-raid-active.png', 'P3-ceasefire-cancels-raid.png', 'P3-local-engagement-chain.png'])
+    for (const f of ['P3-crewless-repaired-awaiting-crew.png', 'P3-stranded-day1.png', 'P3-stranded-day8.png', 'P3-stranded-day23.png', 'P3-rescue-after-multijump.png', 'P3-defense-objective.png', 'P3-defense-closed.png', 'P3-patrol-responding.png', 'P3-patrol-returned.png', 'P3-raid-active.png', 'P3-ceasefire-cancels-raid.png', 'P3-local-engagement-chain.png'])
       assert.ok(fs.existsSync(path.join(out, f)) && fs.statSync(path.join(out, f)).size > 10000, `missing ${f}`);
   });
 

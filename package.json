@@ -72,6 +72,7 @@
     "test:doctrine:p2": "node scripts/doctrine-phase2-test.mjs",
     "test:doctrine:p2:ingame": "node scripts/doctrine-phase2-gate.cjs",
     "test:disabled-hulls": "node scripts/disabled-hull-test.mjs",
+    "test:disabled-hulls:crew": "node scripts/disabled-hull-crew-test.mjs",
     "test:doctrine:p3": "node scripts/doctrine-phase3-test.mjs",
     "test:doctrine:p3:ingame": "node scripts/doctrine-phase3-gate.cjs",
     "bench:map": "node scripts/map-render-bench.cjs",

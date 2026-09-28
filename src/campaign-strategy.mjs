@@ -40,6 +40,7 @@ export const CAMPAIGN_RULES = Object.freeze({
   crewSurvivalDays: 20,            // a disabled crew's life support; the doctrine survivor window is the same clock
   strandedRecoveryDays: 2,         // an own yard in the same system (not under blockade) takes this long to bring a hulk in
   derelictWriteOffDays: 90,        // a crewless hulk nobody recovers is written off this long after its crew were gone
+  minOperatingCrew: 0.5,           // a repaired hull whose crew left sails again only with this much of a complement
   // Readiness
   strengthPerPrice: 1 / 1000,      // hull strength = price × this × condition × crew × supply
   crewRecoveryPerDay: 0.02,        // crew readiness regained per day at a world with morale effects
@@ -597,7 +598,7 @@ function settleCampaignDay(book, world, day, effects) {
   advanceProduction(book, world, day, effects);
   advanceGarrisons(book, world, day);
   advanceStranded(book, world, day, effects);
-  advanceRepairs(book, world, day);
+  advanceRepairs(book, world, day, effects);
   advanceIntegrations(book, world, day, effects);
   enforceRelations(book, world, day, effects);
   planOperations(book, world, day, effects);
@@ -707,7 +708,8 @@ function settleEconomy(book, world, day, effects) {
     p.berthsPeak = Math.max(p.berthsPeak || 0, polityProduction(book, world, id).berths);
     // crew recovery at worlds with morale
     // Morale is a place, not an asset: shore leave at any operational station in the system counts.
-    for (const h of p.hulls) if (h.status === 'ready' && (stationEffects(world, h.systemIndex, null).morale || 0) > 0) h.crew = bounded((h.crew ?? 1) + c.crewRecoveryPerDay, 0, 1);
+    // A repaired hull waiting for a crew is recrewed the same way, where it lies in the yard (PHASE3 §1a).
+    for (const h of p.hulls) if ((h.status === 'ready' || (h.recrew && h.status === 'repairing')) && (stationEffects(world, h.systemIndex, null).morale || 0) > 0) h.crew = bounded((h.crew ?? 1) + c.crewRecoveryPerDay, 0, 1);
   }
 }
 
@@ -873,8 +875,37 @@ function advanceProduction(book, world, day, effects) {
 export function hullIsDisabled(h) {
   return Boolean(h) && h.status !== 'lost' && Number(h.maxHull) > 0 && classifyDamage(h.hull, h.maxHull) === 'disabled';
 }
+// A structurally repaired hull whose crew were rescued or lost: it stays in the yard, unavailable, until
+// the ordinary crew recovery gives it `minOperatingCrew` (PHASE3 §1a).
+export function hullAwaitingCrew(h) { return Boolean(h?.recrew) && h.status !== 'lost'; }
+// Cannot sail or fight as a ship: disabled, or repaired but not yet crewed.
+export function hullUnavailable(h) { return hullIsDisabled(h) || hullAwaitingCrew(h); }
 // What a hull released from a job becomes: available if it can sail, stranded if it cannot.
-function releaseStatus(h) { return hullIsDisabled(h) ? 'repairing' : 'ready'; }
+function releaseStatus(h) { return hullUnavailable(h) ? 'repairing' : 'ready'; }
+// The moment a stranded hull's structure is repaired. With its own crew still aboard it is simply back.
+// If its crew were taken off or lost, and it has less than the minimum complement, it waits in the yard
+// for a crew — same hull, same vid — and is not operational until the complement is reached.
+function finishStrandedRepair(book, h, polityId, day, effects) {
+  if (!h.stranded || hullIsDisabled(h) || h.status === 'lost') return;
+  const s = h.stranded;
+  effects.push({ type: 'hullRestored', polityId, hullId: h.id, vid: h.identity?.vid || h.id, systemIndex: Number(h.systemIndex), day, strandedDays: day - s.since, crew: s.crew });
+  delete h.stranded;
+  const min = book.config.minOperatingCrew ?? 0.5;
+  if (s.crew !== 'aboard' && Number(h.crew ?? 1) < min) {
+    h.recrew = { since: day, systemIndex: Number(h.systemIndex), crewLeft: s.crew };
+    h.status = 'repairing';
+    effects.push({ type: 'hullAwaitingCrew', polityId, hullId: h.id, vid: h.identity?.vid || h.id, systemIndex: Number(h.systemIndex), day, crew: Number(h.crew ?? 0) });
+  }
+}
+// A hull awaiting crew becomes operational the day its complement reaches the minimum.
+function advanceRecrewing(book, h, polityId, day, effects) {
+  if (!h.recrew || h.status === 'lost') return;
+  if (Number(h.crew ?? 1) < (book.config.minOperatingCrew ?? 0.5)) { h.status = 'repairing'; return; }
+  effects.push({ type: 'hullRecommissioned', polityId, hullId: h.id, vid: h.identity?.vid || h.id, systemIndex: Number(h.systemIndex), day, awaitedDays: day - h.recrew.since, crew: Number(h.crew) });
+  delete h.recrew;
+  // Back in operation; a doctrine job still holding it resumes by its own rules (§6).
+  if (h.status === 'repairing') h.status = h.opId ? 'assigned' : 'ready';
+}
 function ownYardAt(world, polityId, systemIndex) {
   return world.systems[Number(systemIndex)]?.controller === polityId && (stationEffects(world, Number(systemIndex), polityId).repairCapacity || 0) > 0;
 }
@@ -891,8 +922,9 @@ export function advanceStranded(book, world, day, effects = []) {
     for (const h of p.hulls) {
       if (h.status === 'lost') continue;
       if (!hullIsDisabled(h)) {
-        // Back in operation — only ever by a real repair.
-        if (h.stranded) { effects.push({ type: 'hullRestored', polityId: id, hullId: h.id, vid: h.identity?.vid || h.id, systemIndex: Number(h.systemIndex), day, strandedDays: day - h.stranded.since }); delete h.stranded; }
+        // Structurally back — only ever by a real repair; operational only with a crew.
+        finishStrandedRepair(book, h, id, day, effects);
+        advanceRecrewing(book, h, id, day, effects);
         continue;
       }
       if (!h.stranded) strandHull(book, h, id, day, effects);
@@ -942,7 +974,7 @@ export function rescueStrandedCrew(book, polityId, hullId, day, by = null) {
   h.stranded.crew = 'rescued'; h.stranded.crewEndDay = day; h.stranded.rescuedBy = by; h.crew = 0;
   return true;
 }
-function advanceRepairs(book, world, day) {
+function advanceRepairs(book, world, day, effects = []) {
   const c = book.config;
   for (const id of Object.keys(book.polities)) {
     const p = polity(book, id);
@@ -951,7 +983,7 @@ function advanceRepairs(book, world, day) {
     const yards = Object.keys(budget).map(Number).filter((i) => budget[i] > 0);
     p.repairedToday = {};
     for (const h of p.hulls) {
-      if (h.status === 'lost' || h.hull >= h.maxHull) { if (h.status === 'repairing') h.status = 'ready'; continue; }
+      if (h.status === 'lost' || h.hull >= h.maxHull) { if (h.status === 'repairing' && !h.recrew && !h.stranded) h.status = 'ready'; continue; }
       // A disabled hull is repaired only once it has been recovered into a yard; it never sails anywhere.
       if (hullIsDisabled(h) && h.stranded?.recovery !== 'in_yard') continue;
       // A damaged, uncommitted hull with no repair facility here sails to the nearest owned yard.
@@ -964,8 +996,12 @@ function advanceRepairs(book, world, day) {
       if (!(budget[h.systemIndex] > 0)) continue;
       const need = h.maxHull - h.hull, done = Math.min(need, budget[h.systemIndex]);
       h.hull += done; budget[h.systemIndex] -= done; p.repairedToday[h.systemIndex] = (p.repairedToday[h.systemIndex] || 0) + done;
-      // A doctrine job keeps its hull through the repair; it resumes when the hull can sail (§6).
-      if (!(h.opId && String(h.opId).includes('doctrine-') && !hullIsDisabled(h))) h.status = h.hull >= h.maxHull ? 'ready' : 'repairing';
+      // A stranded hull repaired out of the disabled band: back with its crew, or waiting for one (§1a).
+      finishStrandedRepair(book, h, id, day, effects);
+      // A doctrine job keeps its hull through the repair; it resumes when the hull can sail (§6) — which a
+      // hull waiting for a crew cannot.
+      if (h.recrew) h.status = 'repairing';
+      else if (!(h.opId && String(h.opId).includes('doctrine-') && !hullIsDisabled(h))) h.status = h.hull >= h.maxHull ? 'ready' : 'repairing';
     }
   }
 }
@@ -1101,7 +1137,7 @@ function planOperations(book, world, day, effects) {
     // The Dominion's targets are only powers it is formally at war with; with none left in reach it may
     // deliberately escalate against a new one (below). Everyone else plans only against its wars.
     if (!targets.length && id !== 'dominion') continue;
-    const ready = p.hulls.filter((h) => h.status === 'ready' && !hullIsDisabled(h));
+    const ready = p.hulls.filter((h) => h.status === 'ready' && !hullUnavailable(h));
     // A home garrison stays behind at every held world: an offensive never strips a world of its last defenders.
     const perSystem = {};
     for (const h of ready) perSystem[h.systemIndex] = (perSystem[h.systemIndex] || 0) + 1;
@@ -1695,7 +1731,7 @@ function advanceDominion(book, world, day, effects) {
     // through the stand-down above, so re-testing it here as well could only deadlock a staged force
     // that the opening already judged worth staging. There is no deadline that sends it anyway: a
     // corridor closed while it staged is a crossing that never happens.
-    const staged = dominion.hulls.filter((h) => h.status === 'ready' && !hullIsDisabled(h) && h.systemIndex === d.stagingSystem);
+    const staged = dominion.hulls.filter((h) => h.status === 'ready' && !hullUnavailable(h) && h.systemIndex === d.stagingSystem);
     // The invasion plan says, explicitly, who the opening attacks. The corridor is forced only against a
     // holder on the authored list; an unheld terminus is occupied unopposed; a holder off the list (a pact
     // partner) is not attacked and the crossing waits. Holding the entry world is never itself a war.
@@ -2355,7 +2391,7 @@ export function withdrawExpedition(book, world, day, effects, opts = {}) {
     const entry = Number(d.entrySystem), staging = Number(d.stagingSystem);
     const near = Number.isFinite(entry) ? nearSideSystems(world, entry) : new Set();
     for (const h of livingHulls(polity(book, id))) {
-      if (h.status !== 'ready' || h.opId || hullIsDisabled(h) || !near.has(Number(h.systemIndex)) || !Number.isFinite(staging)) continue;
+      if (h.status !== 'ready' || h.opId || hullUnavailable(h) || !near.has(Number(h.systemIndex)) || !Number.isFinite(staging)) continue;
       h.systemIndex = staging; moved.push(h.id);
     }
     d.phase = 'withdrawn'; d.phaseDay = day;
@@ -2505,7 +2541,7 @@ export function startEvacuation(book, world, spec, day, effects = []) {
     for (const id of ids) {
       const h = hullOf(book, sponsor, id);
       if (!h) return { error: `${id} is not a vessel of ${world.factionName(sponsor)}.` };
-      if (hullIsDisabled(h)) return { error: `${id} is disabled and cannot sail.` };
+      if (hullUnavailable(h)) return { error: `${id} is disabled or without a crew and cannot sail.` };
       if (taken.has(h.id) || h.opId || h.status !== 'ready') return { error: `${id} is already committed elsewhere.` };
       if (Number(h.systemIndex) !== Number(origin)) return { error: `${id} is not at ${o.name}.` };
       const lift = role === 'transport' ? evacuationLift(book, world, h) : 0;
@@ -2533,7 +2569,7 @@ export function assignEvacuationEscorts(book, world, id, hullIds, day, effects =
   const added = [];
   for (const hid of hullIds) {
     const h = hullOf(book, e.sponsor, hid);
-    if (!h || taken.has(h.id) || h.opId || h.status !== 'ready' || hullIsDisabled(h)) return { ok: false, reason: `${hid} is not free to escort.` };
+    if (!h || taken.has(h.id) || h.opId || h.status !== 'ready' || hullUnavailable(h)) return { ok: false, reason: `${hid} is not free to escort.` };
     if (Number(h.systemIndex) !== e.origin) return { ok: false, reason: `${hid} is not at ${world.systems[e.origin]?.name}.` };
     added.push({ hullId: h.id, vid: h.vid || null, shipId: Number(h.shipId), lift: 0 });
   }
@@ -2597,7 +2633,7 @@ export function startBlockade(book, world, spec, day, effects = []) {
   for (const id of hullIds) {
     const h = hullOf(book, power, id);
     if (!h) return { ok: false, reason: `${id} is not a vessel of ${world.factionName(power)}.` };
-    if (hullIsDisabled(h)) return { ok: false, reason: `${id} is disabled and cannot sail.` };
+    if (hullUnavailable(h)) return { ok: false, reason: `${id} is disabled or without a crew and cannot sail.` };
     if (taken.has(h.id) || h.opId || h.status !== 'ready') return { ok: false, reason: `${id} is already committed elsewhere.` };
     if (power === 'player' && !near.has(Number(h.systemIndex))) return { ok: false, reason: `${id} is not at or next to ${sys.name}.` };
     list.push({ hullId: h.id, vid: h.vid || null, shipId: Number(h.shipId), from: Number(h.systemIndex) });
@@ -3089,7 +3125,7 @@ function settleEvacuationDay(book, world, e, day, effects) {
 function aiStrategicOps(book, world, day, effects) {
   const c = book.config;
   const taken = strategicAssignments(book);
-  const free = (id, at = null) => (book.polities[id]?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && !hullIsDisabled(h) && !taken.has(h.id) && (at == null || Number(h.systemIndex) === Number(at)));
+  const free = (id, at = null) => (book.polities[id]?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && !hullUnavailable(h) && !taken.has(h.id) && (at == null || Number(h.systemIndex) === Number(at)));
   // Evacuations.
   const activeAi = (book.evacuations || []).filter((e) => e.status === 'active' && e.sponsor !== 'player').length;
   if (activeAi < c.maxAiEvacuations) {
