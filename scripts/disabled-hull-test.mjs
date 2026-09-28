@@ -54,7 +54,8 @@ check('baseline-defect', 'DH-3. an own yard does not repair a hulk it cannot rea
   disable(h); h.status = 'repairing';
   run(book, world, 2, 10);
   log.dh3 = { hull: h.hull, cond: cond(h), blockade: book.blockades[0].status };
-  if (book.blockades[0].status === 'active') assert.equal(cond(h), 'disabled', `repaired inside an active blockade (${h.hull}/${h.maxHull})`);
+  assert.equal(book.blockades[0].status, 'active', 'precondition: the blockade still holds');
+  assert.equal(cond(h), 'disabled', `repaired inside an active blockade (${h.hull}/${h.maxHull})`);
 });
 check('preservation', 'DH-4. a real repair still works: a hulk at its own yard with nothing in the way is brought in and repaired — same record, same vid', () => {
   const { world, book } = galaxy('DH-4');

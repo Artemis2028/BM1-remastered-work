@@ -10451,7 +10451,10 @@ function npcAuthorityFacts(npc, target, targetType = 'ship', now = gameNow()) {
   // A war order is a formal war AND this ship on a war task: an operation hull or a doctrine raid.
   const hullOp = npc.campaignHullId ? (book.operations || []).find((o) => o.status !== 'resolved' && (o.hullIds || []).includes(npc.campaignHullId)) : null;
   const raid = npc.campaignHullId ? (book.doctrine?.objectives || []).find((o) => o.status === 'active' && o.kind === 'raid' && o.assigned.hullId === npc.campaignHullId) : null;
-  const formalWar = targetSide && mySide && Campaign.warAuthorityStamp(book, buildCampaignWorld(), mySide, state.currentPlanet) != null && sidesOpposed(mySide, targetSide);
+  // Formal war with the target's own side — never attitude: a Klingon at war with this system's holder has
+  // no war with a Ferengi trader here.
+  const atWar = (a, b) => a === PLAYER_SIDE ? playerRelation(b).status === 'war' : b === PLAYER_SIDE ? playerRelation(a).status === 'war' : formalRelation(a, b)?.status === 'war';
+  const formalWar = Boolean(targetSide && mySide && mySide !== targetSide && atWar(mySide, targetSide));
   if (formalWar) facts.war_target_verified = true;
   if (formalWar && (hullOp || (raid && Campaign.warAuthorityHolds(book, buildCampaignWorld(), raid.authority.stamp)))) facts.war_order_active = true;
   const objective = raid ? `raid ${String(raid.id).split(':').pop()}` : hullOp ? `operation ${hullOp.id}` : attackedMe ? 'self-defence' : protectSource ? protectSource : npc.securityObjective ? 'security objective' : null;
@@ -10535,6 +10538,14 @@ function reportDoctrineTrace(spec) {
 function triggerDoctrineDebug(args) {
   const [sub, ...rest] = args;
   if (sub === 'status') { const s = doctrineStatus(); return s.state === 'loaded' ? `Doctrine ${s.version} loaded: ${s.profiles} profiles, ${s.cultures} cultures.` : `Doctrine ${s.state}${s.error ? `: ${s.error.split('\n')[0]}` : ''}.`; }
+  // Phase 3 military execution (witnessed attacks and their defence, area patrols) on or off for this
+  // campaign; everything earlier runs as before.
+  if (sub === 'military' && (rest[0] === 'on' || rest[0] === 'off')) {
+    const on = rest[0] === 'on';
+    const db = DoctrineCampaign.doctrineBook(campaign());
+    db.config = { ...db.config, militaryResponses: on, patrolAreas: on ? { ...DoctrineCampaign.DOCTRINE_PILOT.patrolAreas } : {} };
+    return `Doctrine military responses and area patrols ${on ? 'enabled' : 'disabled'} for this campaign.`;
+  }
   if (!doctrineRuntime) throw new Error('Doctrine is not loaded; see the doctrine section for the error.');
   const book = campaign();
   const db = DoctrineCampaign.doctrineBook(book);
@@ -10616,7 +10627,7 @@ function triggerDoctrineDebug(args) {
     const r = Campaign.recoverStrandedHull(book, buildCampaignWorld(true), normalizeFactionKey(rest[0]), rest[1], state.day, 'debug');
     return r.ok ? `Override: ${rest[1]} brought into the yard.` : `Not recovered: ${r.reason}.`;
   }
-  throw new Error('Doctrine codes: doctrine status | on | off | patrol <faction> [system] | areapatrol <faction> <system> | raid <faction> <system> | surrender <incident> [acceptedBy] | recover <faction> <hull> | delivery <faction> <system> | project <faction> <depot> > <site> | lose [assignment|latest] [disabled] [silent] | relay <incident> <from> <to> [full|overdue_notice|findings|survivor_report] [override|network]');
+  throw new Error('Doctrine codes: doctrine status | on | off | military on|off | patrol <faction> [system] | areapatrol <faction> <system> | raid <faction> <system> | surrender <incident> [acceptedBy] | recover <faction> <hull> | delivery <faction> <system> | project <faction> <depot> > <site> | lose [assignment|latest] [disabled] [silent] | relay <incident> <from> <to> [full|overdue_notice|findings|survivor_report] [override|network]');
 }
 function renderDoctrineDebug() {
   const s = doctrineStatus();

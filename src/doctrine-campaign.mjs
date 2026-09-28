@@ -75,7 +75,7 @@ export const DOCTRINE_PILOT = Object.freeze({
   conflictLimit: 60, reevaluationLimit: 80,
   // Phase 3
   patrolAreaDwellDays: 2, patrolFormEveryDays: 15, patrolResponseHops: 1, closedPatrolLimit: 10,
-  maxMilitaryObjectivesPerPolity: 2, defenseHops: 2, defenseDeadlineDays: 10,
+  maxMilitaryObjectivesPerPolity: 2, defenseHops: 2, defenseDeadlineDays: 10, defenseHopelessRatio: 2,
   raidDeadlineDays: 15, raidStrikeDays: 2, raidEngageRatio: 1.0, raidMinRatio: 0.6, attackHistoryLimit: 30,
   // Witnessing attacks (and so defending against them) can be switched off for a campaign — the earlier
   // phases' gates do, so their scenarios run as they did before phase 3.
@@ -1282,6 +1282,8 @@ function detectAttacks(book, world, db, day, effects) {
   // A doctrine raid on station at its target.
   for (const o of db.objectives) {
     if (o.status !== 'active' || o.kind !== 'raid' || !['engaged', 'shadowing'].includes(o.state)) continue;
+    // A raid whose war authority ended today is standing down: it attacks nobody any more.
+    if (o.cancelRequested || !warAuthorityHolds(book, world, o.authority?.stamp)) continue;
     witnessAttack(book, world, db, { id: `inc:attack:${o.raid.id}`, source: 'raid', sourceId: o.id, attackerFaction: o.polity, systemIndex: o.target.systemIndex, day, force: 1 }, effects);
   }
   // The attack ends: the holder sees it end in its own space (the force withdrew, was destroyed, stood
@@ -1290,7 +1292,7 @@ function detectAttacks(book, world, db, day, effects) {
     if (!isMilitaryIncident(inc) || inc.status !== 'open') continue;
     let ended = null;
     if (inc.source === 'operation') { const op = (book.operations || []).find((x) => x.id === inc.sourceId); if (!op || op.status === 'resolved') ended = op?.outcome === 'captured' ? 'world_fell' : op?.outcome === 'surrendered' ? 'surrendered' : 'threat_ended'; }
-    else if (inc.source === 'raid') { const o = db.objectives.find((x) => x.id === inc.sourceId); if (!o || o.status !== 'active' || !['engaged', 'shadowing'].includes(o.state)) ended = 'threat_ended'; }
+    else if (inc.source === 'raid') { const o = db.objectives.find((x) => x.id === inc.sourceId); if (!o || o.status !== 'active' || !['engaged', 'shadowing'].includes(o.state) || o.cancelRequested || !warAuthorityHolds(book, world, o.authority?.stamp)) ended = 'threat_ended'; }
     else if (inc.source === 'interception' && day - (inc.lastSeenDay ?? inc.createdDay) >= 1) ended = 'threat_ended';
     if (!ended) continue;
     resolveIncident(book, world, db, inc, day, ended, `${inc.source} ${shortId(inc.sourceId)} ${ended.replace('_', ' ')}`, effects);
@@ -1432,16 +1434,43 @@ function defenseCapacity(book, world, db, observerId, k, day) {
   }
   const busy = militaryBudget(db, polity, replacing);
   if (busy >= c.maxMilitaryObjectivesPerPolity) return { ...out, reason: `military budget spent (${busy} military objectives running)` };
+  // Never strip a world that is itself under attack (or being attacked from) to defend another.
+  const threatened = new Set([
+    ...Object.values(db.incidents).filter((i) => isMilitaryIncident(i) && i.status === 'open' && i.polity === polity && i.id !== inc.id).map((i) => systemIndexForLocation(db, i.locationId)),
+    ...(book.operations || []).filter((op) => op.status !== 'resolved' && op.faction !== polity).map((op) => Number(op.targetSystem)),
+  ].filter((x) => x != null).map(Number));
   let best = null;
   for (const h of candidates) {
+    if (Number(h.systemIndex) !== Number(target) && threatened.has(Number(h.systemIndex))) continue;
     const route = routeBetween(world, h.systemIndex, target, polity);
     if (!route || route.length - 1 > c.defenseHops) continue;
     if (!best || route.length < best.route.length) best = { h, route };
   }
-  if (!best) return { ...out, reason: `no vessel within ${c.defenseHops} jumps of ${sysName(world, target)}` };
+  if (!best) return { ...out, reason: `no vessel within ${c.defenseHops} jumps of ${sysName(world, target)} that is not needed where it is` };
+  // A defence is sent to hold a world, not fed into a fight already lost: with the ship added, the defence
+  // must stand within `defenseHopelessRatio` of the attack it faces.
+  const attack = attackStrengthAt(book, world, db, inc);
+  const defense = localDefenseStrength(book, world, target) + hullStrength(book, world, best.h);
+  if (attack > 0 && attack > defense * c.defenseHopelessRatio) return { ...out, reason: `${sysName(world, target)} cannot be held with what is spare (attack ${Math.round(attack)} against ${Math.round(defense)})` };
   const allowed = observerId.startsWith('hull:') ? commitmentAllows(db, best.h.id, 'protect') : { ok: true };
   return { ok: true, response: 'protect', military: 'defense', hullId: best.h.id, vid: vidOf(best.h), route: best.route, hops: best.route.length - 1, target, obligation, preempts: allowed.preempts || null,
     reason: `${best.h.id} (${best.route.length - 1} jumps) to defend ${sysName(world, target)}${allowed.preempts ? ` — breaks off ${allowed.preempts.label}` : ''}` };
+}
+// The strength of the attack an incident is about, as the campaign counts it (the attacking hulls alive).
+function attackStrengthAt(book, world, db, inc) {
+  if (!inc) return 0;
+  if (inc.source === 'operation') {
+    const op = (book.operations || []).find((x) => x.id === inc.sourceId);
+    if (!op) return 0;
+    const pol = book.polities[op.faction];
+    return (op.hullIds || []).map((id) => pol?.hulls.find((h) => h.id === id)).filter((h) => h && h.status !== 'lost' && !hullIsDisabled(h)).reduce((n, h) => n + hullStrength(book, world, h), 0);
+  }
+  if (inc.source === 'raid') {
+    const o = db.objectives.find((x) => x.id === inc.sourceId);
+    const h = o && liveHull(book, o.polity, o.assigned.hullId);
+    return h && !hullIsDisabled(h) ? hullStrength(book, world, h) : 0;
+  }
+  return 0;
 }
 function startDefense(book, world, db, o, cap, day, effects) {
   const r = issueAssignment(book, world, { polity: o.polity, hullId: cap.hullId, kind: 'defense', doctrineRole: o.role === 'commander' ? 'defender' : o.role, objectiveId: o.id, stops: [{ systemIndex: cap.target, dwell: 0, milestone: 'arrival' }] }, day, effects);
@@ -1522,6 +1551,8 @@ function advanceRaids(book, world, db, day, effects) {
     if (ratio < c.raidEngageRatio) { o.state = 'shadowing'; o.actions.push({ day, action: 'shadow', detail: `force ratio ${ratio.toFixed(2)}: holding, not striking` }); continue; }
     o.state = 'engaged';
     const res = raidStrikeDay(book, world, o.raid, [h], o.target.systemIndex, day, effects);
+    // The strike is seen where it lands, the day it lands.
+    if (db.config.militaryResponses !== false) witnessAttack(book, world, db, { id: `inc:attack:${o.raid.id}`, source: 'raid', sourceId: o.id, attackerFaction: o.polity, systemIndex: o.target.systemIndex, day, force: 1 }, effects);
     o.strikeDays++;
     o.actions.push({ day, action: 'engage', detail: `strike ${o.strikeDays}/${c.raidStrikeDays}: defenders lost ${res.defenderLosses || 0}, raiders lost ${res.losses || 0}` });
     if (o.strikeDays >= c.raidStrikeDays) o.found = { complete: true };

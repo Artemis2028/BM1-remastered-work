@@ -85,6 +85,10 @@ const { startProbe } = require('./probe-harness.cjs');
       // evacuation convoy runs differently, and on this seed that alone decided whether a fourth
       // Cardassian world fell and a (legitimate) decisive settlement ended the war. [f2837a7]
       t.campaign().config.aiStrategicOps = false;
+      // Likewise faction doctrine's phase 3 military execution (area patrols and command defence): on this
+      // seed either one alone leaves the front as the fixture moves it, both together tip a fifth Romulan
+      // world and a legitimate decisive peace (docs/doctrine/DOCTRINE-RUNTIME-PHASE3.md §11).
+      t.applyDebugCommand('doctrine military off');
       t.changeDiplomacy('romulan', 'cardassian', 'war');
       const rom = window.__worldsOf('romulan'), car = window.__worldsOf('cardassian');
       const statuses = [];

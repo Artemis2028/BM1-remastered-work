@@ -208,6 +208,12 @@ const EXPORTS = 'window.testBM1={state,startWithFaction,advanceFleetCalendar,fle
         // front can resolve and prune it before the last step.
         const x = book.operations.find((o) => o.id === book.dominion.expeditionOpId); if (x && !expedition) expedition = { targetSystem: x.targetSystem, kind: x.kind }; } };
       let expedition = null;
+      // This check is about the Dominion arc's own mechanics. Faction doctrine's phase 3 military execution
+      // (commands defending their attacked worlds, area patrols) changes how the war it provokes goes — in
+      // this seed the Terrans hold and retake Bajora and the expedition withdraws before the last step — so
+      // it is turned off here, as the arc's own rules are what is under test
+      // (docs/doctrine/DOCTRINE-RUNTIME-PHASE3.md §11).
+      t.applyDebugCommand('doctrine military off');
       // Three hundred warp-days of ordinary play with the strategic case out of reach. Days are the only
       // thing changing, which is the point: the calendar is not an input, so nothing happens. (The
       // matrix gate carries the same claim across a full grid of ages and histories.)

@@ -401,6 +401,29 @@ test('P3-12/13. a ceasefire invalidates the raid at once: the one under way stop
   assert.equal(again.ok, false);
 });
 
+test('P3-12b. a ceasefire while the raid is on station between strikes: the next strike never lands; the attack it was ends that day', () => {
+  const env = raidScene('P3-12b');
+  const { book, world, db, raider, relations } = env;
+  // Minor unheld by ships and no Terran spare to come to its defence: the raid strikes and would go on.
+  for (const h of P(book, 'terran').hulls.filter((x) => x.systemIndex === IDX.Minor)) h.systemIndex = IDX.Earth;
+  commitAllBut(book, 'terran');
+  const r = DC.orderRaid(book, world, { power: 'klingon', target: IDX.Minor, hullId: raider.id, day: 1, doctrine });
+  const o = r.objective;
+  for (let i = 0; i < 8 && o.strikeDays < 1 && o.status === 'active'; i++) step(env, 1);
+  assert.equal(o.state, 'engaged', JSON.stringify(o.actions)); assert.equal(o.strikeDays, 1);
+  const cfDay = book.settled;
+  C.forceWarTransition(book, world, 'terran', 'klingon', 'ceasefire', cfDay, 'test ceasefire');
+  relations['terran:klingon'] = 'ceasefire';
+  const strikes = [];
+  step(env, 6, (e) => { if (e.type === 'raidStrike') strikes.push(e); });
+  assert.equal(strikes.length, 0, 'a strike landed after the ceasefire');
+  assert.equal(o.strikeDays, 1); assert.equal(o.status, 'aborted'); assert.equal(o.cancelledBy, 'authority');
+  assert.equal(o.resolution.day, cfDay + 1);
+  const inc = Object.values(db.incidents).find((i) => i.source === 'raid' && i.sourceId === o.id);
+  assert.ok(inc, 'the raid was never a witnessed attack');
+  assert.equal(inc.resolution?.status, 'threat_ended'); assert.equal(inc.resolution.day, cfDay + 1);
+});
+
 // ===================================================================================================
 // PART 6 — fire authority stays with the engine's gates
 // ===================================================================================================

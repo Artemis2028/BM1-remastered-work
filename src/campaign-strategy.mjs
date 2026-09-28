@@ -602,6 +602,8 @@ function settleCampaignDay(book, world, day, effects) {
   enforceRelations(book, world, day, effects);
   planOperations(book, world, day, effects);
   advanceOperations(book, world, day, effects);
+  // A defender disabled in today's battles is stranded before the Dominion or strategic ops can pick it.
+  advanceStranded(book, world, day, effects);
   advanceDominion(book, world, day, effects);
   advanceStrategicOps(book, world, day, effects);
   // Anything disabled today (a battle, a blockade run) is stranded before anyone can pick it up.
@@ -906,6 +908,9 @@ export function advanceStranded(book, world, day, effects = []) {
       const blockaded = applicableBlockadesAt(book, world, s.systemIndex, id).length > 0;
       if (s.recovery === 'awaiting_recovery' && ownYardAt(world, id, s.systemIndex) && !blockaded) { s.recovery = 'recovering'; s.recoverySince = day; s.recoveredBy = 'yard'; }
       else if (s.recovery === 'recovering' && (blockaded || !ownYardAt(world, id, s.systemIndex))) { s.recovery = 'awaiting_recovery'; s.recoverySince = null; s.recoveredBy = null; }
+      // In the yard, it stays there through a later blockade (the yard has it); if the yard itself is lost —
+      // the world taken, the yard destroyed — the hulk is out in the open again, awaiting recovery.
+      else if (s.recovery === 'in_yard' && !ownYardAt(world, id, s.systemIndex)) { s.recovery = 'awaiting_recovery'; s.recoverySince = null; s.recoveredBy = null; }
       if (s.recovery === 'recovering' && day - s.recoverySince >= (c.strandedRecoveryDays ?? 2)) {
         s.recovery = 'in_yard';
         effects.push({ type: 'hullRecovered', polityId: id, hullId: h.id, vid: h.identity?.vid || h.id, systemIndex: s.systemIndex, day, via: s.recoveredBy });
@@ -925,6 +930,7 @@ export function recoverStrandedHull(book, world, polityId, hullId, day, via = 'r
   const h = hullOf(book, polityId, hullId);
   if (!h || !hullIsDisabled(h)) return { ok: false, reason: 'not a disabled hull' };
   if (!ownYardAt(world, polityId, h.systemIndex)) return { ok: false, reason: 'no own yard here: it waits for a tow' };
+  if (applicableBlockadesAt(book, world, h.systemIndex, polityId).length) return { ok: false, reason: 'the yard is under blockade' };
   h.stranded ||= { since: day, systemIndex: Number(h.systemIndex), crew: 'aboard', crewUntil: day + (book.config.crewSurvivalDays ?? 20), crewEndDay: null };
   h.stranded.recovery = 'in_yard'; h.stranded.recoverySince = day; h.stranded.recoveredBy = via;
   return { ok: true };
@@ -1321,7 +1327,9 @@ function applyLosses(book, world, hulls, fraction, op, day) {
 function applyDefenderLosses(book, world, systemIndex, fraction, op, day, effects) {
   for (const id of defendingPolityIds(book, world, systemIndex, op.faction)) {
     const p = polity(book, id);
-    const local = p.hulls.filter((h) => defendsHere(h, systemIndex));
+    // Losses fall on the defenders and on any hulk lying there: a disabled hull adds nothing to the defence
+    // but is not out of the fight's reach (it can be finished off where it lies).
+    const local = p.hulls.filter((h) => defendsHere(h, systemIndex) || (hullIsDisabled(h) && Number(h.systemIndex) === Number(systemIndex) && !h.opId));
     if (!local.length) continue;
     let budget = local.reduce((n, h) => n + h.maxHull, 0) * fraction, i = 0;
     const report = [];
@@ -1687,7 +1695,7 @@ function advanceDominion(book, world, day, effects) {
     // through the stand-down above, so re-testing it here as well could only deadlock a staged force
     // that the opening already judged worth staging. There is no deadline that sends it anyway: a
     // corridor closed while it staged is a crossing that never happens.
-    const staged = dominion.hulls.filter((h) => h.status === 'ready' && h.systemIndex === d.stagingSystem);
+    const staged = dominion.hulls.filter((h) => h.status === 'ready' && !hullIsDisabled(h) && h.systemIndex === d.stagingSystem);
     // The invasion plan says, explicitly, who the opening attacks. The corridor is forced only against a
     // holder on the authored list; an unheld terminus is occupied unopposed; a holder off the list (a pact
     // partner) is not attacked and the crossing waits. Holding the entry world is never itself a war.
@@ -2347,7 +2355,7 @@ export function withdrawExpedition(book, world, day, effects, opts = {}) {
     const entry = Number(d.entrySystem), staging = Number(d.stagingSystem);
     const near = Number.isFinite(entry) ? nearSideSystems(world, entry) : new Set();
     for (const h of livingHulls(polity(book, id))) {
-      if (h.status !== 'ready' || h.opId || !near.has(Number(h.systemIndex)) || !Number.isFinite(staging)) continue;
+      if (h.status !== 'ready' || h.opId || hullIsDisabled(h) || !near.has(Number(h.systemIndex)) || !Number.isFinite(staging)) continue;
       h.systemIndex = staging; moved.push(h.id);
     }
     d.phase = 'withdrawn'; d.phaseDay = day;
@@ -2497,6 +2505,7 @@ export function startEvacuation(book, world, spec, day, effects = []) {
     for (const id of ids) {
       const h = hullOf(book, sponsor, id);
       if (!h) return { error: `${id} is not a vessel of ${world.factionName(sponsor)}.` };
+      if (hullIsDisabled(h)) return { error: `${id} is disabled and cannot sail.` };
       if (taken.has(h.id) || h.opId || h.status !== 'ready') return { error: `${id} is already committed elsewhere.` };
       if (Number(h.systemIndex) !== Number(origin)) return { error: `${id} is not at ${o.name}.` };
       const lift = role === 'transport' ? evacuationLift(book, world, h) : 0;
@@ -2524,7 +2533,7 @@ export function assignEvacuationEscorts(book, world, id, hullIds, day, effects =
   const added = [];
   for (const hid of hullIds) {
     const h = hullOf(book, e.sponsor, hid);
-    if (!h || taken.has(h.id) || h.opId || h.status !== 'ready') return { ok: false, reason: `${hid} is not free to escort.` };
+    if (!h || taken.has(h.id) || h.opId || h.status !== 'ready' || hullIsDisabled(h)) return { ok: false, reason: `${hid} is not free to escort.` };
     if (Number(h.systemIndex) !== e.origin) return { ok: false, reason: `${hid} is not at ${world.systems[e.origin]?.name}.` };
     added.push({ hullId: h.id, vid: h.vid || null, shipId: Number(h.shipId), lift: 0 });
   }
@@ -2588,6 +2597,7 @@ export function startBlockade(book, world, spec, day, effects = []) {
   for (const id of hullIds) {
     const h = hullOf(book, power, id);
     if (!h) return { ok: false, reason: `${id} is not a vessel of ${world.factionName(power)}.` };
+    if (hullIsDisabled(h)) return { ok: false, reason: `${id} is disabled and cannot sail.` };
     if (taken.has(h.id) || h.opId || h.status !== 'ready') return { ok: false, reason: `${id} is already committed elsewhere.` };
     if (power === 'player' && !near.has(Number(h.systemIndex))) return { ok: false, reason: `${id} is not at or next to ${sys.name}.` };
     list.push({ hullId: h.id, vid: h.vid || null, shipId: Number(h.shipId), from: Number(h.systemIndex) });
@@ -3079,7 +3089,7 @@ function settleEvacuationDay(book, world, e, day, effects) {
 function aiStrategicOps(book, world, day, effects) {
   const c = book.config;
   const taken = strategicAssignments(book);
-  const free = (id, at = null) => (book.polities[id]?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && !taken.has(h.id) && (at == null || Number(h.systemIndex) === Number(at)));
+  const free = (id, at = null) => (book.polities[id]?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && !hullIsDisabled(h) && !taken.has(h.id) && (at == null || Number(h.systemIndex) === Number(at)));
   // Evacuations.
   const activeAi = (book.evacuations || []).filter((e) => e.status === 'active' && e.sponsor !== 'player').length;
   if (activeAi < c.maxAiEvacuations) {

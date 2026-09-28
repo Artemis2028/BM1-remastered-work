@@ -1424,6 +1424,10 @@ const { startProbe } = require('./probe-harness.cjs');
       await fresh('blk-transitmask');
       return ev((args) => {
         const t = testBM1, s = t.state, book = t.campaign();
+        // The reproduction is about observation through a crew that dies; faction doctrine's phase 3 defence
+        // (a Terran command sending a spare warship to its attacked world) would change who takes the losses
+        // in the fight it stages, so it is off here (docs/doctrine/DOCTRINE-RUNTIME-PHASE3.md §11).
+        t.applyDebugCommand('doctrine military off');
         const here = Number(s.currentPlanet);
         const flag = t.getPlayerFlag();
         const world = t.buildCampaignWorld(true);
