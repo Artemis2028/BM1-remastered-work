@@ -77,7 +77,10 @@
     "test:doctrine:p3:ingame": "node scripts/doctrine-phase3-gate.cjs",
     "test:doctrine:p4": "node scripts/doctrine-phase4-test.mjs",
     "test:doctrine:p4:ingame": "node scripts/doctrine-phase4-gate.cjs",
+    "test:movement": "node scripts/strategic-movement-test.mjs",
+    "test:movement:ingame": "node scripts/strategic-movement-gate.cjs",
     "measure:doctrine:p4": "node scripts/doctrine-phase4-longrun.cjs",
+    "measure:movement": "node scripts/strategic-movement-longrun.cjs",
     "bench:map": "node scripts/map-render-bench.cjs",
     "screens:section6": "node scripts/section6-screens.cjs"
   },

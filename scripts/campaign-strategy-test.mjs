@@ -97,11 +97,13 @@ test('a battle claimed by the loaded scene is not resolved offscreen, and its su
   const t = C.getPolity(book, 'terran');
   const hulls = t.hulls.filter((h) => h.status === 'ready').slice(0, 4);
   const op = C.launchOperation(book, world, 'terran', hulls, 2, 1, 1);
-  run(book, world, 2, 2); assert.equal(op.status, 'engaged');
+  // STRATEGIC-MOVEMENT-UNIFICATION: the force flies its real route (two legs here) before it engages.
+  let d = 1; while (op.status === 'moving' && d < 10) { d++; run(book, world, d, d); }
+  assert.equal(op.status, 'engaged');
   const claim = C.claimOperationForScene(book, op.id);
   assert.ok(claim && claim.hulls.length === 4);
   assert.equal(C.claimOperationForScene(book, op.id), null, 'cannot be claimed twice');
-  run(book, world, 3, 20); assert.equal(op.status, 'engaged', 'offscreen resolver skipped the claimed battle');
+  run(book, world, d + 1, 20); assert.equal(op.status, 'engaged', 'offscreen resolver skipped the claimed battle');
   const report = claim.hulls.map((h, i) => ({ hullId: h.id, destroyed: i < 2, hull: h.maxHull * 0.5 }));
   const effects = [];
   assert.equal(C.reconcileLocalOutcome(book, world, op.id, report, 'withdrew', 21, effects), true);

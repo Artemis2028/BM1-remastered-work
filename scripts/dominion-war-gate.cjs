@@ -147,6 +147,8 @@ const { startProbe } = require('./probe-harness.cjs');
       const act = t.activateDominionPact('cardassian', 'a secret agreement');
       t.transferSystemControlToFaction(46, 'cardassian');
       window.__invade();
+      // The corridor is a real crossing now (STRATEGIC-MOVEMENT-UNIFICATION): the wormhole leg takes its day.
+      window.__advance(1);
       return { act: act.ok, view: window.__pactView(), record: t.Campaign.pactRecord(t.campaign(), 'dominion', 'cardassian') };
     });
     assert.ok(r.act);
@@ -372,7 +374,10 @@ const { startProbe } = require('./probe-harness.cjs');
       // invasion is thrown back before it takes Bajora, both sides have paid, and nothing has moved.
       const op = book.operations.find((o) => o.id === book.dominion.expeditionOpId);
       op.status = 'resolved'; op.outcome = 'withdrew'; op.resolvedDay = s.day;
-      for (const h of t.Campaign.operationHulls(book, op)) { h.opId = null; h.status = 'ready'; h.systemIndex = book.dominion.stagingSystem; }
+      // (Its force is under way on a shared journey now: the fixture ends that journey too, so the hulls
+      // really are standing at the staging system.)
+      for (const j of book.journeys || []) if (j.ref === op.id && j.status === 'underway') { j.status = 'halted'; j.endReason = 'fixture'; j.endDay = s.day; }
+      for (const h of t.Campaign.operationHulls(book, op)) { h.opId = null; h.status = 'ready'; h.systemIndex = book.dominion.stagingSystem; delete h.transit; }
       book.config.warRules = { stalemateMaxRatio: 1e9 };
       const w = t.Campaign.warRecord(book, 'bajoran', 'dominion'); w.engagements = 30; w.losses.bajoran = 6; w.losses.dominion = 5; w.front = [];
       const st = book.warStates['bajoran:dominion']; st.startedDay = s.day - 150; st.statusSince = st.startedDay;

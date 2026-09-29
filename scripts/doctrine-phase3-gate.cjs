@@ -70,6 +70,11 @@ const { startProbe } = require('./probe-harness.cjs');
     window.__hops = (a, b, polity) => t.buildCampaignWorld(true).routeHops([a], b, polity);
   });
   await setup();
+  // STRATEGIC-MOVEMENT-UNIFICATION: this gate's scenarios are authored hop by hop (one hop a day, as every
+  // doctrine vessel flew until this round). They run with the labelled debug override that makes every
+  // strategic leg one day; doctrine at the chart's real leg lengths is covered by doctrine-runtime-gate and
+  // strategic-movement-gate, and by the pure suites' unequal legs.
+  await ev(() => testBM1.applyDebugCommand('campaign legs 1'));
 
   // ---------------------------------------------------------------------------------------------
   await check('preservation', 'P3-HEADER the doctrine debug header names the source package status and the runtime phase; the source package is unchanged', async () => {

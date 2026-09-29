@@ -308,7 +308,12 @@ const { startProbe } = require('./probe-harness.cjs');
       s.playerFleet.push({ id: 'gate-defender', shipId: Number(ship.id), name: 'Gate Defender', systemIndex: elsewhere, assignment: 'defense', destroyed: false, vessel: { hull: 400, maxHull: 400, condition: 'operational' } });
       t.syncPlayerPolity(book);
       const w2 = t.buildCampaignWorld(true);
-      const attacker = Object.keys(book.polities).find((id) => id !== 'player' && book.polities[id].hulls.length >= 8);
+      // A power actually at war with the captain's empire: an attack by anyone else is stood down the same
+      // day by the relations check. (The first version took the first large polity, often the captain's own
+      // flag, and relied on some other power's raid landing on the world inside the twelve days — which it
+      // no longer does once war fleets fly their real legs. STRATEGIC-MOVEMENT-UNIFICATION)
+      const attacker = Object.keys(book.polities).find((id) => id !== 'player' && book.polities[id].hulls.length >= 8 && w2.relation(w2.playerRelationSide || 'player', id) === 'war')
+        || Object.keys(book.polities).find((id) => id !== 'player' && book.polities[id].hulls.length >= 8);
       const strike = book.polities[attacker].hulls.slice(0, 8);
       for (const h of strike) h.systemIndex = elsewhere;
       const op = t.Campaign.launchOperation(book, w2, attacker, strike, elsewhere, s.day, 1, 'assault');
@@ -1185,8 +1190,11 @@ const { startProbe } = require('./probe-harness.cjs');
         // A power actually at war with the colours the captain flies, or the settlement rules stand the
         // operation down before it reaches anybody.
         const flag = t.getPlayerFlag();
+        // (At war in the model with the captain's empire itself — the party the relations check reads — so the
+        // operation is not stood down; the first version relied on another power's raid landing inside the
+        // interval, which it no longer does once war fleets fly their real legs. STRATEGIC-MOVEMENT-UNIFICATION)
         const attacker = Object.keys(book.polities).find((id) => id !== 'player' && book.polities[id].hulls.length >= 20
-          && t.worldRelation(flag, t.campaignFactionKeyFor(id)).status === 'war');
+          && w2.relation(w2.playerRelationSide || 'player', id) === 'war' && t.worldRelation(flag, t.campaignFactionKeyFor(id)).status === 'war');
         if (!attacker) return { fail: `no power at war with ${flag} had twenty hulls to take it` };
         const hulls = book.polities[attacker].hulls.slice(0, 20);
         for (const h of hulls) h.systemIndex = target;

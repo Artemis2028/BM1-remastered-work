@@ -43,7 +43,7 @@ const { startProbe } = require('./probe-harness.cjs');
       if (!hulls.length) return null;
       s.activeFleetAttack = null;
       const effects = [];
-      const op = t.Campaign.launchOperation(book, t.buildCampaignWorld(true), faction, hulls, Number(s.currentPlanet), s.day, 0, 'raid', effects);
+      for (const h of hulls) h.systemIndex = Number(s.currentPlanet); const op = t.Campaign.launchOperation(book, t.buildCampaignWorld(true), faction, hulls, Number(s.currentPlanet), s.day, 0, 'raid', effects, { immediate: true }); // the loaded scene's own raid path: fought where it is (STRATEGIC-MOVEMENT-UNIFICATION)
       op.status = 'engaged'; op.engagedDay = s.day; op.arriveDay = s.day;
       for (const h of hulls) h.systemIndex = Number(s.currentPlanet);
       const claim = t.Campaign.claimOperationForScene(book, op.id);
@@ -120,7 +120,7 @@ const { startProbe } = require('./probe-harness.cjs');
       h.opId = null; h.status = 'ready';
       const book = t.campaign();
       const effects = [];
-      const op2 = t.Campaign.launchOperation(book, t.buildCampaignWorld(true), 'klingon', [h], Number(s.currentPlanet), s.day, 0, 'skirmish', effects);
+      h.systemIndex = Number(s.currentPlanet); const op2 = t.Campaign.launchOperation(book, t.buildCampaignWorld(true), 'klingon', [h], Number(s.currentPlanet), s.day, 0, 'skirmish', effects, { immediate: true }); // the loaded scene's own raid path: fought where it is (STRATEGIC-MOVEMENT-UNIFICATION)
       op2.status = 'engaged'; op2.engagedDay = s.day; op2.arriveDay = s.day;
       const claim = t.Campaign.claimOperationForScene(book, op2.id);
       op2.spawnedHullIds = [];

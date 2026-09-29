@@ -182,7 +182,12 @@ test('13. an evacuation convoy runs the blockade on its route through the shared
   const passedShare = (x) => runs(x).filter((r) => r.continues).length / Math.max(1, runs(x).length);
   stats['convoy 3 freighters (40 days)'] = { runs: runs(bare).length, passShare: passedShare(bare), moved: bare.e.moved, lost: bare.e.lost.length, removed: bare.e.removed.length, status: bare.e.status };
   stats['convoy 3 freighters + 4 escorts (40 days)'] = { runs: runs(escorted).length, passShare: passedShare(escorted), moved: escorted.e.moved, lost: escorted.e.lost.length, removed: escorted.e.removed.length, status: escorted.e.status };
-  assert.ok(escorted.e.moved > bare.e.moved, `moved escorted ${escorted.e.moved} vs bare ${bare.e.moved}`);
+  // Escorts help on the whole, not on every seed: compared over five campaigns (one seeded run is a coin).
+  const seeds = ['BR-13', 'BR-13b', 'BR-13c', 'BR-13d', 'BR-13e'];
+  const total = (esc) => seeds.reduce((n, sd) => n + (sd === 'BR-13' ? (esc ? escorted : bare) : mk(sd, esc)).e.moved, 0);
+  const tb = total(0), te = total(4);
+  stats['convoy escorts over five seeds'] = { bare: tb, escorted: te };
+  assert.ok(te > tb, `moved escorted ${te} vs bare ${tb} over five seeds`);
   // Every loss is a named hull with its vid, and it no longer serves.
   for (const l of [...bare.e.lost, ...bare.e.removed]) { assert.ok(l.hullId); assert.ok(!bare.e.transports.some((t) => t.hullId === l.hullId)); }
   // No separate evacuation roll: every interdiction the convoy met is a blockadeRun.

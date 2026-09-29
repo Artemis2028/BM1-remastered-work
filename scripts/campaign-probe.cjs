@@ -66,7 +66,7 @@ const EXPORTS = 'window.testBM1={state,startWithFaction,advanceFleetCalendar,fle
     const r = await ev(() => {
       const t = testBM1, s = t.state, book = t.campaign(), world = t.buildCampaignWorld(true);
       const k = book.polities.klingon; const hulls = k.hulls.filter((h) => h.status === 'ready').slice(0, 9);
-      const effects = []; const op = t.Campaign.launchOperation(book, world, 'klingon', hulls, s.currentPlanet, s.day, 0, 'assault', effects);
+      const effects = []; for (const h of hulls) h.systemIndex = Number(s.currentPlanet); const op = t.Campaign.launchOperation(book, world, 'klingon', hulls, s.currentPlanet, s.day, 0, 'assault', effects, { immediate: true }); // the loaded scene's own raid path: fought where it is (STRATEGIC-MOVEMENT-UNIFICATION)
       op.status = 'engaged'; op.engagedDay = s.day; op.arriveDay = s.day;
       s.activeFleetAttack = null;
       t.updateSystemActivity(0);
@@ -101,7 +101,7 @@ const EXPORTS = 'window.testBM1={state,startWithFaction,advanceFleetCalendar,fle
       const t = testBM1, s = t.state, book = t.campaign(), world = t.buildCampaignWorld(true);
       const target = s.currentPlanet; const before = t.getSystemControl(target).polityId;
       const hulls = book.polities.klingon.hulls.filter((h) => h.status === 'ready').slice(0, 4);
-      const op = t.Campaign.launchOperation(book, world, 'klingon', hulls, target, s.day, 0, 'assault', []);
+      for (const h of hulls) h.systemIndex = Number(target); const op = t.Campaign.launchOperation(book, world, 'klingon', hulls, target, s.day, 0, 'assault', [], { immediate: true }); // the loaded scene's own raid path: fought where it is (STRATEGIC-MOVEMENT-UNIFICATION)
       op.status = 'engaged'; op.engagedDay = s.day; op.arriveDay = s.day; s.activeFleetAttack = null;
       t.updateSystemActivity(0);
       // remove all local defenders, keep the captain out of the fight and let the control timer elapse
@@ -132,7 +132,7 @@ const EXPORTS = 'window.testBM1={state,startWithFaction,advanceFleetCalendar,fle
       const t = testBM1, s = t.state, book = t.campaign(), world = t.buildCampaignWorld(true);
       const home = s.currentPlanet;
       const hulls = book.polities.klingon.hulls.filter((h) => h.status === 'ready').slice(0, 5);
-      const op = t.Campaign.launchOperation(book, world, 'klingon', hulls, home, s.day, 0, 'assault', []);
+      for (const h of hulls) h.systemIndex = Number(home); const op = t.Campaign.launchOperation(book, world, 'klingon', hulls, home, s.day, 0, 'assault', [], { immediate: true }); // the loaded scene's own raid path: fought where it is (STRATEGIC-MOVEMENT-UNIFICATION)
       op.status = 'engaged'; op.engagedDay = s.day; op.arriveDay = s.day; s.activeFleetAttack = null;
       t.updateSystemActivity(0);
       const ships = s.npcShips.filter((n) => n.campaignHullId);

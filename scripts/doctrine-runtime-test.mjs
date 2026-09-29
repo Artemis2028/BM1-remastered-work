@@ -563,6 +563,11 @@ test('31. switching doctrine off releases every hull on a doctrine job; nothing 
   assert.ok(env.db.assignments.some((a) => a.status === 'active'));
   env.db.config = { ...env.db.config, enabled: false };
   run(env.book, env.world, 13, 13);
+  // STRATEGIC-MOVEMENT-UNIFICATION: a ship in warp cannot stop there; it is released at the end of the leg
+  // it is flying (a day here), and nothing is left parked after that.
+  const inWarp = Object.values(env.book.polities).flatMap((p) => p.hulls).filter((h) => String(h.opId || '').includes('doctrine-'));
+  assert.ok(inWarp.every((h) => h.transit), 'a doctrine hull held although not in warp');
+  run(env.book, env.world, 14, 16);
   const parked = Object.values(env.book.polities).flatMap((p) => p.hulls).filter((h) => String(h.opId || '').includes('doctrine-'));
   assert.equal(parked.length, 0, parked.map((h) => h.id).join(','));
   // And a book without any doctrine runtime releases them too.
@@ -570,7 +575,7 @@ test('31. switching doctrine off releases every hull on a doctrine job; nothing 
   run(env2.book, env2.world, 2, 12);
   delete env2.world.doctrineStep;
   env2.world.doctrineStep = (b, w, d, fx) => DC.advanceDoctrineDay(b, w, d, fx, null);
-  run(env2.book, env2.world, 13, 13);
+  run(env2.book, env2.world, 13, 16);
   assert.equal(Object.values(env2.book.polities).flatMap((p) => p.hulls).filter((h) => String(h.opId || '').includes('doctrine-')).length, 0);
 });
 test('32. saved doctrine state stays bounded over a long campaign with incidents', () => {
@@ -597,7 +602,7 @@ test('33. a ship that came back and is then lost again is a new disappearance: a
   assert.equal(first.length, 1, 'no incident for the missed Delpi arrival');
   const hh = P(book, 'romulan').hulls.find((y) => y.id === h.id);
   hh.hull = hh.maxHull; hh.status = 'assigned'; // repaired where it lies
-  run(book, world, 9, 9); // reaches Delpi late and reports in
+  run(book, world, 9, 10); // sets out on day 9, flies the one-day leg, reaches Delpi late and reports in
   assert.equal(first[0].resolution?.status, 'asset_returned', JSON.stringify(first[0]));
   assert.equal(r.assignment.milestones.at(-1).status, 'pending', 'the check-in was not re-expected');
   lose(book, world, r.assignment.id, book.settled, 'destroyed'); // lost on the way home

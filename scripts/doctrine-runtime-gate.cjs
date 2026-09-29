@@ -43,6 +43,8 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
     const t = testBM1;
     window.__adv = (n) => { for (let i = 0; i < n; i++) t.advanceFleetCalendar(1, t.Fleet.nextId(t.fleetBook(), 'journey')); };
     window.__idx = (name) => t.getSystemIndexByName(name);
+    // The real length in days of a hop (STRATEGIC-MOVEMENT-UNIFICATION): test windows are counted in legs.
+    window.__leg = (a, b) => t.Campaign.journeyDays(t.buildCampaignWorld(true), window.__idx(a), window.__idx(b), 'romulan');
     window.__D = () => t.DoctrineCampaign.doctrineBook(t.campaign());
     window.__P = (id) => t.campaign().polities[id];
     window.__ready = (polity, at = null) => (window.__P(polity)?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && (at == null || h.systemIndex === at)).sort((a, b) => String(a.id).localeCompare(String(b.id)));
@@ -63,7 +65,10 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
       const h = window.__ready('romulan', R)[0];
       const r = window.__patrol('romulan', h.id, A);
       if (!r?.ok) throw new Error(`patrol refused: ${r?.reason}`);
+      // On station: legs take their real length (STRATEGIC-MOVEMENT-UNIFICATION), so fly until it has
+      // reported its arrival at Aldnas (never more than a leg's worth of days).
       window.__adv(1);
+      for (let k = 0; k < 40 && !(r.assignment.milestones[0]?.status === 'met' && Number(h.systemIndex) === A); k++) window.__adv(1);
       const lost = window.__lose(r.assignment.id, mode);
       if (!lost.ok) throw new Error(lost.reason);
       const m = r.assignment.milestones.at(-1);
@@ -206,9 +211,10 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
       const o = db.objectives[0];
       const h0 = window.__P('romulan').hulls.find((h) => h.id === o.assigned.hullId);
       const vid0 = h0.identity.vid;
-      window.__adv(4);
+      const L = window.__leg('Romulus', 'Aldnas');
+      window.__adv(L + 3);
       const mid = { status: o.status, found: o.found || null, arrivedDay: o.arrivedDay ?? null, onSite: (o.actions || []).find((a) => a.action === 'investigate') || null };
-      window.__adv(6);
+      window.__adv(L + 5);
       const same = window.__P('romulan').hulls.filter((h) => h.identity?.vid === vid0);
       return { o: { actor: o.actor, response: o.response, template: o.template, clock: o.clock, created: o.createdDay, deadline: o.deadline, target: o.target, status: o.status, resolution: o.resolution, vid: o.assigned.vid }, vid0, mid, sameCount: same.length, sameId: same[0]?.id === h0.id,
         incident: Object.values(db.incidents)[0], aldnas: window.__idx('Aldnas') };
@@ -230,7 +236,7 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
       const R = window.__idx('Aldnas');
       if (atRomulus) { t.markSystemVisited(R); t.state.currentPlanet = R; t.applySystemState(R); }
       const x = window.__romulanLost();
-      window.__adv(x.detectDay - t.state.day + 4);
+      window.__adv(x.detectDay - t.state.day + window.__leg('Romulus', 'Aldnas') + 3);
       const reps = window.__reports().filter((rep) => String(rep.id || '').startsWith('doctrine:'));
       return { here: t.state.currentPlanet, R, reps: reps.map((rep) => ({ id: rep.id, kind: rep.kind, text: rep.text, confidence: rep.confidence, factions: rep.factions, claimedAttacker: rep.claimedAttacker ?? null })) };
     }, atRomulus); };
@@ -254,7 +260,8 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
       // Phase 1's routine traffic as it was: no phase 3 area patrols or witnessed-attack defence here.
       { const db = window.__D(); db.config = { ...db.config, patrolAreas: {}, militaryResponses: false }; }
       const scenes = [];
-      for (let d = 0; d < 60; d++) {
+      // 100 days: a Romulus–Aldnas patrol flies two ten-day legs each way (STRATEGIC-MOVEMENT-UNIFICATION).
+      for (let d = 0; d < 100; d++) {
         const at = [A, R, E][d % 3];
         t.markSystemVisited(at); t.state.currentPlanet = at; t.applySystemState(at); scenes.push(at);
         window.__adv(1);
@@ -343,9 +350,10 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
       h.systemIndex = A;
       const asg = window.__assign({ polity: 'romulan', hullId: h.id, kind: 'return', doctrineRole: 'patrol', stops: [{ systemIndex: R }] });
       const n0 = book.stats.interceptions || 0;
-      window.__adv(1);
+      // The hop takes its real length; the run is on the day it gets there.
+      window.__adv(window.__leg('Aldnas', 'Romulus'));
       const blk = (t.campaign().blockades || []).find((x) => x.id === b.record.id);
-      return { applies: t.Campaign.blockadeApplies(t.campaign(), t.buildCampaignWorld(true), blk, 'romulan'), n: (t.campaign().stats.interceptions || 0) - n0, runs: blk.runs.filter((x) => String(x.by).startsWith(asg.assignment.id)), asgRuns: window.__D().assignments.find((a) => a.id === asg.assignment.id)?.runs, vid: h.identity.vid };
+      return { applies: t.Campaign.blockadeApplies(t.campaign(), t.buildCampaignWorld(true), blk, 'romulan'), n: (t.campaign().stats.interceptions || 0) - n0, runs: (blk.runs || []).filter((x) => String(x.by).startsWith(asg.assignment.id)), asgRuns: window.__D().assignments.find((a) => a.id === asg.assignment.id)?.runs, vid: h.identity.vid };
     });
     evidence.push({ check: 'BLOCKADE-SHARED-ENGINE', ...r });
     assert.ok(!r.error, r.error);
@@ -387,20 +395,30 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
   const e2eShadow = {};
   await check('new-feature', 'DOCTRINE-INCIDENT-INTEGRATION one Romulan incident end to end: only Romulan command knows; the others know nothing and do nothing; reports reach chosen observers; Romulan command assigns an investigator; Delpin investigates by its own interest; Klingon records until its own losses are linked; Vulcan rescues known survivors; a save/load midway keeps the same incident, objectives and knowledge; no duplicate missions; no attribution', async () => {
     await fresh('dg-e2e');
+    // This end-to-end story is authored hop by hop (its rescue and investigation deadlines were written for
+    // one hop a day): it runs under the labelled one-day-leg debug override. At the chart's real lengths the
+    // distant Vulcan relief defers the rescue it cannot finish in time (STRATEGIC-MOVEMENT-UNIFICATION §9).
+    await ev(() => testBM1.applyDebugCommand('campaign legs 1'));
     const s1 = await ev(() => {
       const t = testBM1;
       window.__quiet();
       const R = window.__idx('Romulus'), A = window.__idx('Aldnas'), Dl = window.__idx('Delpi');
       const x = window.__romulanLost('disabled');
       // A Klingon scout visiting allied Romulan space is lost at the same place, unwitnessed.
-      const kh = window.__ready('klingon')[0]; kh.systemIndex = R;
+      // Legs take their chart length now (STRATEGIC-MOVEMENT-UNIFICATION): the scout and the survey below set
+      // out from Aldnas's nearest neighbour, so both are there while the Romulan check-in is still due.
+      const w0 = t.buildCampaignWorld(true);
+      const N = w0.neighbours(A).map(Number).sort((a, b) => w0.legDays(a, A) - w0.legDays(b, A))[0];
+      const kh = window.__ready('klingon')[0]; kh.systemIndex = N;
       const kr = window.__patrol('klingon', kh.id, A);
       window.__adv(1);
+      for (let k = 0; k < 20 && Number(kh.systemIndex) !== A; k++) window.__adv(1);
       window.__lose(kr.assignment.id, 'destroyed');
       // A Delpin survey that will dwell at Aldnas.
-      const dh = window.__ready('delpin', Dl)[0];
-      window.__assign({ polity: 'delpin', hullId: dh.id, kind: 'exploration', doctrineRole: 'explorer', stops: [{ systemIndex: A, dwell: 14, milestone: 'arrival' }, { systemIndex: Dl, milestone: 'check_in' }] });
-      window.__adv(x.detectDay - t.state.day);
+      const dh = window.__ready('delpin', Dl)[0]; dh.systemIndex = N;
+      window.__assign({ polity: 'delpin', hullId: dh.id, kind: 'exploration', doctrineRole: 'explorer', stops: [{ systemIndex: A, dwell: 40, milestone: 'arrival' }, { systemIndex: Dl, milestone: 'check_in' }] }); // (a long stay: it must outlast the Romulan check-in)
+      window.__adv(Math.max(0, x.detectDay - t.state.day));
+      window.__e2eLate = { detectDay: x.detectDay, day: t.state.day, legN: w0.legDays(N, A) };
       const db = window.__D();
       const inc = window.__incOf('romulan')[0];
       const relief = Object.keys(db.designations.vulcan || {})[0];
@@ -471,6 +489,7 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
     assert.equal(rescue.vid, s3.reliefVid);
     assert.equal(s3.duplicates, 0, 'duplicate missions'); assert.equal(s3.attributions, 0, 'an attribution appeared');
     assert.ok(!s3.objectives.some((o) => o.actor === 'command:klingon'), 'Klingon acted on a shadow proposal');
+    await ev(() => testBM1.applyDebugCommand('campaign legs chart'));
   });
 
   // 13 --------------------------------------------------------------------------------------------

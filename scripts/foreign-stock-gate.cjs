@@ -50,7 +50,7 @@ const { startProbe } = require('./probe-harness.cjs');
       const hull = book.polities[faction].hulls.find((h) => h.status === 'ready' && !h.opId);
       if (!hull) return null;
       s.activeFleetAttack = null;
-      const op = t.Campaign.launchOperation(book, t.buildCampaignWorld(true), faction, [hull], Number(s.currentPlanet), s.day, 0, 'raid', []);
+      hull.systemIndex = Number(s.currentPlanet); const op = t.Campaign.launchOperation(book, t.buildCampaignWorld(true), faction, [hull], Number(s.currentPlanet), s.day, 0, 'raid', [], { immediate: true }); // the loaded scene's own raid path: fought where it is (STRATEGIC-MOVEMENT-UNIFICATION)
       op.status = 'engaged'; op.engagedDay = s.day; op.arriveDay = s.day;
       hull.systemIndex = Number(s.currentPlanet);
       const claim = t.Campaign.claimOperationForScene(book, op.id);

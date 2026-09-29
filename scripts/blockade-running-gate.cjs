@@ -403,8 +403,10 @@ const { startProbe } = require('./probe-harness.cjs');
       return { label, days, moved: e.moved, gained: e.moved - m0, perDay: (e.moved - m0) / days, runs: runs.map((x) => x.outcome), passed: runs.filter((x) => t.Campaign.blockadeRunContinues(x.outcome)).length,
         transports: e.transports.length, escorts: e.escorts.length, lost: e.lost.length, removed: e.removed.length, blockade: [b.status, b.hulls.length, b.coverage], convoy: e.convoy ? [e.convoy.phase, e.convoy.pos, e.convoy.trip] : null };
     }, [label, days]);
+    // STRATEGIC-MOVEMENT-UNIFICATION: each leg takes its real length, so every window is three round trips.
+    const trip = await step(() => { const t = testBM1; const e = (t.campaign().evacuations || []).find((x) => x.id === window.__e); return t.Campaign.evacuationRoundTripDays(t.buildCampaignWorld(true), e) + (t.campaign().config.evacLoadingDays ?? 1); });
     const trace = [];
-    trace.push(await phase('unescorted', 18));
+    trace.push(await phase('unescorted', 3 * trip));
     if (shots) {
       await step(() => { const t = testBM1; t.openGalaxyReports?.(); document.querySelector('[data-report-folder="personal"]')?.click(); });
       await shot('BR-run-result-reports.png');
@@ -413,7 +415,7 @@ const { startProbe } = require('./probe-harness.cjs');
       await step(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); });
     }
     if (saveMid) await step(() => { const t = testBM1; t.saveGame(8); t.startWithFaction('ferengi'); t.loadGame(8); });
-    await step(() => {
+    await step((trip) => {
       const t = testBM1;
       const P = window.__idx('Paso');
       // Heavy escorts: eight Sovereign-class command cruisers.
@@ -422,10 +424,10 @@ const { startProbe } = require('./probe-harness.cjs');
       // They join the convoy when it is next home at Paso.
       const e = (t.campaign().evacuations || []).find((x) => x.id === window.__e);
       let guard = 0;
-      while (e.status === 'active' && e.escorts.some((x) => x.joining) && guard++ < 12) window.__adv(1);
-    });
-    trace.push(await phase('escorted', 18));
-    trace.push(await phase('later', 18));
+      while (e.status === 'active' && e.escorts.some((x) => x.joining) && guard++ < 2 * trip) window.__adv(1);
+    }, trip);
+    trace.push(await phase('escorted', 3 * trip));
+    trace.push(await phase('later', 3 * trip));
     const end = await step(() => {
       const t = testBM1;
       const e = (t.campaign().evacuations || []).find((x) => x.id === window.__e);

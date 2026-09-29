@@ -12,6 +12,7 @@
 import { stableHash, bounded, copy, planStanding, classifyDamage } from './ship-fleet.mjs';
 import * as Identity from './vessel-identity.mjs';
 import { evaluateWar, settlementTerms, WAR_RULES } from './war-termination.mjs';
+import * as J from './strategic-journey.mjs';
 
 export const CAMPAIGN_VERSION = 1;
 
@@ -231,6 +232,7 @@ export function createCampaignBook(seed, day = 1, config = {}) {
     discoveries: { gorn: false },
     polities: {},
     operations: [],
+    journeys: [],        // every strategic movement under way (STRATEGIC-MOVEMENT-UNIFICATION): one record shape
     dominion: { phase: 'dormant', phaseDay: null, warnings: [], entrySystem: null, stagingSystem: null, expeditionOpId: null, reinforcementCut: false, convoys: 0, lastConvoyDay: null },
     designs: {},         // shipId → { sources: [stationId], lost: [stationId], relocatedTo: stationId|null }
     recoveries: [],      // bounded recovery contracts
@@ -260,7 +262,7 @@ export function upgradeCampaignBook(book) {
   book.config = { ...CAMPAIGN_RULES, ...(book.config || {}) };
   book.discoveries ||= { gorn: false };
   for (const key of ['polities', 'designs', 'incomeLedger', 'restoredStations', 'activatedStations', 'unstaffedStations', 'occupations', 'wars', 'warStates', 'territory']) book[key] ||= {};
-  for (const key of ['operations', 'recoveries', 'missions', 'orders', 'history']) if (!Array.isArray(book[key])) book[key] = [];
+  for (const key of ['operations', 'recoveries', 'missions', 'orders', 'history', 'journeys']) if (!Array.isArray(book[key])) book[key] = [];
   book.dominion ||= { phase: 'dormant', phaseDay: null, warnings: [], entrySystem: null, stagingSystem: null, expeditionOpId: null, reinforcementCut: false, convoys: 0, lastConvoyDay: null };
   book.stats ||= { battlesResolved: 0, captures: 0, hullsBuilt: 0, hullsLost: 0, missionsOffered: 0 };
   book.stats.missionsOffered ??= 0;
@@ -602,6 +604,9 @@ function settleCampaignDay(book, world, day, effects) {
   advanceIntegrations(book, world, day, effects);
   enforceRelations(book, world, day, effects);
   planOperations(book, world, day, effects);
+  // Every model journey flies its legs up to today (STRATEGIC-MOVEMENT-UNIFICATION) before operations read
+  // where their ships are.
+  advanceJourneys(book, world, day, effects);
   advanceOperations(book, world, day, effects);
   // A defender disabled in today's battles is stranded before the Dominion or strategic ops can pick it.
   advanceStranded(book, world, day, effects);
@@ -880,7 +885,9 @@ export function hullIsDisabled(h) {
 export function hullAwaitingCrew(h) { return Boolean(h?.recrew) && h.status !== 'lost'; }
 // Cannot sail or fight as a ship: disabled, or repaired but not yet crewed.
 // …or surrendered: stood down and held, inactive, until released (PHASE4 §6).
-export function hullUnavailable(h) { return hullIsDisabled(h) || hullAwaitingCrew(h) || h?.status === 'surrendered'; }
+// A hull in warp between two systems (a leg of a shared journey) is nowhere anyone can pick it up.
+export function hullInTransit(h) { return Boolean(h?.transit); }
+export function hullUnavailable(h) { return hullIsDisabled(h) || hullAwaitingCrew(h) || h?.status === 'surrendered' || hullInTransit(h); }
 // What a hull released from a job becomes: available if it can sail, stranded if it cannot.
 function releaseStatus(h) { return hullUnavailable(h) ? 'repairing' : 'ready'; }
 // The moment a stranded hull's structure is repaired. With its own crew still aboard it is simply back.
@@ -985,13 +992,19 @@ function advanceRepairs(book, world, day, effects = []) {
     p.repairedToday = {};
     for (const h of p.hulls) {
       if (h.status === 'surrendered') continue; // held where it surrendered; nobody repairs it there
+      if (h.transit) continue; // in warp: nowhere a yard can reach it
       if (h.status === 'lost' || h.hull >= h.maxHull) { if (h.status === 'repairing' && !h.recrew && !h.stranded) h.status = 'ready'; continue; }
       // A disabled hull is repaired only once it has been recovered into a yard; it never sails anywhere.
       if (hullIsDisabled(h) && h.stranded?.recovery !== 'in_yard') continue;
       // A damaged, uncommitted hull with no repair facility here sails to the nearest owned yard.
-      if (h.status === 'ready' && !hullIsDisabled(h) && !(budget[h.systemIndex] > 0) && h.hull < h.maxHull * 0.6 && yards.length) {
-        const target = yards.map((i) => ({ i, hops: world.routeHops([h.systemIndex], i, id) })).filter((x) => x.hops != null).sort((a, b) => a.hops - b.hops)[0];
-        if (target) { h.status = 'repairing'; h.arriveDay = day + Math.max(1, target.hops); h.systemIndex = target.i; }
+      // The captain's ships are the engine's: their mirror is never sent anywhere by the model.
+      if (id !== 'player' && h.status === 'ready' && !hullIsDisabled(h) && !(budget[h.systemIndex] > 0) && h.hull < h.maxHull * 0.6 && yards.length && !(h.repairRetryAfter > day)) {
+        const target = yards.map((i) => ({ i, hops: world.routeHops([h.systemIndex], i, id) })).filter((x) => x.hops != null).sort((a, b) => a.hops - b.hops || a.i - b.i)[0];
+        // It sails there, leg by leg, through whatever lies on the way (STRATEGIC-MOVEMENT-UNIFICATION).
+        if (target) {
+          const r = startJourney(book, world, { kind: 'repair', ref: h.id, sponsor: id, hulls: [h], destination: target.i, purpose: 'repair', authority: { kind: 'repair', ref: h.id } }, day, effects);
+          if (r.ok) { h.status = 'repairing'; if (!r.arrived) h.opId = r.journey.id; }
+        }
         continue;
       }
       if (h.status === 'repairing' && h.arriveDay != null && day < h.arriveDay) continue;
@@ -1195,7 +1208,7 @@ function dominionPlanningBounds(book, world, targets, spare) {
   const staging = new Set([...heldNear.map(Number), Number(d.stagingSystem)]);
   return { targets: targets.filter((t) => near.has(Number(t.index))), spare: spare.filter((h) => staging.has(Number(h.systemIndex))) };
 }
-export function launchOperation(book, world, factionId, hulls, targetSystem, day, hops, kind = 'assault', effects = []) {
+export function launchOperation(book, world, factionId, hulls, targetSystem, day, hops, kind = 'assault', effects = [], opts = {}) {
   if (book.operations.length >= book.config.maxOperations) book.operations = book.operations.filter((o) => o.status !== 'resolved').concat(book.operations.filter((o) => o.status === 'resolved').slice(-20));
   // A raid can be drawn from more than one nearby system. Each hull remembers its own departure point
   // so survivors are not all returned to the first one's, which silently relocated ships between
@@ -1211,6 +1224,33 @@ export function launchOperation(book, world, factionId, hulls, targetSystem, day
   for (const h of hulls) { h.status = 'assigned'; h.opId = op.id; }
   if (['assault', 'invasion'].includes(kind) && book.polities[factionId]) book.polities[factionId].lastAssaultDay = day;
   book.operations.push(op);
+  // STRATEGIC-MOVEMENT-UNIFICATION: the force flies its real route, one shared journey per system it sets
+  // out from, under the war it was sent to fight (the same authority stamp a formation carries). The
+  // loaded scene's own immediate raid (opts.immediate) is the one exception: it is fought where it is.
+  if (!opts.immediate) {
+    op.war = warAuthorityStamp(book, world, factionId, Number(targetSystem));
+    op.journeyIds = [];
+    const groups = new Map();
+    for (const h of hulls) { const k = Number(h.systemIndex); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(h); }
+    let eta = day;
+    for (const [, group] of [...groups.entries()].sort((a, b) => a[0] - b[0])) {
+      const r = startJourney(book, world, { kind: 'operation', ref: op.id, sponsor: factionId, hulls: group, destination: Number(targetSystem), purpose: 'attack', war: op.war,
+        authority: { kind: 'operation', ref: op.id, opKind: kind } }, day, effects);
+      if (!r.ok) {
+        for (const h of group) { h.opId = null; h.status = releaseStatus(h); h.originSystem = null; }
+        op.hullIds = op.hullIds.filter((id) => !group.some((h) => h.id === id));
+        continue;
+      }
+      op.journeyIds.push(r.journey.id);
+      eta = Math.max(eta, r.journey.status === 'underway' ? r.journey.etaDay : day);
+    }
+    op.arriveDay = Math.max(day + (op.journeyIds.length ? 0 : Math.max(1, hops)), eta);
+    op.committed = op.hullIds.length;
+  } else {
+    // Fought where it is; its survivors still fly home by a real journey.
+    op.war = warAuthorityStamp(book, world, factionId, Number(targetSystem));
+    op.journeyIds = [];
+  }
   addHistory(book, day, 'operation', `${world.factionName(factionId)} dispatched ${hulls.length} hulls toward ${world.systems[targetSystem]?.name} (${kind}).`, { opId: op.id, faction: factionId, systemIndex: targetSystem });
   effects.push({ type: 'operationLaunched', opId: op.id, faction: factionId, targetSystem, hulls: hulls.length, kind, day });
   return op;
@@ -1218,6 +1258,11 @@ export function launchOperation(book, world, factionId, hulls, targetSystem, day
 export function operationHulls(book, op) {
   const p = polity(book, op.faction);
   return op.hullIds.map((id) => p.hulls.find((h) => h.id === id)).filter((h) => h && h.status !== 'lost');
+}
+// What the operation has at its objective: its hulls standing there, able to fight. A hull disabled on the
+// way, or still in warp, is not part of the battle.
+export function operationForce(book, op) {
+  return operationHulls(book, op).filter((h) => Number(h.systemIndex) === Number(op.targetSystem) && !h.transit && !hullIsDisabled(h));
 }
 // Terminating a faction's live operations deliberately — a settlement applied by the engine, or a
 // debug control winding the Dominion back. Hulls are released the ordinary way; an operation record
@@ -1272,11 +1317,29 @@ function advanceOperations(book, world, day, effects) {
     // hulls become its garrison and no battle is recorded.
     if (world.systems[op.targetSystem]?.controller === op.faction && op.resolvedBy !== 'local') {
       op.status = 'resolved'; op.resolvedDay = day; op.outcome = 'absorbed'; op.resolvedBy = 'offscreen';
-      for (const h of operationHulls(book, op)) { h.opId = null; h.status = releaseStatus(h); h.systemIndex = op.targetSystem; }
+      // Those already there join the garrison; those still on their way fly on and join it when they
+      // arrive (the journey's owner reads 'absorbed'). Nobody is set down anywhere they did not fly to.
+      for (const h of operationHulls(book, op)) {
+        if (h.transit) continue;
+        if (!Array.isArray(op.journeyIds)) h.systemIndex = op.targetSystem; // an operation launched before shared journeys
+        h.opId = null; h.status = releaseStatus(h); h.originSystem = null;
+      }
       addHistory(book, day, 'operation', `${world.factionName(op.faction)} forces bound for ${world.systems[op.targetSystem]?.name} joined its garrison; the world was already held.`, { opId: op.id, systemIndex: op.targetSystem, faction: op.faction });
       continue;
     }
     if (op.status === 'moving') {
+      if (Array.isArray(op.journeyIds)) {
+        // It engages when every group has either arrived or ended its journey short (turned back, halted);
+        // what engages is what actually reached the objective.
+        if (op.journeyIds.some((id) => journeyById(book, id)?.status === 'underway')) continue;
+        const present = operationForce(book, op);
+        if (!present.length) { finishOperation(book, world, op, day, 'turned-back', effects, 'offscreen', `${world.factionName(op.faction)} forces bound for ${world.systems[op.targetSystem]?.name} never reached it.`); continue; }
+        op.status = 'engaged'; op.engagedDay = day; op.holdDays = 0;
+        effects.push({ type: 'operationArrived', opId: op.id, faction: op.faction, targetSystem: op.targetSystem, hulls: present.length, day });
+        addHistory(book, day, 'engagement', `${world.factionName(op.faction)} forces engaged ${world.systems[op.targetSystem]?.name}.`, { opId: op.id, systemIndex: op.targetSystem, faction: op.faction });
+        continue;
+      }
+      // An operation saved before shared journeys: the old arrival rule, once.
       if (day < op.arriveDay) continue;
       op.status = 'engaged'; op.engagedDay = day; op.holdDays = 0;
       for (const h of operationHulls(book, op)) h.systemIndex = op.targetSystem;
@@ -1295,7 +1358,7 @@ function advanceOperations(book, world, day, effects) {
 }
 function resolveOffscreenDay(book, world, op, day, effects) {
   const c = book.config;
-  const hulls = operationHulls(book, op);
+  const hulls = operationForce(book, op);
   if (!hulls.length) return finishOperation(book, world, op, day, 'destroyed', effects, 'offscreen');
   const attack = hulls.reduce((n, h) => n + hullStrength(book, world, h), 0) * bounded(polity(book, op.faction).supply, c.supplyFloor, 1);
   const defense = localDefenseStrength(book, world, op.targetSystem);
@@ -1307,7 +1370,7 @@ function resolveOffscreenDay(book, world, op, day, effects) {
     const defenderLossFraction = bounded(ratio * c.attritionPerDay * (0.7 + (1 - roll) * 0.6), 0, 0.5);
     applyLosses(book, world, hulls, attackerLossFraction, op, day);
     applyDefenderLosses(book, world, op.targetSystem, defenderLossFraction, op, day, effects);
-    const remaining = operationHulls(book, op);
+    const remaining = operationForce(book, op);
     const remainingStrength = remaining.reduce((n, h) => n + hullStrength(book, world, h), 0);
     if (!remaining.length) return finishOperation(book, world, op, day, 'destroyed', effects, 'offscreen');
     if (remainingStrength < attack * c.retreatFraction) return finishOperation(book, world, op, day, 'withdrew', effects, 'offscreen');
@@ -1319,7 +1382,7 @@ function resolveOffscreenDay(book, world, op, day, effects) {
     const ratio = attack / (attack + defense);
     applyLosses(book, world, hulls, bounded((1 - ratio) * 0.2 * (0.7 + roll * 0.6), 0, 0.2), op, day);
     applyDefenderLosses(book, world, op.targetSystem, bounded(ratio * 0.5, 0.13, 0.6), op, day, effects);
-    if (!operationHulls(book, op).length) return finishOperation(book, world, op, day, 'destroyed', effects, 'offscreen');
+    if (!operationForce(book, op).length) return finishOperation(book, world, op, day, 'destroyed', effects, 'offscreen');
   }
   op.holdDays++;
   if (op.holdDays >= c.captureHoldDays) {
@@ -1419,11 +1482,35 @@ function finishOperation(book, world, op, day, outcome, effects, resolvedBy, not
   recordWarEngagement(book, op, day);
   book.stats.battlesResolved++;
   const survivors = operationHulls(book, op);
+  const homeward = [];
   for (const h of survivors) {
-    h.opId = null; h.status = releaseStatus(h);
     // A disabled survivor cannot go home: it stays where it was disabled, stranded.
-    if (outcome !== 'captured' && !hullIsDisabled(h)) h.systemIndex = h.originSystem ?? op.originSystem ?? h.systemIndex;
-    h.originSystem = null;
+    // A surrendered survivor is held where it surrendered; it is flown nowhere (PHASE4 §6).
+    if (h.status === 'surrendered') { h.opId = null; h.originSystem = null; continue; }
+    if (outcome === 'captured' || hullIsDisabled(h) || !Array.isArray(op.journeyIds)) {
+      h.opId = null; h.status = releaseStatus(h);
+      if (outcome !== 'captured' && !hullIsDisabled(h) && !Array.isArray(op.journeyIds)) h.systemIndex = h.originSystem ?? op.originSystem ?? h.systemIndex; // pre-journey operation
+      h.originSystem = null;
+      continue;
+    }
+    // STRATEGIC-MOVEMENT-UNIFICATION: survivors fly home. One still in warp finishes the leg it is on and
+    // turns for home there (the journey's safe boundary); one standing somewhere sets out today.
+    const home = operationHome(book, world, op, h);
+    if (h.transit) {
+      const tr = journeyById(book, h.transit.journeyId);
+      // Its operation is over: it points at no operation while it flies home (status stays 'assigned' until it
+      // is set down; releaseMembersHere frees it there).
+      if (tr && tr.status === 'underway') { h.opId = null; tr.pending = { kind: 'return', destination: home, purpose: 'return', war: null, authority: { kind: 'return', ref: op.id }, meta: { home, opId: op.id } }; continue; }
+    }
+    if (home == null || Number(h.systemIndex) === Number(home)) { h.opId = null; h.status = releaseStatus(h); h.originSystem = null; continue; }
+    homeward.push({ h, home });
+  }
+  const byLeg = new Map();
+  for (const x of homeward) { const k = `${x.h.systemIndex}>${x.home}`; if (!byLeg.has(k)) byLeg.set(k, []); byLeg.get(k).push(x); }
+  for (const [, xs] of [...byLeg.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const r = startJourney(book, world, { kind: 'return', ref: op.id, sponsor: op.faction, hulls: xs.map((x) => x.h), destination: xs[0].home, purpose: 'return', authority: { kind: 'return', ref: op.id }, meta: { home: xs[0].home, opId: op.id } }, day, effects);
+    for (const { h } of xs) h.opId = null; // the operation is over; flying home, the ship points at none
+    if (!r.ok || r.arrived) for (const { h } of xs) { h.status = releaseStatus(h); h.originSystem = null; }
   }
   addHistory(book, day, 'battle', note || `${world.factionName(op.faction)} operation at ${world.systems[op.targetSystem]?.name}: ${outcome} (${op.losses} lost, ${op.defenderLosses} defenders lost).`, { opId: op.id, systemIndex: op.targetSystem, outcome, faction: op.faction });
   effects.push({ type: 'operationResolved', opId: op.id, faction: op.faction, targetSystem: op.targetSystem, outcome, losses: op.losses, defenderLosses: op.defenderLosses, day, resolvedBy: op.resolvedBy });
@@ -1442,19 +1529,25 @@ export function claimOperationForScene(book, opId) {
   const op = book.operations.find((o) => o.id === opId);
   if (!op || op.status !== 'engaged' || op.resolvedBy) return null;
   op.resolvedBy = 'local';
-  return { op, hulls: operationHulls(book, op).map((h) => ({ ...h })) };
+  // Only the force actually standing at the target, able to fight, is the scene's: a hull disabled on the
+  // way, surrendered, or still in warp stays where it is and is not materialised.
+  const force = Array.isArray(op.journeyIds) ? operationForce(book, op) : operationHulls(book, op);
+  op.sceneHullIds = force.map((h) => h.id);
+  return { op, hulls: force.map((h) => ({ ...h })) };
 }
 export function reconcileLocalOutcome(book, world, opId, survivorReport, outcome, day, effects = []) {
   const op = book.operations.find((o) => o.id === opId);
   if (!op || op.status === 'resolved') return false;
   const p = polity(book, op.faction);
+  const inScene = Array.isArray(op.sceneHullIds) ? new Set(op.sceneHullIds) : null;
   for (const h of operationHulls(book, op)) {
+    if (inScene && !inScene.has(h.id)) continue; // never in the scene: the scene's outcome is not its fate
     const s = survivorReport.find((r) => r.hullId === h.id);
     if (!s || s.destroyed) { h.hull = 0; h.status = 'lost'; op.losses++; p.lostHulls++; book.stats.hullsLost++; }
     else h.hull = bounded(Number(s.hull) || h.hull, 0, h.maxHull);
   }
   finishOperation(book, world, op, day, outcome, effects, 'local');
-  if (outcome === 'captured') { const from = world.systems[op.targetSystem]?.controller || null; recordCapture(book, world, op.targetSystem, op.faction, from, day); for (const h of operationHulls(book, op)) { h.status = releaseStatus(h); h.opId = null; h.systemIndex = op.targetSystem; } }
+  if (outcome === 'captured') { const from = world.systems[op.targetSystem]?.controller || null; recordCapture(book, world, op.targetSystem, op.faction, from, day); for (const h of operationHulls(book, op)) { if (inScene && !inScene.has(h.id)) continue; if (h.transit || hullIsDisabled(h) || h.status === 'surrendered') continue; h.status = releaseStatus(h); h.opId = null; h.systemIndex = op.targetSystem; } }
   return true;
 }
 // The engine reports what it saw for operations that were mid-battle when the scene unloaded.
@@ -1761,8 +1854,13 @@ function advanceDominion(book, world, day, effects) {
           : 'an unopposed crossing' };
       for (const x of warTargets) declareFormalWar(book, world, 'dominion', x, day, effects, { reason: x === holder ? d.plan.reason : 'the invasion plan', source: 'authored', by: 'dominion' });
       if (partnerCorridor) {
-        // No assault: the staged force comes through and stands at the partner's terminus.
-        for (const h of staged) h.systemIndex = Number(d.entrySystem);
+        // No assault: the staged force comes through the wormhole and stands at the partner's terminus —
+        // a real crossing, on the shared journey (STRATEGIC-MOVEMENT-UNIFICATION).
+        for (const h of staged) h.status = 'assigned';
+        const r = startJourney(book, world, { kind: 'expedition', ref: 'dominion:corridor', sponsor: 'dominion', hulls: staged, destination: Number(d.entrySystem), purpose: 'move',
+          authority: { kind: 'pact', ref: pactKey('dominion', holder) } }, day, effects);
+        if (r.ok && !r.arrived) for (const h of staged) h.opId = r.journey.id;
+        else for (const h of staged) { h.status = releaseStatus(h); if (!r.ok) continue; }
         d.expeditionOpId = null;
       } else {
         const op = launchOperation(book, world, 'dominion', staged, d.entrySystem, day, 1, 'invasion', effects);
@@ -1800,7 +1898,17 @@ function advanceDominion(book, world, day, effects) {
     if (!blockaded && d.convoys < c.dominionMaxConvoys && (d.lastConvoyDay == null || day - d.lastConvoyDay >= c.dominionReinforcementEveryDays)) {
       d.lastConvoyDay = day; d.convoys++;
       const bridgehead = entryFriendly ? d.entrySystem : d.stagingSystem;
-      for (let i = 0; i < c.dominionReinforcementHulls; i++) addHull(book, world, 'dominion', bridgehead, `convoy:${d.convoys}:${i}`);
+      // Reinforcements come from beyond the map to the far terminus (authored); from there to a friendly
+      // near-side terminus they make the crossing like anyone else.
+      const fresh = [];
+      for (let i = 0; i < c.dominionReinforcementHulls; i++) { const h = addHull(book, world, 'dominion', d.stagingSystem, `convoy:${d.convoys}:${i}`); if (h) fresh.push(h); }
+      if (fresh.length && Number(bridgehead) !== Number(d.stagingSystem)) {
+        for (const h of fresh) h.status = 'assigned';
+        const r = startJourney(book, world, { kind: 'expedition', ref: `dominion:convoy:${d.convoys}`, sponsor: 'dominion', hulls: fresh, destination: Number(bridgehead), purpose: 'reinforce',
+          authority: { kind: 'reinforcement', ref: `dominion:convoy:${d.convoys}` } }, day, effects);
+        if (r.ok && !r.arrived) for (const h of fresh) h.opId = r.journey.id;
+        else for (const h of fresh) h.status = releaseStatus(h);
+      }
       effects.push({ type: 'dominionConvoy', day, systemIndex: bridgehead, hulls: c.dominionReinforcementHulls });
     }
     // After the bridgehead, ordinary planning takes over: the Dominion plans like any other belligerent.
@@ -2392,9 +2500,18 @@ export function withdrawExpedition(book, world, day, effects, opts = {}) {
   if (!scope) {
     const entry = Number(d.entrySystem), staging = Number(d.stagingSystem);
     const near = Number.isFinite(entry) ? nearSideSystems(world, entry) : new Set();
+    // The near-side force flies back through the wormhole to the far terminus, leg by leg, one journey per
+    // system it stands in (STRATEGIC-MOVEMENT-UNIFICATION).
+    const groups = new Map();
     for (const h of livingHulls(polity(book, id))) {
       if (h.status !== 'ready' || h.opId || hullUnavailable(h) || !near.has(Number(h.systemIndex)) || !Number.isFinite(staging)) continue;
-      h.systemIndex = staging; moved.push(h.id);
+      const k = Number(h.systemIndex); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(h);
+    }
+    for (const [, hs] of [...groups.entries()].sort((a, b) => a[0] - b[0])) {
+      for (const h of hs) h.status = 'assigned';
+      const r = startJourney(book, world, { kind: 'withdrawal', ref: `${id}:withdrawal`, sponsor: id, hulls: hs, destination: staging, purpose: 'withdraw', authority: { kind: 'withdrawal', ref: `${id}:withdrawal`, basis } }, day, effects);
+      if (r.ok && !r.arrived) moved.push(...hs.map((h) => h.id));
+      else for (const h of hs) h.status = releaseStatus(h);
     }
     d.phase = 'withdrawn'; d.phaseDay = day;
   }
@@ -2452,6 +2569,427 @@ function dominionEscalate(book, world, day, spare, effects) {
   d.lastEscalationDay = day;
   return op;
 }
+// ---------- the shared strategic journey (STRATEGIC-MOVEMENT-UNIFICATION) ----------
+// Every model-side mover — an AI war operation and its survivors going home, a damaged hull sailing to a
+// yard, a blockade force taking station, an evacuation convoy, the Dominion's corridor crossing, its
+// reinforcements and its withdrawal, a doctrine vessel on its errand — flies the one journey record of
+// strategic-journey.mjs: a real route, one leg at a time, each leg its real length in days
+// (world.legDays; one day where a world gives none), every system on the way reached and processed once,
+// every blockade there run through resolveBlockadeRun. Members carry only the leg they are on
+// (h.transit), exactly as a formation's members do; the journey record is authoritative.
+//
+// What a kind of mover does at a crossing, on arrival, when turned back or when its reason lapses is the
+// kind's (JOURNEY_KINDS below; doctrine registers its own). The physical state is shared.
+function journeyBook(book) {
+  if (!Array.isArray(book.journeys)) book.journeys = [];
+  book.stats ||= {};
+  book.stats.journeys ||= { started: 0, crossings: 0, duplicateCrossingsPrevented: 0, arrived: 0, halted: 0, forcedBack: 0, staleCancelled: 0, legDays: 0, legs: 0, blockadeRuns: {}, byKind: {} };
+  return book.journeys;
+}
+export function journeyById(book, id) { return (book.journeys || []).find((j) => j.id === id) || null; }
+export function activeJourneys(book) { return (book.journeys || []).filter((j) => j.status === 'underway'); }
+// The length in days of the hop from a to b: the engine's (distance over the fleet's daily range), or one.
+export function legDaysBetween(world, a, b) {
+  const d = Number(world?.legDays?.(Number(a), Number(b)));
+  return Math.max(1, Math.round(Number.isFinite(d) && d > 0 ? d : 1));
+}
+export function routeLegDaysFor(world, systems) {
+  const out = [];
+  for (let i = 1; i < (systems || []).length; i++) out.push(legDaysBetween(world, systems[i - 1], systems[i]));
+  return out;
+}
+// The model's adjacency for a journey: the chart's routes and the wormholes (an engine may close an edge
+// to a power, as the uncharted Bajoran wormhole is closed to everyone but the Dominion).
+function journeyNeighbours(world, i, polityId) {
+  const out = new Set((world.neighbours(i) || []).map(Number));
+  for (const w of world.wormholes || []) { if (Number(w.from) === i) out.add(Number(w.to)); if (Number(w.to) === i) out.add(Number(w.from)); }
+  return [...out].filter((n) => world.edgeOpen ? world.edgeOpen(i, n, polityId) !== false : true).sort((a, b) => a - b);
+}
+function routeFewestJumps(world, from, to, polityId, avoid = null) {
+  const prev = new Map([[Number(from), null]]); const q = [Number(from)];
+  while (q.length) {
+    const cur = q.shift();
+    if (cur === Number(to)) break;
+    for (const x of journeyNeighbours(world, cur, polityId)) {
+      if (prev.has(x) || (avoid && avoid.has(x) && x !== Number(to))) continue;
+      prev.set(x, cur); q.push(x);
+    }
+  }
+  if (!prev.has(Number(to))) return null;
+  const path = []; for (let x = Number(to); x != null; x = prev.get(x)) path.unshift(x);
+  return world.routeHops([Number(from)], Number(to), polityId) == null ? null : path;
+}
+// A route for a model mover: the fewest jumps (the model's routes have always been jump-counted and blind
+// to the captain's chart), each with its real length.
+export function plotJourney(world, from, to, polityId, avoid = null) {
+  if (Number(from) === Number(to)) return { systems: [Number(from)], path: [], legDays: [] };
+  const systems = routeFewestJumps(world, from, to, polityId, avoid && avoid.size ? avoid : null);
+  if (!systems) return null;
+  return { systems, path: systems.slice(1).map(Number), legDays: routeLegDaysFor(world, systems) };
+}
+// The days a plotted route takes, leg by leg (what a caller planning by time should read).
+export function journeyDays(world, from, to, polityId) {
+  const plan = plotJourney(world, from, to, polityId);
+  return plan ? plan.legDays.reduce((n, d) => n + d, 0) : null;
+}
+function vidOfHull(h) { return h?.identity?.vid || h?.vid || h?.id || null; }
+function journeyMemberHulls(book, tr) { return tr.members.map((id) => hullOf(book, tr.sponsor, id)).filter(Boolean); }
+function putMembersOnLeg(book, tr) {
+  for (const h of journeyMemberHulls(book, tr)) {
+    if (h.transit && h.transit.journeyId !== tr.id) continue;
+    h.transit = { journeyId: tr.id, from: Number(tr.from), to: Number(tr.path[tr.legIndex]), arrivalDay: Number(tr.legArrivalDay), leg: tr.legIndex, seq: tr.seq };
+  }
+}
+function journeyEffect(tr, type, day, extra = {}) {
+  return { type, id: tr.id, seq: tr.seq, kind: tr.kind, ref: tr.ref, sponsor: tr.sponsor, purpose: tr.purpose, origin: tr.origin, destination: tr.destination,
+    hulls: tr.members.slice(), vids: tr.members.map((id) => tr.vids?.[id] ?? id), day: Number(day), ...extra };
+}
+const JOURNEY_KINDS = {};
+export function registerJourneyKind(kind, hooks) { JOURNEY_KINDS[kind] = { ...(JOURNEY_KINDS[kind] || {}), ...hooks }; }
+// Start a journey for hulls standing together in one system. spec: { kind, ref, sponsor, hulls[], destination,
+// purpose, war, authority, meta, prior, avoid, plan }. A group split between systems is refused, as a
+// formation's dispatch is; a destination equal to where they stand arrives at once.
+export function startJourney(book, world, spec, day, effects = []) {
+  const list = journeyBook(book);
+  const st = book.stats.journeys;
+  const hulls = (spec.hulls || []).filter((h) => h && h.status !== 'lost');
+  if (!hulls.length) return { ok: false, reason: 'no vessels' };
+  const from = Number(spec.from ?? hulls[0].systemIndex);
+  if (hulls.some((h) => Number(h.systemIndex) !== from)) return { ok: false, reason: 'split between systems' };
+  if (hulls.some((h) => h.transit)) return { ok: false, reason: 'already under way' };
+  const plan = spec.plan || plotJourney(world, from, spec.destination, spec.sponsor, spec.avoid || null);
+  if (!plan) return { ok: false, reason: 'no route' };
+  const tr = J.createJourney({ id: nextCampaignId(book, 'journey'), kind: spec.kind, ref: spec.ref ?? null, sponsor: spec.sponsor, from, destination: Number(spec.destination),
+    path: plan.path, legDays: plan.legDays, day, members: hulls.map((h) => h.id), vids: Object.fromEntries(hulls.map((h) => [h.id, vidOfHull(h)])),
+    purpose: spec.purpose || 'move', war: spec.war || null, authority: spec.authority || null, prior: spec.prior || null, meta: spec.meta || null });
+  list.push(tr);
+  st.started++; st.byKind[tr.kind] = (st.byKind[tr.kind] || 0) + 1;
+  if (!tr.path.length) {
+    J.arriveJourney(tr, from, day, 'already there');
+    st.arrived++;
+    effects.push(journeyEffect(tr, 'journeyEnded', day, { status: 'arrived', systemIndex: from }));
+    return { ok: true, journey: tr, arrived: true };
+  }
+  J.scheduleLeg(tr, day);
+  for (const d of tr.legDays) { st.legDays += d; st.legs++; }
+  putMembersOnLeg(book, tr);
+  effects.push(journeyEffect(tr, 'journeyDeparted', day, { from: tr.from, to: tr.path[0], arrivalDay: tr.legArrivalDay, eta: tr.etaDay, leg: 0, legs: tr.path.length }));
+  return { ok: true, journey: tr };
+}
+// The crossing at the end of the leg in flight: where each member is, what the crossing sees, and every
+// blockade there that bears on the sponsor, run once through the shared engine. Processed once per
+// (seq, leg) whatever calls it. Returns what happened for the caller (a kind hook, or doctrine) to act on.
+export function crossJourneyLeg(book, world, tr, effects = [], opts = {}) {
+  const st = journeyBook(book) && book.stats.journeys;
+  const cross = J.markCrossed(tr);
+  const out = { ...cross, runs: [], turnedBack: false, disabled: [], destroyed: [], leftEnRoute: [] };
+  if (!cross.fresh) { st.duplicateCrossingsPrevented++; return out; }
+  const { at, day } = cross;
+  const hooks = JOURNEY_KINDS[tr.kind] || {};
+  st.crossings++;
+  for (const id of [...tr.members]) {
+    const h = hullOf(book, tr.sponsor, id);
+    if (!h) { J.detachMember(tr, id, at, day, 'lost'); continue; }
+    if (h.transit?.journeyId === tr.id && (hullIsDisabled(h) || h.status === 'surrendered' || h.status === 'lost')) {
+      // Disabled, surrendered or lost while the leg was in flight: it dropped out where it last stood (the
+      // model has no position between systems) and is never carried on to the leg's end.
+      delete h.transit;
+      const reason = h.status === 'lost' ? 'lost' : h.status === 'surrendered' ? 'surrendered' : 'disabled';
+      J.detachMember(tr, id, h.systemIndex, day, reason);
+      out.leftEnRoute.push({ id, reason, systemIndex: Number(h.systemIndex) });
+      if (reason === 'disabled') out.disabled.push(id); else if (reason === 'lost') out.destroyed.push(id);
+      hooks.onDetach?.(book, world, tr, h, reason, Number(h.systemIndex), day, effects);
+      continue;
+    }
+    if (h.transit?.journeyId !== tr.id) {
+      // Not this journey's any more: surrendered, disabled or given an order of its own where it was. It
+      // stays where that happened; it is never carried on.
+      const reason = h.status === 'surrendered' ? 'surrendered' : hullIsDisabled(h) ? 'disabled' : 'reassigned';
+      J.detachMember(tr, id, h.systemIndex, day, reason);
+      out.leftEnRoute.push({ id, reason, systemIndex: Number(h.systemIndex) });
+      hooks.onDetach?.(book, world, tr, h, reason, Number(h.systemIndex), day, effects);
+      continue;
+    }
+    delete h.transit;
+    h.systemIndex = at;
+    // Its own order ended while the leg was in flight (an escort stood down in warp): it is set down here and
+    // not carried on.
+    if (hooks.keep && !hooks.keep(book, tr, h)) { J.detachMember(tr, id, at, day, 'released'); out.leftEnRoute.push({ id, reason: 'released', systemIndex: at }); releaseDetached(tr, h, 'released'); continue; }
+    if (hullIsDisabled(h)) { J.detachMember(tr, id, at, day, 'disabled'); out.disabled.push(id); hooks.onDetach?.(book, world, tr, h, 'disabled', at, day, effects); }
+  }
+  effects.push(journeyEffect(tr, 'journeyCrossed', day, { systemIndex: at, leg: tr.legIndex, legs: tr.path.length, final: !J.hasMoreLegs(tr) }));
+  if (tr.members.length && opts.blockades !== false) {
+    for (const b of applicableBlockadesAt(book, world, at, tr.sponsor)) {
+      if (tr.encounters.some((e) => e.blockadeId === b.id && e.leg === tr.legIndex && e.seq === tr.seq)) continue;
+      const ships = journeyMemberHulls(book, tr).filter((h) => classifyDamage(h.hull, h.maxHull) === 'operational');
+      if (!ships.length) break;
+      const runner = opts.runner ? opts.runner(ships) : { key: hooks.runnerKey?.(book, tr) ?? `${tr.ref != null ? `${tr.ref}:` : ''}${tr.id}:s${tr.seq}:l${tr.legIndex}`, sponsor: tr.sponsor, kind: tr.kind,
+        hulls: ships.map((h) => ({ hullId: h.id, vid: vidOfHull(h), shipId: h.shipId, hull: h.hull, maxHull: h.maxHull, crew: h.crew, role: hooks.role?.(book, tr, h) ?? null })) };
+      const r = resolveBlockadeRun(book, world, b, runner, day, effects, { meta: { journeyId: tr.id, journeyKind: tr.kind, ref: tr.ref, ...(hooks.runMeta?.(book, tr) || {}), ...(opts.meta || {}) } });
+      st.blockadeRuns[tr.kind] = (st.blockadeRuns[tr.kind] || 0) + 1;
+      const lost = [], disabled = [];
+      for (const x of r.hulls) {
+        if (!tr.members.includes(x.hullId)) continue;
+        if (x.condition === 'destroyed') { lost.push(tr.vids[x.hullId] ?? x.hullId); J.detachMember(tr, x.hullId, at, day, 'destroyed'); out.destroyed.push(x.hullId); hooks.onDetach?.(book, world, tr, { id: x.hullId, status: 'lost' }, 'destroyed', at, day, effects); }
+        else if (x.condition === 'disabled') { disabled.push(tr.vids[x.hullId] ?? x.hullId); J.detachMember(tr, x.hullId, at, day, 'disabled'); out.disabled.push(x.hullId); const h = hullOf(book, tr.sponsor, x.hullId); if (h) hooks.onDetach?.(book, world, tr, h, 'disabled', at, day, effects); }
+      }
+      tr.encounters.push({ system: at, day, leg: tr.legIndex, seq: tr.seq, blockadeId: b.id, power: b.power, outcome: r.outcome, estimate: r.estimate, coverage: r.observed?.tier ?? null, force: r.observed?.force ?? null, lost, disabled });
+      out.runs.push(r);
+      if (!r.continues) { out.turnedBack = true; break; }
+    }
+  }
+  return out;
+}
+// Default for a hull that leaves a journey disabled or reassigned: it is off the job, where it is.
+function releaseDetached(tr, h, reason) {
+  if (!h || h.status === 'lost') return;
+  if (h.opId === tr.id) h.opId = null;
+  if (reason === 'disabled' && h.status !== 'surrendered') h.status = 'repairing';
+  else if (h.status === 'assigned' && !h.opId) h.status = releaseStatus(h);
+}
+function endJourneyEffect(book, tr, day, effects, extra = {}) {
+  const st = book.stats.journeys;
+  if (tr.status === 'arrived') st.arrived++; else if (tr.status === 'halted') st.halted++;
+  effects.push(journeyEffect(tr, 'journeyEnded', day, { status: tr.status, reason: tr.endReason, systemIndex: tr.from, ...extra }));
+}
+// A new journey for a record's remaining members from where they now stand (a replot, a return, a
+// retreat): the same vessels, the history carried over, the sequence up by one.
+export function replotJourney(book, world, tr, spec, day, effects = []) {
+  const hulls = journeyMemberHulls(book, tr).filter((h) => !h.transit);
+  if (tr.status === 'underway') J.supersedeJourney(tr, day, spec.reason || 'superseded');
+  return startJourney(book, world, { kind: spec.kind || tr.kind, ref: spec.ref ?? tr.ref, sponsor: tr.sponsor, hulls, destination: spec.destination, purpose: spec.purpose || tr.purpose,
+    war: spec.war === undefined ? tr.war : spec.war, authority: spec.authority === undefined ? tr.authority : spec.authority, meta: spec.meta === undefined ? tr.meta : spec.meta,
+    prior: tr, avoid: spec.avoid || null, plan: spec.plan || null }, day, effects);
+}
+// What happens after a crossing, in order: nobody left; turned back; the reason for the journey lapsed
+// (checked here, at the boundary, never mid-leg); a pending order; the next leg; arrival.
+function settleCrossing(book, world, tr, cross, effects) {
+  const hooks = JOURNEY_KINDS[tr.kind] || {};
+  const st = book.stats.journeys;
+  const { at, day } = cross;
+  hooks.onCross?.(book, world, tr, cross, effects);
+  if (tr.status !== 'underway') return;
+  // The crossing may have changed who owns the journey (an assignment ended in warp becomes a release).
+  if (JOURNEY_KINDS[tr.kind] !== hooks) return settleCrossing(book, world, tr, { ...cross, recheck: true }, effects);
+  if (!tr.members.length) {
+    J.haltJourney(tr, at, day, 'no ships', `No ships left at system ${at}.`);
+    endJourneyEffect(book, tr, day, effects);
+    hooks.onHalt?.(book, world, tr, at, day, effects);
+    return;
+  }
+  if (cross.turnedBack) {
+    st.forcedBack++;
+    const prev = Number(tr.legIndex > 0 ? tr.path[tr.legIndex - 1] : tr.plotFrom);
+    J.haltJourney(tr, at, day, 'forced-back', `Turned back at system ${at}.`);
+    endJourneyEffect(book, tr, day, effects, { forcedBack: true });
+    if (hooks.onForcedBack?.(book, world, tr, at, prev, day, effects)) return;
+    // By default the group goes back as one body to the system it came from, and its owner decides there.
+    const back = replotJourney(book, world, tr, { purpose: 'retreat', destination: prev, war: null, meta: { ...(tr.meta || {}), retreatOf: tr.id, resume: { destination: tr.destination, purpose: tr.purpose } },
+      plan: { path: [prev], legDays: [legDaysBetween(world, at, prev)] } }, day, effects);
+    if (back.ok) back.journey.retreatFrom = Number(at);
+    return;
+  }
+  const verdict = hooks.valid ? hooks.valid(book, world, tr, day, effects) : { ok: true };
+  if (!verdict.ok) {
+    st.staleCancelled++;
+    tr.staleAt = { day, at, reason: verdict.reason || 'no longer authorised' };
+    if (verdict.pending) tr.pending = { ...verdict.pending, day };
+    else {
+      J.haltJourney(tr, at, day, verdict.reason || 'authority', verdict.note || '');
+      endJourneyEffect(book, tr, day, effects, { stale: true });
+      if (hooks.onHalt) hooks.onHalt(book, world, tr, at, day, effects); else releaseMembersHere(book, tr);
+      return;
+    }
+  }
+  if (tr.pending) {
+    const p = tr.pending; tr.pending = null;
+    const next = replotJourney(book, world, tr, { ...p, reason: 'superseded' }, day, effects);
+    endJourneyEffect(book, tr, day, effects, { superseded: true });
+    if (!next.ok) {
+      // No way to where the order says: the ships hold here, and their owner decides.
+      tr.status = 'underway'; J.haltJourney(tr, at, day, 'no-route', `No route to system ${p.destination}.`);
+      if (hooks.onHalt) hooks.onHalt(book, world, tr, at, day, effects); else releaseMembersHere(book, tr);
+    } else if (next.arrived) (JOURNEY_KINDS[next.journey.kind] || {}).onArrive?.(book, world, next.journey, at, day, effects);
+    return;
+  }
+  if (J.hasMoreLegs(tr)) {
+    J.advanceLeg(tr, day);
+    putMembersOnLeg(book, tr);
+    effects.push(journeyEffect(tr, 'journeyDeparted', day, { from: tr.from, to: tr.path[tr.legIndex], arrivalDay: tr.legArrivalDay, eta: tr.etaDay, leg: tr.legIndex, legs: tr.path.length }));
+    return;
+  }
+  J.arriveJourney(tr, at, day, '');
+  endJourneyEffect(book, tr, day, effects);
+  hooks.onArrive?.(book, world, tr, at, day, effects);
+}
+// Every model journey, leg by leg, up to `day`. Doctrine journeys are stepped by their own assignments.
+export function stepJourney(book, world, tr, day, effects = []) {
+  let guard = 0;
+  while (J.legDue(tr, day) && guard++ < 64) {
+    const cross = crossJourneyLeg(book, world, tr, effects);
+    if (!cross.fresh) break;
+    settleCrossing(book, world, tr, cross, effects);
+  }
+}
+// Forced override only (a debug reset): every journey of a sponsor ends where its ships last stood, and
+// ships whose order it was are free there.
+export function haltJourneysOf(book, sponsor, day, reason = 'forced override') {
+  let n = 0;
+  for (const tr of book.journeys || []) {
+    if (tr.status !== 'underway' || tr.sponsor !== sponsor) continue;
+    for (const h of journeyMemberHulls(book, tr)) {
+      if (h.transit?.journeyId === tr.id) delete h.transit;
+      if (h.status === 'assigned' && (!h.opId || h.opId === tr.id || h.opId === tr.ref)) { h.opId = null; h.status = releaseStatus(h); }
+    }
+    J.haltJourney(tr, tr.from, day, reason, '');
+    n++;
+  }
+  return n;
+}
+function advanceJourneys(book, world, day, effects) {
+  const list = journeyBook(book);
+  for (const tr of [...list]) {
+    if (tr.status !== 'underway' || tr.kind === 'doctrine') continue;
+    stepJourney(book, world, tr, day, effects);
+  }
+  // Bounded: every journey under way, and the newest finished ones for the record.
+  if (list.length > 200) {
+    const live = list.filter((j) => j.status === 'underway');
+    const done = list.filter((j) => j.status !== 'underway');
+    book.journeys = live.concat(done.slice(-120));
+  }
+}
+
+// Where a war force goes when its operation is over: the world it set out from, while its own side still
+// holds it; otherwise the nearest world it does hold; otherwise where it set out from all the same.
+function operationHome(book, world, op, h) {
+  const origin = h.originSystem ?? op.originSystem;
+  const held = (i) => i != null && world.systems[Number(i)]?.controller === op.faction;
+  if (held(origin)) return Number(origin);
+  const own = controlled(world, op.faction).map((x) => x.index);
+  let best = null, bestHops = Infinity;
+  for (const i of own) { const n = world.routeHops([Number(h.systemIndex)], i, op.faction); if (n != null && (n < bestHops || (n === bestHops && i < best))) { best = i; bestHops = n; } }
+  return best ?? (origin == null ? null : Number(origin));
+}
+function operationById(book, id) { return (book.operations || []).find((o) => o.id === id) || null; }
+function releaseMembersHere(book, tr) {
+  for (const h of journeyMemberHulls(book, tr)) { if (h.transit) continue; if (h.opId === tr.id || h.opId === tr.ref || h.opId == null) { h.opId = null; h.status = releaseStatus(h); h.originSystem = null; } }
+}
+// An AI war operation's force on its way to the objective.
+registerJourneyKind('operation', {
+  // At every system it reaches: is the operation still on, and does the war it was sent under still hold?
+  valid(book, world, tr, day, effects) {
+    const op = operationById(book, tr.ref);
+    if (!op) return { ok: false, reason: 'order gone', pending: { kind: 'return', destination: tr.origin, purpose: 'return', war: null, authority: { kind: 'return', ref: tr.ref }, meta: { home: tr.origin } } };
+    if (op.status === 'resolved') {
+      if (op.outcome === 'absorbed') return { ok: true };
+      const h = journeyMemberHulls(book, tr)[0];
+      const home = h ? operationHome(book, world, op, h) : tr.origin;
+      return { ok: false, reason: `operation ${op.outcome}`, pending: { kind: 'return', destination: home, purpose: 'return', war: null, authority: { kind: 'return', ref: op.id }, meta: { home, opId: op.id } } };
+    }
+    if (tr.war && !warAuthorityHolds(book, world, tr.war)) {
+      // The war it was sent to fight is over (ceasefire, peace, a new war instance) or the target changed
+      // hands: the operation is broken off here, at the end of the leg, and never strikes under the old order.
+      op.staleAuthority = { day, at: tr.from, journeyId: tr.id };
+      finishOperation(book, world, op, day, 'stood-down', effects, 'offscreen', `${world.factionName(op.faction)} broke off the operation at ${world.systems[op.targetSystem]?.name}: the war it was sent under no longer holds.`);
+      return { ok: false, reason: 'war-authority', note: 'the war it was sent under no longer holds' };
+    }
+    return { ok: true };
+  },
+  onArrive(book, world, tr, at, day, effects) {
+    const op = operationById(book, tr.ref);
+    if (op && op.status === 'resolved' && op.outcome === 'absorbed') releaseMembersHere(book, tr);
+  },
+  // Turned back by a blockade: this group is out of the operation and goes back the way it came, then home.
+  onForcedBack(book, world, tr, at, prev, day, effects) {
+    const op = operationById(book, tr.ref);
+    const hulls = journeyMemberHulls(book, tr);
+    if (op) {
+      op.hullIds = op.hullIds.filter((id) => !tr.members.includes(id));
+      (op.turnedBack ||= []).push({ day, at, vids: tr.members.map((id) => tr.vids[id] ?? id) });
+    }
+    const home = op && hulls[0] ? operationHome(book, world, op, hulls[0]) : tr.origin;
+    for (const h of hulls) h.opId = null;
+    const back = replotJourney(book, world, tr, { kind: 'return', purpose: 'retreat', destination: prev, war: null, authority: { kind: 'return', ref: tr.ref }, meta: { home, opId: tr.ref, retreatOf: tr.id },
+      plan: { path: [prev], legDays: [legDaysBetween(world, at, prev)] } }, day, effects);
+    if (back.ok) back.journey.retreatFrom = Number(at);
+    else for (const h of hulls) h.status = releaseStatus(h);
+    return true;
+  },
+  onDetach(book, world, tr, h, reason) {
+    // Disabled on the way: it stays where it happened, still the operation's until the operation ends
+    // (then released, stranded). Reassigned: no longer the operation's at all.
+    if (reason === 'reassigned') { const op = operationById(book, tr.ref); if (op) op.hullIds = op.hullIds.filter((id) => id !== h.id); }
+  },
+});
+// Going home (an operation's survivors, a group turned back). On reaching an intermediate stop (a retreat
+// to the last system) it goes on home by a route round any blockade it knows of against it; home, it is
+// released. With no way round it stays where it is, released.
+function returnHome(book, world, tr, at, day, effects) {
+  const home = tr.meta?.home;
+  if (home != null && Number(at) !== Number(home)) {
+    const avoid = new Set((book.blockades || []).filter((b) => blockadeApplies(book, world, b, tr.sponsor)).map((b) => Number(b.target)));
+    avoid.delete(Number(home));
+    const plan = plotJourney(world, at, home, tr.sponsor, avoid);
+    if (plan) {
+      const r = replotJourney(book, world, tr, { kind: tr.kind, purpose: 'return', destination: home, war: null, plan }, day, effects);
+      if (r.ok && !r.arrived) return;
+    }
+  }
+  releaseMembersHere(book, tr);
+}
+registerJourneyKind('return', {
+  onArrive: returnHome,
+  onHalt(book, world, tr) { releaseMembersHere(book, tr); },
+  onDetach(book, world, tr, h, reason) { releaseDetached(tr, h, reason); if (h.opId && h.opId === tr.ref) h.opId = null; },
+});
+// A damaged hull on its way to a yard. Turned back, it waits a few days before it tries again.
+registerJourneyKind('repair', {
+  // The yard's world is still its own: otherwise it stops at this system and looks for another yard.
+  valid(book, world, tr) {
+    return world.systems[Number(tr.destination)]?.controller === tr.sponsor ? { ok: true } : { ok: false, reason: 'yard lost' };
+  },
+  onHalt(book, world, tr, at, day) {
+    for (const h of journeyMemberHulls(book, tr)) { if (h.transit) continue; if (h.opId === tr.id) h.opId = null; if (h.status === 'repairing' && !hullUnavailable(h)) h.status = 'ready'; h.repairRetryAfter = Number(day) + 1; }
+  },
+  onArrive(book, world, tr, at, day) {
+    for (const h of journeyMemberHulls(book, tr)) {
+      if (h.transit) continue;
+      if (h.opId === tr.id) h.opId = null;
+      if (tr.purpose === 'retreat') { h.status = releaseStatus(h); h.repairRetryAfter = day + (book.config.repairRetryDays ?? 5); }
+    }
+  },
+  onHalt(book, world, tr, at, day) { for (const h of journeyMemberHulls(book, tr)) { if (h.transit) continue; if (h.opId === tr.id) h.opId = null; h.status = releaseStatus(h); h.repairRetryAfter = day + (book.config.repairRetryDays ?? 5); } },
+  onDetach(book, world, tr, h, reason) { releaseDetached(tr, h, reason); },
+});
+// A job that ended while its ship was in warp: the leg in flight is flown to its end and the ship released
+// there (doctrine assignments and anything else an owner stops mid-leg).
+registerJourneyKind('release', {
+  onArrive(book, world, tr) { releaseMembersHere(book, tr); },
+  onHalt(book, world, tr) { releaseMembersHere(book, tr); },
+  onDetach(book, world, tr, h, reason) { releaseDetached(tr, h, reason); if (h.opId && h.opId === tr.ref) h.opId = null; },
+});
+// Ships moving under an expedition's own order (the Dominion's corridor crossing, its reinforcements, its
+// withdrawal): released where they arrive or stop.
+// An expedition's movement rests on the invasion still being on and its destination still being held by
+// the Dominion or an active pact partner; otherwise it turns back for the staging system at the next system
+// it reaches. A withdrawal is going home and has no authority to lapse.
+registerJourneyKind('expedition', {
+  valid(book, world, tr) {
+    const d = book.dominion || {};
+    const holder = world.systems[Number(tr.destination)]?.controller ?? null;
+    const partners = activePacts(book, tr.sponsor) || [];
+    if (d.phase === 'invasion' && (holder === tr.sponsor || partners.includes(holder))) return { ok: true };
+    const staging = Number(d.stagingSystem ?? tr.origin);
+    return { ok: false, reason: 'expedition order lapsed', pending: { kind: 'withdrawal', destination: staging, purpose: 'withdraw', war: null, authority: { kind: 'withdrawal', ref: `${tr.sponsor}:withdrawal`, basis: 'lapsed' } } };
+  },
+});
+for (const kind of ['expedition', 'withdrawal']) registerJourneyKind(kind, {
+  onArrive(book, world, tr) { for (const h of journeyMemberHulls(book, tr)) { if (h.transit) continue; if (h.opId === tr.id || h.opId == null) { h.opId = null; h.status = releaseStatus(h); } } },
+  onHalt(book, world, tr) { for (const h of journeyMemberHulls(book, tr)) { if (h.transit) continue; if (h.opId === tr.id || h.opId == null) { h.opId = null; h.status = releaseStatus(h); } } },
+  onDetach(book, world, tr, h, reason) { releaseDetached(tr, h, reason); },
+});
+
 // ---------- strategic evacuation and blockade (EVACUATION-BLOCKADE-RULES-261530ZSEP26) ----------
 // Both are persistent operations: an objective, a sponsor, a place, real hulls held for them, progress,
 // supply and risk, and explicit ways to end. Nothing here is a flag with no actors behind it.
@@ -2582,18 +3120,20 @@ export function assignEvacuationEscorts(book, world, id, hullIds, day, effects =
   if (added.length) effects.push({ type: 'strategicShipsAssigned', id: e.id, sponsor: e.sponsor, role: 'escort', hulls: added.map((a) => a.hullId), systemIndex: e.origin, day });
   return { ok: true, added: added.length };
 }
-function releaseHulls(book, polityId, list, systemIndex = null) {
+function releaseHulls(book, polityId, list) {
   for (const t of list) {
     const h = hullOf(book, polityId, t.hullId);
     if (!h) continue;
+    // In warp: it cannot turn round mid-leg. Its journey's own check stops it at the end of the leg (the
+    // record it served is over) and frees it there; until then it is simply in warp.
+    if (h.transit) { h.opId = null; continue; }
     h.status = releaseStatus(h); h.opId = null;
-    if (systemIndex != null && !hullIsDisabled(h)) h.systemIndex = Number(systemIndex);
   }
 }
 function endEvacuation(book, world, e, day, status, reason, effects) {
   e.status = status; e.endDay = day; e.endReason = reason;
   const all = [...e.transports, ...e.escorts];
-  releaseHulls(book, e.sponsor, all, status === 'completed' ? null : null);
+  releaseHulls(book, e.sponsor, all);
   addHistory(book, day, 'evacuation', `Evacuation of ${world.systems[e.origin]?.name} ${status}: ${Math.round(e.moved)} of ${e.target} moved${reason ? ` (${reason})` : ''}.`, { id: e.id, systemIndex: e.origin });
   effects.push({ type: 'evacuationEnded', id: e.id, sponsor: e.sponsor, origin: e.origin, destination: e.destination, status, reason, moved: Math.round(e.moved), target: e.target, released: all.map((t) => t.hullId), day });
 }
@@ -2606,7 +3146,7 @@ export function cancelEvacuation(book, world, id, day, effects = [], reason = 'c
 // What the blockade actually fields: its hulls on station that can still fight. A disabled hull adds
 // nothing; a damaged one adds what its hull is worth.
 function blockadeStrength(book, world, b) {
-  return b.hulls.reduce((n, t) => { const h = hullOf(book, b.power, t.hullId); return n + (h && !hullOutOfAction(h) ? hullStrength(book, world, h) : 0); }, 0);
+  return b.hulls.reduce((n, t) => { if (t.joining) return n; const h = hullOf(book, b.power, t.hullId); return n + (h && !hullOutOfAction(h) && !h.transit ? hullStrength(book, world, h) : 0); }, 0);
 }
 function hullOutOfAction(h) {
   return !h || h.status === 'lost' || !(h.hull > 0) || classifyDamage(h.hull, h.maxHull) !== 'operational';
@@ -2641,16 +3181,18 @@ export function startBlockade(book, world, spec, day, effects = []) {
     list.push({ hullId: h.id, vid: h.vid || null, shipId: Number(h.shipId), from: Number(h.systemIndex) });
   }
   if (!list.length) return { ok: false, reason: 'A blockade needs ships assigned to it.' };
-  // A force already on station holds the blockade at once; otherwise it forms when it arrives.
-  const hops = list.every((t) => t.from === Number(target)) ? 0
-    : power === 'player' ? 1 : (world.routeHops(controlled(world, power).map((s) => s.index), Number(target), power) ?? 1);
+  // A force already on station holds the blockade at once; otherwise it forms when the ships it sent have
+  // actually flown there, leg by leg, through whatever lies on the way (STRATEGIC-MOVEMENT-UNIFICATION).
+  const away = list.filter((t) => t.from !== Number(target));
   const rec = { id: nextCampaignId(book, 'blockade'), kind: 'blockade', power, target: Number(target), purpose, authority, warKey: warKey(power, sys.controller),
-    hulls: list, startDay: day, activeDay: day + Math.max(0, hops), status: hops > 0 ? 'forming' : 'active', endDay: null, endReason: null,
-    strength: 0, coverage: 0, supply: 1, unsuppliedDays: 0, damageBank: 0, losses: 0, breaches: [], segments: [], lastTier: null };
-  for (const t of list) { const h = hullOf(book, power, t.hullId); h.status = 'assigned'; h.opId = rec.id; h.systemIndex = Number(target); }
+    hulls: list, startDay: day, activeDay: day, status: away.length ? 'forming' : 'active', endDay: null, endReason: null,
+    strength: 0, coverage: 0, supply: 1, unsuppliedDays: 0, damageBank: 0, losses: 0, breaches: [], segments: [], lastTier: null, journeyIds: [] };
+  for (const t of list) { const h = hullOf(book, power, t.hullId); h.status = 'assigned'; h.opId = rec.id; }
   book.blockades.push(rec);
+  sendToBlockadeStation(book, world, rec, away, day, effects);
+  if (!rec.hulls.length) { rec.status = 'withdrawn'; rec.endDay = day; rec.endReason = 'no route to the station'; return { ok: false, reason: `No route to ${sys.name}.` }; }
   addHistory(book, day, 'blockade', `${world.factionName(power)} ${rec.status === 'forming' ? 'is moving to blockade' : 'blockades'} ${sys.name} (${purpose.replace(/_/g, ' ')}).`, { id: rec.id, systemIndex: rec.target });
-  effects.push({ type: 'blockadeStarted', id: rec.id, power, target: rec.target, purpose, hulls: list.map((t) => t.hullId), day, forming: rec.status === 'forming' });
+  effects.push({ type: 'blockadeStarted', id: rec.id, power, target: rec.target, purpose, hulls: rec.hulls.map((t) => t.hullId), day, forming: rec.status === 'forming' });
   if (rec.status === 'active') settleBlockadeDay(book, world, rec, day, effects, true);
   return { ok: true, record: rec };
 }
@@ -2666,10 +3208,61 @@ export function reinforceBlockade(book, world, id, hullIds, day, effects = []) {
     if (b.power === 'player' && !near.has(Number(h.systemIndex))) return { ok: false, reason: `${hid} is not at or next to ${world.systems[b.target]?.name}.` };
     added.push({ hullId: h.id, vid: h.vid || null, shipId: Number(h.shipId), from: Number(h.systemIndex) });
   }
-  for (const a of added) { const h = hullOf(book, b.power, a.hullId); h.status = 'assigned'; h.opId = b.id; h.systemIndex = b.target; b.hulls.push(a); }
-  if (added.length) effects.push({ type: 'strategicShipsAssigned', id: b.id, sponsor: b.power, role: 'blockade', hulls: added.map((a) => a.hullId), systemIndex: b.target, day });
+  for (const a of added) { const h = hullOf(book, b.power, a.hullId); h.status = 'assigned'; h.opId = b.id; if (a.from !== b.target) a.joining = true; b.hulls.push(a); }
+  // Reinforcements fly to the station and join it when they are there.
+  sendToBlockadeStation(book, world, b, added.filter((a) => a.joining), day, effects);
+  if (added.length) effects.push({ type: 'strategicShipsAssigned', id: b.id, sponsor: b.power, role: 'blockade', hulls: added.map((a) => a.hullId), systemIndex: null, day });
   return { ok: true, added: added.length };
 }
+// Ships of a blockade that are not yet on station fly there as shared journeys, one per system they set
+// out from. A group that cannot be routed is released where it is.
+function sendToBlockadeStation(book, world, b, entries, day, effects) {
+  const groups = new Map();
+  for (const t of entries) { const h = hullOf(book, b.power, t.hullId); if (!h) continue; const k = Number(h.systemIndex); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(h); }
+  b.journeyIds ||= [];
+  for (const [, hs] of [...groups.entries()].sort((x, y) => x[0] - y[0])) {
+    const r = startJourney(book, world, { kind: 'blockade', ref: b.id, sponsor: b.power, hulls: hs, destination: b.target, purpose: 'station', war: warAuthorityStamp(book, world, b.power, b.target), authority: { kind: 'blockade', ref: b.id } }, day, effects);
+    if (!r.ok) { for (const h of hs) { h.status = releaseStatus(h); h.opId = null; } b.hulls = b.hulls.filter((t) => !hs.some((h) => h.id === t.hullId)); continue; }
+    b.journeyIds.push(r.journey.id);
+    b.activeDay = Math.max(b.activeDay ?? day, r.journey.status === 'underway' ? r.journey.etaDay : day);
+    if (r.arrived) for (const t of b.hulls) if (hs.some((h) => h.id === t.hullId)) delete t.joining;
+  }
+}
+function blockadeById(book, id) { return (book.blockades || []).find((x) => x.id === id) || null; }
+// A blockade's ships on their way to its station.
+registerJourneyKind('blockade', {
+  valid(book, world, tr, day, effects) {
+    const b = blockadeById(book, tr.ref);
+    if (b && ['forming', 'active'].includes(b.status) && (!tr.war || warAuthorityHolds(book, world, tr.war))) return { ok: true };
+    // The blockade is over (ceasefire, peace, broken, withdrawn) or its war no longer holds: the ships turn
+    // for home here instead of taking station.
+    const home = tr.origin;
+    if (b && ['forming', 'active'].includes(b.status)) endBlockade(book, world, b, day, 'closed', 'the war it was laid under no longer holds', effects);
+    return { ok: false, reason: 'blockade over', pending: { kind: 'return', destination: home, purpose: 'return', war: null, authority: { kind: 'return', ref: tr.ref }, meta: { home } } };
+  },
+  onArrive(book, world, tr) {
+    const b = blockadeById(book, tr.ref);
+    if (!b) return;
+    for (const t of b.hulls) if (tr.members.includes(t.hullId)) delete t.joining;
+  },
+  onForcedBack(book, world, tr, at, prev, day, effects) {
+    const b = blockadeById(book, tr.ref);
+    if (b) { for (const t of b.hulls) if (tr.members.includes(t.hullId)) effects.push({ type: 'strategicShipReleased', id: b.id, sponsor: b.power, hullId: t.hullId, day, at: Number(at) }); b.hulls = b.hulls.filter((t) => !tr.members.includes(t.hullId)); }
+    for (const h of journeyMemberHulls(book, tr)) if (h.opId === tr.ref) h.opId = null;
+    const back = replotJourney(book, world, tr, { kind: 'return', purpose: 'retreat', destination: prev, war: null, authority: { kind: 'return', ref: tr.ref }, meta: { home: tr.origin, retreatOf: tr.id },
+      plan: { path: [prev], legDays: [legDaysBetween(world, at, prev)] } }, day, effects);
+    if (back.ok) back.journey.retreatFrom = Number(at);
+    else for (const h of journeyMemberHulls(book, tr)) h.status = releaseStatus(h);
+    return true;
+  },
+  onDetach(book, world, tr, h, reason, at, day, effects) {
+    const b = blockadeById(book, tr.ref);
+    if (b && reason !== 'reassigned' && b.hulls.some((t) => t.hullId === h.id)) { b.hulls = b.hulls.filter((t) => t.hullId !== h.id); effects?.push({ type: 'strategicShipReleased', id: b.id, sponsor: b.power, hullId: h.id, day, disabled: reason === 'disabled', at }); }
+    releaseDetached(tr, h, reason);
+    if (h.opId === tr.ref) h.opId = null;
+  },
+  onHalt(book, world, tr) { releaseMembersHere(book, tr); },
+});
 function endBlockade(book, world, b, day, status, reason, effects) {
   b.status = status; b.endDay = day; b.endReason = reason;
   b.segments.push({ day, coverage: 0 }); b.segments = b.segments.slice(-60);
@@ -2722,6 +3315,7 @@ function settleBlockadeDay(book, world, b, day, effects, opening = false) {
   b.hulls = b.hulls.filter((t) => {
     const h = hullOf(book, b.power, t.hullId);
     if (!h) return false;
+    if (t.joining && h.opId === b.id) return true; // on its way to the station
     if (h.opId !== b.id || Number(h.systemIndex) !== b.target) { effects.push({ type: 'strategicShipReleased', id: b.id, sponsor: b.power, hullId: t.hullId, day }); return false; }
     // Disabled on station: out of the blockade, and off to repair.
     if (hullOutOfAction(h)) { h.status = 'repairing'; h.opId = null; effects.push({ type: 'strategicShipReleased', id: b.id, sponsor: b.power, hullId: t.hullId, day }); return false; }
@@ -2848,7 +3442,7 @@ function runnerProfile(book, world, runner) {
 // The blockade's side, from the hulls actually on station and able to act.
 function blockadeForce(book, world, b) {
   const c = book.config;
-  const hulls = b.hulls.map((t) => hullOf(book, b.power, t.hullId)).filter((h) => h && !hullOutOfAction(h));
+  const hulls = b.hulls.filter((t) => !t.joining).map((t) => hullOf(book, b.power, t.hullId)).filter((h) => h && !hullOutOfAction(h) && !h.transit);
   const S = hulls.reduce((n, h) => n + hullStrength(book, world, h), 0);
   const speeds = hulls.map((h) => Number(world.shipStats(h.shipId)?.speed) || c.interceptRefSpeed);
   const speed = speeds.length ? speeds.reduce((a, v) => a + v, 0) / speeds.length : c.interceptRefSpeed;
@@ -3044,16 +3638,156 @@ function convoyCrossing(book, world, e, sysIndex, day, effects) {
   }
   return results;
 }
-function moveConvoy(book, e, sysIndex, day, effects) {
-  const hulls = convoyHulls(book, e);
-  for (const { h } of hulls) h.systemIndex = Number(sysIndex);
-  effects.push({ type: 'evacuationConvoyMoved', id: e.id, sponsor: e.sponsor, systemIndex: Number(sysIndex), hulls: hulls.map(({ h }) => h.id), phase: e.convoy.phase, trip: e.convoy.trip, day });
+// The convoy sails the evacuation's route as one shared journey each way (STRATEGIC-MOVEMENT-UNIFICATION):
+// real legs of real length, every system on the way reached and run once, deliveries only on arrival at
+// the destination. It loads at the origin and runs the origin's own blockade on departure; turned back
+// on the way out it returns home without delivering; turned back on the way home it falls back a system,
+// holds a day and tries again.
+function evacuationPlan(world, e, fromSystem, toward) {
+  const route = e.route.map(Number);
+  const i = route.indexOf(Number(fromSystem));
+  if (i < 0) return plotJourney(world, fromSystem, toward === 'destination' ? e.destination : e.origin, e.sponsor);
+  const systems = toward === 'destination' ? route.slice(i) : route.slice(0, i + 1).reverse();
+  return { systems, path: systems.slice(1), legDays: routeLegDaysFor(world, systems) };
 }
+export function evacuationRoundTripDays(world, e) {
+  const days = routeLegDaysFor(world, e.route).reduce((n, d) => n + d, 0);
+  return 2 * days;
+}
+function sailConvoy(book, world, e, fromSystem, toward, purpose, day, effects) {
+  const cv = e.convoy;
+  const hulls = convoyHulls(book, e).map(({ h }) => h).filter((h) => !h.transit && !hullIsDisabled(h) && Number(h.systemIndex) === Number(fromSystem));
+  if (!hulls.length) return null;
+  const plan = evacuationPlan(world, e, fromSystem, toward);
+  if (!plan) return null;
+  const r = startJourney(book, world, { kind: 'evacuation', ref: e.id, sponsor: e.sponsor, hulls, destination: toward === 'destination' ? e.destination : e.origin, purpose,
+    authority: { kind: 'evacuation', ref: e.id }, meta: { phase: toward === 'destination' ? 'outbound' : 'inbound', trip: cv.trip }, plan }, day, effects);
+  if (!r.ok) return null;
+  cv.journeys = true; // this convoy flies shared journeys (a convoy saved before them does not have this)
+  cv.journeyId = r.journey.id;
+  cv.eta = r.journey.status === 'underway' ? r.journey.etaDay : day;
+  return r;
+}
+function evacuationById(book, id) { return (book.evacuations || []).find((x) => x.id === id) || null; }
+function deliverEvacuees(book, world, e, day, effects) {
+  const c = book.config;
+  const cv = e.convoy;
+  const delivered = Math.min(cv.aboard, e.target - e.moved);
+  const before = e.moved;
+  e.moved = Math.min(e.target, e.moved + delivered);
+  const trip = Math.max(1, evacuationRoundTripDays(world, e) + (c.evacLoadingDays ?? 1));
+  e.lastThroughput = Math.round(delivered / trip); e.lastFactor = cv.planned > 0 ? Math.round(Math.min(1, cv.aboard / cv.planned) * 1000) / 1000 : 0;
+  e.lastDelivery = { day, trip: cv.trip, delivered };
+  cv.aboard = 0;
+  if (before < e.target / 2 && e.moved >= e.target / 2) effects.push({ type: 'evacuationHalfway', id: e.id, sponsor: e.sponsor, origin: e.origin, destination: e.destination, day });
+}
+registerJourneyKind('evacuation', {
+  runMeta(book, tr) { const e = evacuationById(book, tr.ref); return { evacuationId: tr.ref, trip: e?.convoy?.trip ?? null, phase: tr.meta?.phase ?? null }; },
+  role(book, tr, h) {
+    const e = evacuationById(book, tr.ref);
+    return e?.transports.some((t) => t.hullId === h.id) ? 'transport' : 'escort';
+  },
+  valid(book, world, tr) {
+    const e = evacuationById(book, tr.ref);
+    return e && e.status === 'active' ? { ok: true } : { ok: false, reason: 'evacuation over', note: 'the evacuation has ended' };
+  },
+  onCross(book, world, tr, cross, effects) {
+    const e = evacuationById(book, tr.ref);
+    if (!e?.convoy) return;
+    const cv = e.convoy;
+    cv.pos = Math.max(0, e.route.map(Number).indexOf(Number(cross.at)));
+    cv.at = Number(cross.at);
+    cv.aboard = Math.min(cv.aboard, e.transports.reduce((n, t) => n + t.lift, 0));
+    if (cross.runs.length) { cv.attempts.push({ trip: cv.trip, phase: tr.meta?.phase || null, at: cross.at, day: cross.day, outcomes: cross.runs.map((r) => r.outcome), journeyId: tr.id, leg: tr.legIndex }); cv.attempts = cv.attempts.slice(-20); }
+  },
+  onDetach(book, world, tr, h, reason, at, day, effects) {
+    const e = evacuationById(book, tr.ref);
+    if (!e) return releaseDetached(tr, h, reason);
+    for (const list of ['transports', 'escorts']) e[list] = e[list].filter((t) => {
+      if (t.hullId !== h.id) return true;
+      const role = list === 'transports' ? 'transport' : 'escort';
+      if (reason === 'destroyed' || reason === 'lost') {
+        e.lost.push({ hullId: t.hullId, vid: t.vid, day, role, at });
+        if (role === 'transport') effects.push({ type: 'evacuationLoss', id: e.id, sponsor: e.sponsor, origin: e.origin, at, hullId: t.hullId, vid: t.vid, by: null, day });
+      } else {
+        const hh = hullOf(book, e.sponsor, t.hullId);
+        if (hh) { if (reason === 'disabled') hh.status = 'repairing'; else hh.status = releaseStatus(hh); hh.opId = null; }
+        e.removed.push({ hullId: t.hullId, vid: t.vid, day, role, reason, at });
+        effects.push({ type: 'strategicShipReleased', id: e.id, sponsor: e.sponsor, hullId: t.hullId, day, disabled: reason === 'disabled', at });
+      }
+      return false;
+    });
+  },
+  onForcedBack(book, world, tr, at, prev, day, effects) {
+    const e = evacuationById(book, tr.ref);
+    if (!e?.convoy) return false;
+    const cv = e.convoy;
+    cv.turnedBack = (cv.turnedBack || 0) + 1;
+    e.lastFactor = 0;
+    if (tr.meta?.phase === 'outbound') {
+      // Turned back on the way out: nobody is delivered; the convoy goes home with the people it carries.
+      e.lastThroughput = 0;
+      cv.aboard = 0;
+      cv.phase = 'inbound';
+      const r = sailConvoy(book, world, e, at, 'origin', 'return', day, effects);
+      if (!r) { cv.phase = 'held'; cv.nextDay = day + 1; cv.journeyId = null; }
+      else if (r.arrived) { cv.phase = 'loading'; cv.trip += 1; cv.nextDay = day + (book.config.evacLoadingDays ?? 1); cv.journeyId = null; }
+      return true;
+    }
+    // Turned back on the way home: it falls back to the system it came from, holds a day, and tries again.
+    const hulls = journeyMemberHulls(book, tr);
+    const r = startJourney(book, world, { kind: 'evacuation', ref: e.id, sponsor: e.sponsor, hulls, destination: prev, purpose: 'retreat', authority: tr.authority,
+      meta: { phase: 'inbound', trip: cv.trip, retreatOf: tr.id }, prior: tr, plan: { path: [prev], legDays: [legDaysBetween(world, at, prev)] } }, day, effects);
+    if (r.ok && !r.arrived) { r.journey.retreatFrom = Number(at); cv.journeyId = r.journey.id; }
+    else { cv.phase = 'held'; cv.nextDay = day + 1; cv.journeyId = null; }
+    return true;
+  },
+  onArrive(book, world, tr, at, day, effects) {
+    const e = evacuationById(book, tr.ref);
+    if (!e?.convoy || e.status !== 'active') return;
+    const c = book.config;
+    const cv = e.convoy;
+    cv.journeyId = null;
+    cv.at = Number(at);
+    if (tr.purpose === 'retreat') { cv.phase = 'held'; cv.nextDay = day + 1; return; }
+    if (tr.meta?.phase === 'outbound' && Number(at) === Number(e.destination)) {
+      deliverEvacuees(book, world, e, day, effects);
+      if (e.moved >= e.target) return endEvacuation(book, world, e, day, 'completed', null, effects);
+      cv.phase = 'inbound';
+      const r = sailConvoy(book, world, e, at, 'origin', 'return', day, effects);
+      if (!r) { cv.phase = 'held'; cv.nextDay = day + 1; }
+      return;
+    }
+    if (Number(at) === Number(e.origin)) { cv.pos = 0; cv.phase = 'loading'; cv.trip += 1; cv.nextDay = day + (c.evacLoadingDays ?? 1); return; }
+    cv.phase = 'held'; cv.nextDay = day + 1;
+  },
+  // The evacuation is over: its ships stop where the leg in flight ended and are free there.
+  onHalt(book, world, tr) { for (const h of journeyMemberHulls(book, tr)) if (!h.transit && (!h.opId || h.opId === tr.ref) && ['repairing', 'assigned'].includes(h.status)) { h.opId = null; h.status = releaseStatus(h); } },
+});
 function advanceEvacuationConvoy(book, world, e, day, effects) {
   const c = book.config;
-  const last = e.route.length - 1;
   const cv = (e.convoy ||= { trip: 1, phase: 'loading', pos: 0, nextDay: e.startDay + (c.evacLoadingDays ?? 1), aboard: 0, attempts: [] });
   const lift = () => e.transports.reduce((n, t) => n + t.lift, 0);
+  // Under way: the journey flies it (advanceJourneys ran earlier today), and its owner hooks move the
+  // convoy on at each end. A convoy saved mid-route before shared journeys picks up from where it is.
+  if (cv.journeyId) {
+    const tr = journeyById(book, cv.journeyId);
+    if (tr && tr.status === 'underway') return;
+    cv.journeyId = null;
+  }
+  if (!cv.journeyId && !cv.journeys && ['outbound', 'inbound'].includes(cv.phase)) {
+    // Picked up from where its ships actually are (an older save could leave its position counter a system
+    // ahead of them after a turn-back), else from its recorded position.
+    const standing = convoyHulls(book, e).map(({ h }) => h).filter((h) => !h.transit && !hullIsDisabled(h));
+    const at = standing.length ? Number(standing[0].systemIndex) : Number(e.route[Math.max(0, Math.min(e.route.length - 1, cv.pos || 0))]);
+    cv.journeys = true; // from here on it flies shared journeys
+    cv.at = at;
+    const r = sailConvoy(book, world, e, at, cv.phase === 'outbound' ? 'destination' : 'origin', cv.phase === 'outbound' ? 'evacuate' : 'return', day, effects);
+    if (r?.arrived) (JOURNEY_KINDS.evacuation.onArrive)(book, world, r.journey, at, day, effects);
+    if (r) return;
+    // Cannot sail from there as it was going: it holds, and tries for home the next day.
+    cv.phase = 'held'; cv.nextDay = day + 1; return;
+  }
   if (day < cv.nextDay) return;
   const note = (at, results, extra = {}) => { cv.attempts.push({ trip: cv.trip, phase: cv.phase, at, day, outcomes: results.map((r) => r.outcome), ...extra }); cv.attempts = cv.attempts.slice(-20); };
   if (cv.phase === 'loading') {
@@ -3062,42 +3796,19 @@ function advanceEvacuationConvoy(book, world, e, day, effects) {
     const results = convoyCrossing(book, world, e, e.route[0], day, effects);
     if (results.length) note(e.route[0], results);
     if (results.some((r) => !r.continues)) { cv.nextDay = day + (c.evacRetryDays ?? 3); cv.turnedBack = (cv.turnedBack || 0) + 1; e.lastFactor = 0; return; }
-    cv.phase = 'outbound'; cv.pos = 0; cv.aboard = lift(); cv.planned = cv.aboard; cv.nextDay = day + 1;
+    cv.phase = 'outbound'; cv.pos = 0; cv.aboard = lift(); cv.planned = cv.aboard;
+    const r = sailConvoy(book, world, e, e.origin, 'destination', 'evacuate', day, effects);
+    if (!r) { cv.phase = 'loading'; cv.nextDay = day + 1; return; }
+    if (r.arrived) (JOURNEY_KINDS.evacuation.onArrive)(book, world, r.journey, e.origin, day, effects);
     return;
   }
-  if (cv.phase === 'outbound') {
-    cv.pos += 1;
-    const at = e.route[cv.pos];
-    moveConvoy(book, e, at, day, effects);
-    const results = convoyCrossing(book, world, e, at, day, effects);
-    if (results.length) note(at, results);
-    cv.aboard = Math.min(cv.aboard, lift());
-    if (results.some((r) => !r.continues)) { cv.phase = 'inbound'; cv.turnedBack = (cv.turnedBack || 0) + 1; cv.nextDay = day + 1; e.lastFactor = 0; e.lastThroughput = 0; return; }
-    if (cv.pos >= last) {
-      const delivered = Math.min(cv.aboard, e.target - e.moved);
-      const before = e.moved;
-      e.moved = Math.min(e.target, e.moved + delivered);
-      const trip = Math.max(1, 2 * last + (c.evacLoadingDays ?? 1));
-      e.lastThroughput = Math.round(delivered / trip); e.lastFactor = cv.planned > 0 ? Math.round(Math.min(1, cv.aboard / cv.planned) * 1000) / 1000 : 0;
-      e.lastDelivery = { day, trip: cv.trip, delivered };
-      cv.aboard = 0;
-      if (before < e.target / 2 && e.moved >= e.target / 2) effects.push({ type: 'evacuationHalfway', id: e.id, sponsor: e.sponsor, origin: e.origin, destination: e.destination, day });
-      if (e.moved >= e.target) return endEvacuation(book, world, e, day, 'completed', null, effects);
-      cv.phase = 'inbound';
-    }
-    cv.nextDay = day + 1;
-    return;
-  }
-  if (cv.phase === 'inbound') {
-    cv.pos -= 1;
-    const at = e.route[Math.max(0, cv.pos)];
-    moveConvoy(book, e, at, day, effects);
-    const results = convoyCrossing(book, world, e, at, day, effects);
-    if (results.length) note(at, results);
-    if (cv.pos <= 0) { cv.pos = 0; cv.phase = 'loading'; cv.trip += 1; cv.nextDay = day + (c.evacLoadingDays ?? 1); return; }
-    // Turned back on the way home: held a day where it is before trying again.
-    cv.nextDay = day + (results.some((r) => !r.continues) ? 2 : 1);
-    if (results.some((r) => !r.continues)) cv.pos += 1;
+  if (cv.phase === 'held') {
+    // Held short after being turned back on the way home: try again from where it is.
+    const at = Number(cv.at ?? e.route[cv.pos || 0]);
+    cv.phase = 'inbound';
+    const r = sailConvoy(book, world, e, at, 'origin', 'return', day, effects);
+    if (!r) { cv.phase = 'held'; cv.nextDay = day + 1; return; }
+    if (r.arrived) (JOURNEY_KINDS.evacuation.onArrive)(book, world, r.journey, at, day, effects);
   }
 }
 function settleEvacuationDay(book, world, e, day, effects) {
@@ -3198,7 +3909,18 @@ function advanceStrategicOps(book, world, day, effects) {
   if (!book.evacuations && !book.blockades && book.config.strategicOps === false) return;
   strategicBook(book);
   for (const b of book.blockades) {
-    if (b.status === 'forming' && day >= b.activeDay) { b.status = 'active'; effects.push({ type: 'blockadeActive', id: b.id, power: b.power, target: b.target, day }); }
+    if (b.status === 'forming' && Array.isArray(b.journeyIds)) {
+      // Active once every ship sent has arrived or dropped out on the way; what holds it is what is there.
+      if (b.journeyIds.some((id) => journeyById(book, id)?.status === 'underway')) continue;
+      b.hulls = b.hulls.filter((t) => {
+        const h = hullOf(book, b.power, t.hullId); const on = h && h.opId === b.id && Number(h.systemIndex) === b.target && !h.transit;
+        if (on) delete t.joining;
+        else { if (h && h.opId === b.id && !h.transit) { h.opId = null; h.status = releaseStatus(h); } effects.push({ type: 'strategicShipReleased', id: b.id, sponsor: b.power, hullId: t.hullId, day }); }
+        return on;
+      });
+      if (!b.hulls.length) { endBlockade(book, world, b, day, 'withdrawn', 'its force never reached the station', effects); continue; }
+      b.status = 'active'; b.activeDay = day; effects.push({ type: 'blockadeActive', id: b.id, power: b.power, target: b.target, day });
+    } else if (b.status === 'forming' && day >= b.activeDay) { b.status = 'active'; effects.push({ type: 'blockadeActive', id: b.id, power: b.power, target: b.target, day }); }
     if (b.status === 'active') settleBlockadeDay(book, world, b, day, effects);
   }
   for (const e of book.evacuations) if (e.status === 'active') settleEvacuationDay(book, world, e, day, effects);

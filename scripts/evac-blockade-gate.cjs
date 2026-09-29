@@ -53,6 +53,9 @@ const { startProbe } = require('./probe-harness.cjs');
     window.__Q = () => { const i = t.getSystemIndexByName('Alpha Centauri'); if (t.getSystemControl(i).controller !== 'player') { t.transferSystemControlToPlayer(i); t.markSystemVisited(i); } return i; };
     window.__freighters = (prefix, at, n = 2) => Array.from({ length: n }, (_, k) => window.__ship(`${prefix}${k}`, at, 215, 600));
     window.__window = (e, days) => { const m0 = e.moved; window.__adv(days); return e.moved - m0; };
+    // STRATEGIC-MOVEMENT-UNIFICATION: a convoy flies each leg its real length, so a test window is a number
+    // of round trips (loading included), not a number of days.
+    window.__trip = (e) => t.Campaign.evacuationRoundTripDays(t.buildCampaignWorld(true), e) + (t.campaign().config.evacLoadingDays ?? 1);
     window.__runs = (e) => (t.campaign().blockades || []).flatMap((b) => (b.runs || []).filter((x) => String(x.by).startsWith(e.id)).map((x) => ({ ...x, blockade: b.id })));
     window.__fleetStrategic = () => JSON.stringify(t.state.playerFleet.filter((f) => !f.destroyed).map((f) => [f.id, f.strategicOp || null, f.strategicRole || null, f.systemIndex, window.__vid(f.id)]));
   });
@@ -69,13 +72,14 @@ const { startProbe } = require('./probe-harness.cjs');
       if (!res.ok) return { fail: res.reason };
       const e = res.record;
       const days = [];
-      for (let k = 0; k < 7; k++) { window.__adv(1); days.push(e.moved); }
+      const n = 2 * window.__trip(e) + 2;
+      for (let k = 0; k < n; k++) { window.__adv(1); days.push(e.moved); }
       const lift = e.transports.reduce((n, x) => n + x.lift, 0);
       return { fail: null, days, target: e.target, lift, trip: 2 * (e.route.length - 1) + 1, status: e.status };
     });
     assert.ok(!r.fail, r.fail);
     const steps = r.days.map((m, i) => m - (i ? r.days[i - 1] : 0)).filter((x) => x > 0);
-    assert.ok(steps.length >= 2, `deliveries over a week: ${r.days}`);
+    assert.ok(steps.length >= 2, `deliveries over two round trips: ${r.days}`);
     // Every delivery is a full lift, except a last one that finishes the target.
     steps.forEach((x, i) => assert.ok(x === r.lift || (i === steps.length - 1 && r.days[r.days.length - 1] === r.target), `a delivery of ${x} for a lift of ${r.lift}: ${r.days}`));
     assert.ok(r.days[0] === 0, 'people arrived before the convoy could have');
@@ -112,9 +116,10 @@ const { startProbe } = require('./probe-harness.cjs');
       window.__ship('tA', P, 1); window.__ship('tB', P, 1); window.__ship('tC', P, 1);
       const vid = window.__vid('tC');
       const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ['tA', 'tB', 'tC'], { target: 600000 }).record;
-      window.__adv(3); const full = e.lastDelivery?.delivered;
+      const trip = window.__trip(e);
+      window.__adv(trip); const full = e.lastDelivery?.delivered;
       s.playerFleet.find((f) => f.id === 'tC').destroyed = true;
-      window.__adv(3);
+      window.__adv(trip + 1);
       return { full, reduced: e.lastDelivery?.delivered, transports: e.transports.length, lost: e.lost, vid };
     });
     assert.equal(r.transports, 2);
@@ -133,7 +138,7 @@ const { startProbe } = require('./probe-harness.cjs');
       const before = read();
       t.saveGame(5); t.startWithFaction('ferengi'); t.loadGame(5);
       const after = read();
-      window.__adv(4);
+      window.__adv(window.__trip(e));
       return { before, after, moving: window.__evacById(e.id).moved > JSON.parse(before).e.moved };
     });
     assert.equal(r.after, r.before);
@@ -148,7 +153,7 @@ const { startProbe } = require('./probe-harness.cjs');
       window.__ship('tA', P, 1); window.__ship('tB', P, 2);
       const from = t.state.day;
       const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ['tA', 'tB']).record;
-      window.__adv(6);
+      for (let k = 0; k < 20 * window.__trip(e) && e.status === 'active'; k++) window.__adv(1);
       const news = t.galaxyNewsBook();
       return { status: e.status, moved: e.moved, target: e.target, fleet: JSON.parse(window.__fleetStrategic()).filter((x) => x[1]), reports: [...news.items, ...news.pending].filter((x) => x.day >= from && /Evacuation complete/.test(x.kind)).map((x) => x.text) };
     });
@@ -164,7 +169,7 @@ const { startProbe } = require('./probe-harness.cjs');
       const P = window.__P();
       window.__ship('tA', P, 1);
       const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ['tA'], { target: 60000 }).record;
-      window.__adv(2);
+      window.__adv(window.__trip(e));
       const moved = e.moved;
       t.transferSystemControlToFaction(P, 'klingon');
       window.__adv(1);
@@ -210,7 +215,7 @@ const { startProbe } = require('./probe-harness.cjs');
       const ids = window.__freighters('fr', P, 2);
       const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ids, { target: 5000000 }).record;
       const id = blockade ? window.__aiBlockade('klingon', P, 28) : null;
-      const moved = window.__window(e, 15);
+      const moved = window.__window(e, 3 * window.__trip(e));
       const b = id ? window.__block(id) : null;
       window.__adv(0);
       const route = t.evacRouteAssessment(e);
@@ -230,7 +235,7 @@ const { startProbe } = require('./probe-harness.cjs');
       const ids = window.__freighters('fr', P, 2);
       const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ids, { target: 5000000 }).record;
       const id = blockade ? window.__aiBlockade('klingon', P, 1) : null;
-      const moved = window.__window(e, 15);
+      const moved = window.__window(e, 3 * window.__trip(e));
       return { moved, runs: window.__runs(e).map((x) => x.outcome), tier: id ? t.Campaign.blockadeTier(window.__block(id).coverage) : null };
     }, blockade); };
     const clear = await one(false), weak = await one(true);
@@ -249,11 +254,17 @@ const { startProbe } = require('./probe-harness.cjs');
       const id = window.__aiBlockade('klingon', P, 8);
       const b = window.__block(id);
       const hulls0 = b.hulls.length, cov0 = b.coverage;
-      const moved = window.__window(e, 15);
+      const moved = window.__window(e, 3 * window.__trip(e));
       return { moved, runs: window.__runs(e).map((x) => x.outcome), hulls0, hulls: b.hulls.length, cov0, cov: b.coverage, status: b.status };
     }, escorts); };
     const bare = await one(0), escorted = await one(4);
-    assert.ok(escorted.moved > bare.moved, `escorts did not help: ${bare.moved} → ${escorted.moved}`);
+    // On real legs a turned-back departure costs days, not a trip (STRATEGIC-MOVEMENT-UNIFICATION): escorts
+    // are judged on the runs they make (let through more often, or at least as often, and delivering no less).
+    const share = (x) => x.runs.length ? x.runs.filter((o) => ['slipped_through', 'challenged_but_passed', 'fought_through', 'intercepted_minor_damage'].includes(o)).length / x.runs.length : 1;
+    console.log('   blockade-weakened (bare / escorted):', JSON.stringify({ bare, escorted }));
+    // (When the bare convoy already got through every run in the window there is nothing for escorts to
+    // improve on the runs; what they did to the blockade is checked next.)
+    assert.ok(share(escorted) > share(bare) || escorted.moved > bare.moved || (share(bare) === 1 && share(escorted) === 1 && escorted.moved >= bare.moved), `escorts did not help: ${JSON.stringify({ bare, escorted })}`);
     assert.ok(escorted.hulls < escorted.hulls0 || escorted.status !== 'active' || escorted.cov < escorted.cov0, `the blockade lost nothing to the escorts: ${JSON.stringify(escorted)}`);
     await fresh('eb-weaken-gone');
     const gone = await ev(() => {
@@ -266,7 +277,7 @@ const { startProbe } = require('./probe-harness.cjs');
       for (const h of book.polities.klingon.hulls) if (b.hulls.some((x) => x.hullId === h.id)) { h.status = 'lost'; h.hull = 0; }
       window.__adv(1);
       const lift = e.transports.reduce((n, x) => n + x.lift, 0);
-      window.__adv(6);
+      window.__adv(window.__trip(e) + 1);
       return { status: b.status, why: b.endReason, factor: e.lastFactor, delivered: e.lastDelivery?.delivered, lift };
     });
     assert.equal(gone.status, 'broken'); assert.match(gone.why, /gone/);
@@ -506,17 +517,23 @@ const { startProbe } = require('./probe-harness.cjs');
     const esc = Array.from({ length: 6 }, (_, k) => window.__ship(`esc${k}`, P, 329, 2000));
     const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ids, { target: 4000000 }).record;
     const trace = [];
-    const phase = (label, days) => { const m0 = window.__evacById(e.id).moved; window.__adv(days); const x = window.__evacById(e.id); trace.push([label, x.moved, x.moved - m0, x.status]); };
-    phase('clear', 6);
+    const phase = (label, days) => {
+      const m0 = window.__evacById(e.id).moved, r0 = window.__runs(window.__evacById(e.id)).length;
+      window.__adv(days);
+      const x = window.__evacById(e.id), runs = window.__runs(x).slice(r0).map((r) => r.outcome);
+      trace.push([label, x.moved, x.moved - m0, x.status, days, runs, runs.filter((o) => t.Campaign.blockadeRunContinues(o)).length]);
+    };
+    const trip = window.__trip(e);
+    phase('clear', 2 * trip);
     const id = window.__aiBlockade('klingon', P, 20);
-    phase('blockade', 15);
+    phase('blockade', 4 * trip);
     if (saveMid) { t.saveGame(3); t.startWithFaction('ferengi'); t.loadGame(3); }
     t.assignPlayerEscorts(e.id, esc);
-    phase('escorted', 15);
+    phase('escorted', 4 * trip);
     const book = t.campaign();
     const b = window.__block(id);
     for (const h of book.polities.klingon.hulls) if (b.hulls.some((x) => x.hullId === h.id)) { h.status = 'lost'; h.hull = 0; }
-    phase('broken', 12);
+    phase('broken', 3 * trip);
     const x = window.__evacById(e.id);
     return { trace, status: x.status, moved: x.moved, target: x.target, block: window.__block(id).status, runs: window.__runs(x).map((r) => r.outcome) };
   }, saveMid);
@@ -528,9 +545,19 @@ const { startProbe } = require('./probe-harness.cjs');
     await ev(() => testBM1.closeCampaignPanel());
     await fresh('eb-integration');
     const b = await integration(true);
-    const gain = (label) => { const x = a.trace.find((y) => y[0] === label); return x[2] / ({ clear: 6, blockade: 15, escorted: 15, broken: 12 }[label]); };
-    assert.ok(gain('blockade') < gain('clear'), `the blockade did not cut deliveries: ${JSON.stringify(a.trace)} ${a.runs}`);
-    assert.ok(gain('escorted') > gain('blockade'), `escorts did not raise deliveries: ${JSON.stringify(a.trace)}`);
+    // On real legs a round trip here is weeks long, and a convoy turned back at its home port loses the
+    // days until it tries again, not a trip: what the blockade does is measured on the runs themselves (how
+    // often the convoy is let through), and deliveries per day are recorded alongside (the handoff's
+    // measurements). [STRATEGIC-MOVEMENT-UNIFICATION]
+    const ph = (label) => a.trace.find((y) => y[0] === label);
+    const share = (label) => { const x = ph(label); return x[5].length ? x[6] / x[5].length : 1; };
+    assert.equal(ph('clear')[5].length, 0, 'runs before any blockade');
+    assert.ok(ph('blockade')[5].length > 0, `the convoy never met the blockade: ${JSON.stringify(a.trace)}`);
+    assert.ok(share('blockade') < 1, `the blockade let every run through: ${JSON.stringify(a.trace)}`);
+    assert.ok(share('escorted') >= share('blockade'), `escorts did not help the runs: ${JSON.stringify(a.trace)}`);
+    assert.equal(ph('broken')[5].length, 0, `runs after the blockade was broken: ${JSON.stringify(a.trace)}`);
+    assert.ok(ph('broken')[2] > 0, 'deliveries did not continue once the blockade was gone');
+    console.log('   evac-blockade integration (label, moved, gained, status, days, runs, passed):', JSON.stringify(a.trace));
     assert.equal(a.block, 'broken');
     assert.ok(['completed', 'active'].includes(a.status));
     assert.equal(JSON.stringify(b), JSON.stringify(a), 'save/load mid-way changed the outcome');

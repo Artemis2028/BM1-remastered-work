@@ -22,7 +22,9 @@
 // on a cancelled jump and never moves while the captain sits still.
 
 import * as D from './doctrine-runtime.mjs';
-import { seededUnit, applicableBlockadesAt, resolveBlockadeRun, shortestRoute, strategicAssignments, warAuthorityStamp, warAuthorityHolds, rescueStrandedCrew, hullIsDisabled, hullAwaitingCrew, localDefenseStrength, raidStrikeDay, standDownOperation, hullStrength } from './campaign-strategy.mjs';
+import { seededUnit, applicableBlockadesAt, resolveBlockadeRun, shortestRoute, strategicAssignments, warAuthorityStamp, warAuthorityHolds, rescueStrandedCrew, hullIsDisabled, hullAwaitingCrew, localDefenseStrength, raidStrikeDay, standDownOperation, hullStrength,
+  startJourney, stepJourney, journeyById, registerJourneyKind, legDaysBetween, routeLegDaysFor } from './campaign-strategy.mjs';
+import * as J from './strategic-journey.mjs';
 import { classifyDamage } from './ship-fleet.mjs';
 
 export const DOCTRINE_BOOK_VERSION = 1;
@@ -529,19 +531,37 @@ export function issueAssignment(book, world, spec, day, effects = []) {
   const { polity, hullId, kind, doctrineRole, stops, objectiveId = null, cargo = null, contractId = null, loadDays = 0 } = spec;
   const h = liveHull(book, polity, hullId);
   if (!h) return { ok: false, reason: 'no such vessel' };
+  // A vessel in warp takes the new job where the leg in flight ends, on the day it gets there: the journey
+  // it is on is cut to that leg (it never turns round mid-leg), and its old owner finishes it there.
+  let startAt = Number(h.systemIndex), startDay = Number(day);
+  const flying = h.transit ? journeyById(book, h.transit.journeyId) : null;
+  // In warp on a journey that is not a doctrine job's own (an operation, a convoy, a blockade force): it is
+  // not free to take a doctrine order until that journey sets it down.
+  if (flying && flying.status === 'underway' && !['doctrine', 'release'].includes(flying.kind)) return { ok: false, reason: 'the vessel is in warp on another order' };
+  if (flying && flying.status === 'underway') {
+    if (Number(flying.legDepartDay) === Number(day) && !flying.waiting) {
+      for (const id of flying.members) { const m = liveHull(book, flying.sponsor, id); if (m?.transit?.journeyId === flying.id) delete m.transit; }
+      J.supersedeJourney(flying, day, 'new orders before departure');
+    } else {
+      flying.path = flying.path.slice(0, flying.legIndex + 1); flying.legDays = flying.legDays.slice(0, flying.legIndex + 1);
+      flying.destination = flying.path.at(-1); flying.etaDay = flying.legArrivalDay;
+      startAt = Number(h.transit.to); startDay = Math.max(startDay, Number(h.transit.arrivalDay));
+    }
+  }
   // A cargo job starts with a day in port loading; the crew sail with their command's current notices.
-  const itinerary = buildItinerary(world, polity, [{ systemIndex: h.systemIndex, dwell: loadDays }, ...stops]);
+  const itinerary = buildItinerary(world, polity, [{ systemIndex: startAt, dwell: loadDays }, ...stops]);
   if (!itinerary) return { ok: false, reason: 'no route' };
   const id = nid(book, db, 'asg');
   const grace = (m) => (m === 'check_in' ? db.config.checkInGraceDays : db.config.arrivalGraceDays);
-  let t = day;
+  // Every hop takes its real length in days, as every strategic journey does (STRATEGIC-MOVEMENT-UNIFICATION).
+  let t = startDay;
   const milestones = [];
   itinerary.forEach((stop, i) => {
-    if (i > 0) t += 1;
+    if (i > 0) t += legDaysBetween(world, itinerary[i - 1].systemIndex, stop.systemIndex);
     if (stop.milestone) milestones.push({ id: `${id}:m${milestones.length + 1}`, kind: stop.milestone, stopIndex: i, systemIndex: stop.systemIndex, locationId: locationIdFor(world, stop.systemIndex), dueDay: t, grace: grace(stop.milestone), status: 'pending', metDay: null });
     t += stop.dwell;
   });
-  const a = { id, kind, polity, hullId, vid: vidOf(h), doctrineRole, objectiveId, itinerary, pos: 0, dwellLeft: itinerary[0].dwell, nextDay: day + 1,
+  const a = { id, kind, polity, hullId, vid: vidOf(h), doctrineRole, objectiveId, itinerary, pos: 0, dwellLeft: itinerary[0].dwell, nextDay: startDay + 1 + itinerary[0].dwell, departDay: startDay + itinerary[0].dwell, journeyId: null,
     milestones, status: 'active', startDay: day, endDay: null, endReason: null,
     origin: locationIdFor(world, itinerary[0].systemIndex), destination: locationIdFor(world, itinerary.at(-1).systemIndex),
     // What the owner knows of where its vessel is: the last stop it reported from. Not the truth.
@@ -555,72 +575,225 @@ export function issueAssignment(book, world, spec, day, effects = []) {
 function endAssignment(db, book, a, day, status, reason, releaseAt = true) {
   a.status = status; a.endDay = day; a.endReason = reason;
   const h = liveHull(book, a.polity, a.hullId);
+  // In warp: it cannot turn round. The leg in flight is flown to its end and the ship is released there
+  // (a 'release' journey the campaign's own journey step finishes); it is never set down mid-leg.
+  const tr = a.journeyId ? journeyById(book, a.journeyId) : null;
+  if (tr && tr.status === 'underway') {
+    tr.kind = 'release'; tr.path = tr.path.slice(0, tr.legIndex + 1); tr.legDays = tr.legDays.slice(0, tr.legIndex + 1); tr.destination = tr.path.at(-1); tr.etaDay = tr.legArrivalDay;
+    tr.note = `released: ${reason}`;
+    a.journeyId = null;
+    return;
+  }
   if (h && h.opId === a.id && releaseAt) { h.opId = null; if (h.status === 'assigned') h.status = 'ready'; }
 }
 const ROUTINE_KINDS = Object.freeze(['patrol', 'exploration', 'return', 'delivery', 'construction', 'transport', 'area_patrol']);
 function currentSystem(a) { return a.itinerary[a.pos]?.systemIndex; }
-// Runs the hull one leg: a day's jump to the next system, through every blockade that bears on it, with
-// the same interception engine every other runner uses.
+// The stops of an itinerary are flown as shared strategic journeys (STRATEGIC-MOVEMENT-UNIFICATION): one
+// journey from where the vessel stands to the next stop where it stays a while (or the last), each hop its
+// real length in days, every system on the way reached once and run through the shared blockade engine
+// (with the escorts that sail with it). Stops, stays, milestones and what the owner hears are the
+// assignment's; where the ship is, is the journey's.
+function segmentEnd(a, from) {
+  let j = from + 1;
+  while (j < a.itinerary.length - 1 && !(a.itinerary[j].dwell > 0)) j++;
+  return j;
+}
+function assignmentOfJourney(book, tr) {
+  const db = doctrineBook(book);
+  return db.assignments.find((x) => x.id === (tr.meta?.assignmentId || tr.ref)) || null;
+}
+// The earliest day the vessel leaves the stop it is at. An assignment saved before shared journeys is
+// read from its old counters.
+function departDayOf(a) {
+  if (a.departDay == null) a.departDay = (a.nextDay ?? 0) - 1 + (a.dwellLeft || 0);
+  return a.departDay;
+}
+// Where a new plan for a vessel starts: where it stands today, or — in warp — the end of the leg in
+// flight, on the day it gets there. With `commit`, the journey is cut to that leg; reaching its end puts
+// the vessel at stop 0 of the new itinerary. A ship in warp never turns round mid-leg.
+function replanPoint(book, a, h, day, commit = false) {
+  const tr = a?.journeyId ? journeyById(book, a.journeyId) : null;
+  if (tr && tr.status === 'underway' && h?.transit?.journeyId === tr.id && Number(tr.legDepartDay) === Number(day) && !tr.waiting) {
+    // Setting out today: it has not left the system yet, so the new plan starts here and the leg is
+    // never flown.
+    if (commit) {
+      for (const id of tr.members) { const m = liveHull(book, tr.sponsor, id); if (m?.transit?.journeyId === tr.id) delete m.transit; }
+      J.supersedeJourney(tr, day, 'replanned before departure');
+      a.journeyId = null;
+    }
+    return { system: Number(tr.from), day: Number(day), inFlight: false };
+  }
+  if (tr && tr.status === 'underway' && h?.transit?.journeyId === tr.id) {
+    if (commit) {
+      tr.path = tr.path.slice(0, tr.legIndex + 1); tr.legDays = tr.legDays.slice(0, tr.legIndex + 1);
+      tr.destination = tr.path.at(-1); tr.etaDay = tr.legArrivalDay;
+      tr.meta = { ...(tr.meta || {}), replanned: day };
+    }
+    return { system: Number(h.transit.to), day: Math.max(Number(day), Number(tr.legArrivalDay)), inFlight: true };
+  }
+  return { system: Number(h?.systemIndex), day: Number(day), inFlight: false };
+}
 function stepAssignment(book, world, db, a, day, effects) {
   const h = liveHull(book, a.polity, a.hullId);
   if (!h || h.opId !== a.id) return;
-  if (a.kind === 'escort' && a.joined) return; // it travels with its charge, moved in the charge's own step
-  if (classifyDamage(h.hull, h.maxHull) !== 'operational') return; // disabled where it is
-  if (hullAwaitingCrew(h)) return; // repaired but not yet crewed: it waits in the yard (PHASE3 §1a)
-  if (h.status === 'surrendered') return; // stood down: it holds where it surrendered until released (PHASE4 §6)
+  if (a.kind === 'escort' && a.joined) return; // it travels with its charge, in the charge's journey
+  const blocked = () => { a.blockedDay = day; };
+  // A leg in flight is flown whatever the vessel's state: it cannot stop in warp. Its end may start
+  // another journey (a retreat after being turned back), which is flown the same way.
+  for (let guard = 0; a.journeyId && guard < 4; guard++) {
+    const tr = journeyById(book, a.journeyId);
+    if (!tr || tr.status !== 'underway') { a.journeyId = null; break; }
+    stepJourney(book, world, tr, day, effects);
+    if (a.journeyId === tr.id && tr.status === 'underway') return;
+  }
+  if (a.status !== 'active') return;
+  if (classifyDamage(h.hull, h.maxHull) !== 'operational') return blocked(); // disabled where it is
+  if (hullAwaitingCrew(h)) return blocked(); // repaired but not yet crewed: it waits in the yard (PHASE3 §1a)
+  if (h.status === 'surrendered') return blocked(); // stood down: it holds where it surrendered until released (PHASE4 §6)
   // Intercepted by an enforcer: held where it is, unless it is leaving (complying) (PHASE4 §5).
   if (a.hold) {
     const ho = db.objectives.find((x) => x.id === a.hold.objectiveId && x.status === 'active');
     if (!ho) delete a.hold;
-    else if (!(a.leaveOrder && Number(a.leaveOrder.systemIndex) === Number(ho.target?.systemIndex))) return; // leaving that jurisdiction is the one way out of its hold
+    else if (!(a.leaveOrder && Number(a.leaveOrder.systemIndex) === Number(ho.target?.systemIndex))) return blocked(); // leaving that jurisdiction is the one way out of its hold
   }
   if (h.status !== 'assigned') h.status = 'assigned'; // a repair tick does not release it
   // Disabled on arriving at a stop and repaired there: it reports in from the stop it did reach.
   const here = a.milestones.find((x) => x.stopIndex === a.pos && (x.status === 'pending' || x.status === 'missed'));
-  if (here && Number(h.systemIndex) === Number(currentSystem(a))) meetMilestone(book, world, db, a, h, here, day, effects);
-  if (day < a.nextDay) return;
-  if (a.dwellLeft > 0) { a.dwellLeft--; a.nextDay = day + 1; if (a.dwellLeft > 0 || a.pos < a.itinerary.length - 1) return; }
+  if (here && Number(h.systemIndex) === Number(currentSystem(a)) && !h.transit) meetMilestone(book, world, db, a, h, here, day, effects);
+  // Still in warp on a journey that is not this job's (the leg its previous order was on): it waits.
+  if (h.transit) return blocked();
+  // Not where the itinerary has it (turned back on the leg it took the job on, or set down elsewhere): the
+  // rest of the job starts from where it actually stands, today, by a real route to the stop it missed.
+  if (Number(h.systemIndex) !== Number(currentSystem(a))) { if (!realignItinerary(world, a, h, day)) return blocked(); }
+  const depart = departDayOf(a);
+  if (day < depart) return;
   if (a.pos >= a.itinerary.length - 1) {
+    a.dwellLeft = 0;
     // A job that ends with a stay at its last stop is done when the stay is.
-    if (a.dwellLeft <= 0 && ROUTINE_KINDS.includes(a.kind) && !a.objectiveId && a.milestones.every((m) => m.status === 'met' || m.status === 'superseded')) endAssignment(db, book, a, day, 'completed', 'itinerary complete');
+    if (ROUTINE_KINDS.includes(a.kind) && !a.objectiveId && a.milestones.every((m) => m.status === 'met' || m.status === 'superseded')) endAssignment(db, book, a, day, 'completed', 'itinerary complete');
     return;
   }
-  const next = a.itinerary[a.pos + 1];
+  // It sets out on the day it was free to (a job issued after today's step departs as issued), never
+  // earlier than a day it was held back.
+  // Never before the day it last reached where it stands (a journey that ended today leaves today at the
+  // earliest: a new leg is never back-dated behind the one just flown).
+  const leaveOn = Math.max(a.readyFrom ?? -Infinity, Math.min(day, Math.max(depart, a.blockedDay != null ? a.blockedDay + 1 : -Infinity)));
+  // Sent under a war that no longer holds: it does not set out; its objective is stood down by its own check.
+  const objNow = a.objectiveId ? db.objectives.find((x) => x.id === a.objectiveId) : null;
+  if (objNow?.authority?.stamp && !warAuthorityHolds(book, world, objNow.authority.stamp)) return blocked();
+  const j = segmentEnd(a, a.pos);
+  const systems = a.itinerary.slice(a.pos, j + 1).map((x) => Number(x.systemIndex));
   // Escorts that have joined this charge sail with it, and run what it runs.
-  const escorts = joinedEscortsOf(book, db, a).filter((x) => Number(x.h.systemIndex) === Number(h.systemIndex));
-  // A blockade at the next system bears on this sponsor's ship as it arrives.
-  for (const b of applicableBlockadesAt(book, world, next.systemIndex, a.polity)) {
-    const runner = { key: `${a.id}:${a.pos + 1}:${day}`, sponsor: a.polity, kind: 'doctrine', hulls: [{ hullId: h.id, vid: vidOf(h), shipId: h.shipId, hull: h.hull, maxHull: h.maxHull, crew: h.crew, role: a.doctrineRole },
-      ...escorts.map((x) => ({ hullId: x.h.id, vid: vidOf(x.h), shipId: x.h.shipId, hull: x.h.hull, maxHull: x.h.maxHull, crew: x.h.crew, role: 'escort' }))] };
-    const r = resolveBlockadeRun(book, world, b, runner, day, effects, { meta: { doctrineAssignmentId: a.id, objectiveId: a.objectiveId } });
-    db.stats.blockadeRuns++;
-    a.runs.push({ day, blockadeId: b.id, at: next.systemIndex, outcome: r.outcome });
-    a.runs = a.runs.slice(-10);
-    for (const e of escorts) {
-      const ex = r.hulls.find((y) => y.hullId === e.h.id);
-      if (ex && ex.condition === 'disabled') e.h.status = 'repairing';
-    }
-    const x = r.hulls.find((y) => y.hullId === h.id);
-    // Fired on: the crew saw who did it.
-    if (x && (x.condition !== 'operational' || Number(x.hull) < Number(x.before ?? x.hull))) interceptionWitnessed(book, world, db, a, b, day, effects);
-    // Whatever the run does to the charge, its escorts were beside it: they end the day where it does.
-    const escortsTo = (i) => { for (const e of escorts) if (e.h.status !== 'lost') e.h.systemIndex = Number(i); };
-    if (x && x.condition === 'disabled') { h.status = 'repairing'; h.systemIndex = Number(next.systemIndex); escortsTo(next.systemIndex); a.pos += 1; a.dwellLeft = next.dwell; return; }
-    if (x && x.condition === 'destroyed') { h.systemIndex = Number(next.systemIndex); escortsTo(next.systemIndex); return; }
-    if (!r.continues) { a.nextDay = day + 1; return; } // turned back: tries again tomorrow from where it was
-  }
-  a.pos += 1;
-  h.systemIndex = Number(next.systemIndex);
-  a.dwellLeft = next.dwell;
-  a.nextDay = day + 1;
-  for (const e of escorts) if (classifyDamage(e.h.hull, e.h.maxHull) === 'operational' && e.h.status !== 'lost') e.h.systemIndex = Number(next.systemIndex);
-  effects.push({ type: 'doctrineMoved', id: a.id, polity: a.polity, hullId: h.id, systemIndex: h.systemIndex, day, kind: a.kind, objectiveId: a.objectiveId });
-  // Milestone: the owner hears from it when it reaches the stop.
-  // A superseded expectation (the plan changed) is never met; only the current plan's milestones count.
-  const m = a.milestones.find((x) => x.stopIndex === a.pos && (x.status === 'pending' || x.status === 'missed'));
-  if (m) meetMilestone(book, world, db, a, h, m, day, effects);
-  if (a.pos >= a.itinerary.length - 1 && a.dwellLeft <= 0 && ROUTINE_KINDS.includes(a.kind) && !a.objectiveId) endAssignment(db, book, a, day, 'completed', 'itinerary complete');
+  const escorts = joinedEscortsOf(book, db, a).filter((x) => Number(x.h.systemIndex) === Number(h.systemIndex) && !x.h.transit);
+  // A job under a formal war (a raid) carries that war's stamp, re-checked at every system it reaches.
+  const obj = a.objectiveId ? db.objectives.find((x) => x.id === a.objectiveId) : null;
+  const spec = { kind: 'doctrine', ref: a.id, sponsor: a.polity, destination: systems.at(-1), purpose: a.kind, war: obj?.authority?.stamp || null, authority: { kind: 'doctrine', ref: a.objectiveId || a.id, assignment: a.id },
+    meta: { assignmentId: a.id, startPos: a.pos, segmentEnd: j }, plan: { path: systems.slice(1), legDays: routeLegDaysFor(world, systems) } };
+  let r = startJourney(book, world, { ...spec, hulls: [h, ...escorts.map((x) => x.h)] }, leaveOn, effects);
+  if (!r.ok && escorts.length) r = startJourney(book, world, { ...spec, hulls: [h] }, leaveOn, effects);
+  if (!r.ok) return blocked();
+  a.journeyId = r.journey.id;
+  a.dwellLeft = 0;
+  stepJourney(book, world, r.journey, day, effects);
 }
+// The itinerary from where the vessel actually stands: a real route to the stop it has not reached, then
+// the rest as planned. Milestones keep their stops; the ones before are history. It leaves no earlier than
+// today.
+function realignItinerary(world, a, h, day) {
+  const here = Number(h.systemIndex);
+  const goal = a.itinerary[a.pos];
+  const path = routeBetween(world, here, Number(goal.systemIndex), a.polity);
+  if (!path) return false;
+  const prefix = [{ systemIndex: here, dwell: 0, milestone: null }, ...path.slice(1, -1).map((x) => ({ systemIndex: Number(x), dwell: 0, milestone: null }))];
+  const shift = prefix.length - a.pos;
+  for (const m of a.milestones) m.stopIndex = m.stopIndex >= a.pos ? m.stopIndex + shift : -1;
+  a.itinerary = [...prefix, ...a.itinerary.slice(a.pos)];
+  a.pos = 0; a.dwellLeft = 0;
+  a.readyFrom = Math.max(a.readyFrom ?? -Infinity, day);
+  a.departDay = Math.max(departDayOf(a), day); a.nextDay = a.departDay + 1;
+  (a.realigned ||= []).push({ day, from: here, to: Number(goal.systemIndex) });
+  return true;
+}
+// The doctrine owner of a journey: what the assignment makes of each crossing and of each end.
+registerJourneyKind('doctrine', {
+  // Every vessel aboard still has an active doctrine job (its charge's, or its own escort job).
+  keep(book, tr, h) { return Boolean(activeAssignmentFor(doctrineBook(book), h.id)); },
+  role(book, tr, h) { const a = assignmentOfJourney(book, tr); return a && h.id === a.hullId ? a.doctrineRole : 'escort'; },
+  runMeta(book, tr) { const a = assignmentOfJourney(book, tr); return { doctrineAssignmentId: a?.id ?? null, objectiveId: a?.objectiveId ?? null }; },
+  runnerKey(book, tr) { return `${tr.meta?.assignmentId || tr.ref}:${tr.id}:s${tr.seq}:l${tr.legIndex}`; },
+  valid(book, world, tr) {
+    const a = assignmentOfJourney(book, tr);
+    if (!a || a.status !== 'active') return { ok: false, reason: 'assignment over' };
+    // The war it was sent under has ended (ceasefire, peace, the target changed hands): it stops here, at
+    // the boundary, and its objective is stood down by its own check; it never flies on to strike.
+    if (tr.war && !warAuthorityHolds(book, world, tr.war)) return { ok: false, reason: 'war authority ended' };
+    return { ok: true };
+  },
+  onCross(book, world, tr, cross, effects) {
+    const db = doctrineBook(book);
+    const a = assignmentOfJourney(book, tr);
+    if (!a) return;
+    const h = liveHull(book, a.polity, a.hullId);
+    const idx = tr.meta?.replanned != null ? 0 : tr.purpose === 'retreat' ? null : Math.min(a.itinerary.length - 1, (tr.meta?.startPos ?? a.pos) + tr.legIndex + 1);
+    for (const r of cross.runs) {
+      db.stats.blockadeRuns++;
+      a.runs.push({ day: cross.day, blockadeId: r.blockadeId, at: cross.at, outcome: r.outcome });
+      const x = r.hulls.find((y) => y.hullId === a.hullId);
+      // Fired on: the crew saw who did it.
+      const b = (book.blockades || []).find((z) => z.id === r.blockadeId);
+      if (b && x && (x.condition !== 'operational' || Number(x.hull) < Number(x.before ?? x.hull))) interceptionWitnessed(book, world, db, a, b, cross.day, effects);
+    }
+    a.runs = a.runs.slice(-10);
+    const lostCharge = cross.destroyed.includes(a.hullId) || !h;
+    const disabledCharge = cross.disabled.includes(a.hullId);
+    const leftCharge = cross.leftEnRoute?.find((x) => x.id === a.hullId);
+    if (lostCharge || disabledCharge || leftCharge) {
+      // Whatever the crossing did to the charge, its escorts were beside it: they end where it does.
+      const enRoute = cross.leftEnRoute?.some((x) => x.id === a.hullId);
+      // Lost or disabled in warp: it never reached this stop; it lies (or was lost) where it last stood.
+      const at = enRoute && idx != null ? (tr.meta?.replanned != null ? null : Math.max(tr.meta?.startPos ?? 0, idx - 1)) : idx;
+      if (at != null) { a.pos = at; a.dwellLeft = a.itinerary[at].dwell; a.departDay = cross.day + a.itinerary[at].dwell; }
+      if (disabledCharge && h && h.status !== 'surrendered') h.status = 'repairing';
+      for (const id of [...tr.members]) J.detachMember(tr, id, cross.at, cross.day, 'with its charge');
+      J.haltJourney(tr, cross.at, cross.day, lostCharge ? 'destroyed' : disabledCharge ? 'disabled' : (leftCharge?.reason || 'left'), '');
+      effects.push({ type: 'journeyEnded', id: tr.id, seq: tr.seq, kind: tr.kind, ref: tr.ref, sponsor: tr.sponsor, purpose: tr.purpose, status: 'halted', reason: tr.endReason, systemIndex: cross.at, day: cross.day, hulls: [] });
+      if (a.journeyId === tr.id) a.journeyId = null;
+      a.readyFrom = cross.day;
+      return;
+    }
+    if (cross.turnedBack || idx == null || !h) return;
+    a.pos = idx;
+    effects.push({ type: 'doctrineMoved', id: a.id, polity: a.polity, hullId: h.id, systemIndex: h.systemIndex, day: cross.day, kind: a.kind, objectiveId: a.objectiveId });
+    // Milestone: the owner hears from it when it reaches the stop.
+    // A superseded expectation (the plan changed) is never met; only the current plan's milestones count.
+    const m = a.milestones.find((x) => x.stopIndex === a.pos && (x.status === 'pending' || x.status === 'missed'));
+    if (m) meetMilestone(book, world, db, a, h, m, cross.day, effects);
+  },
+  // Turned back: it goes back to the stop it came from, and tries again the next day.
+  onForcedBack(book, world, tr, at, prev, day, effects) {
+    const a = assignmentOfJourney(book, tr);
+    if (!a) return false;
+    const back = startJourney(book, world, { kind: 'doctrine', ref: a.id, sponsor: a.polity, hulls: tr.members.map((id) => liveHull(book, a.polity, id)).filter(Boolean), destination: prev, purpose: 'retreat',
+      authority: tr.authority, meta: { assignmentId: a.id, retreatOf: tr.id }, prior: tr, plan: { path: [prev], legDays: [legDaysBetween(world, at, prev)] } }, day, effects);
+    if (back.ok && !back.arrived) { back.journey.retreatFrom = Number(at); a.journeyId = back.journey.id; }
+    else { a.journeyId = null; a.departDay = day + 1; }
+    return true;
+  },
+  onArrive(book, world, tr, at, day, effects) {
+    const db = doctrineBook(book);
+    const a = assignmentOfJourney(book, tr);
+    if (!a) return;
+    if (a.journeyId === tr.id) a.journeyId = null;
+    a.readyFrom = day;
+    if (tr.purpose === 'retreat' && tr.meta?.replanned == null) { a.departDay = day + 1; return; }
+    const stop = a.itinerary[a.pos];
+    a.dwellLeft = stop?.dwell || 0;
+    a.departDay = day + (stop?.dwell || 0);
+    a.nextDay = a.departDay + 1;
+    if (a.pos >= a.itinerary.length - 1 && !(stop?.dwell > 0) && ROUTINE_KINDS.includes(a.kind) && !a.objectiveId && a.milestones.every((m) => m.status === 'met' || m.status === 'superseded')) endAssignment(db, book, a, day, 'completed', 'itinerary complete');
+  },
+  onHalt(book, world, tr, at, day) { const a = assignmentOfJourney(book, tr); if (a && a.journeyId === tr.id) { a.journeyId = null; a.readyFrom = Number(day ?? tr.endDay); } },
+});
 function meetMilestone(book, world, db, a, h, m, day, effects) {
   m.status = 'met'; m.metDay = day;
   a.lastReport = { systemIndex: h.systemIndex, locationId: locationIdFor(world, h.systemIndex), day };
@@ -632,7 +805,7 @@ function meetMilestone(book, world, db, a, h, m, day, effects) {
 function onMilestoneMet(book, world, db, a, m, day, effects) {
   let t = day;
   for (let i = a.pos + 1; i < a.itinerary.length; i++) {
-    t += 1 + (i === a.pos + 1 ? a.itinerary[a.pos].dwell : 0) + (i > a.pos + 1 ? a.itinerary[i - 1].dwell : 0);
+    t += legDaysBetween(world, a.itinerary[i - 1].systemIndex, a.itinerary[i].systemIndex) + (a.itinerary[i - 1].dwell || 0);
     const later = a.milestones.find((x) => x.stopIndex === i && x.status === 'missed');
     if (later) { later.status = 'pending'; later.dueDay = t; later.rescheduled = day; }
   }
@@ -751,12 +924,22 @@ export function loseAssignmentHullUnwitnessed(book, world, assignmentId, day, mo
 // ---------- detection ----------
 // Who is physically there to see a site: vessels on a doctrine assignment at that system (their crews
 // report to their command) and the command that holds the system (its own space).
+// Where a vessel is standing today: its system, unless it is in warp (a leg under way that did not start
+// today). A ship in warp is at no system: it sees nothing there, is seen by no one there, and is not a
+// visitor there (STRATEGIC-MOVEMENT-UNIFICATION §6).
+function standingAt(book, h, day) {
+  if (!h) return null;
+  if (!h.transit) return Number(h.systemIndex);
+  const tr = journeyById(book, h.transit.journeyId);
+  if (!tr || tr.status !== 'underway') return Number(h.systemIndex);
+  return day != null && Number(tr.legDepartDay) === Number(day) ? Number(h.systemIndex) : null;
+}
 function presentObservers(book, world, db, systemIndex) {
   const out = [];
   for (const a of db.assignments) {
     if (a.status !== 'active') continue;
     const h = liveHull(book, a.polity, a.hullId);
-    if (!h || Number(h.systemIndex) !== Number(systemIndex) || classifyDamage(h.hull, h.maxHull) === 'destroyed') continue;
+    if (!h || standingAt(book, h, db.lastDay) !== Number(systemIndex) || classifyDamage(h.hull, h.maxHull) === 'destroyed') continue;
     if (db.ground.fates[a.id] && db.ground.fates[a.id].fate !== 'disabled') continue;
     out.push({ observerId: `hull:${h.id}`, polity: a.polity, assignment: a });
   }
@@ -938,7 +1121,7 @@ function resolveIncident(book, world, db, inc, day, status, reason, effects, exc
 // ---------- routine generation (pilot) ----------
 function freeHulls(book, db, polity) {
   const taken = strategicAssignments(book);
-  return (book.polities[polity]?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && !taken.has(h.id) && classifyDamage(h.hull, h.maxHull) === 'operational');
+  return (book.polities[polity]?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && !taken.has(h.id) && !h.transit && !hullAwaitingCrew(h) && classifyDamage(h.hull, h.maxHull) === 'operational');
 }
 // Spare: never the last defenders of a held world.
 function spareHulls(book, world, db, polity, pred = () => true) {
@@ -1659,19 +1842,23 @@ function rerouteCapacity(book, world, db, observerId, k, day) {
   if (classifyDamage(h.hull, h.maxHull) !== 'operational') return { ...out, reason: 'vessel is not operational' };
   if (a.objectiveId) return { ...out, reason: `delivery already rerouted (objective ${shortId(a.objectiveId)})` };
   const avoid = new Set(incidentArea(world, db, k).map((l) => systemIndexForLocation(db, l)).filter((x) => x != null));
-  avoid.delete(Number(h.systemIndex));
+  // In warp, the new way starts where the leg in flight ends.
+  const pt = replanPoint(book, a, h, day);
+  avoid.delete(pt.system);
   const deliveredYet = a.milestones.some((m) => m.kind === 'arrival' && m.status === 'met' && Number(m.systemIndex) === c.destination);
   const goal = deliveredYet ? c.origin : c.destination;
-  const path = routeAvoiding(world, h.systemIndex, goal, polity, avoid);
+  const path = routeAvoiding(world, pt.system, goal, polity, avoid);
   if (!path) return { ...out, reason: avoid.has(goal) ? `its ${deliveredYet ? 'home port' : 'destination'} is inside the trouble area` : 'no route around the trouble area' };
-  const arrive = day + path.length - 1 + (a.dwellLeft || 0);
+  const arrive = pt.day + routeLegDaysFor(world, path).reduce((n, d) => n + d, 0) + (pt.inFlight ? 0 : Math.max(0, departDayOf(a) - day));
   if (!deliveredYet && arrive > c.dueDay + db.config.contractGraceDays) return { ...out, reason: `the way round arrives day ${arrive}, after the contract is due (day ${c.dueDay})` };
   return { ok: true, response: 'reroute', hullId: hid, vid: vidOf(h), route: path, avoid: [...avoid], goal, deliveredYet, reason: `${path.length - 1} jumps avoiding ${[...avoid].join(',')}` };
 }
 function applyReroute(book, world, db, o, cap, day, effects) {
   const a = activeAssignmentFor(db, cap.hullId);
   const c = contractOf(db, a.contractId);
-  const here = a.itinerary[a.pos];
+  const h = liveHull(book, a.polity, a.hullId);
+  const pt = replanPoint(book, a, h, day, true);
+  const here = { systemIndex: pt.system };
   const avoid = new Set(cap.avoid);
   const back = cap.deliveredYet ? [] : (routeAvoiding(world, c.destination, c.origin, a.polity, avoid) || routeBetween(world, c.destination, c.origin, a.polity) || [c.destination]);
   const legs = [{ systemIndex: here.systemIndex, dwell: 0, milestone: null }];
@@ -1683,9 +1870,10 @@ function applyReroute(book, world, db, o, cap, day, effects) {
   // Every expectation of the old plan goes, a missed one too (its incident stays until the ship reports).
   for (const m of a.milestones) if (m.status === 'pending' || m.status === 'missed') m.status = 'superseded';
   a.itinerary = legs; a.pos = 0; a.dwellLeft = 0;
-  let t = day;
+  if (!pt.inFlight) { a.departDay = Math.max(day, departDayOf(a)); a.nextDay = a.departDay + 1; }
+  let t = pt.inFlight ? pt.day : a.departDay;
   legs.forEach((stop, i) => {
-    if (i > 0) t += 1;
+    if (i > 0) t += legDaysBetween(world, legs[i - 1].systemIndex, stop.systemIndex);
     if (stop.milestone) a.milestones.push({ id: `${a.id}:m${a.milestones.length + 1}`, kind: stop.milestone, stopIndex: i, systemIndex: stop.systemIndex, locationId: locationIdFor(world, stop.systemIndex), dueDay: t, grace: stop.milestone === 'check_in' ? db.config.checkInGraceDays : db.config.arrivalGraceDays, status: 'pending', metDay: null, rerouted: day });
     t += stop.dwell;
   });
@@ -1849,16 +2037,20 @@ export function responseCapacity(book, world, db, observerId, response, target, 
   }
   let best = null;
   for (const h of candidates) {
-    const route = routeBetween(world, h.systemIndex, target.systemIndex, polity);
+    // A vessel in warp starts from where its leg in flight ends, on the day it gets there.
+    const from = h.transit ? { system: Number(h.transit.to), day: Math.max(day, Number(h.transit.arrivalDay)) } : { system: Number(h.systemIndex), day };
+    const route = routeBetween(world, from.system, target.systemIndex, polity);
     if (!route) continue;
     const hops = route.length - 1;
     if (hops > c.maxResponseHops) continue;
-    if (!best || hops < best.route.length - 1) best = { h, route };
+    // Real travel time: each hop its own length in days, as the journey will fly it.
+    const arrive = from.day + routeLegDaysFor(world, route).reduce((n, d) => n + d, 0);
+    if (!best || arrive < best.arrive || (arrive === best.arrive && hops < best.route.length - 1)) best = { h, route, arrive };
   }
   if (!best) return { ...out, reason: `no vessel with a route within ${c.maxResponseHops} jumps` };
   const hops = best.route.length - 1;
-  const arrive = day + hops;
-  if (arrive + dwell > day + deadlineDays) return { ...out, reason: `cannot finish before the deadline (${hops} jumps + ${dwell} days > ${deadlineDays})` };
+  const arrive = best.arrive;
+  if (arrive + dwell > day + deadlineDays) return { ...out, reason: `cannot finish before the deadline (${hops} jumps, ${arrive - day} days + ${dwell} days > ${deadlineDays})` };
   if (response === 'rescue' && target.survivorsUntil != null && arrive > target.survivorsUntil) return { ...out, reason: 'cannot reach the survivors in time' };
   const allowed = observerId.startsWith('hull:') ? commitmentAllows(db, best.h.id, response) : { ok: true };
   return { ok: true, hullId: best.h.id, vid: vidOf(best.h), route: best.route, hops, reason: `${best.h.id} (${hops} jumps)${allowed.preempts ? ` — breaks off ${allowed.preempts.label}` : ''}`, response, preempts: allowed.preempts || null };
@@ -2412,9 +2604,9 @@ function enforcerAt(book, world, db, authority, systemIndex) {
   for (const pat of pats) {
     const h = liveHull(book, authority, pat.hullId);
     const a = h && activeAssignmentFor(db, h.id);
-    if (h && a && a.kind === 'area_patrol' && Number(h.systemIndex) === Number(systemIndex) && !hullIsDisabled(h) && h.status === 'assigned') return { h, pat, role: 'patrol' };
+    if (h && a && a.kind === 'area_patrol' && standingAt(book, h, db.lastDay) === Number(systemIndex) && !hullIsDisabled(h) && h.status === 'assigned') return { h, pat, role: 'patrol' };
   }
-  const picket = (book.polities[authority]?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && Number(h.systemIndex) === Number(systemIndex) && classifyDamage(h.hull, h.maxHull) === 'operational' && (world.shipStats(h.shipId)?.combat ?? 1) >= 0.5)
+  const picket = (book.polities[authority]?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && !h.transit && Number(h.systemIndex) === Number(systemIndex) && classifyDamage(h.hull, h.maxHull) === 'operational' && (world.shipStats(h.shipId)?.combat ?? 1) >= 0.5)
     .sort((x, y) => String(x.id).localeCompare(String(y.id)))[0];
   return picket ? { h: picket, pat: null, role: 'patrol' } : null;
 }
@@ -2432,7 +2624,9 @@ function detectBreaches(doctrine, book, world, db, day, effects) {
     if (a.status !== 'active' || a.polity === 'player' || ['defense', 'raid', 'enforcement'].includes(a.kind)) continue;
     const h = liveHull(book, a.polity, a.hullId);
     if (!h) continue; // a disabled or surrendered vessel is still there: its visit continues (no new episode)
-    (present[Number(h.systemIndex)] ||= []).push({ a, h });
+    const at = standingAt(book, h, day);
+    if (at == null) continue; // in warp: passing no system today
+    (present[at] ||= []).push({ a, h });
   }
   for (const [sysKey, visitors] of Object.entries(present)) {
     const S = Number(sysKey);
@@ -2519,8 +2713,10 @@ function targetDecision(book, world, db, o, a, h) {
   return roll < 0.6 ? 'surrender' : 'refuse';
 }
 // Complying with "leave": the same assignment, the same vessel, a new way out that avoids the world.
-function leaveJurisdiction(world, db, a, h, S, day, why) {
-  const here = Number(h.systemIndex);
+function leaveJurisdiction(book, world, db, a, h, S, day, why) {
+  // In warp, it leaves from where the leg in flight ends (it cannot turn round mid-leg).
+  const pt0 = replanPoint(book, a, h, day);
+  const here = pt0.system;
   const avoid = new Set([Number(S)]); avoid.delete(here);
   // The vessel keeps the rest of its business — every later stop that is not the world it is ordered out
   // of, with its own milestone — reached by routes that avoid that world.
@@ -2545,10 +2741,12 @@ function leaveJurisdiction(world, db, a, h, S, day, why) {
     if (!path) return false;
     legs = path.map((sys, i) => ({ systemIndex: sys, dwell: 0, milestone: i === path.length - 1 ? 'check_in' : null }));
   }
+  const pt = replanPoint(book, a, h, day, true);
   for (const m of a.milestones) if (m.status === 'pending' || m.status === 'missed') m.status = 'superseded';
-  a.itinerary = legs; a.pos = 0; a.dwellLeft = 0; a.nextDay = day + 1;
-  let t = day;
-  legs.forEach((stop, i) => { if (i > 0) t += 1 + (legs[i - 1].dwell || 0); if (stop.milestone) a.milestones.push({ id: `${a.id}:m${a.milestones.length + 1}`, kind: stop.milestone, stopIndex: i, systemIndex: stop.systemIndex, locationId: locationIdFor(world, stop.systemIndex), dueDay: t, grace: db.config.checkInGraceDays, status: 'pending', metDay: null, rerouted: day }); });
+  a.itinerary = legs; a.pos = 0; a.dwellLeft = 0;
+  a.departDay = pt.day; a.nextDay = pt.day + 1;
+  let t = pt.day;
+  legs.forEach((stop, i) => { if (i > 0) t += legDaysBetween(world, legs[i - 1].systemIndex, stop.systemIndex) + (legs[i - 1].dwell || 0); if (stop.milestone) a.milestones.push({ id: `${a.id}:m${a.milestones.length + 1}`, kind: stop.milestone, stopIndex: i, systemIndex: stop.systemIndex, locationId: locationIdFor(world, stop.systemIndex), dueDay: t, grace: db.config.checkInGraceDays, status: 'pending', metDay: null, rerouted: day }); });
   a.leaveOrder = { systemIndex: Number(S), day, why };
   delete a.hold;
   return true;
@@ -2654,7 +2852,7 @@ function advanceEnforcement(doctrine, book, world, db, day, effects) {
     if (!th || th.status === 'lost') { closeLater(o, 'aborted', ['target_lost'], 'target lost'); bump(db, 'enforcementTargetLost'); continue; }
     if (th.status === 'surrendered' && th.surrendered?.objectiveId !== o.id) { closeLater(o, 'aborted', ['target_unable_to_comply'], 'the target has surrendered to another party'); continue; }
     if (th.surrendered?.objectiveId === o.id) { o.surrender = { ...th.surrendered, state: 'accepted' }; closeLater(o, 'completed', ['surrender_accepted'], `${o.target.vid} surrendered`); bump(db, 'surrendersAccepted'); continue; }
-    if (Number(th.systemIndex) !== Number(S)) {
+    if (standingAt(book, th, day) !== Number(S)) {
       const complied = o.compliance === 'complying';
       closeLater(o, 'completed', complied ? ['compliance_verified', 'target_left_jurisdiction'] : ['target_left_jurisdiction'], complied ? 'complied: left restricted space' : 'left the jurisdiction');
       bump(db, complied ? 'enforcementComplied' : 'enforcementLeftUncomplied');
@@ -2702,7 +2900,7 @@ function advanceEnforcement(doctrine, book, world, db, day, effects) {
     if (resp === 'comply') {
       bump(db, 'enforcementComplyResponses');
       if (o.demand.type === 'leave_area') {
-        if (leaveJurisdiction(world, db, a, th, S, day, `ordered out by ${o.polity}`)) { o.compliance = 'complying'; o.comms.state = 'complied'; o.actions.push({ day, action: 'compliance', detail: `${o.target.vid} leaving${o.escalation.stage >= 2 ? ' (escorted to the boundary)' : ''}` }); }
+        if (leaveJurisdiction(book, world, db, a, th, S, day, `ordered out by ${o.polity}`)) { o.compliance = 'complying'; o.comms.state = 'complied'; o.actions.push({ day, action: 'compliance', detail: `${o.target.vid} leaving${o.escalation.stage >= 2 ? ' (escorted to the boundary)' : ''}` }); }
         continue;
       }
       if (o.demand.type === 'halt_identify') {
@@ -2729,7 +2927,7 @@ function advanceEnforcement(doctrine, book, world, db, day, effects) {
     if (resp === 'surrender') { surrenderVessel(book, world, { polity: o.target.polity, hullId: th.id, to: o.polity, day, reason: `surrendered to ${o.polity} enforcement`, objectiveId: o.id, acceptedBy: o.actor }, effects); continue; }
     if (resp === 'flee') {
       bump(db, 'enforcementFlee');
-      if (o.escalation.stage < 3 && leaveJurisdiction(world, db, a, th, S, day, 'fled')) { o.compliance = 'fleeing'; o.actions.push({ day, action: 'observe', detail: `${o.target.vid} is running for the boundary; no pursuit beyond it` }); continue; }
+      if (o.escalation.stage < 3 && leaveJurisdiction(book, world, db, a, th, S, day, 'fled')) { o.compliance = 'fleeing'; o.actions.push({ day, action: 'observe', detail: `${o.target.vid} is running for the boundary; no pursuit beyond it` }); continue; }
       o.escalation.refusals++; escalate(doctrine, book, world, db, o, a, th, day, effects, 'tried to run while intercepted'); continue;
     }
     // refuse / ignore: one step up the ladder, never straight to force.
@@ -2776,6 +2974,9 @@ export function surrenderVessel(book, world, { polity, hullId, to, day, reason, 
   h.surrendered = { to: to || null, acceptedBy: acceptedBy || (to ? `command:${to}` : null), day, systemIndex: Number(h.systemIndex), reason: reason || 'surrendered', objectiveId, holdUntil: day + (holdDays ?? db.config.surrenderHoldDays), priorStatus: h.status };
   h.status = 'surrendered';
   delete h.defendingAt;
+  // Surrendered in warp: it drops out where it last stood and is never carried on (its journey detaches
+  // it at the leg's end, STRATEGIC-MOVEMENT-UNIFICATION §8).
+  delete h.transit;
   bump(db, 'surrenders');
   (db.surrenderLog ||= []).push({ day, polity, hullId, vid: vidOf(h), to: to || null, reason: h.surrendered.reason, objectiveId }); db.surrenderLog = db.surrenderLog.slice(-30);
   effects.push({ type: 'vesselSurrendered', polityId: polity, hullId, vid: vidOf(h), to: to || null, systemIndex: Number(h.systemIndex), day, reason: h.surrendered.reason, objectiveId });
@@ -2794,7 +2995,7 @@ function advanceSurrenders(book, world, db, day, effects) {
       // Released under the terms it surrendered on: out of restricted space, or home.
       if (job && s.objectiveId) {
         const eo = db.objectives.find((x) => x.id === s.objectiveId);
-        if (eo?.kind === 'enforcement' && !job.leaveOrder) leaveJurisdiction(world, db, job, h, s.systemIndex, day, 'released after surrender');
+        if (eo?.kind === 'enforcement' && !job.leaveOrder) leaveJurisdiction(book, world, db, job, h, s.systemIndex, day, 'released after surrender');
       }
       if (h.status === 'ready' && world.systems[Number(h.systemIndex)]?.controller !== pid) {
         const home = nearestHeld(world, pid, h.systemIndex);
@@ -2865,7 +3066,8 @@ function advancePredation(doctrine, book, world, db, day, effects) {
     for (const a of db.assignments) {
       if (a.status !== 'active' || a.polity === 'player' || !(CIVIL_KINDS.includes(a.kind) || a.doctrineRole === 'civilian')) continue;
       const h = liveHull(book, a.polity, a.hullId);
-      if (!h || hullIsDisabled(h) || h.status === 'surrendered' || !area.has(Number(h.systemIndex))) continue;
+      const at = standingAt(book, h, day);
+      if (!h || hullIsDisabled(h) || h.status === 'surrendered' || at == null || !area.has(at)) continue;
       const vid = vidOf(h);
       if (g.cooldowns[vid]) { bump(db, 'predationRepeatPrevented'); continue; }
       if (joinedEscortsOf(book, db, a).length) continue; // under escort: not worth it
@@ -2940,7 +3142,7 @@ function workPredation(doctrine, book, world, db, o, day, effects) {
   const f = { identity_known: true, credible_cargo_intel: true, valuable_target_known: true, predation_order_active: true, predation_attack_phase: true, engagement_objective_active: true };
   const it = D.intent(doctrine, { profileId: 'pirate', role: 'raider', facts: f });
   if (it.action !== 'attack') { closeLater(o, 'aborted', ['attacker_disengaged'], `no authorised attack (${it.action})`); return; }
-  if (Number(h.systemIndex) !== Number(g.systemIndex) || hullIsDisabled(h)) {
+  if (standingAt(book, h, day) !== Number(g.systemIndex) || hullIsDisabled(h)) {
     if (hullIsDisabled(h)) { takeFromHulk(book, world, db, o, a, h, g, day, effects); return; }
     return;
   }
@@ -3038,6 +3240,9 @@ export function advanceDoctrineDay(book, world, day, effects, doctrine) {
       for (const inc of Object.values(db.incidents)) if (inc.assignmentId === a.id && inc.status === 'open') resolveIncident(book, world, db, inc, day, 'written_off', `no word from ${a.vid} for ${db.config.evidenceLifeDays} days`, effects);
     }
   }
+  // A job that ended today with its vessel in warp became a 'release' of that leg (the campaign's own
+  // journey step has already run today): a leg ending today is crossed today, not a day late.
+  for (const tr of book.journeys || []) if (tr.kind === 'release' && J.legDue(tr, day)) stepJourney(book, world, tr, day, effects);
   trimClosed(db, book);
 }
 

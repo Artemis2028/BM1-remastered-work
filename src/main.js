@@ -2,6 +2,7 @@ import * as World from './faction-world.mjs';
 import { assessIntel, intelRandom } from './galaxy-intelligence.mjs';
 import * as StationRoles from './station-roles.mjs';
 import * as Campaign from './campaign-strategy.mjs';
+import * as Journey from './strategic-journey.mjs';
 import * as Doctrine from './doctrine-runtime.mjs';
 import * as DoctrineCampaign from './doctrine-campaign.mjs';
 const TRANSPORTER_RANGE = 2500;
@@ -9073,6 +9074,7 @@ function syncDebugVesselCondition() {
 function refreshDebugReadout() {
   const bulletin=debugMenuEl.querySelector('[data-diplomacy-bulletin]');if(bulletin)bulletin.innerHTML=renderDiplomacyBulletin();
   const doctrinePanel=debugMenuEl.querySelector('[data-doctrine-debug]');if(doctrinePanel)doctrinePanel.innerHTML=renderDoctrineDebug();
+  const journeyPanel=debugMenuEl.querySelector('[data-journey-debug]');if(journeyPanel)journeyPanel.innerHTML=renderJourneyDebug();
   const resource = debugMenuEl.querySelector('[name="resource"]').value;
   debugMenuEl.querySelector('[name="amount"]').max = debugResourceFields[resource].max();
   const faction = debugMenuEl.querySelector('[name="faction"]').value;
@@ -9139,6 +9141,7 @@ function openDebugMenu() {
       <button data-debug-code="campaign discover gorn">Gorn discovery (override)</button><button data-campaign-open>Open Empire panel</button></div>
       <form data-debug-form="campaign-polity"><label>Power<select name="campaign-faction">${factionOptions}</select></label><label>Treasury (latinum)<input name="campaign-treasury" type="number" min="0" max="2000000" step="1000" value="250000"></label><label>Ready hulls<input name="campaign-hulls" type="number" min="0" max="120" step="1" value="20"></label><button type="submit" data-campaign-set="treasury">Set treasury (override)</button><button type="submit" data-campaign-set="readiness">Set ready hulls (override)</button></form>
       <p>Wars still come from the diplomacy controls above. Operations, captures, integration, recovery contracts and relay orders follow the model; nothing here spawns Dominion forces outside the wormhole route.</p></section>
+    <section data-journey-section><h3>Strategic journeys (debug)</h3><div data-journey-debug>${renderJourneyDebug()}</div></section>
     <section data-doctrine-section><h3>Faction doctrine (debug)</h3><div data-doctrine-debug>${renderDoctrineDebug()}</div></section>
     <section><h3>Cheat codes</h3><form data-debug-form="code"><label>Code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="standing romulan 50" required></label><button type="submit">Run code</button></form>
       <details><summary>Remaster code list</summary><p>Codes are case-insensitive. Faction keys appear in the selector above.</p><ul>
@@ -9677,7 +9680,7 @@ function campaignRaidForce(faction, systemIndex = state.currentPlanet) {
   const world = buildCampaignWorld();
   const here = Number(systemIndex);
   const adjacent = new Set((world.neighbours(here) || []).map(Number));
-  return p.hulls.filter((h) => h.status === 'ready' && (Number(h.systemIndex) === here || adjacent.has(Number(h.systemIndex))));
+  return p.hulls.filter((h) => h.status === 'ready' && !h.transit && (Number(h.systemIndex) === here || adjacent.has(Number(h.systemIndex))));
 }
 function campaignCanRaid(faction) {
   if (!state.gameStarted) return true;
@@ -10460,9 +10463,14 @@ function holdFleetForOperation(hullIds, opId, role, systemIndex) {
   }
 }
 function releaseFleetFromOperation(hullIds, opId) {
+  // A ship still in warp on one of the model's journeys stays held until the leg in flight ends (it cannot
+  // turn round mid-leg); the journey's end releases it. [STRATEGIC-MOVEMENT-UNIFICATION]
+  const flying = new Set(Campaign.activeJourneys(campaignBook()).filter((j) => j.sponsor === PLAYER_SIDE).flatMap((j) => j.members));
   for (const hid of hullIds || []) {
     const f = fleetEntryForHull(hid);
-    if (f && f.strategicOp === opId) { delete f.strategicOp; delete f.strategicRole; }
+    if (!f || f.strategicOp !== opId) continue;
+    if (flying.has(String(hid))) { f.strategicReleasePending = opId; continue; }
+    delete f.strategicOp; delete f.strategicRole; delete f.strategicReleasePending;
   }
 }
 // A vessel the captain may put to an operation: stationed (not escorting, not in transit, not trading),
@@ -10671,6 +10679,26 @@ function reportStrategicOp(spec) {
   return reportCampaignEvent({ id: spec.id, systemIndex: spec.systemIndex, day: spec.day, kind: spec.kind, factions: spec.factions, involved: stake.involved, attacker: spec.attacker || null,
     observationKind: 'raid', playerRelated: personal, direct: spec.direct, relay: () => spec.relay || spec.direct, fleet: () => spec.fleet || spec.direct, rumour: () => spec.rumour });
 }
+// Which movements are worth a line in the captain's news when one of their sources sees them pass: war
+// fleets, blockade forces, expeditions and convoys. Yard runs and doctrine errands are routine traffic.
+const JOURNEY_SIGHTING_KINDS = Object.freeze({ operation: 'War fleet', return: 'Warships', expedition: 'Expeditionary force', withdrawal: 'Warships', blockade: 'Blockade force', evacuation: 'Evacuation convoy' });
+function reportJourneyCrossing(e, day) {
+  const label = JOURNEY_SIGHTING_KINDS[e.kind];
+  if (!label || !e.hulls?.length) return;
+  const src = campaignIntelSource(e.systemIndex);
+  if (!['local', 'fleet', 'relay'].includes(src)) return;
+  const tr = Campaign.journeyById(campaignBook(), e.id);
+  const mark = tr?.crossed.find((c) => c.seq === e.seq && c.leg === e.leg);
+  if (!mark || mark.reported) return;
+  mark.reported = true;
+  const nameOf = (i) => state.planets[i]?.name || `system ${i}`;
+  const who = campaignFactionKeyFor(e.sponsor);
+  const n = e.hulls.length;
+  const onward = e.final ? `, ending its passage there` : ` bound onward`;
+  reportStrategicOp({ id: `journey:${e.id}:s${e.seq}:l${e.leg}`, systemIndex: e.systemIndex, day, kind: `${label} passing — ${nameOf(e.systemIndex)}`, own: false, factions: [who], extra: [who],
+    direct: `${formatFaction(who)} ${label.toLowerCase()} (${n} ${n === 1 ? 'ship' : 'ships'}) reached ${nameOf(e.systemIndex)}${onward}.`,
+    relay: `${formatFaction(who)} transponders: ${n} ${n === 1 ? 'ship' : 'ships'} through ${nameOf(e.systemIndex)}.` });
+}
 function applyStrategicOpEffect(e, day) {
   const d = e.day ?? day;
   const nameOf = (i) => state.planets[i]?.name || `system ${i}`;
@@ -10702,6 +10730,28 @@ function applyStrategicOpEffect(e, day) {
       reportBlockadeRun(e, res);
       break;
     }
+    // A shared strategic journey (STRATEGIC-MOVEMENT-UNIFICATION). The captain's own ships on one are
+    // where its record says; anyone else's crossing is news only where the captain has eyes, once per
+    // crossing (the record carries the mark, so a reload never tells it twice).
+    case 'journeyDeparted': case 'journeyCrossed': case 'journeyEnded': {
+      if (e.sponsor === PLAYER_SIDE) {
+        const at = e.type === 'journeyDeparted' ? e.from : e.systemIndex;
+        if (at != null) for (const hid of e.hulls || []) { const f = fleetEntryForHull(hid); if (f) f.systemIndex = Number(at); }
+        // A ship whose operation ended while it was in warp is free once its journey has ended.
+        if (e.type === 'journeyEnded') {
+          const book = campaignBook();
+          for (const f of state.playerFleet || []) {
+            if (!f.strategicReleasePending) continue;
+            if (Campaign.activeJourneys(book).some((j) => j.sponsor === PLAYER_SIDE && j.members.includes(`pf:${f.id}`))) continue;
+            if (f.strategicOp === f.strategicReleasePending) { delete f.strategicOp; delete f.strategicRole; }
+            delete f.strategicReleasePending;
+          }
+        }
+        break;
+      }
+      if (e.type === 'journeyCrossed') reportJourneyCrossing(e, d);
+      break;
+    }
     // The convoy is where it is: the captain's transports and escorts sail with it.
     case 'evacuationConvoyMoved': {
       if (e.sponsor !== PLAYER_SIDE) break;
@@ -10718,7 +10768,9 @@ function applyStrategicOpEffect(e, day) {
       break;
     }
     case 'blockadeStarted': case 'blockadeActive': {
-      if (e.type === 'blockadeStarted' && e.power === PLAYER_SIDE) holdFleetForOperation(e.hulls, e.id, 'blockade', e.target);
+      // Held for the blockade where they are: they sail to station by a shared journey, whose own effects
+      // place them leg by leg.
+      if (e.type === 'blockadeStarted' && e.power === PLAYER_SIDE) holdFleetForOperation(e.hulls, e.id, 'blockade', null);
       if (e.type === 'blockadeStarted' && e.forming) break;
       const who = campaignFactionKeyFor(e.power);
       reportStrategicOp({ id: `blockade:${e.id}:start`, systemIndex: e.target, day: d, kind: `Blockade — ${nameOf(e.target)}`, own: e.power === PLAYER_SIDE, factions: [who], attacker: who, extra: [who],
@@ -11092,6 +11144,43 @@ function triggerDoctrineDebug(args) {
     return r.ok ? `Override: ${rest[1]} brought into the yard.` : `Not recovered: ${r.reason}.`;
   }
   throw new Error('Doctrine codes: doctrine status | on | off | military on|off | enforcement on|off | predation on|off | pirate demand | surrender nearest | surrender vessel <faction> <hull> [to] | patrol <faction> [system] | areapatrol <faction> <system> | raid <faction> <system> | surrender <incident> [acceptedBy] | recover <faction> <hull> | delivery <faction> <system> | project <faction> <depot> > <site> | lose [assignment|latest] [disabled] [silent] | relay <incident> <from> <to> [full|overdue_notice|findings|survivor_report] [override|network]');
+}
+// Every strategic movement under way, in the one shared record (STRATEGIC-MOVEMENT-UNIFICATION §11): the
+// model's journeys (war fleets, returns, yard runs, blockade forces, convoys, expeditions, doctrine
+// vessels) and the captain's formations. Debug is omniscient: the next blocker is the first blockade
+// ahead on the route that bears on the mover, whether or not anyone knows of it.
+function renderJourneyDebug() {
+  if (!state.gameStarted) return '<p class="meta">No campaign.</p>';
+  const book = campaignBook();
+  if (!book.initialized) return '<p class="meta">No campaign.</p>';
+  const world = buildCampaignWorld();
+  const nm = (i) => escapeHtml(state.planets[Number(i)]?.name || (i == null ? '—' : `system ${i}`));
+  const nextBlocker = (tr) => {
+    for (let i = tr.legIndex; i < tr.path.length; i++) {
+      const at = Number(tr.path[i]);
+      const b = Campaign.applicableBlockadesAt(book, world, at, tr.sponsor)[0];
+      if (b) return `${nm(at)}: ${escapeHtml(formatFaction(campaignFactionKeyFor(b.power)))} ${escapeHtml(b.status)}${b.lastTier ? ` (${escapeHtml(b.lastTier)})` : ''}`;
+    }
+    return '—';
+  };
+  const model = Campaign.activeJourneys(book).map((tr) => ({ tr, actor: `${formatFaction(campaignFactionKeyFor(tr.sponsor))} ${tr.kind}${tr.ref ? ` <code>${escapeHtml(String(tr.ref).split(':').slice(-2).join(':'))}</code>` : ''}` }));
+  const formations = (fleetBook().formations || []).filter((g) => g.travel?.status === 'underway').map((g) => ({ tr: { kind: 'formation', sponsor: PLAYER_SIDE, ...g.travel }, actor: `Formation ${escapeHtml(g.name || g.id)}` }));
+  const list = [...formations, ...model];
+  const st = book.stats?.journeys || {};
+  const head = `<p class="meta" data-journey-stats>Under way: ${list.length} (${formations.length} formations) · started ${st.started || 0} · crossings ${st.crossings || 0} · duplicate crossings prevented ${st.duplicateCrossingsPrevented || 0} · arrived ${st.arrived || 0} · halted ${st.halted || 0} · forced back ${st.forcedBack || 0} · stale orders cancelled ${st.staleCancelled || 0} · mean leg ${st.legs ? (st.legDays / st.legs).toFixed(2) : '—'} days · blockade runs ${escapeHtml(Object.entries(st.blockadeRuns || {}).map(([k, n]) => `${k} ${n}`).join(', ') || '0')}</p>`;
+  // The last movements to end, with why: an arrival, a turn back, an order that lapsed at a boundary.
+  const ended = (book.journeys || []).filter((j) => j.status !== 'underway').slice(-10).reverse();
+  const endedTable = ended.length ? `<h4>Recently ended</h4><table class="doctrine-debug" data-journey-ended><thead><tr><th>Actor</th><th>Purpose</th><th>Route flown</th><th>Ended</th><th>Why</th></tr></thead><tbody>${ended.map((j) => `<tr data-journey-ended-row="${escapeHtml(j.id)}"><td>${escapeHtml(formatFaction(campaignFactionKeyFor(j.sponsor)))} ${escapeHtml(j.kind)} <code>${escapeHtml(String(j.ref ?? '').split(':').slice(-2).join(':'))}</code></td><td>${escapeHtml(j.purpose)}</td><td>${nm(j.plotFrom)}${j.crossed.filter((c) => c.seq === j.seq).map((c) => ` → ${nm(c.system)}`).join('')}${j.status === 'arrived' ? '' : ` (for ${nm(j.destination)})`}</td><td>day ${j.endDay} at ${nm(j.from)}</td><td>${escapeHtml(j.status)}${j.endReason && j.endReason !== j.status ? `: ${escapeHtml(j.endReason)}` : ''}${j.staleAt ? ` · <b>stale: ${escapeHtml(j.staleAt.reason)} (day ${j.staleAt.day})</b>` : ''}</td></tr>`).join('')}</tbody></table>` : '';
+  if (!list.length) return `${head}<p class="meta">No strategic movement under way.</p>${endedTable}`;
+  const auth = (tr) => {
+    const a = tr.authority ? `${escapeHtml(tr.authority.kind)} <code>${escapeHtml(String(tr.authority.ref ?? '').split(':').slice(-2).join(':'))}</code>` : '—';
+    const w = tr.war ? ` · war ${escapeHtml(tr.war.key || `${tr.war.power}/${tr.war.holder}`)} #${escapeHtml(String(tr.war.instance ?? 0))}${Campaign.warAuthorityHolds(book, world, tr.war) ? '' : ' <b>(lapsed)</b>'}` : '';
+    return a + w + (tr.pending ? ` · <b>pending ${escapeHtml(tr.pending.purpose || 'replot')} → ${nm(tr.pending.destination)}</b>` : '');
+  };
+  const rows = list.map(({ tr, actor }) => `<tr data-journey-row="${escapeHtml(tr.id)}"><td>${actor}<div class="meta">${escapeHtml(tr.members.map((id) => tr.vids?.[id] || id).join(', '))}</div></td><td>${escapeHtml(tr.purpose)}</td><td>${nm(tr.origin)}</td>
+    <td>${tr.legIndex + 1}/${tr.path.length}: ${nm(tr.from)} → ${nm(tr.path[tr.legIndex])}${tr.waiting ? ' (waiting)' : ''}</td><td>${nm(tr.destination)}</td>
+    <td>left day ${tr.legDepartDay} · arrives day ${tr.legArrivalDay} · eta day ${tr.etaDay}</td><td>${auth(tr)}</td><td>${nextBlocker(tr)}</td></tr>`).join('');
+  return `${head}<table class="doctrine-debug" data-journey-table><thead><tr><th>Actor (vids)</th><th>Purpose</th><th>Origin</th><th>Current leg</th><th>Destination</th><th>Departure / arrival</th><th>Authority</th><th>Next blocker</th></tr></thead><tbody>${rows}</tbody></table>${endedTable}`;
 }
 function renderDoctrineDebug() {
   const s = doctrineStatus();
@@ -26473,6 +26562,16 @@ function buildCampaignWorld(force = false) {
   for (const r of state.travelRoutes) { addEdge(r.from, r.to); addEdge(r.to, r.from); }
   const wormholes = getAllWormholeLinks().map((w) => ({ id: w.id, from: w.from, to: w.to, name: w.name }));
   for (const w of wormholes) { addEdge(w.from, w.to); addEdge(w.to, w.from); }
+  // STRATEGIC-MOVEMENT-UNIFICATION: every strategic journey flies each hop in the days the chart says it
+  // takes (the same Fleet.travelDays over the route's warp distance a formation's leg uses); a wormhole
+  // transit is one day.
+  const edgeDays = new Map();
+  for (const r of state.travelRoutes) {
+    const d = Math.max(1, Fleet.travelDays(getRouteWarpDistance(r)));
+    for (const k of [`${r.from}:${r.to}`, `${r.to}:${r.from}`]) edgeDays.set(k, Math.min(edgeDays.get(k) ?? Infinity, d));
+  }
+  for (const w of wormholes) for (const k of [`${w.from}:${w.to}`, `${w.to}:${w.from}`]) if (!edgeDays.has(k)) edgeDays.set(k, 1);
+  const wormholeOnlyEdge = (a, b) => wormholes.some((w) => (w.from === a && w.to === b) || (w.to === a && w.from === b)) && !state.travelRoutes.some((r) => (r.from === a && r.to === b) || (r.from === b && r.to === a));
   const factionHullCache = new Map();
   const world = {
     day: state.day, playerFaction: getPlayerFlag(), localSystem: state.warp.active || isWormholeTransitActive() ? null : Number(state.currentPlanet),
@@ -26513,6 +26612,12 @@ function buildCampaignWorld(force = false) {
     },
     stationsBySystem: (i) => stationsBySystem.get(Number(i)) || [],
     neighbours: (i) => [...(neighbourMap.get(Number(i)) || [])],
+    legDays: (a, b) => campaignLegDaysOverride ?? edgeDays.get(`${Number(a)}:${Number(b)}`) ?? 1,
+    // The uncharted wormhole is open to the Dominion only, as routeHops has it.
+    edgeOpen: (a, b, polityId = null) => {
+      if (!wormholeOnlyEdge(Number(a), Number(b))) return true;
+      return polityId === 'dominion' || (wormholes.length > 0 && isChartSystemVisible(wormholes[0].to) && isChartSystemVisible(wormholes[0].from));
+    },
     // The hidden Dominion region stays hidden: only the Dominion routes through the wormhole until the
     // far side has been charted, so no other power "discovers" it by strategic accident.
     routeHops(from, to, polityId = null) {
@@ -26590,6 +26695,18 @@ function syncPlayerPolity(book) {
   // attrition pass, exactly as a hull committed to an operation is.
   const sceneOwned = (f) => Boolean(fleetLocalActor(f.id));
   p.hulls = (state.playerFleet || []).filter((f) => !f.destroyed && f.vessel?.condition !== 'destroyed').map((f) => ({ id: `pf:${f.id}`, vid: ensureFleetVesselIdentity(f).vid, shipId: Number(f.shipId), hull: finiteNumber(f.vessel?.hull, finiteNumber(f.vessel?.maxHull, 100)), maxHull: finiteNumber(f.vessel?.maxHull, 100), crew: 1, systemIndex: Number(f.assignment === 'escort' ? state.currentPlanet : f.systemIndex), status: f.assignment === 'transit' || sceneOwned(f) || f.strategicOp ? 'assigned' : 'ready', opId: f.strategicOp || null }));
+  // A captain's ship on a model journey (an evacuation convoy, a blockade force taking station) is where the
+  // journey record says, on the leg it says: the record is authoritative and the mirror is rebuilt from it
+  // on every call, so a leg in flight survives the rebuild (STRATEGIC-MOVEMENT-UNIFICATION §10).
+  for (const tr of Campaign.activeJourneys(book)) {
+    if (tr.sponsor !== PLAYER_SIDE) continue;
+    for (const id of tr.members) {
+      const h = p.hulls.find((x) => x.id === id);
+      if (!h) continue;
+      h.systemIndex = Number(tr.from); h.status = 'assigned';
+      if (!tr.waiting && tr.legIndex < tr.path.length) h.transit = { journeyId: tr.id, from: Number(tr.from), to: Number(tr.path[tr.legIndex]), arrivalDay: Number(tr.legArrivalDay), leg: tr.legIndex, seq: tr.seq };
+    }
+  }
   p.treasury = state.latinum; p.materials = state.duranium;
   p.queue = fleetBook().orders.filter((o) => !['delivered', 'lost'].includes(o.status)).map((o) => ({ id: o.id, shipId: o.shipId, systemIndex: o.system, stationId: o.stationId, remainingDays: o.remainingDays, status: o.status }));
   return p;
@@ -27102,6 +27219,7 @@ function applyCampaignEffects(effects, day = state.day) {
         break;
       }
       case 'evacuationStarted': case 'strategicShipsAssigned': case 'strategicShipReleased': case 'evacuationHalfway': case 'evacuationLoss': case 'evacuationEnded': case 'blockadeRun': case 'evacuationConvoyMoved':
+      case 'journeyDeparted': case 'journeyCrossed': case 'journeyEnded':
       case 'blockadeStarted': case 'blockadeActive': case 'blockadeCoverage': case 'blockadeEnded':
         applyStrategicOpEffect(e, day);
         break;
@@ -27313,10 +27431,10 @@ function launchBudgetedAmbientRaid(attackerFaction, record) {
   if (!p || !ready.length) return { ok: false, reason: 'no available force' };
   const hulls = ready.slice(0, Math.min(want, ready.length));
   const effects = [];
-  const op = Campaign.launchOperation(book, world, attackerFaction, hulls, Number(state.currentPlanet), state.day, 0, record.type, effects);
+  // The loaded scene is the raid (STRATEGIC-MOVEMENT-AUDIT: intentionally abstract): the hulls were here or
+  // one route away, the scene itself is their arrival, and survivors go home by a real journey.
+  const op = Campaign.launchOperation(book, world, attackerFaction, hulls, Number(state.currentPlanet), state.day, 0, record.type, effects, { immediate: true });
   op.status = 'engaged'; op.engagedDay = state.day; op.arriveDay = state.day;
-  // These hulls were already here or one route away; closing that single hop is the move, and
-  // survivors return to where the raid set out from through finishOperation.
   for (const h of hulls) h.systemIndex = Number(state.currentPlanet);
   const claim = Campaign.claimOperationForScene(book, op.id);
   op.spawnedHullIds = [];
@@ -27680,8 +27798,15 @@ function evacRouteAssessment(e) {
 function convoyLine(e) {
   const cv = e.convoy;
   if (!cv) return '';
-  const at = state.planets[e.route[Math.max(0, Math.min(e.route.length - 1, cv.pos))]]?.name || '?';
-  const phase = cv.phase === 'loading' ? `loading at ${at}` : cv.phase === 'outbound' ? `outbound, at ${at}` : `returning, at ${at}`;
+  const nm = (i) => state.planets[i]?.name || '?';
+  const at = nm(e.route[Math.max(0, Math.min(e.route.length - 1, cv.pos))]);
+  // Under way on a shared journey: the leg it is flying and when it ends, and when it reaches the end of
+  // this passage (STRATEGIC-MOVEMENT-UNIFICATION).
+  const tr = cv.journeyId ? Campaign.journeyById(campaignBook(), cv.journeyId) : null;
+  const legText = tr && tr.status === 'underway' && tr.legIndex < tr.path.length
+    ? (Number(tr.legDepartDay) === Number(state.day) && !tr.waiting ? `at ${nm(tr.from)}, sailing for ${nm(tr.path[tr.legIndex])}` : `${nm(tr.from)} → ${nm(tr.path[tr.legIndex])}, arrives day ${tr.legArrivalDay}`) + ` · reaches ${nm(tr.destination)} day ${tr.etaDay}`
+    : null;
+  const phase = cv.phase === 'loading' ? `loading at ${at}` : cv.phase === 'held' ? `holding at ${at}` : legText ? `${cv.phase === 'outbound' ? 'outbound' : 'returning'}: ${legText}` : cv.phase === 'outbound' ? `outbound, at ${at}` : `returning, at ${at}`;
   const last = cv.attempts?.[cv.attempts.length - 1];
   const lastText = last ? ` · last run day ${last.day} at ${state.planets[last.at]?.name || '?'}: ${last.outcomes.map((o) => o.replace(/_/g, ' ')).join(', ')}` : '';
   return `Convoy trip ${cv.trip}: ${phase}${lastText}`;
@@ -27701,7 +27826,7 @@ function renderEvacuationCard(e, book) {
   const status = active ? `Route status: <b data-ops-route>${route.status}</b>${route.estimate ? ` · Estimated chance of passage: <b data-ops-passage>${route.estimate}</b>` : ''}` : `${e.status === 'completed' ? 'Completed' : e.status === 'cancelled' ? 'Cancelled' : e.status === 'partial' ? 'Ended' : 'Failed'} day ${e.endDay}${e.endReason ? ` · ${escapeHtml(e.endReason)}` : ''}`;
   const open = opsForm.openDetails.has(e.id);
   const lift = e.transports.reduce((n, t) => n + t.lift, 0);
-  const trip = Math.max(1, 2 * (e.route.length - 1) + (book.config.evacLoadingDays ?? 1));
+  const trip = Math.max(1, Campaign.evacuationRoundTripDays(buildCampaignWorld(), e) + (book.config.evacLoadingDays ?? 1));
   const details = open ? `<dl class="ops-details"><div>Moved: ${e.moved.toLocaleString()} / ${e.target.toLocaleString()}</div><div>Transport capacity: ${lift.toLocaleString()} per trip · ${trip}-day round trip</div><div>Route: ${e.route.map((i) => escapeHtml(state.planets[i]?.name || i)).join(' → ')}</div><div>Losses: ${e.lost.length} lost · ${e.removed.filter((x) => x.reason === 'disabled').length} disabled · ${e.removed.filter((x) => x.reason !== 'disabled').length} withdrawn</div>${own || k.exact ? `<div>Last delivery: ${Number(e.lastDelivery?.delivered || 0).toLocaleString()} (day ${e.lastDelivery?.day ?? '—'})</div>` : ''}</dl>` : '';
   const buttons = [`<button data-ops-details="${escapeHtml(e.id)}">${open ? 'Hide' : 'Details'}</button>`, `<button data-ops-map="${e.origin}">Show on map</button>`];
   if (own && active) buttons.push(`<button data-ops-escort="${escapeHtml(e.id)}">Assign escort</button>`, `<button data-ops-cancel="${escapeHtml(e.id)}">Cancel</button>`);
@@ -28125,8 +28250,17 @@ function debugStationTarget(id) {
   if (!st?.stationTypeId) throw new Error(id ? 'No live installation with that id in this system.' : 'Select (and track) an installation first, or give its id.');
   return st;
 }
+// Debug override (labelled, never saved): every strategic leg takes this many days instead of the chart's.
+// The doctrine phase gates, whose scenarios are authored hop by hop, run with `campaign legs 1`; the
+// chart's real lengths are what every game and the movement gate use. [STRATEGIC-MOVEMENT-UNIFICATION]
+var campaignLegDaysOverride = null; // var: read by buildCampaignWorld, which may run before this line is reached
 function triggerCampaignDebug(args) {
   const [kind, a, b] = args;
+  if (kind === 'legs') {
+    campaignLegDaysOverride = a === 'chart' || a == null ? null : Math.max(1, Math.round(Number(a)) || 1);
+    campaignWorldCache = null;
+    return `Strategic legs: ${campaignLegDaysOverride == null ? 'chart lengths' : `${campaignLegDaysOverride} day(s) each (debug override)`}.`;
+  }
   const book = campaign();
   const world = buildCampaignWorld(true);
   switch (kind) {
@@ -28146,6 +28280,8 @@ function triggerCampaignDebug(args) {
         // are stood down through the ordinary path so their hulls are released; deleting the records
         // instead left those hulls assigned to an operation that no longer existed.
         const recalled = Campaign.terminateOperations(book, world, 'dominion', state.day, [], 'The Dominion expedition was recalled.');
+        // A reset: its ships under way are set down where they last stood, not left flying under no order.
+        Campaign.haltJourneysOf?.(book, 'dominion', state.day, 'forced override: expedition reset');
         Object.assign(d, { phase: 'dormant', phaseDay: null, warnings: [], expeditionOpId: null, reinforcementCut: false, convoys: 0, lastConvoyDay: null });
         Object.assign(d, { openedDay: null, standDownDay: null, plan: null, expeditionPeak: null, accessDeniedSince: null, lastEscalationDay: null, corridorHeldBy: null });
         // There is no timetable to push any more: what holds the expedition back is the opening, so the
@@ -28222,7 +28358,7 @@ function triggerCampaignDebug(args) {
     case 'mission': { const kinds = ['relief', 'escort', 'repair', 'recon']; if (!kinds.includes(a)) throw new Error(WITHDRAWN_MISSION_KINDS.includes(a) ? `${a} contracts are withdrawn until they have a real objective` : `mission: ${kinds.join('|')}`); const m = offerStationMission(a, state.currentPlanet, true); return m ? `${a} contract offered at ${state.planets[state.currentPlanet]?.name}.` : 'That contract is already open here.'; }
     case 'discover': { if (a !== 'gorn') throw new Error('discover gorn'); getCampaignDiscoveries().gorn = true; state.systemStates = {}; if (!state.warp.active) applySystemState(state.currentPlanet); return 'Forced override: Gorn discovery event marked complete; dormant Gorn installations wake.'; }
     case 'advance': { const raw = Number(a); if (!Number.isFinite(raw) || raw < 1) throw new Error('advance <1..60>'); const n = clamp(Math.floor(raw), 1, 60); const id = Fleet.nextId(fleetBook(), 'journey'); advanceFleetCalendar(n, id); return `Advanced ${n} campaign day(s) through the normal calendar path.`; }
-    default: throw new Error('campaign: phase|treasury|readiness|damage|restore|stock|mission|discover|advance');
+    default: throw new Error('campaign: phase|treasury|readiness|damage|restore|stock|mission|discover|advance|legs');
   }
 }
 // ---- station missions (reusable flows tied to real state) ----
@@ -29204,14 +29340,10 @@ function formationWarStamp(target) {
 function formationWarHolds(stamp) {
   return Campaign.warAuthorityHolds(campaignBook(), buildCampaignWorld(), stamp);
 }
-function formationLegDays(tr, i) {
-  return Math.max(1, Math.round(finiteNumber(tr.legDays[i], 1)));
-}
-function formationEta(tr) {
-  let eta = Number(tr.legArrivalDay);
-  for (let i = tr.legIndex + 1; i < tr.path.length; i++) eta += formationLegDays(tr, i);
-  return eta;
-}
+// A formation's travel is the shared strategic journey record (strategic-journey.mjs): the model's war
+// fleets, convoys and doctrine vessels fly the same record, legs and crossing guard.
+function formationLegDays(tr, i) { return Journey.legLength(tr, i); }
+function formationEta(tr) { return Journey.journeyEta(tr); }
 // Put every member on the formation's current leg.
 function scheduleFormationLeg(g, tr) {
   const to = Number(tr.path[tr.legIndex]);
@@ -29229,35 +29361,10 @@ function beginFormationTravel(g, members, from, destination, purpose, war, day, 
   const origin = Number(from), dest = Number(destination);
   const route = origin === dest ? { systems: [origin], legs: [] } : getPlottedRoute(origin, dest);
   if (!route) return null;
-  const tr = {
-    id: `ftravel:${g.id}:${origin}:${dest}:${day}:${(prior?.seq ?? 0) + 1}`,
-    seq: (prior?.seq ?? 0) + 1,
-    origin: prior ? Number(prior.origin) : origin,
-    plotFrom: origin,
-    from: origin,
-    destination: dest,
-    path: (route.systems || []).map(Number).slice(1),
-    legDays: routeLegDays(route),
-    legIndex: 0,
-    legDepartDay: Number(day),
-    legArrivalDay: Number(day),
-    startDay: prior ? Number(prior.startDay) : Number(day),
-    etaDay: Number(day),
-    members: members.map((f) => f.id),
-    vids: Object.fromEntries(members.map((f) => [f.id, ensureFleetVesselIdentity(f).vid])),
-    purpose,
-    war: war || null,
-    crossed: prior ? prior.crossed : [],
-    encounters: prior ? prior.encounters : [],
-    detached: prior ? prior.detached : [],
-    replots: prior ? [...(prior.replots || []), { day: Number(day), at: origin, from: Number(prior.destination), to: dest }] : [],
-    pending: null,
-    status: 'underway',
-    endDay: null,
-    endReason: null,
-    arrivedDay: null,
-    note: '',
-  };
+  const tr = Journey.createJourney({ id: `ftravel:${g.id}:${origin}:${dest}:${day}:${(prior?.seq ?? 0) + 1}`, kind: 'formation', ref: g.id, sponsor: PLAYER_SIDE,
+    from: origin, destination: dest, path: (route.systems || []).map(Number).slice(1), legDays: routeLegDays(route), day,
+    members: members.map((f) => f.id), vids: Object.fromEntries(members.map((f) => [f.id, ensureFleetVesselIdentity(f).vid])),
+    purpose, war: war || null, authority: { kind: 'formation', ref: g.id }, prior });
   g.travel = tr;
   g.destination = dest;
   if (!tr.path.length) { arriveFormation(g, tr, origin, Number(day)); return tr; }
@@ -29522,9 +29629,7 @@ function crossFormationLeg(g, tr) {
   const where = state.planets[at]?.name || `system ${at}`;
   // A crossing is processed once. A record already carrying this leg of this journey is not crossed
   // again, whatever calls this.
-  if (tr.crossed.some((c) => c.seq === tr.seq && c.leg === tr.legIndex)) return;
-  tr.crossed.push({ system: at, day, leg: tr.legIndex, seq: tr.seq });
-  tr.from = at;
+  if (!Journey.markCrossed(tr).fresh) return;
   const members = formationTravelMembers(tr);
   for (const f of members) { f.systemIndex = at; f.assignment = 'defense'; delete f.transit; }
   // Ships lost before the leg ended leave the journey.
