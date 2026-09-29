@@ -28,7 +28,7 @@ import { classifyDamage } from './ship-fleet.mjs';
 export const DOCTRINE_BOOK_VERSION = 1;
 // Bumped whenever the pilot configuration changes: a book saved under an older one takes the new defaults
 // (keeping only whether doctrine was switched on). Within a version, a changed config (debug, tests) stands.
-export const DOCTRINE_CONFIG_VERSION = 3;
+export const DOCTRINE_CONFIG_VERSION = 4;
 export const CLOCK = 'strategic_jumps';
 // First-pass pilot tuning. Every duration is in campaign days; none is a measured value.
 export const DOCTRINE_PILOT = Object.freeze({
@@ -47,7 +47,11 @@ export const DOCTRINE_PILOT = Object.freeze({
       Object.freeze({ profile: p, role: 'patrol', response: 'protect' }),
       Object.freeze({ profile: p, role: 'commander', response: 'protect' }),
       Object.freeze({ profile: p, role: 'raider', response: 'raid' }),
+      // Phase 4: local security enforcement by their patrols and security pickets.
+      Object.freeze({ profile: p, role: 'patrol', response: 'enforce' }),
     ]),
+    // Phase 4: one bounded predation profile — pirate raiders demanding payment or cargo.
+    Object.freeze({ profile: 'pirate', role: 'raider', response: 'exploit_cargo' }),
   ]),
   // Routine assignments that give asset_overdue something real to be about. Per polity, how many run at once.
   patrols: Object.freeze({ romulan: 1 }),
@@ -80,6 +84,15 @@ export const DOCTRINE_PILOT = Object.freeze({
   // Witnessing attacks (and so defending against them) can be switched off for a campaign — the earlier
   // phases' gates do, so their scenarios run as they did before phase 3.
   militaryResponses: true,
+  // Phase 4 (DOCTRINE-RUNTIME-PHASE4.md). Enforcement: a demand, its delivery, the target's answer, a
+  // persistent ladder (observe → warn → repeat → intercept → engage-only-with-authority), strict closure.
+  enforcementResponses: true,
+  enforceDeadlineDays: 6, enforceResponseDays: 1, maxEnforcementPerPolity: 3, enforcementLogLimit: 60,
+  surrenderHoldDays: 2, raidSurrenderRatio: 0.3,
+  // Bounded predation: authored pirate groups at their havens ('auto': every pirate-held world).
+  predation: true, pirateHaunts: 'auto', pirateStrength: 900, pirateMaxHull: 1500,
+  pirateDemandEveryDays: 5, pirateTargetCooldownDays: 30, predationDeadlineDays: 2, predationAttackDays: 2,
+  pirateRecoverPerDay: 0.05,
 });
 
 // ---------- book ----------
@@ -554,6 +567,13 @@ function stepAssignment(book, world, db, a, day, effects) {
   if (a.kind === 'escort' && a.joined) return; // it travels with its charge, moved in the charge's own step
   if (classifyDamage(h.hull, h.maxHull) !== 'operational') return; // disabled where it is
   if (hullAwaitingCrew(h)) return; // repaired but not yet crewed: it waits in the yard (PHASE3 §1a)
+  if (h.status === 'surrendered') return; // stood down: it holds where it surrendered until released (PHASE4 §6)
+  // Intercepted by an enforcer: held where it is, unless it is leaving (complying) (PHASE4 §5).
+  if (a.hold) {
+    const ho = db.objectives.find((x) => x.id === a.hold.objectiveId && x.status === 'active');
+    if (!ho) delete a.hold;
+    else if (!(a.leaveOrder && Number(a.leaveOrder.systemIndex) === Number(ho.target?.systemIndex))) return; // leaving that jurisdiction is the one way out of its hold
+  }
   if (h.status !== 'assigned') h.status = 'assigned'; // a repair tick does not release it
   // Disabled on arriving at a stop and repaired there: it reports in from the stop it did reach.
   const here = a.milestones.find((x) => x.stopIndex === a.pos && (x.status === 'pending' || x.status === 'missed'));
@@ -1324,6 +1344,14 @@ export function recordSurrender(book, world, incidentId, day, { acceptedBy, effe
   if (!inc || !isMilitaryIncident(inc) || inc.status !== 'open') return { ok: false, reason: 'no open attack incident' };
   inc.surrender = { day, acceptedBy };
   if (inc.source === 'operation') standDownOperation(book, world, inc.sourceId, day, effects, 'surrendered', `The attacking force at ${inc.locationId} surrendered.`);
+  if (inc.source === 'raid') {
+    // The raider stands down where it is: its raid ends and it holds, inactive, until released.
+    const o = db.objectives.find((x) => x.id === inc.sourceId);
+    if (o) {
+      o.cancelRequested ||= 'surrendered'; o.surrenderedDay ??= day;
+      surrenderVessel(book, world, { polity: o.polity, hullId: o.assigned.hullId, to: inc.polity, day, reason: `raid surrendered at ${inc.locationId}`, objectiveId: o.id, acceptedBy }, effects);
+    }
+  }
   for (const obs of [acceptedBy, `command:${inc.polity}`].filter(Boolean)) { const k = knowledgeOf(db, obs, incidentId); if (k) { k.surrender = { day, acceptedBy }; k.updatedDay = day; k.version = (k.version || 0) + 1; k.lastChange = { day, cause: 'surrender accepted' }; } }
   resolveIncident(book, world, db, inc, day, 'surrendered', `surrender accepted by ${acceptedBy}`, effects);
   return { ok: true };
@@ -1541,13 +1569,24 @@ function advanceRaids(book, world, db, day, effects) {
     }
     const a = db.assignments.find((x) => x.id === o.assignmentId);
     const h = liveHull(book, o.polity, o.assigned.hullId);
-    if (!a || !h || a.status !== 'active' || hullIsDisabled(h)) continue;
+    if (!a || !h || a.status !== 'active' || hullIsDisabled(h) || h.status === 'surrendered') continue;
     if (Number(h.systemIndex) !== Number(o.target.systemIndex) || a.pos < a.itinerary.length - 1) continue;
     if (!o.arrivedDay) { o.arrivedDay = day; o.state = 'engaged'; }
     // On station: engage, shadow (hold, reassess) or withdraw — decided on what the raider sees there.
     const mine = hullStrength(book, world, h) * Math.max(0.35, Number(book.polities[o.polity]?.supply ?? 1));
     const defense = localDefenseStrength(book, world, o.target.systemIndex);
     const ratio = defense > 0 ? mine / defense : Infinity;
+    // Phase 4: a raider caught by a defence it cannot face or escape surrenders — an explicit decision,
+    // recorded and accepted by the world's holder — rather than fighting on.
+    const facingDefence = db.objectives.some((x) => x.status === 'active' && x.kind === 'defense' && x.state === 'defending' && Number(x.target?.systemIndex) === Number(o.target.systemIndex));
+    if (facingDefence && ratio < (c.raidSurrenderRatio ?? 0.3)) {
+      o.actions.push({ day, action: 'surrender', detail: `force ratio ${ratio.toFixed(2)} facing a defence: surrenders` });
+      const inc = db.incidents[`inc:attack:${o.raid.id}`];
+      if (inc && inc.status === 'open') recordSurrender(book, world, inc.id, day, { acceptedBy: `command:${inc.polity}`, effects });
+      else surrenderVessel(book, world, { polity: o.polity, hullId: h.id, to: world.systems[o.target.systemIndex]?.controller || null, day, reason: 'raid surrendered', objectiveId: o.id }, effects);
+      o.cancelRequested ||= 'surrendered'; o.surrenderedDay = day;
+      continue;
+    }
     if (ratio < c.raidMinRatio) { o.forceRatioPoor = true; o.state = 'withdrawing'; o.actions.push({ day, action: 'withdraw', detail: `force ratio ${ratio.toFixed(2)} < ${c.raidMinRatio}` }); continue; }
     if (ratio < c.raidEngageRatio) { o.state = 'shadowing'; o.actions.push({ day, action: 'shadow', detail: `force ratio ${ratio.toFixed(2)}: holding, not striking` }); continue; }
     o.state = 'engaged';
@@ -1572,9 +1611,9 @@ export const PREEMPTION = Object.freeze({
   patrol: Object.freeze(['investigate', 'rescue']),
   return: Object.freeze(['investigate', 'rescue', 'protect']),
   investigation: Object.freeze(['rescue']),                // lives before evidence: the one emergency rule
-  area_patrol: Object.freeze(['investigate', 'protect', 'rescue']), // a patrol breaks off for a response in its own area
+  area_patrol: Object.freeze(['investigate', 'protect', 'rescue', 'enforce']), // a patrol breaks off for a response in its own area
   rescue: Object.freeze([]), escort: Object.freeze([]), delivery: Object.freeze([]), construction: Object.freeze([]),
-  defense: Object.freeze([]), raid: Object.freeze([]),
+  defense: Object.freeze([]), raid: Object.freeze([]), enforcement: Object.freeze([]),
 });
 function commitmentOf(db, hullId) {
   const a = activeAssignmentFor(db, hullId);
@@ -2082,8 +2121,8 @@ function checkLocated(book, world, db, obs, k, day, effects, exceptObjective = n
 function closeObjectives(doctrine, book, world, db, day, effects) {
   for (const o of db.objectives) {
     if (o.status !== 'active') continue;
-    const facts = objectiveFacts(book, world, db, o, day);
-    const st = D.objectiveStatus(doctrine, o.template, facts);
+    const managed = o.kind === 'enforcement' || o.kind === 'predation';
+    const st = managed ? (o.pendingClose || { status: 'open', reasons: [] }) : D.objectiveStatus(doctrine, o.template, objectiveFacts(book, world, db, o, day));
     if (st.status === 'open') continue;
     o.status = st.status; o.closedDay = day;
     bump(db, { completed: 'objectivesCompleted', aborted: 'objectivesAborted', expired: 'objectivesExpired' }[st.status] || 'objectivesClosedOther');
@@ -2096,8 +2135,9 @@ function closeObjectives(doctrine, book, world, db, day, effects) {
       const dh = hullOf(book, o.polity, o.assigned.hullId); if (dh) delete dh.defendingAt;
       const order = db.raidOrders.find((r) => r.objectiveId === o.id); if (order) order.status = st.status;
     }
-    o.resolution = { status: st.status, reasons: st.reasons, alsoSucceeded: st.alsoSucceeded || [], day, note: o.cancelRequested || null };
+    o.resolution = { status: st.status, reasons: st.reasons, alsoSucceeded: st.alsoSucceeded || [], day, note: st.note || o.cancelRequested || null };
     o.actions.push({ day, action: 'closed', detail: `${st.status}: ${st.reasons.join(', ')}` });
+    if (managed) closeManaged(book, world, db, o, st, day, effects);
     const a = db.assignments.find((x) => x.id === o.assignmentId);
     if (a && a.status === 'active') { for (const m of a.milestones) if (m.status === 'pending') m.status = 'superseded'; endAssignment(db, book, a, day, st.status === 'completed' ? 'completed' : 'ended', `objective ${st.status}`); }
     // Home under a separate return order: nothing more happens under the closed objective. A patrol goes
@@ -2325,6 +2365,637 @@ function searchHails(book, world, db, day, effects) {
 }
 
 // ---------- the day ----------
+
+// =====================================================================================================
+// PHASE 4 — enforcement, compliance, surrender and bounded predation (DOCTRINE-RUNTIME-PHASE4.md)
+// =====================================================================================================
+// A legitimate demand, actually delivered; the target's own answer; a proportionate, persistent ladder;
+// and a strict end when the demand is met. Doctrine executes; it never manufactures the authority.
+export const ESCALATION = Object.freeze(['observe', 'warn', 'repeat', 'intercept', 'engage']);
+const CIVIL_KINDS = Object.freeze(['delivery', 'transport', 'construction', 'exploration', 'rescue', 'investigation', 'return']);
+function enforcementLog(db) { return (db.enforcementLog ||= []); }
+function logEnforcement(db, entry) {
+  const log = enforcementLog(db);
+  log.push(entry);
+  if (log.length > (db.config.enforcementLogLimit || 60)) db.enforcementLog = log.slice(-(db.config.enforcementLogLimit || 60));
+}
+// The security policy in force at a world, as the engine publishes it: its authority, the access decision
+// for each class of visitor, whether inspection is part of it, and what it treats as contraband. Nothing
+// here is read off hostility: no published policy, no enforcement.
+function borderPolicyAt(world, systemIndex) {
+  const p = world.borderPolicy?.(Number(systemIndex), world); // the world in hand: a jump advances its own copy of control
+  if (!p || !p.authority || !p.access) return null;
+  if (world.systems[Number(systemIndex)]?.controller !== p.authority) return null; // jurisdiction follows the controller
+  return p;
+}
+// How the authority classes a vessel it can see: by what the vessel transmits and the formal relation,
+// never by its flag alone. A vessel without a transponder is unknown until it identifies.
+function accessClassOf(world, authority, targetPolity, identified) {
+  if (targetPolity === authority) return 'exempt';
+  if (!identified) return 'unknown';
+  if (atWar(world, authority, targetPolity)) return 'warFlag';
+  if (!world.isFaction?.(targetPolity)) return 'independent';
+  return 'other';
+}
+function demandFor(policy, cls, identified) {
+  const decision = policy.access[cls] || 'open';
+  if (decision === 'closed') return { decision, type: 'leave_area' };
+  if (decision === 'challenge') return { decision, type: identified && policy.inspection ? 'inspect' : 'halt_identify' };
+  return { decision, type: null };
+}
+function vesselTransmits(a) { return a?.transponder !== false; }
+function canReceive(h, a) { return Boolean(h) && h.status !== 'lost' && !hullIsDisabled(h) && a?.commsDown !== true; }
+// Which of the authority's vessels at this world can act on a breach: its area patrol there, else an
+// armed, ready vessel of its own garrison (a security picket — it stays in its own system).
+function enforcerAt(book, world, db, authority, systemIndex) {
+  const pats = Object.values(db.patrols || {}).filter((p) => p.polity === authority && p.status === 'patrolling');
+  for (const pat of pats) {
+    const h = liveHull(book, authority, pat.hullId);
+    const a = h && activeAssignmentFor(db, h.id);
+    if (h && a && a.kind === 'area_patrol' && Number(h.systemIndex) === Number(systemIndex) && !hullIsDisabled(h) && h.status === 'assigned') return { h, pat, role: 'patrol' };
+  }
+  const picket = (book.polities[authority]?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && Number(h.systemIndex) === Number(systemIndex) && classifyDamage(h.hull, h.maxHull) === 'operational' && (world.shipStats(h.shipId)?.combat ?? 1) >= 0.5)
+    .sort((x, y) => String(x.id).localeCompare(String(y.id)))[0];
+  return picket ? { h: picket, pat: null, role: 'patrol' } : null;
+}
+function enforcementBudget(db, polity) {
+  return db.objectives.filter((o) => o.status === 'active' && o.kind === 'enforcement' && o.polity === polity).length;
+}
+function visitKey(authority, systemIndex, vid) { return `${authority}|${systemIndex}|${vid}`; }
+
+// ----- detection: a foreign vessel in a policed world -----
+function detectBreaches(doctrine, book, world, db, day, effects) {
+  if (db.config.enforcementResponses === false || !world.borderPolicy) return;
+  db.visits ||= {};
+  const present = {};
+  for (const a of db.assignments) {
+    if (a.status !== 'active' || a.polity === 'player' || ['defense', 'raid', 'enforcement'].includes(a.kind)) continue;
+    const h = liveHull(book, a.polity, a.hullId);
+    if (!h) continue; // a disabled or surrendered vessel is still there: its visit continues (no new episode)
+    (present[Number(h.systemIndex)] ||= []).push({ a, h });
+  }
+  for (const [sysKey, visitors] of Object.entries(present)) {
+    const S = Number(sysKey);
+    const policy = borderPolicyAt(world, S);
+    if (!policy) continue;
+    const A = policy.authority;
+    for (const { a, h } of visitors.sort((x, y) => String(x.h.id).localeCompare(String(y.h.id)))) {
+      if (a.polity === A) continue;
+      const vid = vidOf(h);
+      const key = visitKey(A, S, vid);
+      const v = db.visits[key];
+      // One visit is one episode: continuous presence is the same visit, a later return a new one.
+      const episode = v && v.lastSeenDay >= day - 1 ? v.episode : (v?.episode || 0) + 1;
+      const visit = db.visits[key] = { ...(v && v.episode === episode ? v : { episode, since: day, objectiveId: null, outcome: null }), lastSeenDay: day, authority: A, systemIndex: S, vid, polity: a.polity };
+      if (visit.objectiveId || visit.outcome) { if (visit.objectiveId && db.objectives.some((o) => o.id === visit.objectiveId && o.status === 'active')) bump(db, 'enforcementRepeatPrevented'); continue; }
+      if (hullIsDisabled(h) || h.status === 'surrendered') continue; // nothing to demand of a hulk or a surrendered ship
+      const identified = vesselTransmits(a);
+      const cls = accessClassOf(world, A, a.polity, identified);
+      const dm = demandFor(policy, cls, identified);
+      if (!dm.type) { visit.outcome = 'lawful'; bump(db, 'lawfulTransits'); logEnforcement(db, { day, authority: A, systemIndex: S, vid, class: cls, decision: dm.decision, result: 'lawful transit: policy permits it' }); continue; }
+      const enf = enforcerAt(book, world, db, A, S);
+      const prof = D.resolveProfile(doctrine, dominionContext(book, A, db)).profileId;
+      const modes = prof ? (doctrine.data.profiles[prof]?.rolePolicies?.patrol?.engagementModes || []) : [];
+      if (!enf) { visit.outcome = 'unenforced'; bump(db, 'breachesUnenforced'); logEnforcement(db, { day, authority: A, systemIndex: S, vid, class: cls, decision: dm.decision, result: 'breach noted: no enforcing vessel present' }); continue; }
+      if (!modes.includes('enforcement')) { visit.outcome = 'no_doctrine'; logEnforcement(db, { day, authority: A, systemIndex: S, vid, result: `${prof || 'no profile'} patrols carry no enforcement doctrine` }); continue; }
+      if (!isLive(db, prof, 'patrol', 'enforce')) { visit.outcome = 'shadow'; bump(db, 'enforcementShadow'); logEnforcement(db, { day, authority: A, systemIndex: S, vid, class: cls, decision: dm.decision, result: `shadow: ${prof} enforcement is not live this round (would demand ${dm.type})` }); continue; }
+      if (enforcementBudget(db, A) >= db.config.maxEnforcementPerPolity) { bump(db, 'enforcementDeferred'); logEnforcement(db, { day, authority: A, systemIndex: S, vid, result: 'deferred: enforcement budget spent' }); continue; }
+      const o = startEnforcement(doctrine, book, world, db, { A, S, policy, cls, dm, enf, target: { a, h }, prof, identified }, day, effects);
+      visit.objectiveId = o?.id || null;
+    }
+  }
+  // Visits of vessels that have gone are forgotten after a while; the table stays bounded.
+  for (const [k, v] of Object.entries(db.visits)) if (day - v.lastSeenDay > 30) delete db.visits[k];
+}
+function authorityFor(book, world, A, S, targetPolity, policy, cls) {
+  // Formal war only where a formal war with the target's own side holds (re-checked every day); otherwise
+  // the published local policy. Hostility alone is neither.
+  if (cls === 'warFlag' && atWar(world, A, targetPolity)) return { source: 'formal_war', detail: `formal war ${A}–${targetPolity}; ${policy.label || `${A} security policy`}`, jurisdiction: `authority:${A}`, war: [A, targetPolity].sort().join(':') };
+  return { source: 'security_policy', detail: `${policy.label || `${A} security policy`}: ${cls} → ${policy.access[cls]}`, jurisdiction: `authority:${A}` };
+}
+function startEnforcement(doctrine, book, world, db, { A, S, policy, cls, dm, enf, target, prof, identified }, day, effects) {
+  const id = nid(book, db, 'obj');
+  const { h: eh, pat } = enf;
+  // The enforcer holds the world: a patrol breaks off its cycle (its prior assignment), a picket stands to.
+  const job = activeAssignmentFor(db, eh.id);
+  if (job) { for (const m of job.milestones) if (m.status === 'pending') m.status = 'superseded'; endAssignment(db, book, job, day, 'diverted', `diverted to enforce at ${locationIdFor(world, S)}`); }
+  const r = issueAssignment(book, world, { polity: A, hullId: eh.id, kind: 'enforcement', doctrineRole: 'patrol', objectiveId: id, stops: [], loadDays: db.config.enforceDeadlineDays + 2 }, day, effects);
+  if (!r.ok) return null;
+  if (!pat) eh.defendingAt = S; // a picket on its own world still stands in its defence
+  if (pat) { pat.status = 'responding'; pat.responding = id; pat.responses.push({ day, objectiveId: id, response: 'enforce' }); pat.responses = pat.responses.slice(-10); }
+  const o = { id, kind: 'enforcement', enforcement: true, incidentId: null, template: 'enforcement', clock: CLOCK, actor: `hull:${eh.id}`, polity: A, profileId: prof, role: 'patrol', response: 'enforce',
+    assigned: { hullId: eh.id, vid: vidOf(eh) }, enforcerKind: pat ? 'area patrol' : 'security picket', patrolId: pat?.id || null,
+    target: { hullId: target.h.id, vid: vidOf(target.h), polity: target.a.polity, assignmentId: target.a.id, systemIndex: S, locationId: locationIdFor(world, S), area: [locationIdFor(world, S)], class: cls, identity: identified ? 'known' : 'unknown', identitySource: identified ? 'transponder' : null, cargo: 'unknown' },
+    authority: authorityFor(book, world, A, S, target.a.polity, policy, cls),
+    demand: { type: dm.type, decision: dm.decision, issuedDay: day, graceDays: db.config.enforceResponseDays, revisions: 0 },
+    comms: { state: 'sent', sentDay: day, receivedDay: null, hails: 1, unreceivedDays: 0, log: [{ day, event: 'sent', demand: dm.type }] },
+    response: { state: 'awaiting', day: null, history: [] },
+    escalation: { stage: 1, name: 'warn', history: [{ day, stage: 0, name: 'observe', detail: `${cls} vessel detected (${identified ? 'identified by transponder' : 'no transponder'})` }, { day, stage: 1, name: 'warn', detail: demandText(dm.type) }], notice: { warn: false, repeat: false, interceptDays: 0 }, refusals: 0 },
+    surrender: null, compliance: null,
+    createdDay: day, deadline: at(day + db.config.enforceDeadlineDays), status: 'active', resolution: null, assignmentId: r.assignment.id, actions: [{ day, action: 'warn', detail: demandText(dm.type) }], workDays: 0 };
+  db.objectives.push(o); db.stats.objectives++; bump(db, 'enforcementObjectives');
+  logEnforcement(db, { day, authority: A, systemIndex: S, vid: o.target.vid, class: cls, decision: dm.decision, result: `objective ${shortId(id)}: ${dm.type}` });
+  effects.push({ type: 'doctrineEnforcement', id, polity: A, systemIndex: S, hullId: eh.id, vid: o.assigned.vid, targetVid: o.target.vid, targetPolity: o.target.polity, demand: dm.type, event: 'warning', day });
+  return o;
+}
+export function demandText(type) {
+  return { leave_area: 'Leave restricted space.', halt_identify: 'Heave to and identify.', inspect: 'Heave to for inspection.', payment: 'Transfer payment.', cargo: 'Surrender your cargo.' }[type] || type;
+}
+// ----- the target's answer: its own crew's decision, on what it has actually been told -----
+function targetDecision(book, world, db, o, a, h) {
+  if (Array.isArray(a.responsePlan) && a.responsePlan.length) return a.responsePlan.shift(); // authored (tests, debug)
+  const stage = o.escalation.stage;
+  const civil = CIVIL_KINDS.includes(a.kind) || a.doctrineRole === 'civilian';
+  const roll = seededUnit(book.seed, 'enforce-response', o.id, stage, o.response.history.length);
+  const bound = o.target.systemIndex === a.itinerary.at(-1)?.systemIndex ? 0.2 : 0; // its job ends here: harder to give up
+  if (o.demand.type !== 'leave_area') return roll < (civil ? 0.9 : 0.8) - bound ? 'comply' : 'refuse';
+  if (o.target.class === 'warFlag') {
+    if (stage >= 3) return roll < 0.35 ? 'surrender' : roll < 0.7 ? 'comply' : 'refuse';
+    return roll < 0.5 ? 'flee' : 'refuse';
+  }
+  if (stage <= 1) return roll < (civil ? 0.7 : 0.5) - bound ? 'comply' : 'refuse';
+  if (stage === 2) return roll < (civil ? 0.85 : 0.7) - bound ? 'comply' : 'refuse';
+  if (stage === 3) return roll < (civil ? 0.6 : 0.5) ? 'comply' : roll < (civil ? 0.9 : 0.7) ? 'surrender' : 'refuse';
+  return roll < 0.6 ? 'surrender' : 'refuse';
+}
+// Complying with "leave": the same assignment, the same vessel, a new way out that avoids the world.
+function leaveJurisdiction(world, db, a, h, S, day, why) {
+  const here = Number(h.systemIndex);
+  const avoid = new Set([Number(S)]); avoid.delete(here);
+  // The vessel keeps the rest of its business — every later stop that is not the world it is ordered out
+  // of, with its own milestone — reached by routes that avoid that world.
+  const keep = a.itinerary.slice(a.pos + 1).filter((x) => Number(x.systemIndex) !== Number(S) && (x.milestone || x === a.itinerary[a.itinerary.length - 1]));
+  let legs = null;
+  if (keep.length) {
+    legs = [{ systemIndex: here, dwell: 0, milestone: null }];
+    for (const stop of keep) {
+      const from = legs[legs.length - 1].systemIndex;
+      if (Number(from) === Number(stop.systemIndex)) { legs[legs.length - 1] = { ...stop }; continue; }
+      const p = routeAvoiding(world, from, Number(stop.systemIndex), a.polity, avoid);
+      if (!p) { legs = null; break; }
+      for (let i = 1; i < p.length; i++) legs.push(i === p.length - 1 ? { systemIndex: p[i], dwell: stop.dwell || 0, milestone: stop.milestone || 'check_in' } : { systemIndex: p[i], dwell: 0, milestone: null });
+    }
+    if (legs && legs.length < 2) legs = null;
+  }
+  if (!legs) {
+    let goal = a.itinerary[a.pos - 1]?.systemIndex ?? null;
+    if (goal == null || Number(goal) === Number(S)) goal = world.neighbours(here).map(Number).find((n) => n !== Number(S)) ?? null;
+    let path = goal != null ? routeAvoiding(world, here, goal, a.polity, avoid) : null;
+    if (!path) { const out = world.neighbours(here).map(Number).filter((n) => n !== Number(S)).sort((x, y) => x - y)[0]; path = out != null ? [here, out] : null; }
+    if (!path) return false;
+    legs = path.map((sys, i) => ({ systemIndex: sys, dwell: 0, milestone: i === path.length - 1 ? 'check_in' : null }));
+  }
+  for (const m of a.milestones) if (m.status === 'pending' || m.status === 'missed') m.status = 'superseded';
+  a.itinerary = legs; a.pos = 0; a.dwellLeft = 0; a.nextDay = day + 1;
+  let t = day;
+  legs.forEach((stop, i) => { if (i > 0) t += 1 + (legs[i - 1].dwell || 0); if (stop.milestone) a.milestones.push({ id: `${a.id}:m${a.milestones.length + 1}`, kind: stop.milestone, stopIndex: i, systemIndex: stop.systemIndex, locationId: locationIdFor(world, stop.systemIndex), dueDay: t, grace: db.config.checkInGraceDays, status: 'pending', metDay: null, rerouted: day }); });
+  a.leaveOrder = { systemIndex: Number(S), day, why };
+  delete a.hold;
+  return true;
+}
+function enforcementFacts(book, world, db, o, a, h) {
+  const n = o.escalation.notice;
+  const f = {
+    contact_detected: true, can_transmit: true, jurisdiction_valid: true, enforcement_order_active: true, objective_target_known: true,
+    engagement_objective_active: true,
+    identity_known: o.target.identity === 'known',
+    zone_warning_required: o.comms.state === 'sent',
+    notice_complete: Boolean(n.warn && n.repeat && n.interceptDays >= 1),
+    serious_zone_breach_attributed: o.demand.type === 'leave_area' && o.escalation.refusals >= 1 && Boolean(n.warn),
+    inspection_order_active: o.demand.type === 'inspect',
+  };
+  if (o.authority.source === 'formal_war') { f.war_target_verified = true; f.war_order_active = true; }
+  return f;
+}
+function engageDecision(doctrine, o, f) {
+  const it = D.intent(doctrine, { profileId: o.profileId, role: 'patrol', facts: f });
+  const policy = doctrine.data.profiles[o.profileId]?.rolePolicies?.patrol;
+  const modes = (policy?.engagementModes || []).filter((m) => D.evaluate(doctrine.data.engagementModes[m], f));
+  const unmet = modes.length ? [] : [...new Set((policy?.engagementModes || []).flatMap((m) => D.unmetFacts(doctrine.data.engagementModes[m], f)))];
+  return { allowed: it.action === 'attack', action: it.action, modes, unmet };
+}
+function escalate(doctrine, book, world, db, o, a, h, day, effects, why) {
+  const st = o.escalation;
+  const next = Math.min(4, st.stage + 1);
+  if (next === 4 && !(st.notice.warn && st.notice.repeat)) {
+    // No force on a single demand heard: the demand is repeated first, whatever the authority.
+    o.comms = { ...o.comms, state: 'sent', sentDay: day, hails: o.comms.hails + 1 }; o.comms.log.push({ day, event: 'sent', demand: `${o.demand.type} (repeated before any force)` });
+    o.actions.push({ day, action: 'warn', detail: `repeated before any force: ${demandText(o.demand.type)}` });
+    return;
+  }
+  if (next === 4) {
+    const dec = engageDecision(doctrine, o, enforcementFacts(book, world, db, o, a, h));
+    o.lastEngageCheck = { day, ...dec };
+    if (!dec.allowed) { o.actions.push({ day, action: 'hold', detail: `engagement not authorised (${dec.unmet.slice(0, 4).join(', ') || dec.action}); intercept continues` }); return; }
+  }
+  st.stage = next; st.name = ESCALATION[next];
+  st.history.push({ day, stage: next, name: st.name, detail: why });
+  if (next === 2) { o.comms = { ...o.comms, state: 'sent', sentDay: day, hails: o.comms.hails + 1 }; o.comms.log.push({ day, event: 'sent', demand: `${o.demand.type} (repeated; escort out offered)` }); o.actions.push({ day, action: 'warn', detail: `repeated: ${demandText(o.demand.type)} Escort out offered.` }); }
+  if (next === 3) { a.hold = { objectiveId: o.id, day }; o.comms = { ...o.comms, state: 'sent', sentDay: day, hails: o.comms.hails + 1 }; o.comms.log.push({ day, event: 'sent', demand: `${o.demand.type} (intercepted)` }); o.actions.push({ day, action: 'intercept', detail: 'intercepted and held; the demand stands' }); }
+  if (next === 4) { o.actions.push({ day, action: 'engage', detail: `authorised: ${(o.lastEngageCheck.modes || []).join(', ')}` }); }
+  bump(db, `enforcementStage${next}`);
+  effects.push({ type: 'doctrineEnforcement', id: o.id, polity: o.polity, systemIndex: o.target.systemIndex, hullId: o.assigned.hullId, vid: o.assigned.vid, targetVid: o.target.vid, targetPolity: o.target.polity, demand: o.demand.type, event: st.name, day });
+}
+// An authorised strike to disable (offscreen, the campaign's attrition): it never aims to destroy.
+function enforcementStrike(book, world, db, o, eh, th, day, effects) {
+  if (th.status === 'surrendered' || hullIsDisabled(th)) return; // never on a vessel that has struck or cannot manoeuvre
+  const mine = hullStrength(book, world, eh), theirs = hullStrength(book, world, th);
+  const ratio = mine / Math.max(1, mine + theirs);
+  const roll = seededUnit(book.seed, 'enforce-strike', o.id, day);
+  const dmg = th.maxHull * (0.25 + 0.5 * ratio) * (0.7 + 0.6 * roll);
+  th.hull = Math.max(1, Math.round(th.hull - dmg));
+  const back = eh.maxHull * 0.1 * (1 - ratio) * roll;
+  eh.hull = Math.max(1, Math.round(eh.hull - back));
+  o.actions.push({ day, action: 'engage', detail: `strike to disable: target hull ${th.hull}/${th.maxHull}` });
+  effects.push({ type: 'doctrineEnforcementStrike', id: o.id, polity: o.polity, systemIndex: o.target.systemIndex, targetVid: o.target.vid, day, targetHull: th.hull, modes: o.lastEngageCheck?.modes || [], authority: o.authority.source });
+  bump(db, 'enforcementStrikes');
+}
+function closeLater(o, status, reasons, note = null) { if (!o.pendingClose) o.pendingClose = { status, reasons, note }; }
+function advanceEnforcement(doctrine, book, world, db, day, effects) {
+  if (db.config.enforcementResponses === false) {
+    for (const o of db.objectives) if (o.status === 'active' && o.kind === 'enforcement' && !o.pendingClose) closeLater(o, 'aborted', ['objective_cancelled'], 'enforcement switched off');
+    return;
+  }
+  for (const o of db.objectives) {
+    if (o.status !== 'active' || o.kind !== 'enforcement' || o.pendingClose) continue;
+    const S = o.target.systemIndex;
+    const eh = liveHull(book, o.polity, o.assigned.hullId);
+    const th = hullOf(book, o.target.polity, o.target.hullId);
+    const a = db.assignments.find((x) => x.id === o.target.assignmentId);
+    // 1. Authority, every day, before anything else.
+    const policy = borderPolicyAt(world, S);
+    if (o.authority.source === 'formal_war' && !atWar(world, o.polity, o.target.polity)) {
+      const cls = accessClassOf(world, o.polity, o.target.polity, o.target.identity === 'known');
+      const dm = policy ? demandFor(policy, cls, o.target.identity === 'known') : { type: null };
+      if (dm.type) {
+        // The war-only part ends at once; the local policy still stands on its own.
+        o.authority = { source: 'security_policy', detail: `${policy.label || `${o.polity} security policy`}: ${cls} → ${policy.access[cls]} (formal war ended)`, jurisdiction: `authority:${o.polity}`, previous: 'formal_war', changedDay: day };
+        o.target.class = cls;
+        // Everything the war authorised ends now. The local authority starts its own ladder: its own warning,
+        // its own notice — nothing carried over from the war.
+        o.escalation.stage = 1; o.escalation.name = 'warn'; o.escalation.refusals = 0;
+        o.escalation.notice = { warn: false, repeat: false, interceptDays: 0 };
+        o.escalation.history.push({ day, stage: 1, name: 'warn', detail: 'formal war ended: engagement withdrawn; the local security demand restarts with its own warning' });
+        if (a?.hold?.objectiveId === o.id) delete a.hold;
+        o.demand = { ...o.demand, type: dm.type, decision: dm.decision, issuedDay: day, revisions: (o.demand.revisions || 0) + 1 };
+        o.comms = { ...o.comms, state: 'sent', sentDay: day, hails: o.comms.hails + 1 }; o.comms.log.push({ day, event: 'sent', demand: `${dm.type} (local security policy)` });
+        o.deadline = at(day + db.config.enforceDeadlineDays);
+        o.actions.push({ day, action: 'authority', detail: 'formal war ended; continuing under local security policy only' });
+        bump(db, 'enforcementWarAuthorityDropped');
+      } else { o.cancelRequested = 'war authority ended'; closeLater(o, 'aborted', ['objective_cancelled'], 'authority removed: formal war ended and local policy permits the vessel'); bump(db, 'enforcementCancelledByAuthority'); continue; }
+    }
+    if (!policy || policy.authority !== o.polity) { closeLater(o, 'aborted', ['objective_cancelled'], 'authority removed: no policy or jurisdiction here now'); bump(db, 'enforcementCancelledByAuthority'); continue; }
+    if (o.authority.source === 'security_policy') {
+      const cls = accessClassOf(world, o.polity, o.target.polity, o.target.identity === 'known');
+      if ((policy.access[cls] || 'open') === 'open') { closeLater(o, 'aborted', ['objective_cancelled'], `policy now permits ${cls} vessels`); bump(db, 'enforcementCancelledByAuthority'); continue; }
+    }
+    // 2. The target and the enforcer, as they are.
+    if (!eh || hullIsDisabled(eh)) { closeLater(o, 'aborted', ['objective_cancelled'], 'the enforcer can no longer act'); continue; }
+    if (!th || th.status === 'lost') { closeLater(o, 'aborted', ['target_lost'], 'target lost'); bump(db, 'enforcementTargetLost'); continue; }
+    if (th.status === 'surrendered' && th.surrendered?.objectiveId !== o.id) { closeLater(o, 'aborted', ['target_unable_to_comply'], 'the target has surrendered to another party'); continue; }
+    if (th.surrendered?.objectiveId === o.id) { o.surrender = { ...th.surrendered, state: 'accepted' }; closeLater(o, 'completed', ['surrender_accepted'], `${o.target.vid} surrendered`); bump(db, 'surrendersAccepted'); continue; }
+    if (Number(th.systemIndex) !== Number(S)) {
+      const complied = o.compliance === 'complying';
+      closeLater(o, 'completed', complied ? ['compliance_verified', 'target_left_jurisdiction'] : ['target_left_jurisdiction'], complied ? 'complied: left restricted space' : 'left the jurisdiction');
+      bump(db, complied ? 'enforcementComplied' : 'enforcementLeftUncomplied');
+      continue;
+    }
+    if (hullIsDisabled(th)) { o.response.history.push({ day, response: 'unable_to_comply' }); closeLater(o, 'aborted', ['target_unable_to_comply'], 'target disabled: cannot manoeuvre'); bump(db, 'enforcementTargetDisabled'); continue; }
+    if (day > o.deadline.value) { closeLater(o, 'expired', ['objective_deadline_reached'], `no resolution by day ${o.deadline.value}`); bump(db, 'enforcementExpired'); continue; }
+    // 3. Communication: a demand counts only once it is received.
+    if (o.comms.state === 'sent') {
+      if (canReceive(th, a)) {
+        o.comms.state = 'received'; o.comms.receivedDay = day; o.comms.log.push({ day, event: 'received' });
+        // The first demand heard is the warning, whatever stage the ladder had reached unheard; a later one heard is the repeat.
+        if (!o.escalation.notice.warn) o.escalation.notice.warn = true;
+        else if (o.escalation.stage >= 2) o.escalation.notice.repeat = true;
+        if (a) { a.demands ||= {}; a.demands[o.id] = { type: o.demand.type, from: o.polity, receivedDay: day }; }
+      } else {
+        o.comms.unreceivedDays++; o.comms.log.push({ day, event: 'not received', why: th && hullIsDisabled(th) ? 'disabled' : 'no comms' });
+        // Unheard is not a refusal. The hail repeats; after two unheard days the enforcer closes to make
+        // contact (intercept) — which authorises nothing further on its own.
+        if (o.comms.unreceivedDays >= 2 && o.escalation.stage < 3) {
+          // One stage at a time, and never a refusal: first the demand on every channel, then closing to
+          // make contact — alongside, not a detention (no hold until the demand has been heard).
+          o.comms.unreceivedDays = 0; o.comms.hails++;
+          const next = o.escalation.stage + 1;
+          o.escalation.stage = next; o.escalation.name = ESCALATION[next];
+          o.escalation.history.push({ day, stage: next, name: ESCALATION[next], detail: next === 2 ? 'hail repeated on every channel: the demand was never received' : 'closing to make contact: the demand was never received (no detention)' });
+          o.actions.push({ day, action: next === 2 ? 'warn' : 'intercept', detail: next === 2 ? 'not received: repeated on every channel' : 'no answer, no reception: closing to make contact' });
+        } else { o.comms.hails++; o.actions.push({ day, action: 'warn', detail: `hail repeated (${o.comms.hails}); not received` }); }
+        continue;
+      }
+    }
+    if (o.escalation.stage >= 3) o.escalation.notice.interceptDays++;
+    // 4. An authorised engagement continues daily while the target neither complies nor surrenders.
+    if (o.escalation.stage === 4) {
+      const dec = engageDecision(doctrine, o, enforcementFacts(book, world, db, o, a, th));
+      if (!dec.allowed) { o.escalation.stage = 3; o.escalation.name = 'intercept'; o.escalation.history.push({ day, stage: 3, name: 'intercept', detail: `engagement no longer authorised (${dec.unmet.slice(0, 3).join(', ')})` }); }
+    }
+    // 5. The answer, after its response time.
+    if (o.comms.state === 'received' && day - o.comms.receivedDay < db.config.enforceResponseDays) continue;
+    if (o.compliance === 'complying') continue; // on its way out; the check above closes it when it is gone
+    if (!a || a.status !== 'active') { closeLater(o, 'aborted', ['target_lost'], 'the target is no longer on its assignment'); continue; }
+    const resp = targetDecision(book, world, db, o, a, th);
+    o.response.state = resp; o.response.day = day; o.response.history.push({ day, response: resp, stage: o.escalation.stage, demand: o.demand.type });
+    o.comms.log.push({ day, event: resp === 'comply' ? 'complied' : resp === 'refuse' ? 'refused' : resp });
+    if (resp === 'comply') {
+      bump(db, 'enforcementComplyResponses');
+      if (o.demand.type === 'leave_area') {
+        if (leaveJurisdiction(world, db, a, th, S, day, `ordered out by ${o.polity}`)) { o.compliance = 'complying'; o.comms.state = 'complied'; o.actions.push({ day, action: 'compliance', detail: `${o.target.vid} leaving${o.escalation.stage >= 2 ? ' (escorted to the boundary)' : ''}` }); }
+        continue;
+      }
+      if (o.demand.type === 'halt_identify') {
+        o.target.identity = 'known'; o.target.identitySource = 'identified';
+        const cls = accessClassOf(world, o.polity, o.target.polity, true);
+        const dm = demandFor(policy, cls, true);
+        o.target.class = cls;
+        if (dm.type === 'leave_area') { reviseDemand(o, dm, day, `identified as ${cls}: barred`); continue; }
+        if (dm.type === 'inspect') { reviseDemand(o, dm, day, 'identified: inspection follows'); continue; }
+        o.comms.state = 'complied'; closeLater(o, 'completed', ['compliance_verified'], `identified (${cls}); cleared`); bump(db, 'enforcementComplied'); continue;
+      }
+      if (o.demand.type === 'inspect') {
+        // Only what the inspection sees: the declared hold. A concealed compartment is not found by asking.
+        const manifest = (a.cargo?.manifest || []);
+        const observed = manifest.filter((m) => !m.concealed).map((m) => ({ cargoId: m.cargoId, quantity: m.quantity ?? null }));
+        o.inspection = { day, observed, concealedFound: false };
+        o.target.cargo = 'inspected';
+        db.inspections ||= []; db.inspections.push({ day, by: o.polity, vid: o.target.vid, observed }); db.inspections = db.inspections.slice(-30);
+        const banned = observed.filter((m) => (policy.contraband || []).includes(m.cargoId));
+        if (banned.length) { reviseDemand(o, { type: 'leave_area', decision: 'closed' }, day, `contraband found: ${banned.map((m) => m.cargoId).join(', ')}`); o.escalation.refusals = Math.max(o.escalation.refusals, 1); continue; }
+        o.comms.state = 'complied'; closeLater(o, 'completed', ['compliance_verified'], 'inspected; nothing barred'); bump(db, 'enforcementComplied'); continue;
+      }
+    }
+    if (resp === 'surrender') { surrenderVessel(book, world, { polity: o.target.polity, hullId: th.id, to: o.polity, day, reason: `surrendered to ${o.polity} enforcement`, objectiveId: o.id, acceptedBy: o.actor }, effects); continue; }
+    if (resp === 'flee') {
+      bump(db, 'enforcementFlee');
+      if (o.escalation.stage < 3 && leaveJurisdiction(world, db, a, th, S, day, 'fled')) { o.compliance = 'fleeing'; o.actions.push({ day, action: 'observe', detail: `${o.target.vid} is running for the boundary; no pursuit beyond it` }); continue; }
+      o.escalation.refusals++; escalate(doctrine, book, world, db, o, a, th, day, effects, 'tried to run while intercepted'); continue;
+    }
+    // refuse / ignore: one step up the ladder, never straight to force.
+    o.escalation.refusals++; bump(db, 'enforcementRefusals');
+    if (o.escalation.stage === 4) { enforcementStrike(book, world, db, o, eh, th, day, effects); continue; }
+    escalate(doctrine, book, world, db, o, a, th, day, effects, `${resp === 'refuse' ? 'refused' : resp}: ${demandText(o.demand.type)}`);
+    if (o.escalation.stage === 4) enforcementStrike(book, world, db, o, eh, th, day, effects);
+  }
+}
+function reviseDemand(o, dm, day, why) {
+  o.demand = { ...o.demand, type: dm.type, decision: dm.decision, issuedDay: day, revisions: (o.demand.revisions || 0) + 1 };
+  o.comms = { ...o.comms, state: 'sent', sentDay: day, hails: o.comms.hails + 1 };
+  o.comms.log.push({ day, event: 'sent', demand: `${dm.type} (${why})` });
+  o.actions.push({ day, action: 'warn', detail: `${why}: ${demandText(dm.type)}` });
+}
+// What happens when a managed objective closes (after closeObjectives has ended its assignment).
+function closeManaged(book, world, db, o, st, day, effects) {
+  if (o.kind === 'enforcement') {
+    const eh = hullOf(book, o.polity, o.assigned.hullId); if (eh && Number(eh.defendingAt) === Number(o.target.systemIndex) && !o.patrolId) delete eh.defendingAt;
+    const a = db.assignments.find((x) => x.id === o.target.assignmentId);
+    if (a?.hold?.objectiveId === o.id) delete a.hold;
+    if (a?.leaveOrder && Number(a.leaveOrder.systemIndex) === Number(o.target.systemIndex) && Number(hullOf(book, o.target.polity, o.target.hullId)?.systemIndex) !== Number(o.target.systemIndex)) delete a.leaveOrder; // out: the order is spent
+    const v = db.visits?.[visitKey(o.polity, o.target.systemIndex, o.target.vid)];
+    if (v && v.objectiveId === o.id) v.outcome = st.reasons.join('+');
+    o.escalation.history.push({ day, stage: o.escalation.stage, name: 'closed', detail: `${st.status}: ${st.reasons.join(', ')}` });
+    effects.push({ type: 'doctrineEnforcement', id: o.id, polity: o.polity, systemIndex: o.target.systemIndex, hullId: o.assigned.hullId, vid: o.assigned.vid, targetVid: o.target.vid, targetPolity: o.target.polity, demand: o.demand.type, event: 'closed', reasons: st.reasons, day });
+  }
+  if (o.kind === 'predation') {
+    const g = db.pirates?.[o.pirateId];
+    if (g) { g.objectiveId = null; if (g.status !== 'lost' && g.status !== 'recovering') g.status = 'lurking'; g.history.push({ day, objectiveId: o.id, target: o.target.vid, outcome: st.reasons.join('+') }); g.history = g.history.slice(-10); g.cooldowns[o.target.vid] = day + db.config.pirateTargetCooldownDays; }
+    effects.push({ type: 'doctrinePredation', id: o.id, pirate: o.pirateId, systemIndex: o.target.systemIndex, targetVid: o.target.vid, targetPolity: o.target.polity, event: 'closed', reasons: st.reasons, day });
+  }
+}
+
+// ----- surrender: an explicit state, never read off a low hull -----
+// The surrendered vessel stands down and holds where it is, inactive, keeping its identity; it is picked
+// for nothing and fires at nothing. It is released after `surrenderHoldDays` (no prisoner economy yet):
+// its own job resumes (leaving restricted space if that was the demand) or it goes home.
+export function surrenderVessel(book, world, { polity, hullId, to, day, reason, objectiveId = null, acceptedBy = null, holdDays = null }, effects = []) {
+  const db = doctrineBook(book);
+  const h = liveHull(book, polity, hullId);
+  if (!h) return { ok: false, reason: 'no such vessel' };
+  if (h.status === 'surrendered') return { ok: true, unchanged: true, hull: h };
+  h.surrendered = { to: to || null, acceptedBy: acceptedBy || (to ? `command:${to}` : null), day, systemIndex: Number(h.systemIndex), reason: reason || 'surrendered', objectiveId, holdUntil: day + (holdDays ?? db.config.surrenderHoldDays), priorStatus: h.status };
+  h.status = 'surrendered';
+  delete h.defendingAt;
+  bump(db, 'surrenders');
+  (db.surrenderLog ||= []).push({ day, polity, hullId, vid: vidOf(h), to: to || null, reason: h.surrendered.reason, objectiveId }); db.surrenderLog = db.surrenderLog.slice(-30);
+  effects.push({ type: 'vesselSurrendered', polityId: polity, hullId, vid: vidOf(h), to: to || null, systemIndex: Number(h.systemIndex), day, reason: h.surrendered.reason, objectiveId });
+  return { ok: true, hull: h };
+}
+function advanceSurrenders(book, world, db, day, effects) {
+  for (const [pid, p] of Object.entries(book.polities || {})) {
+    if (pid === 'player') continue;
+    for (const h of p.hulls || []) {
+      if (h.status !== 'surrendered' || !h.surrendered || day < h.surrendered.holdUntil) continue;
+      const s = h.surrendered;
+      delete h.surrendered;
+      const job = activeAssignmentFor(db, h.id);
+      h.status = hullIsDisabled(h) ? 'repairing' : job && h.opId === job.id ? 'assigned' : 'ready';
+      if (h.status === 'ready' && h.opId) h.opId = null;
+      // Released under the terms it surrendered on: out of restricted space, or home.
+      if (job && s.objectiveId) {
+        const eo = db.objectives.find((x) => x.id === s.objectiveId);
+        if (eo?.kind === 'enforcement' && !job.leaveOrder) leaveJurisdiction(world, db, job, h, s.systemIndex, day, 'released after surrender');
+      }
+      if (h.status === 'ready' && world.systems[Number(h.systemIndex)]?.controller !== pid) {
+        const home = nearestHeld(world, pid, h.systemIndex);
+        if (home != null) issueAssignment(book, world, { polity: pid, hullId: h.id, kind: 'return', doctrineRole: 'patrol', stops: [{ systemIndex: home, dwell: 0, milestone: null }] }, day, effects);
+      }
+      bump(db, 'surrendersReleased');
+      effects.push({ type: 'surrenderReleased', polityId: pid, hullId: h.id, vid: vidOf(h), systemIndex: Number(h.systemIndex), day, after: day - s.day });
+    }
+  }
+}
+
+// ----- bounded predation: pirate groups at their havens -----
+// A pirate group is the standing pirate presence of a pirate-held world, authored once with its own vid;
+// it is never replenished. It preys only in its haven and the unclaimed systems next to it, chooses only
+// from what it can see (a hull's class, not its hold), demands, waits for the answer, takes what it is
+// given and goes, strikes only after refusal, flight or an unanswered deadline, and does not return to
+// the same ship for a long while.
+function pirateHaunts(world, db) {
+  const cfg = db.config.pirateHaunts;
+  if (cfg === 'auto') return world.systems.filter((s) => s.controller === 'pirate').map((s) => s.index);
+  return Array.isArray(cfg) ? cfg.map(Number) : [];
+}
+function pirateArea(world, haunt) {
+  return [Number(haunt), ...world.neighbours(Number(haunt)).map(Number)].filter((n) => !world.systems[n]?.controller || world.systems[n]?.controller === 'pirate');
+}
+function formPirates(book, world, db, day) {
+  db.pirates ||= {};
+  for (const haunt of pirateHaunts(world, db)) {
+    const id = `pirate:${locationIdFor(world, haunt)}`;
+    if (db.pirates[id]) continue;
+    db.pirates[id] = { id, vid: `${book.seed}:${id}`, name: `${sysName(world, haunt)} raiders`, haunt: Number(haunt), systemIndex: Number(haunt), strength: db.config.pirateStrength, hull: db.config.pirateMaxHull, maxHull: db.config.pirateMaxHull,
+      status: 'lurking', objectiveId: null, lastDemandDay: -1e9, cooldowns: {}, loot: 0, demands: 0, history: [], formedDay: day };
+  }
+}
+// What a pirate can see of a vessel: its class and its route, never its hold.
+function observedValue(world, h) {
+  const cap = Number(world.shipStats(h.shipId)?.cargo) || 0;
+  return { cargoClass: cap >= 500 ? 'bulk' : cap >= 100 ? 'freighter' : cap > 0 ? 'light' : 'none', demand: cap >= 500 ? 240 : cap >= 100 ? 120 : cap > 0 ? 60 : 0 };
+}
+function advancePredation(doctrine, book, world, db, day, effects) {
+  if (db.config.predation === false) {
+    for (const o of db.objectives) if (o.status === 'active' && o.kind === 'predation' && !o.pendingClose) closeLater(o, 'aborted', ['objective_cancelled'], 'predation switched off');
+    return;
+  }
+  formPirates(book, world, db, day);
+  for (const g of Object.values(db.pirates || {})) {
+    for (const [v, until] of Object.entries(g.cooldowns)) if (until < day) delete g.cooldowns[v];
+    if (g.status === 'lost') continue;
+    if (g.status === 'recovering') {
+      // Home at the haven, patching up: no demands until the group can fight again.
+      if (g.systemIndex !== g.haunt) g.systemIndex = g.haunt;
+      g.hull = Math.min(g.maxHull, g.hull + g.maxHull * db.config.pirateRecoverPerDay);
+      if (g.hull >= g.maxHull * 0.8) g.status = 'lurking';
+      continue;
+    }
+    if (g.objectiveId) {
+      if (db.objectives.some((x) => x.id === g.objectiveId && x.status === 'active')) continue;
+      g.objectiveId = null; if (g.status === 'demanding') g.status = 'lurking'; // its objective ended elsewhere
+    }
+    // A haven taken by a real power scatters its crew: no more demands from there.
+    const hc = world.systems[g.haunt]?.controller;
+    if (hc && hc !== 'pirate') { if (g.status !== 'dispersed') { g.status = 'dispersed'; g.history.push({ day, outcome: `dispersed: haven taken by ${hc}` }); } continue; }
+    if (g.status === 'dispersed') g.status = 'lurking';
+    if (day - g.lastDemandDay < db.config.pirateDemandEveryDays) continue;
+    const area = new Set(pirateArea(world, g.haunt));
+    const prof = D.resolveProfile(doctrine, { runtimeFaction: 'pirate' }).profileId;
+    const cands = [];
+    for (const a of db.assignments) {
+      if (a.status !== 'active' || a.polity === 'player' || !(CIVIL_KINDS.includes(a.kind) || a.doctrineRole === 'civilian')) continue;
+      const h = liveHull(book, a.polity, a.hullId);
+      if (!h || hullIsDisabled(h) || h.status === 'surrendered' || !area.has(Number(h.systemIndex))) continue;
+      const vid = vidOf(h);
+      if (g.cooldowns[vid]) { bump(db, 'predationRepeatPrevented'); continue; }
+      if (joinedEscortsOf(book, db, a).length) continue; // under escort: not worth it
+      const seen = observedValue(world, h);
+      if (!seen.demand) continue;
+      cands.push({ a, h, vid, seen });
+    }
+    if (!cands.length) continue;
+    cands.sort((x, y) => y.seen.demand - x.seen.demand || String(x.vid).localeCompare(String(y.vid)));
+    const pick = cands[0];
+    const f = { event_known: true, credible_report: true, event_actionable: true, can_respond: true, credible_cargo_intel: true, valuable_target_known: true };
+    const react = prof ? D.react(doctrine, { profileId: prof, role: 'raider', eventType: 'prey_sighting', facts: f }) : { result: 'inactive' };
+    if (react.result !== 'exploit_cargo') { logEnforcement(db, { day, pirate: g.id, vid: pick.vid, result: `pirate doctrine: ${react.result}` }); continue; }
+    if (!isLive(db, prof, 'raider', 'exploit_cargo')) { bump(db, 'predationShadow'); logEnforcement(db, { day, pirate: g.id, vid: pick.vid, result: 'shadow: predation not live' }); continue; }
+    startPredation(book, world, db, g, pick, day, effects);
+  }
+  for (const o of db.objectives) if (o.status === 'active' && o.kind === 'predation' && !o.pendingClose) workPredation(doctrine, book, world, db, o, day, effects);
+}
+function startPredation(book, world, db, g, pick, day, effects) {
+  const id = nid(book, db, 'obj');
+  const carrying = (pick.a.cargo?.manifest || []).length > 0 && ['delivery', 'construction'].includes(pick.a.kind);
+  const o = { id, kind: 'predation', incidentId: null, template: 'negotiation', clock: CLOCK, actor: g.id, polity: 'pirate', profileId: 'pirate', role: 'raider', response: 'exploit_cargo', pirateId: g.id,
+    assigned: { hullId: null, vid: g.vid }, target: { hullId: pick.h.id, vid: pick.vid, polity: pick.a.polity, assignmentId: pick.a.id, systemIndex: Number(pick.h.systemIndex), locationId: locationIdFor(world, pick.h.systemIndex), observed: pick.seen.cargoClass },
+    authority: { source: 'predation_role', detail: 'pirate raider: bounded extortion (unlawful; authorises nothing for anyone else)', jurisdiction: null },
+    demand: { type: 'payment', amount: pick.seen.demand, alternative: carrying ? 'cargo' : null, issuedDay: day, basis: `observed ${pick.seen.cargoClass} hull (hold unseen)` },
+    comms: { state: 'sent', sentDay: day, receivedDay: null, hails: 1, log: [{ day, event: 'sent', demand: `payment ${pick.seen.demand}${carrying ? ' or cargo' : ''}` }] },
+    response: { state: 'awaiting', day: null, history: [] }, attack: { phase: false, days: 0 },
+    createdDay: day, deadline: at(day + db.config.predationDeadlineDays + db.config.predationAttackDays + 1), status: 'active', resolution: null, assignmentId: null, actions: [{ day, action: 'demand_cargo', detail: `Transfer ${pick.seen.demand} or ${carrying ? 'surrender cargo' : 'pay'}` }] };
+  g.objectiveId = id; g.status = 'demanding'; g.lastDemandDay = day; g.demands++; g.systemIndex = Number(pick.h.systemIndex);
+  db.objectives.push(o); db.stats.objectives++; bump(db, 'pirateDemands');
+  effects.push({ type: 'doctrinePredation', id, pirate: g.id, systemIndex: o.target.systemIndex, targetVid: o.target.vid, targetPolity: o.target.polity, event: 'demand', amount: o.demand.amount, day });
+}
+function predationDecision(book, world, db, o, a, h, g) {
+  if (Array.isArray(a.predationPlan) && a.predationPlan.length) return a.predationPlan.shift();
+  const mine = hullStrength(book, world, h);
+  const ratio = mine / Math.max(1, g.strength * (g.hull / g.maxHull));
+  const roll = seededUnit(book.seed, 'predation-response', o.id, o.response.history.length);
+  if (ratio >= 1) return roll < 0.7 ? 'refuse' : 'run';
+  if (ratio >= 0.5) return roll < 0.4 ? 'pay' : roll < 0.75 ? 'run' : 'refuse';
+  return roll < 0.7 ? 'pay' : 'run';
+}
+function workPredation(doctrine, book, world, db, o, day, effects) {
+  const g = db.pirates?.[o.pirateId];
+  const h = hullOf(book, o.target.polity, o.target.hullId);
+  const a = db.assignments.find((x) => x.id === o.target.assignmentId);
+  if (!g || g.status === 'lost') { closeLater(o, 'aborted', ['attacker_disengaged'], 'the pirates are gone'); return; }
+  if (!h || h.status === 'lost') { closeLater(o, 'completed', ['target_destroyed'], 'target destroyed'); bump(db, 'predationTargetDestroyed'); return; }
+  const area = new Set(pirateArea(world, g.haunt));
+  if (!area.has(Number(h.systemIndex))) { closeLater(o, 'completed', ['target_escaped'], `${o.target.vid} left the pirates' waters`); bump(db, 'predationEscaped'); g.status = 'lurking'; return; }
+  if (day > o.deadline.value) { closeLater(o, 'expired', ['objective_deadline_reached'], 'demand lapsed'); return; }
+  // The pirates stay with the ship inside their own waters, never beyond.
+  g.systemIndex = Number(h.systemIndex); o.target.systemIndex = g.systemIndex; o.target.locationId = locationIdFor(world, g.systemIndex);
+  if (o.comms.state === 'sent') {
+    if (canReceive(h, a)) { o.comms.state = 'received'; o.comms.receivedDay = day; o.comms.log.push({ day, event: 'received' }); if (a) { a.demands ||= {}; a.demands[o.id] = { type: 'payment', from: g.id, amount: o.demand.amount, receivedDay: day }; } }
+    else { o.comms.log.push({ day, event: 'not received' }); }
+  }
+  if (!o.attack.phase) {
+    if (o.comms.state === 'received' && o.response.day == null) {
+      const resp = hullIsDisabled(h) ? 'pay' : predationDecision(book, world, db, o, a, h, g);
+      o.response.state = resp; o.response.day = day; o.response.history.push({ day, response: resp });
+      o.comms.log.push({ day, event: resp === 'pay' ? 'complied' : resp === 'refuse' ? 'refused' : resp });
+      if (resp === 'pay' || resp === 'surrender_cargo') { payPirates(book, world, db, o, a, h, g, resp, day, effects); return; }
+      if (resp === 'refuse' || resp === 'run') { o.attack.phase = true; o.attack.cause = resp === 'run' ? 'flight' : 'refusal'; bump(db, resp === 'run' ? 'predationRuns' : 'predationRefusals'); o.actions.push({ day, action: 'attack_phase', detail: resp === 'run' ? 'target ran' : 'target refused' }); }
+    } else if (day - o.demand.issuedDay >= db.config.predationDeadlineDays) {
+      o.attack.phase = true; o.attack.cause = o.comms.state === 'received' ? 'no answer' : 'timed out, never answered'; bump(db, 'predationTimeouts');
+      o.comms.log.push({ day, event: 'timed out' });
+      o.actions.push({ day, action: 'attack_phase', detail: o.attack.cause });
+    }
+    if (!o.attack.phase) return;
+  }
+  // The attack phase: bounded strikes, the package's predation engagement mode only.
+  const f = { identity_known: true, credible_cargo_intel: true, valuable_target_known: true, predation_order_active: true, predation_attack_phase: true, engagement_objective_active: true };
+  const it = D.intent(doctrine, { profileId: 'pirate', role: 'raider', facts: f });
+  if (it.action !== 'attack') { closeLater(o, 'aborted', ['attacker_disengaged'], `no authorised attack (${it.action})`); return; }
+  if (Number(h.systemIndex) !== Number(g.systemIndex) || hullIsDisabled(h)) {
+    if (hullIsDisabled(h)) { takeFromHulk(book, world, db, o, a, h, g, day, effects); return; }
+    return;
+  }
+  // A civilian crew facing the guns may give up its cargo (an explicit surrender, accepted by the pirates).
+  if (o.attack.days >= 1 && a && seededUnit(book.seed, 'predation-surrender', o.id, day) < 0.4 && (CIVIL_KINDS.includes(a.kind) || a.doctrineRole === 'civilian')) {
+    surrenderVessel(book, world, { polity: o.target.polity, hullId: h.id, to: null, day, reason: `surrendered its cargo to ${g.name}`, objectiveId: o.id, acceptedBy: g.id, holdDays: 1 }, effects);
+    payPirates(book, world, db, o, a, h, g, 'surrender_cargo', day, effects); return;
+  }
+  predationStrike(book, world, db, o, h, g, day, effects);
+  o.attack.days++;
+  if (hullIsDisabled(h)) { takeFromHulk(book, world, db, o, a, h, g, day, effects); return; }
+  if (g.status === 'recovering') { closeLater(o, 'aborted', ['attacker_disengaged'], 'the pirates broke off: too costly'); return; }
+  if (o.attack.days >= db.config.predationAttackDays) { closeLater(o, 'aborted', ['attacker_disengaged'], 'bounded attack over'); g.status = 'lurking'; }
+}
+function payPirates(book, world, db, o, a, h, g, how, day, effects) {
+  let paid = 0;
+  if (how === 'surrender_cargo' || (o.demand.alternative === 'cargo' && how !== 'pay')) {
+    const manifest = a?.cargo?.manifest || [];
+    o.cargoTaken = manifest.map((m) => ({ ...m }));
+    if (a) { a.cargo = { ...a.cargo, manifest: [] }; a.cargoLost = { day, to: g.id }; }
+    const value = manifest.reduce((n, m) => n + (Number(m.value) || 0), 0);
+    g.loot += manifest.length ? (value || o.demand.amount) : 0; // an empty hold yields nothing
+  } else {
+    const p = book.polities[o.target.polity];
+    paid = Math.max(0, Math.min(o.demand.amount, Math.floor(Number(p?.treasury) || 0)));
+    if (p) p.treasury -= paid;
+    g.loot += paid; o.paid = paid;
+  }
+  o.comms.state = 'complied';
+  closeLater(o, 'completed', ['cargo_received'], how === 'pay' ? `paid ${paid}` : 'cargo handed over');
+  bump(db, 'predationPaid');
+  g.status = 'lurking';
+  o.actions.push({ day, action: 'withdraw', detail: 'demand met: the pirates disengage' });
+}
+function takeFromHulk(book, world, db, o, a, h, g, day, effects) {
+  payPirates(book, world, db, o, a, h, g, 'surrender_cargo', day, effects);
+  o.pendingClose.reasons = ['cargo_received', 'target_disabled'];
+}
+function predationStrike(book, world, db, o, h, g, day, effects) {
+  if (h.status === 'surrendered') return;
+  const ta = db.assignments.find((x) => x.id === o.target.assignmentId);
+  const escorts = ta ? joinedEscortsOf(book, db, ta).map((x) => x.h) : [];
+  const defend = [h, ...escorts].reduce((n, x) => n + hullStrength(book, world, x), 0);
+  const attack = g.strength * (g.hull / g.maxHull);
+  const ratio = attack / Math.max(1, attack + defend);
+  const roll = seededUnit(book.seed, 'predation-strike', o.id, day);
+  h.hull = Math.max(0, Math.round(h.hull - h.maxHull * ratio * 0.6 * (0.7 + 0.6 * roll)));
+  g.hull = Math.max(0, Math.round(g.hull - g.maxHull * (1 - ratio) * 0.4 * (0.7 + 0.6 * (1 - roll))));
+  if (h.hull <= 0) { h.hull = 0; h.status = 'lost'; h.opId = null; const p = book.polities[o.target.polity]; if (p) p.lostHulls = (p.lostHulls || 0) + 1; book.stats.hullsLost++; }
+  if (g.hull <= 0) { g.status = 'lost'; bump(db, 'pirateGroupsLost'); } else if (g.hull < g.maxHull * 0.4) g.status = 'recovering';
+  o.actions.push({ day, action: 'attack', detail: `strike: target ${Math.round(h.hull)}/${h.maxHull}, pirates ${Math.round(g.hull)}/${g.maxHull}` });
+  bump(db, 'predationStrikes');
+  effects.push({ type: 'doctrinePredation', id: o.id, pirate: g.id, systemIndex: o.target.systemIndex, targetVid: o.target.vid, targetPolity: o.target.polity, event: 'attack', day });
+}
+
 export function advanceDoctrineDay(book, world, day, effects, doctrine) {
   if (!doctrine) { if (book.doctrine) releaseDoctrineHulls(book, day, 'doctrine runtime unavailable', effects); return; }
   const db = doctrineBook(book);
@@ -2347,6 +3018,11 @@ export function advanceDoctrineDay(book, world, day, effects, doctrine) {
   detectAttacks(book, world, db, day, effects);
   for (const o of db.objectives) if (o.status === 'active') workObjective(book, world, db, o, day, effects);
   advanceRaids(book, world, db, day, effects);
+  // Phase 4: surrendered vessels released on their terms; breaches detected; demands worked; predation.
+  advanceSurrenders(book, world, db, day, effects);
+  detectBreaches(doctrine, book, world, db, day, effects);
+  advanceEnforcement(doctrine, book, world, db, day, effects);
+  advancePredation(doctrine, book, world, db, day, effects);
   closeObjectives(doctrine, book, world, db, day, effects);
   evaluateAll(doctrine, book, world, db, day, effects);
   searchHails(book, world, db, day, effects);
@@ -2371,6 +3047,13 @@ export function releaseDoctrineHulls(book, day, reason = 'doctrine switched off'
   const db = book.doctrine;
   if (!db || !Array.isArray(db.assignments)) return 0;
   let n = 0;
+  // Phase 4 records first: enforcers stand down, pirate crews go back to lurking, surrendered vessels are
+  // let go (nothing is left holding them).
+  for (const o of db.objectives || []) if (o.status === 'active' && (o.kind === 'enforcement' || o.kind === 'predation')) {
+    if (o.kind === 'enforcement') { const eh = hullOf(book, o.polity, o.assigned.hullId); if (eh && Number(eh.defendingAt) === Number(o.target.systemIndex)) delete eh.defendingAt; }
+    else { const g = db.pirates?.[o.pirateId]; if (g) { g.objectiveId = null; if (g.status === 'demanding') g.status = 'lurking'; } }
+  }
+  for (const p of Object.values(book.polities || {})) for (const h of p.hulls || []) if (h.status === 'surrendered') { delete h.surrendered; h.status = hullIsDisabled(h) ? 'repairing' : 'ready'; if (h.status === 'ready') h.opId = null; }
   for (const o of db.objectives || []) if (o.status === 'active') { o.status = 'aborted'; o.closedDay = day; bump(db, 'objectivesAborted'); o.resolution = { status: 'aborted', reasons: ['objective_cancelled'], day, note: reason }; if (o.response === 'protect') o.escortState = 'closed'; }
   for (const c of Object.values(db.contracts || {})) if (c.status === 'active') { c.status = 'cancelled'; c.closedDay = day; c.closeReason = reason; }
   for (const pat of Object.values(db.patrols || {})) endPatrol(db, pat, day, reason);
@@ -2458,6 +3141,23 @@ export function debugSummary(book, observerFilter = null, doctrine = null, world
     contracts: Object.values(db.contracts).map((c) => ({ ...c })),
     assignments: db.assignments.filter((a) => a.status === 'active').map((a) => ({ id: a.id, kind: a.kind, polity: a.polity, hullId: a.hullId, vid: a.vid, at: a.itinerary[a.pos]?.systemIndex, milestones: a.milestones.map((m) => `${m.kind}@${m.locationId} due ${m.dueDay}+${m.grace} ${m.status}`) })),
     shadowTail: db.shadow.slice(-40),
+    // Phase 4: each enforcement objective as its chain — known target → jurisdiction → demand → response →
+    // escalation → termination — and the predation, surrender and visit records behind it.
+    enforcement: db.objectives.filter((o) => o.kind === 'enforcement').slice(-30).map((o) => ({ id: o.id, polity: o.polity, enforcer: `${o.assigned.hullId} (${o.assigned.vid})`, enforcerKind: o.enforcerKind,
+      target: `${o.target.polity} ${o.target.hullId} (${o.target.vid}) · ${o.target.class} · identity ${o.target.identity === 'known' ? (o.target.identitySource || 'known') : 'unknown'}`,
+      jurisdiction: `${o.target.locationId} · ${o.authority.source}${o.authority.previous ? ` (was ${o.authority.previous})` : ''}${o.authority.war ? ` · war ${o.authority.war}` : ''}`,
+      demand: `${o.demand.type}${o.demand.revisions ? ` (revised ×${o.demand.revisions})` : ''}`, authorityDetail: o.authority.detail, comms: `${o.comms.state}${o.comms.receivedDay != null ? ` d${o.comms.receivedDay}` : ''} · hails ${o.comms.hails}`,
+      response: o.response.state, compliance: o.compliance || null, escalation: `${o.escalation.stage} ${o.escalation.name}${o.escalation.refusals ? ` · refusals ${o.escalation.refusals}` : ''}`,
+      notice: o.escalation.notice, inspection: o.inspection || null, surrender: o.surrender || null, deadline: o.deadline.value, status: o.status, termination: o.resolution ? `${o.resolution.status}: ${(o.resolution.reasons || []).join(', ')}${o.resolution.note ? ` — ${o.resolution.note}` : ''}` : null,
+      engageCheck: o.lastEngageCheck || null })),
+    predation: db.objectives.filter((o) => o.kind === 'predation').slice(-20).map((o) => ({ id: o.id, pirate: o.pirateId, target: `${o.target.polity} ${o.target.hullId} (${o.target.vid})`, at: o.target.locationId,
+      demand: `${o.demand.type} ${o.demand.amount}${o.demand.alternative ? ` or ${o.demand.alternative}` : ''} · ${o.demand.basis}`, comms: o.comms.state, response: o.response?.state || null, phase: o.attack?.phase || null, paid: o.paid || 0,
+      status: o.status, termination: o.resolution ? `${o.resolution.status}: ${(o.resolution.reasons || []).join(', ')}${o.resolution.note ? ` — ${o.resolution.note}` : ''}` : null })),
+    pirates: Object.values(db.pirates || {}).map((g) => ({ id: g.id, vid: g.vid, name: g.name, haunt: g.haunt, at: g.systemIndex, status: g.status, hull: Math.round(g.hull), maxHull: g.maxHull, demands: g.demands, loot: g.loot, cooldowns: { ...g.cooldowns }, history: (g.history || []).slice(-6) })),
+    surrenders: (db.surrenderLog || []).slice(-20),
+    surrendered: Object.entries(book.polities || {}).flatMap(([pid, pol]) => (pol.hulls || []).filter((h) => h.status === 'surrendered').map((h) => ({ polity: pid, hullId: h.id, vid: vidOf(h), systemIndex: h.systemIndex, ...h.surrendered }))),
+    visits: Object.keys(db.visits || {}).length,
+    enforcementLog: (db.enforcementLog || []).slice(-30),
     stats: db.stats,
   };
 }

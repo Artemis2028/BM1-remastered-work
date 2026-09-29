@@ -55,7 +55,7 @@ const { startProbe } = require('./probe-harness.cjs');
     window.__D = () => t.DoctrineCampaign.doctrineBook(t.campaign());
     window.__P = (id) => t.campaign().polities[id];
     window.__ready = (polity, at = null) => (window.__P(polity)?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && (at == null || h.systemIndex === at)).sort((a, b) => String(a.id).localeCompare(String(b.id)));
-    window.__quiet = () => { const db = window.__D(); db.config = { ...db.config, patrols: {}, explorers: {}, merchants: {}, projects: {}, patrolAreas: {} }; t.campaign().config.aiStrategicOps = false; };
+    window.__quiet = () => { const db = window.__D(); db.config = { ...db.config, patrols: {}, explorers: {}, merchants: {}, projects: {}, patrolAreas: {}, enforcementResponses: false, predation: false }; t.campaign().config.aiStrategicOps = false; };
     window.__authored = (fn) => t.runCampaignAuthored(fn);
     window.__assign = (spec) => window.__authored((book, world, fx) => t.DoctrineCampaign.issueAssignment(book, world, spec, t.state.day, fx));
     window.__lose = (asgId, mode = 'destroyed', opts = {}) => t.DoctrineCampaign.loseAssignmentHullUnwitnessed(t.campaign(), t.buildCampaignWorld(true), asgId, t.state.day, mode, opts);

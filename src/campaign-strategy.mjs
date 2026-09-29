@@ -879,7 +879,8 @@ export function hullIsDisabled(h) {
 // the ordinary crew recovery gives it `minOperatingCrew` (PHASE3 §1a).
 export function hullAwaitingCrew(h) { return Boolean(h?.recrew) && h.status !== 'lost'; }
 // Cannot sail or fight as a ship: disabled, or repaired but not yet crewed.
-export function hullUnavailable(h) { return hullIsDisabled(h) || hullAwaitingCrew(h); }
+// …or surrendered: stood down and held, inactive, until released (PHASE4 §6).
+export function hullUnavailable(h) { return hullIsDisabled(h) || hullAwaitingCrew(h) || h?.status === 'surrendered'; }
 // What a hull released from a job becomes: available if it can sail, stranded if it cannot.
 function releaseStatus(h) { return hullUnavailable(h) ? 'repairing' : 'ready'; }
 // The moment a stranded hull's structure is repaired. With its own crew still aboard it is simply back.
@@ -983,6 +984,7 @@ function advanceRepairs(book, world, day, effects = []) {
     const yards = Object.keys(budget).map(Number).filter((i) => budget[i] > 0);
     p.repairedToday = {};
     for (const h of p.hulls) {
+      if (h.status === 'surrendered') continue; // held where it surrendered; nobody repairs it there
       if (h.status === 'lost' || h.hull >= h.maxHull) { if (h.status === 'repairing' && !h.recrew && !h.stranded) h.status = 'ready'; continue; }
       // A disabled hull is repaired only once it has been recovered into a yard; it never sails anywhere.
       if (hullIsDisabled(h) && h.stranded?.recovery !== 'in_yard') continue;

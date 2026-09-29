@@ -7008,6 +7008,415 @@ function getSecurityDockingBlock(ownerSide) {
   return `${zone.label}: approach the marked perimeter and complete clearance before station services or ordinary hails.`;
 }
 
+// ---- Phase 4 (docs/doctrine/DOCTRINE-RUNTIME-PHASE4.md): the captain as the target of a demand, and
+// surrender in a loaded scene. The checkpoint above stays exactly what it was — a refusal there is a
+// record, not a target. What follows is the doctrine that may come after it: a final warning, an
+// interception, and only with real authority an engagement; and a pirate's demand, which is answered
+// before anyone fires. Every timer runs on the system's local clock, so a save carries it exactly.
+const LOCAL_ENFORCE_DELAY_MS = 8000;       // a refusal stands this long before the final warning
+const LOCAL_FINAL_WARNING_MS = 30000;
+const LOCAL_INTERCEPT_MS = 20000;
+const LOCAL_ENGAGE_MS = 45000;
+const PREDATION_DEMAND_RANGE_FACTOR = 2.4; // × NPC weapon range: close enough to hail with menace
+const PREDATION_RESPONSE_MS = 25000;
+const PREDATION_ATTACK_MS = 30000;
+const PREDATION_ESCAPE_FACTOR = 3.4;       // × NPC weapon range: beyond this, the captain got away
+const PREDATION_COOLDOWN_MS = 300000;      // the same crew does not come back to you for this long
+const PLAYER_SURRENDER_HOLD_MS = 10000;
+const LOCAL_COMPLY_WINDOW_MS = 45000;      // a captain who says "complying" has this long to be out
+const NPC_SURRENDER_HOLD_MS = 20000;       // a struck crew holds this long, then is let go (it leaves)
+const DOCTRINE_INSPECTION_POLICIES = Object.freeze({
+  klingon: Object.freeze({ inspection: true, contraband: Object.freeze(['weapons']) }),
+  cardassian: Object.freeze({ inspection: true, contraband: Object.freeze(['weapons']) }),
+});
+function localDoctrine() {
+  if (!state.localDoctrine || typeof state.localDoctrine !== 'object') state.localDoctrine = { version: 1, clockMs: 0, nextId: 1, enforcement: null, predation: null, surrender: null, cooldowns: {}, history: [] };
+  const ld = state.localDoctrine;
+  if (!ld.cooldowns || typeof ld.cooldowns !== 'object') ld.cooldowns = {};
+  if (!Array.isArray(ld.history)) ld.history = [];
+  if (!Number.isFinite(ld.clockMs)) ld.clockMs = 0;
+  return ld;
+}
+function sanitizeLocalDoctrine(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  try { const copy = JSON.parse(JSON.stringify(raw)); copy.history = Array.isArray(copy.history) ? copy.history.slice(-20) : []; return copy; } catch { return null; }
+}
+function localDoctrineRecord(kind, entry) {
+  const ld = localDoctrine();
+  ld.history.push({ kind, atMs: Math.round(ld.clockMs), day: state.day, ...entry });
+  while (ld.history.length > 20) ld.history.shift();
+}
+// The security policy the campaign's doctrine reads for a world: the published faction border default
+// (or an authored checkpoint, or the captain's delegated terms) of whoever controls it. The captain's own
+// holdings are the captain's business, not doctrine's.
+function campaignBorderPolicy(index, modelController) {
+  // Inside the campaign model the holder is the model's own (a jump settles many days before the engine
+  // hears of any capture), so a stepped and a jumped calendar read the same policy on the same day.
+  const controller = modelController !== undefined ? modelController : campaignPolityIdFor(getSystemControl(index).polityId);
+  if (!controller || controller === 'player' || controller === 'pirate') return null;
+  const authored = SECURITY_AUTHORED_CHECKPOINTS.find((e) => getSystemIndexByName(e.systemName) === Number(index) && e.authority === controller);
+  const base = authored?.access || FACTION_BORDER_POLICIES[controller];
+  if (!base) return null;
+  const delegated = getDelegatedPolicy(index)?.access;
+  return { authority: controller, label: authored?.label || `${formatFaction(controller)} border security`, access: { ...DEFAULT_SECURITY_POLICY.access, ...base, ...(delegated || {}) }, ...(DOCTRINE_INSPECTION_POLICIES[controller] || {}) };
+}
+function doctrineLiveFor(profile, role, response) {
+  const db = campaignBook().doctrine;
+  // The same switches the campaign reads: enforcement and predation can be turned off as a whole.
+  if (response === 'enforce' && db?.config?.enforcementResponses === false) return false;
+  if (response === 'exploit_cargo' && db?.config?.predation === false) return false;
+  const live = db?.config?.live || DoctrineCampaign.DOCTRINE_PILOT.live;
+  return Boolean(doctrineRuntime) && live.some((x) => x.profile === profile && x.role === role && x.response === response);
+}
+
+// -- surrender in a loaded scene: explicit, never read off a low hull --
+function surrenderNpc(npc, { to = null, reason = 'surrendered', acceptedBy = null } = {}) {
+  if (!npc || npc.destroyed || npc.surrendered) return false;
+  npc.surrendered = { to, reason, acceptedBy: acceptedBy || to, atMs: Math.round(localDoctrine().clockMs), releaseAtMs: localDoctrine().clockMs + NPC_SURRENDER_HOLD_MS, day: state.day };
+  npc.hostile = false;
+  npc.playerAggroUntil = 0;
+  npc.combatManeuver = null;
+  npc.securityObjective = null;
+  npc.destination = { x: npc.x, y: npc.y };
+  npc.systemWarpIntensity = 0;
+  if (npc.localEnforcement) npc.localEnforcement = null;
+  localDoctrineRecord('surrender', { vessel: getShipDisplayName(npc), side: getNpcSideId(npc), to, reason });
+  setLog(`${getShipDisplayName(npc)} has surrendered${to ? ` to ${formatFaction(to === PLAYER_SIDE ? getPlayerFlag() : to)}` : ''}.`);
+  return true;
+}
+// A losing pirate crew, cornered, may strike its colours — a decision, taken once per encounter.
+function considerNpcSurrender(npc, now = gameNow()) {
+  if (npc.surrendered || npc.surrenderConsidered || npc.destroyed || normalizeFactionKey(npc.faction) !== 'pirate') return;
+  const stats = ensureNpcCombatStats(npc);
+  const hull = finiteNumber(npc.hull, finiteNumber(stats?.hull, 1));
+  const max = Math.max(1, finiteNumber(npc.maxHull, finiteNumber(stats?.maxHull, hull)));
+  if (hull / max > 0.2) return;
+  npc.surrenderConsidered = true;
+  const pressed = getLivingNpcShips().filter((x) => x !== npc && !x.surrendered && isNpcSystemDefender(x) && isNpcSystemAttacker(npc, x, now)).length + (now - (state.lastPlayerShotAt || 0) < 5000 ? 1 : 0);
+  if (pressed >= 1 && seeded(finiteNumber(npc.seed, 1) * 31 + 7) < 0.5) surrenderNpc(npc, { to: getDefendingSideId(state.currentPlanet) || PLAYER_SIDE, reason: 'struck its colours' });
+}
+
+// -- the captain as the target of local enforcement --
+function playerAccessDecisionAt(zone) {
+  const e = ensureActorSensors(state);
+  const decision = getVisitorAccessDecision(zone, { ...getSecurityContact('player'), broadcast: e.transponder ? { source: 'declared', faction: e.declaration || getPlayerFlag() } : { source: 'none' } });
+  return decision;
+}
+function localEnforcementFacts(e) {
+  const zone = getSecurityZone(state.currentPlanet);
+  const broadcast = sensorCheckpointBroadcast(state);
+  const f = {
+    contact_detected: true, can_transmit: true, objective_target_known: true, engagement_objective_active: true,
+    identity_known: Boolean(broadcast && broadcast.source !== 'none'),
+    jurisdiction_valid: Boolean(zone && zone.authority === e.authority && zone.epoch === e.epoch),
+    enforcement_order_active: true,
+    serious_zone_breach_attributed: e.decision === 'closed' && e.refusals >= 1 && e.notice.warn,
+    notice_complete: Boolean(e.notice.warn && e.notice.repeat && e.notice.intercept),
+  };
+  if (isRecognizedFactionKey(e.authority) && playerRelation(e.authority).status === 'war') { f.war_target_verified = true; f.war_order_active = true; }
+  return f;
+}
+function localEnforcementProfile(authority) {
+  return doctrineRuntime ? Doctrine.resolveProfile(doctrineRuntime, { runtimeFaction: campaignFactionKeyFor(authority) }).profileId : null;
+}
+function localInterceptor(authority) {
+  return getLivingNpcShips().filter((n) => !n.surrendered && n.condition !== 'disabled' && getNpcSideId(n) === authority && !isPlayerSideNpc(n) && ['patrol', 'defender', 'systemDefense', 'fleetAttack'].includes(n.role))
+    .sort((a, b) => distanceToPlayer(a) - distanceToPlayer(b))[0] || null;
+}
+function closeLocalEnforcement(e, reason, note = '') {
+  if (!e || e.closed) return;
+  e.closed = { reason, note, atMs: Math.round(localDoctrine().clockMs) };
+  const npc = e.interceptorId ? state.npcShips.find((n) => n.id === e.interceptorId) : null;
+  if (npc?.localEnforcement?.eid === e.id) {
+    // Released: the ship goes back to its own business, not on after the captain.
+    npc.localEnforcement = null;
+    const next = pickTrafficDestination(state.trafficDestinations, finiteNumber(npc.seed, 1) + finiteNumber(npc.leg, 0) * 17 + 47, npc.destinationName);
+    if (next) { npc.destination = { ...next.point }; npc.destinationName = next.name; }
+  }
+  localDoctrineRecord('enforcement', { id: e.id, authority: e.authority, stage: e.stage, reason, note });
+  localDoctrine().enforcement = null;
+  localDoctrine().lastEnforcement = e;
+}
+function updateLocalEnforcement(deltaMs) {
+  const ld = localDoctrine();
+  const zone = getSecurityZone(state.currentPlanet);
+  const ledger = getSecurityLedger(state.currentPlanet);
+  const visitor = ledger?.visitors?.player || null;
+  let e = ld.enforcement;
+  if (e) {
+    if (Number(e.systemIndex) !== Number(state.currentPlanet)) { closeLocalEnforcement(e, 'target_left_jurisdiction', 'left the system'); return; }
+    if (!zone || zone.authority !== e.authority || zone.epoch !== e.epoch) { closeLocalEnforcement(e, 'authority_removed', 'no authority here now'); return; }
+    const distance = distanceToSecurityCentre(zone, playerWorldPosition());
+    if (distance > zone.exitDistance) { closeLocalEnforcement(e, e.compliance ? 'compliance_verified' : 'target_left_jurisdiction', 'left restricted space'); setLog(`${e.label}: departure noted.`); return; }
+    if (fleetBook().personalCondition === 'disabled') { closeLocalEnforcement(e, 'target_unable_to_comply', 'vessel disabled'); return; }
+    if (ld.surrender && ld.surrender.eid === e.id) return;
+    if (e.pendingUntilMs != null && ld.clockMs < e.pendingUntilMs) return;
+    if (e.stage === 1) {
+      // The final warning (stage 2): a demand of its own, which counts once it is on the captain's screen.
+      e.stage = 2; e.pendingUntilMs = null; e.deadlineMs = ld.clockMs + LOCAL_FINAL_WARNING_MS; e.comms = 'sent';
+      e.history.push({ atMs: Math.round(ld.clockMs), stage: 2, name: 'repeat', detail: 'final warning' });
+      setLog(`Incoming: ${e.label}: Final warning. Leave restricted space.`);
+      playGameSound('hail', { cooldownKey: 'security:order' });
+      return;
+    }
+    if (e.compliance) {
+      // Leaving: the perimeter check above closes it. Still inside when the window runs out, the word
+      // "complying" lapses and the ladder resumes where it was.
+      if (ld.clockMs < e.complyUntilMs) return;
+      e.compliance = null; e.complyUntilMs = null;
+      e.history.push({ atMs: Math.round(ld.clockMs), stage: e.stage, name: 'lapsed', detail: 'said complying; still inside' });
+      setLog(`${e.label}: you have not left. Leave restricted space.`);
+      const npc = e.interceptorId ? state.npcShips.find((n) => n.id === e.interceptorId && !n.destroyed) : null;
+      if (e.stage === 4 && npc) npc.localEnforcement = { eid: e.id, mode: 'engage' };
+      if (e.stage < 4) e.deadlineMs = Math.min(e.deadlineMs ?? ld.clockMs, ld.clockMs);
+      e.lapsed = true;
+    }
+    if (e.stage === 4) {
+      // Engagement is re-checked on every pass: the authority, the interceptor and its standing.
+      const npc = e.interceptorId ? state.npcShips.find((n) => n.id === e.interceptorId && !n.destroyed) : null;
+      const profile = localEnforcementProfile(e.authority);
+      const intent = profile ? Doctrine.intent(doctrineRuntime, { profileId: profile, role: 'patrol', facts: localEnforcementFacts(e) }) : { action: 'none' };
+      if (!npc || npc.surrendered || npc.condition === 'disabled' || getNpcSideId(npc) !== e.authority || intent.action !== 'attack' || !doctrineLiveFor(profile, 'patrol', 'enforce')) {
+        if (npc?.localEnforcement?.eid === e.id) npc.localEnforcement = { eid: e.id, mode: 'intercept' };
+        closeLocalEnforcement(e, 'authority_removed', `engagement no longer authorised (${!npc ? 'no interceptor' : intent.action})`);
+        return;
+      }
+    }
+    if (ld.clockMs < e.deadlineMs) return;
+    if (e.stage === 2 && e.comms !== 'received') {
+      // The final warning never reached the captain's screen: it is sent again, and counts as nothing.
+      e.resends = (e.resends || 0) + 1;
+      if (e.resends > 3) { closeLocalEnforcement(e, 'objective_deadline_reached', 'final warning never received'); return; }
+      e.deadlineMs = ld.clockMs + LOCAL_FINAL_WARNING_MS; e.comms = 'sent';
+      e.history.push({ atMs: Math.round(ld.clockMs), stage: 2, name: 'repeat', detail: 'final warning resent: not received' });
+      return;
+    }
+    if (e.stage === 2) {
+      if (!e.refusedAtStage2) e.refusals += 1; // an explicit refusal was already counted
+      e.stage = 3; e.deadlineMs = ld.clockMs + LOCAL_INTERCEPT_MS; e.comms = 'sent';
+      const npc = localInterceptor(e.authority);
+      if (npc) { e.interceptorId = npc.id; npc.localEnforcement = { eid: e.id, mode: 'intercept' }; }
+      e.history.push({ atMs: Math.round(ld.clockMs), stage: 3, name: 'intercept', detail: npc ? `${getShipDisplayName(npc)} intercepting` : 'no vessel to intercept' });
+      setLog(`Incoming: ${e.label}: Heave to. Leave restricted space.`);
+      return;
+    }
+    if (e.stage === 3) {
+      e.notice.intercept = true;
+      const facts = localEnforcementFacts(e);
+      const profile = localEnforcementProfile(e.authority);
+      const intent = profile ? Doctrine.intent(doctrineRuntime, { profileId: profile, role: 'patrol', facts }) : { action: 'none' };
+      e.engageCheck = { action: intent.action, facts: Object.keys(facts).filter((k) => facts[k]) };
+      const npc = e.interceptorId ? state.npcShips.find((n) => n.id === e.interceptorId && !n.destroyed) : null;
+      if (intent.action === 'attack' && npc && doctrineLiveFor(profile, 'patrol', 'enforce')) {
+        e.stage = 4; e.deadlineMs = ld.clockMs + LOCAL_ENGAGE_MS;
+        npc.localEnforcement = { eid: e.id, mode: 'engage' };
+        e.history.push({ atMs: Math.round(ld.clockMs), stage: 4, name: 'engage', detail: 'authorised: enforcement after notice' });
+        setLog(`${e.label}: Weapons free on your vessel.`);
+        return;
+      }
+      closeLocalEnforcement(e, 'objective_deadline_reached', `engagement not authorised (${intent.action})`);
+      return;
+    }
+    if (e.stage === 4) closeLocalEnforcement(e, 'objective_deadline_reached', 'engagement window over');
+    return;
+  }
+  // A refused or lapsed withdrawal in a foreign closed zone, the captain still inside: the doctrine of the
+  // authority takes it from here, if that doctrine is live.
+  if (!zone || !zone.foreign || !visitor?.inside || !visitor.noncompliant || getPlayerSecurityOrder(state.currentPlanet)) return;
+  if (playerAccessDecisionAt(zone).decision !== 'closed') return;
+  const profile = localEnforcementProfile(zone.authority);
+  if (!profile || !doctrineLiveFor(profile, 'patrol', 'enforce')) return;
+  if (ld.lastEnforcement && ld.lastEnforcement.zoneId === zone.id && ld.lastEnforcement.epoch === zone.epoch && ld.lastEnforcement.episode === visitor.episode) return; // one per visit
+  e = ld.enforcement = { id: `le${ld.nextId++}`, zoneId: zone.id, epoch: zone.epoch, episode: visitor.episode, systemIndex: Number(state.currentPlanet), authority: zone.authority, label: zone.label,
+    decision: 'closed', stage: 1, refusals: 1, notice: { warn: true, repeat: false, intercept: false }, comms: 'received', compliance: null, pendingUntilMs: ld.clockMs + LOCAL_ENFORCE_DELAY_MS, deadlineMs: null, interceptorId: null,
+    history: [{ atMs: Math.round(ld.clockMs), stage: 1, name: 'warn', detail: 'checkpoint order refused or lapsed' }], closed: null };
+}
+function respondToLocalEnforcement(action) {
+  const ld = localDoctrine();
+  const e = ld.enforcement;
+  if (!e || e.stage < 2) return false;
+  if (action === 'comply') { e.compliance = 'complying'; e.complyUntilMs = ld.clockMs + LOCAL_COMPLY_WINDOW_MS; e.history.push({ atMs: Math.round(ld.clockMs), stage: e.stage, name: 'comply', detail: 'leaving' }); setLog(`${e.label}: compliance noted. Leave beyond the exit marker.`); const npc = state.npcShips.find((n) => n.id === e.interceptorId); if (npc?.localEnforcement?.mode === 'engage') npc.localEnforcement.mode = 'intercept'; return true; }
+  if (action === 'refuse') { if (e.stage === 2) { e.deadlineMs = ld.clockMs; e.refusedAtStage2 = true; } e.refusals += 1; e.history.push({ atMs: Math.round(ld.clockMs), stage: e.stage, name: 'refuse', detail: 'refused' }); setLog(`${e.label}: refusal logged.`); return true; }
+  if (action === 'surrender') {
+    ld.surrender = { eid: e.id, to: e.authority, label: e.label, atMs: Math.round(ld.clockMs), releaseAtMs: ld.clockMs + PLAYER_SURRENDER_HOLD_MS };
+    const npc = state.npcShips.find((n) => n.id === e.interceptorId); if (npc) npc.localEnforcement = null;
+    e.history.push({ atMs: Math.round(ld.clockMs), stage: e.stage, name: 'surrender', detail: 'the captain surrendered' });
+    closeLocalEnforcement(e, 'surrender_accepted', 'the captain surrendered');
+    setLog(`${e.label}: surrender accepted. Hold position.`);
+    return true;
+  }
+  return false;
+}
+function updatePlayerSurrender() {
+  const ld = localDoctrine();
+  const s = ld.surrender;
+  if (!s) return;
+  if (ld.clockMs >= s.releaseAtMs || Number(state.currentPlanet) !== Number(ld.lastEnforcement?.systemIndex ?? state.currentPlanet)) {
+    ld.surrender = null;
+    localDoctrineRecord('release', { to: s.to });
+    setLog(`${s.label}: released. Leave restricted space.`);
+  }
+}
+function playerSurrendered() { return Boolean(state.localDoctrine?.surrender); }
+
+// -- a pirate's demand on the captain --
+function localPredationTarget(npc) {
+  return Boolean(npc?.localPredation && npc.localPredation.pid === state.localDoctrine?.predation?.id);
+}
+function closeLocalPredation(p, reason, note = '') {
+  const ld = localDoctrine();
+  if (!p || p.closed) return;
+  p.closed = { reason, note, atMs: Math.round(ld.clockMs) };
+  const npc = state.npcShips.find((n) => n.id === p.npcId);
+  if (npc) {
+    npc.localPredation = { pid: p.id, standDown: ['cargo_received', 'attacker_disengaged', 'target_escaped'].includes(reason) };
+    if (reason === 'cargo_received' || reason === 'attacker_disengaged') { npc.playerAggroUntil = 0; if (isAmbientTrafficWarpEligible(npc, gameNow())) startAmbientTrafficDeparture(npc, gameNow()); }
+  }
+  ld.cooldowns[p.crewKey || p.pirateInstanceId] = ld.clockMs + PREDATION_COOLDOWN_MS;
+  localDoctrineRecord('predation', { id: p.id, pirate: p.name, amount: p.amount, reason, note });
+  ld.predation = null;
+  ld.lastPredation = p;
+}
+function updateLocalPredation(deltaMs) {
+  const ld = localDoctrine();
+  for (const [k, until] of Object.entries(ld.cooldowns)) if (until < ld.clockMs) delete ld.cooldowns[k];
+  const range = NPC_WEAPON_RANGE;
+  let p = ld.predation;
+  if (p) {
+    const npc = state.npcShips.find((n) => n.id === p.npcId && n.securityInstanceId === p.pirateInstanceId);
+    if (Number(p.systemIndex) !== Number(state.currentPlanet)) { closeLocalPredation(p, 'target_escaped', 'the captain left the system'); return; }
+    if (!npc || npc.destroyed || npc.trafficWarp?.phase === 'away') { closeLocalPredation(p, 'attacker_disengaged', npc?.destroyed ? 'pirate destroyed' : 'pirate gone'); return; }
+    if (npc.surrendered) { closeLocalPredation(p, 'attacker_disengaged', 'the pirates surrendered'); return; }
+    if (p.state === 'sent' || p.state === 'received') {
+      // A captain who simply flies out of reach has escaped the demand.
+      if (distanceToPlayer(npc) > range * PREDATION_ESCAPE_FACTOR) { closeLocalPredation(p, 'target_escaped', 'out of reach before answering'); return; }
+      // Shooting at the crew that made the demand is an answer: a refusal. Their reply is return fire.
+      if (npc.playerAggroUntil > gameNow()) { p.state = 'refused'; p.cause = 'fired upon'; p.attackUntilMs = ld.clockMs + PREDATION_ATTACK_MS; npc.localPredation = { pid: p.id, attack: true }; return; }
+      if (ld.clockMs >= p.deadlineMs) { p.state = 'timed_out'; p.attackUntilMs = ld.clockMs + PREDATION_ATTACK_MS; npc.localPredation = { pid: p.id, attack: true }; npc.playerAggroUntil = gameNow() + PREDATION_ATTACK_MS; setLog(`${p.name}: time's up.`); }
+      return;
+    }
+    if (['refused', 'run', 'timed_out'].includes(p.state)) {
+      if (distanceToPlayer(npc) > range * PREDATION_ESCAPE_FACTOR) { closeLocalPredation(p, 'target_escaped', 'out of reach'); return; }
+      if (ld.clockMs >= p.attackUntilMs) closeLocalPredation(p, 'attacker_disengaged', 'bounded attack over');
+    }
+    return;
+  }
+  if (!state.gameStarted || state.gameOver || state.warp.active || state.docked || isPlayerCloaked(gameNow()) || isSpawnProtected(gameNow()) || playerSurrendered()) return;
+  if (!doctrineLiveFor('pirate', 'raider', 'exploit_cargo')) return;
+  if (getFactionStanding('pirate') <= -50) return; // sworn enemies are simply attacked, as before
+  const npc = getLivingNpcShips().filter((n) => normalizeFactionKey(n.faction) === 'pirate' && !n.surrendered && n.condition !== 'disabled' && !isPlayerSideNpc(n) && !n.localPredation?.standDown
+    && !n.attackId && !['fleetAttack', 'raid'].includes(n.role) // raiders on a raid keep to it
+    && !(ld.cooldowns[localPirateCrewKey()] > ld.clockMs) && sensorCanTrack(n, state) && distanceToPlayer(n) <= range * PREDATION_DEMAND_RANGE_FACTOR
+    && !(n.playerAggroUntil && n.playerAggroUntil > gameNow()) && !hasRecentPlayerAggressionAgainst('pirate'))
+    .sort((a, b) => distanceToPlayer(a) - distanceToPlayer(b))[0];
+  if (npc) issueLocalPredation(npc);
+}
+// The pirates of a system are one crew as far as the captain's dealings go: a reload or a new spawn of
+// the same raiders does not reset what was paid.
+function localPirateCrewKey(systemIndex = state.currentPlanet) { return `crew:${Number(systemIndex)}`; }
+function issueLocalPredation(npc) {
+  const ld = localDoctrine();
+  // What the pirates can see is the hull, not the hold: the price follows the class.
+  const cap = Math.max(0, finiteNumber(getShipStats(state.playership)?.cargoCapacity, 0));
+  const amount = cap >= 500 ? 240 : cap >= 100 ? 120 : 60;
+  const p = ld.predation = { id: `lp${ld.nextId++}`, npcId: npc.id, pirateInstanceId: ensureNpcSecurityInstance(npc), crewKey: localPirateCrewKey(), name: getShipDisplayName(npc) || 'Pirate raider', systemIndex: Number(state.currentPlanet),
+    amount, basis: `observed hull class (hold unseen)`, state: 'sent', issuedAtMs: Math.round(ld.clockMs), receivedAtMs: null, deadlineMs: ld.clockMs + PREDATION_RESPONSE_MS, attackUntilMs: null, closed: null };
+  npc.localPredation = { pid: p.id, hold: true };
+  setLog(`Incoming: ${p.name}: Transfer ${amount} latinum or surrender cargo.`);
+  playGameSound('hail', { cooldownKey: 'predation:demand' });
+  return p;
+}
+function ordinaryCargoPods() { return (state.cargoArray || []).map((pod, index) => ({ pod, index })).filter(({ pod }) => pod && Number(pod.tons) > 0 && !cargoPodContract(pod)); }
+function respondToPredation(action) {
+  const ld = localDoctrine();
+  const p = ld.predation;
+  if (!p || !['sent', 'received'].includes(p.state)) return false;
+  const npc = state.npcShips.find((n) => n.id === p.npcId);
+  if (action === 'pay') {
+    if (finiteNumber(state.latinum, 0) < p.amount) { setLog(`${p.name}: you do not have ${p.amount} latinum.`); return true; }
+    state.latinum -= p.amount; p.state = 'paid'; p.paid = p.amount;
+    setLog(`${p.name}: payment received. Move along.`);
+    closeLocalPredation(p, 'cargo_received', `paid ${p.amount}`);
+    updateStats();
+    return true;
+  }
+  if (action === 'cargo') {
+    const pods = ordinaryCargoPods();
+    if (!pods.length) { setLog(`${p.name}: you carry nothing they will take.`); return true; }
+    const taken = pods.map(({ pod }) => ({ item: pod.item, tons: pod.tons }));
+    for (const { pod } of pods) clearCargoPod(pod);
+    recalcCargoFromPods();
+    p.state = 'cargo'; p.cargoTaken = taken;
+    setLog(`${p.name}: cargo received. Move along.`);
+    closeLocalPredation(p, 'cargo_received', `${taken.reduce((n, x) => n + Number(x.tons || 0), 0)} t`);
+    updateStats();
+    return true;
+  }
+  if (action === 'refuse' || action === 'run') {
+    p.state = action === 'refuse' ? 'refused' : 'run';
+    p.attackUntilMs = ld.clockMs + PREDATION_ATTACK_MS;
+    if (npc) { npc.localPredation = { pid: p.id, attack: true }; npc.playerAggroUntil = gameNow() + PREDATION_ATTACK_MS; }
+    setLog(action === 'refuse' ? `${p.name}: your funeral.` : `${p.name}: running? We'll see.`);
+    return true;
+  }
+  return false;
+}
+// Per local tick, after the checkpoint encounters, on the same bounded frame delta.
+function updateLocalDoctrineEncounters(frameScale = 1) {
+  if (!state.gameStarted || state.gameOver) return;
+  const ld = localDoctrine();
+  const deltaMs = clamp(finiteNumber(frameScale, 1), 0, 2.5) * 16.6667;
+  ld.clockMs += deltaMs;
+  updatePlayerSurrender();
+  updateLocalEnforcement(deltaMs);
+  updateLocalPredation(deltaMs);
+  for (const npc of state.npcShips || []) {
+    if (npc.destroyed) continue;
+    if (npc.surrendered) {
+      // Released after the hold: it leaves the system, out of the fight for good this visit.
+      if (!npc.surrendered.released && ld.clockMs >= finiteNumber(npc.surrendered.releaseAtMs, Infinity)) {
+        npc.surrendered.released = true;
+        localDoctrineRecord('release', { vessel: getShipDisplayName(npc) });
+        if (isAmbientTrafficWarpEligible(npc, gameNow())) startAmbientTrafficDeparture(npc, gameNow());
+      }
+      continue;
+    }
+    if (normalizeFactionKey(npc.faction) === 'pirate') considerNpcSurrender(npc);
+  }
+}
+function localDoctrinePanel() {
+  const ld = state.localDoctrine;
+  if (!ld) return null;
+  if (ld.predation && ['sent', 'received'].includes(ld.predation.state)) {
+    const p = ld.predation;
+    if (p.state === 'sent') { p.state = 'received'; p.receivedAtMs = Math.round(ld.clockMs); }
+    const seconds = Math.max(0, Math.ceil((p.deadlineMs - ld.clockMs) / 1000));
+    const canPay = finiteNumber(state.latinum, 0) >= p.amount, hasCargo = ordinaryCargoPods().length > 0;
+    return { key: `pred:${p.id}:${seconds}:${canPay}:${hasCargo}`, html: `<div class="security-order-head"><span>Incoming demand</span><span>${escapeHtml(p.name)}</span></div>
+      <div class="security-order-body"><div class="security-order-text">${escapeHtml(p.name)}: Transfer ${p.amount} latinum or surrender cargo.</div><div class="security-order-status">${seconds} s.</div>
+      <div class="security-order-buttons"><button data-predation-response="pay" ${canPay ? '' : 'disabled'}>Pay</button><button data-predation-response="cargo" ${hasCargo ? '' : 'disabled'}>Surrender cargo</button><button data-predation-response="refuse" class="security-refuse">Refuse</button><button data-predation-response="run">Run</button></div></div>` };
+  }
+  if (ld.surrender) {
+    return { key: `surr:${ld.surrender.atMs}`, html: `<div class="security-order-head"><span>Surrendered</span><span>${escapeHtml(ld.surrender.label || '')}</span></div><div class="security-order-body"><div class="security-order-text">Holding position. Awaiting release.</div></div>` };
+  }
+  const e = ld.enforcement;
+  if (e && e.stage >= 2 && e.compliance) {
+    const seconds = Math.max(0, Math.ceil(((e.complyUntilMs ?? ld.clockMs) - ld.clockMs) / 1000));
+    return { key: `enf:${e.id}:complying:${seconds}`, html: `<div class="security-order-head"><span>Complying</span><span>${escapeHtml(e.label)}</span></div>
+      <div class="security-order-body"><div class="security-order-text">${escapeHtml(e.label)}: Leave restricted space beyond the exit marker.</div><div class="security-order-status">${seconds} s.</div>
+      <div class="security-order-buttons"><button data-enforcement-response="surrender">Surrender</button></div></div>` };
+  }
+  if (e && e.stage >= 2 && !e.compliance) {
+    if (e.comms === 'sent') { e.comms = 'received'; if (e.stage === 2) e.notice.repeat = true; }
+    const seconds = Math.max(0, Math.ceil(((e.deadlineMs ?? ld.clockMs) - ld.clockMs) / 1000));
+    const line = e.stage === 2 ? 'Final warning. Leave restricted space.' : e.stage === 3 ? 'Heave to. Leave restricted space.' : 'Leave restricted space or surrender.';
+    return { key: `enf:${e.id}:${e.stage}:${seconds}`, html: `<div class="security-order-head"><span>${e.stage >= 4 ? 'Weapons free' : 'Incoming order'}</span><span>${escapeHtml(e.label)}</span></div>
+      <div class="security-order-body"><div class="security-order-text">${escapeHtml(e.label)}: ${escapeHtml(line)}</div><div class="security-order-status">${seconds} s.</div>
+      <div class="security-order-buttons"><button data-enforcement-response="comply">Comply</button>${e.stage === 2 ? '<button data-enforcement-response="refuse" class="security-refuse">Refuse</button>' : ''}<button data-enforcement-response="surrender">Surrender</button></div></div>` };
+  }
+  return null;
+}
+
 // Persistence of participants: the bounded snapshot needed to resume an active NPC order after the
 // scene is unloaded, the cache is wiped, or the game is reloaded. Captured for the live system only.
 function captureSecurityParticipants(systemIndex = state.securityLiveSystemIndex) {
@@ -7145,6 +7554,7 @@ function resetSecurityRecords() {
   state.securityEncounters = { version: 1, systems: {} };
   state.securityLiveSystemIndex = null;
   state.securityOutcomeNotice = null;
+  state.localDoctrine = null;
 }
 // Playtest arrival spacing: 1,800 units without a zone; at least 600 beyond an
 // active perimeter. Retained deliberately for distance testing after the review.
@@ -10403,10 +10813,10 @@ function npcPhysicalFireFacts(npc, target, targetType = 'ship', now = gameNow())
   const cooldown = weapon ? getScaledWeaponCooldown(npc.shipId, weapon, NPC_WEAPON_COOLDOWN_SCALE, NPC_WEAPON_FLOOR_SCALE) : Infinity;
   const facts = {};
   if (npc && actual && sensorCanTrack(npc, actual)) facts.live_weapon_track = true;
-  if (weapon && !npc.destroyed && npc.condition !== 'disabled') facts.weapon_usable = true;
+  if (weapon && !npc.destroyed && npc.condition !== 'disabled' && !npc.surrendered) facts.weapon_usable = true;
   if (weapon && now >= (npc.weaponReadyAt || 0) && now - (npc.lastShotAt || 0) >= cooldown) facts.weapon_ready = true;
   if (known && range > 0 && sensorDistance(npc, known) <= range) facts.inside_equipped_range = true;
-  if (actual && !actual.destroyed && !(targetType === 'player' && state.gameOver)) facts.target_actionable = true;
+  if (actual && !actual.destroyed && !actual.surrendered && !(targetType === 'player' && (state.gameOver || playerSurrendered()))) facts.target_actionable = true;
   return facts;
 }
 // A doctrine fire check for inspection and tests: the authority facts the caller supplies (war order,
@@ -10504,6 +10914,32 @@ function applyDoctrineEffect(e, day) {
         rumour: e.lead === 'evidence' ? `A ship is reported sifting wreckage near ${nameOf(e.systemIndex)}.` : `A ship is reported searching near ${nameOf(e.systemIndex)}.` });
       break;
     }
+    // Phase 4: routine warnings and compliance are not news; an interception, a shot, a surrender and a
+    // pirate's demand are, and only where the captain has a source.
+    case 'doctrineEnforcement': {
+      if (!['intercept', 'engage'].includes(e.event)) break;
+      const t = campaignFactionKeyFor(e.targetPolity);
+      reportDoctrineTrace({ id: `enforce:${e.id}:${e.event}`, systemIndex: e.systemIndex, day: d, kind: `${formatFaction(who)} security ${e.event === 'engage' ? 'weapons free' : 'intercepting'} — ${nameOf(e.systemIndex)}`, factions: [who],
+        direct: `${formatFaction(who)} security at ${nameOf(e.systemIndex)} is ${e.event === 'engage' ? 'cleared to fire on' : 'intercepting'} a ${isRecognizedFactionKey(t) ? `${formatFaction(t)} ` : ''}vessel that would not leave.`, rumour: `A patrol near ${nameOf(e.systemIndex)} is said to be chasing off a trespasser.` });
+      break;
+    }
+    case 'doctrineEnforcementStrike':
+      reportDoctrineTrace({ id: `enforce:${e.id}:strike:${d}`, systemIndex: e.systemIndex, day: d, kind: `${formatFaction(who)} security fired — ${nameOf(e.systemIndex)}`, factions: [who],
+        direct: `${formatFaction(who)} security at ${nameOf(e.systemIndex)} fired on a vessel that refused its orders.`, rumour: `Weapons fire was reported near ${nameOf(e.systemIndex)}.` });
+      break;
+    case 'doctrinePredation': {
+      if (!['demand', 'attack'].includes(e.event)) break;
+      reportDoctrineTrace({ id: `predation:${e.id}:${e.event}`, systemIndex: e.systemIndex, day: d, kind: e.event === 'demand' ? `Pirates stopping traffic — ${nameOf(e.systemIndex)}` : `Pirates attacking traffic — ${nameOf(e.systemIndex)}`, factions: [],
+        direct: e.event === 'demand' ? `Pirates at ${nameOf(e.systemIndex)} are demanding payment from passing traffic.` : `Pirates at ${nameOf(e.systemIndex)} fired on a ship that would not pay.`, rumour: `Pirates are said to be working the lanes near ${nameOf(e.systemIndex)}.` });
+      break;
+    }
+    case 'vesselSurrendered': {
+      const f = campaignFactionKeyFor(e.polityId);
+      reportDoctrineTrace({ id: `surrender:${e.hullId}:${d}`, systemIndex: e.systemIndex, day: d, kind: `${formatFaction(f)} vessel surrendered — ${nameOf(e.systemIndex)}`, factions: [f],
+        direct: `A ${formatFaction(f)} vessel struck its colours at ${nameOf(e.systemIndex)}${e.to ? ` to ${e.to === 'pirate' ? 'pirates' : formatFaction(campaignFactionKeyFor(e.to))}` : ''}.`, rumour: `A ship is said to have surrendered near ${nameOf(e.systemIndex)}.` });
+      break;
+    }
+    case 'surrenderReleased': break;
     case 'doctrineRescued':
       reportDoctrineTrace({ id: `doctrine:${e.id}:rescued`, systemIndex: e.systemIndex, day: d, kind: `Survivors recovered — ${nameOf(e.systemIndex)}`, factions: [who],
         direct: `A ${formatFaction(who)} relief ship took survivors aboard at ${nameOf(e.systemIndex)}.`, rumour: `Survivors are said to have been picked up near ${nameOf(e.systemIndex)}.` });
@@ -10546,9 +10982,37 @@ function triggerDoctrineDebug(args) {
     db.config = { ...db.config, militaryResponses: on, patrolAreas: on ? { ...DoctrineCampaign.DOCTRINE_PILOT.patrolAreas } : {} };
     return `Doctrine military responses and area patrols ${on ? 'enabled' : 'disabled'} for this campaign.`;
   }
+  // Phase 4 switches and forced scenes (labelled overrides).
+  if ((sub === 'enforcement' || sub === 'predation') && (rest[0] === 'on' || rest[0] === 'off')) {
+    const db = DoctrineCampaign.doctrineBook(campaign());
+    db.config = { ...db.config, [sub === 'enforcement' ? 'enforcementResponses' : 'predation']: rest[0] === 'on' };
+    return `Doctrine ${sub} ${rest[0] === 'on' ? 'enabled' : 'disabled'} for this campaign (strategic and local).`;
+  }
+  if (sub === 'pirate' && rest[0] === 'demand') {
+    const ld = localDoctrine();
+    if (ld.predation) return `A demand is already open (${ld.predation.id}).`;
+    const npc = getLivingNpcShips().filter((n) => normalizeFactionKey(n.faction) === 'pirate' && !n.surrendered && n.condition !== 'disabled' && sensorCanTrack(n, state)).sort((a, b) => distanceToPlayer(a) - distanceToPlayer(b))[0];
+    if (!npc) return 'No tracked pirate vessel in this system.';
+    delete ld.cooldowns[localPirateCrewKey()]; npc.localPredation = null;
+    const p = issueLocalPredation(npc);
+    return `Override: ${p.name} demands ${p.amount} latinum.`;
+  }
+  if (sub === 'surrender' && rest[0] === 'nearest') {
+    const npc = getLivingNpcShips().filter((n) => !isPlayerSideNpc(n) && !n.surrendered).sort((a, b) => distanceToPlayer(a) - distanceToPlayer(b))[0];
+    if (!npc) return 'No vessel to surrender.';
+    surrenderNpc(npc, { to: PLAYER_SIDE, reason: 'debug override' });
+    return `Override: ${getShipDisplayName(npc)} surrendered.`;
+  }
   if (!doctrineRuntime) throw new Error('Doctrine is not loaded; see the doctrine section for the error.');
   const book = campaign();
   const db = DoctrineCampaign.doctrineBook(book);
+  if (sub === 'surrender' && rest[0] === 'vessel' && rest.length >= 3) {
+    const polity = normalizeFactionKey(rest[1]), hullId = rest[2];
+    return runCampaignAuthored((b, world, effects) => {
+      const ok = DoctrineCampaign.surrenderVessel(b, world, { polity, hullId, to: rest[3] ? normalizeFactionKey(rest[3]) : null, day: state.day, reason: 'debug override' }, effects);
+      return ok.ok ? `Override: ${formatFaction(polity)} ${hullId} surrendered.` : `Not surrendered (${hullId}: ${ok.reason}).`;
+    });
+  }
   if (sub === 'on' || sub === 'off') { db.config = { ...db.config, enabled: sub === 'on' }; return `Doctrine runtime ${sub === 'on' ? 'enabled' : 'disabled'} for this campaign.`; }
   if (sub === 'patrol' && rest.length >= 1) {
     const polity = normalizeFactionKey(rest[0]);
@@ -10627,12 +11091,12 @@ function triggerDoctrineDebug(args) {
     const r = Campaign.recoverStrandedHull(book, buildCampaignWorld(true), normalizeFactionKey(rest[0]), rest[1], state.day, 'debug');
     return r.ok ? `Override: ${rest[1]} brought into the yard.` : `Not recovered: ${r.reason}.`;
   }
-  throw new Error('Doctrine codes: doctrine status | on | off | military on|off | patrol <faction> [system] | areapatrol <faction> <system> | raid <faction> <system> | surrender <incident> [acceptedBy] | recover <faction> <hull> | delivery <faction> <system> | project <faction> <depot> > <site> | lose [assignment|latest] [disabled] [silent] | relay <incident> <from> <to> [full|overdue_notice|findings|survivor_report] [override|network]');
+  throw new Error('Doctrine codes: doctrine status | on | off | military on|off | enforcement on|off | predation on|off | pirate demand | surrender nearest | surrender vessel <faction> <hull> [to] | patrol <faction> [system] | areapatrol <faction> <system> | raid <faction> <system> | surrender <incident> [acceptedBy] | recover <faction> <hull> | delivery <faction> <system> | project <faction> <depot> > <site> | lose [assignment|latest] [disabled] [silent] | relay <incident> <from> <to> [full|overdue_notice|findings|survivor_report] [override|network]');
 }
 function renderDoctrineDebug() {
   const s = doctrineStatus();
   const head = s.state === 'loaded'
-    ? `<p>Doctrine ${escapeHtml(s.version)} loaded as runtime data (${s.profiles} profiles, ${s.cultures} cultures). Source package status: ${escapeHtml(s.designStatus)} · Runtime integration: Phase 3. Most decisions run in shadow; live this round: Romulan command investigates its own overdue ships, a Delpin explorer investigates recoverable evidence, a Vulcan relief ship rescues survivors it has a report of, a Ferengi freighter reroutes a threatened contract, and Tholian command escorts a threatened project's next load; Romulan, Klingon and Terran area patrols respond inside their areas, their commands defend their own attacked worlds, and a campaign raid order under a formal war is carried out. Disabled hulls stay disabled until recovered.</p>${s.warnings.length ? `<p class="debug-error">Warnings: ${s.warnings.map(escapeHtml).join('; ')}</p>` : ''}`
+    ? `<p>Doctrine ${escapeHtml(s.version)} loaded as runtime data (${s.profiles} profiles, ${s.cultures} cultures). Source package status: ${escapeHtml(s.designStatus)} · Runtime integration: Phase 4. Most decisions run in shadow; live this round: Romulan command investigates its own overdue ships, a Delpin explorer investigates recoverable evidence, a Vulcan relief ship rescues survivors it has a report of, a Ferengi freighter reroutes a threatened contract, and Tholian command escorts a threatened project's next load; Romulan, Klingon and Terran area patrols respond inside their areas, their commands defend their own attacked worlds, and a campaign raid order under a formal war is carried out. Disabled hulls stay disabled until recovered. Phase 4: Romulan, Klingon and Terran security enforce their published border policy with a demand that must be received, a compliance path, and an escalation ladder that fires only with real authority after notice; any side may surrender and is then left alone; pirates from their havens demand payment before they attack, and stop when paid.</p>${s.warnings.length ? `<p class="debug-error">Warnings: ${s.warnings.map(escapeHtml).join('; ')}</p>` : ''}`
     : `<p class="${s.state === 'failed' ? 'debug-error' : ''}">Doctrine ${escapeHtml(s.state)}${s.error ? `: <code>${escapeHtml(s.error)}</code>` : ''}. The campaign runs without doctrine.</p>`;
   if (!doctrineRuntime || !state.gameStarted) return head;
   const book = campaignBook();
@@ -10721,14 +11185,43 @@ function renderDoctrineDebug() {
     ['Assignment', (a) => `<code>${escapeHtml(a.id.split(':').pop())}</code>`], ['Kind', (a) => escapeHtml(a.kind)], ['Power', (a) => escapeHtml(formatFaction(campaignFactionKeyFor(a.polity)))], ['Vessel (vid)', (a) => escapeHtml(a.vid)],
     ['At', (a) => escapeHtml(state.planets[a.at]?.name || '—')], ['Milestones', (a) => a.milestones.map((m) => `<div>${escapeHtml(m)}</div>`).join('')],
   ]);
+  // Phase 4: enforcement as its chain, predation, surrender, and the local (loaded-scene) encounters.
+  const enforcement = rows(sum.enforcement.slice().reverse(), [
+    ['Objective', (o) => `<code>${escapeHtml(o.id.split(':').pop())}</code>`], ['Enforcer (vid)', (o) => `${escapeHtml(formatFaction(campaignFactionKeyFor(o.polity)))} ${escapeHtml(o.enforcer)}<div class="meta">${escapeHtml(o.enforcerKind || '')}</div>`],
+    ['Known target', (o) => escapeHtml(o.target)], ['Jurisdiction · authority', (o) => `${escapeHtml(o.jurisdiction)}<div class="meta">${escapeHtml(o.authorityDetail || '')}</div>`],
+    ['Demand', (o) => escapeHtml(o.demand)], ['Comms', (o) => escapeHtml(o.comms)], ['Response', (o) => `<b>${escapeHtml(o.response)}</b>${o.compliance ? ` · ${escapeHtml(o.compliance)}` : ''}${o.inspection ? `<div class="meta">inspected: ${escapeHtml(JSON.stringify(o.inspection.observed || o.inspection))}</div>` : ''}`],
+    ['Escalation', (o) => `${escapeHtml(o.escalation)}<div class="meta">notice: ${escapeHtml(Object.entries(o.notice || {}).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none')}${o.engageCheck ? ` · engage check: ${escapeHtml(o.engageCheck.action || '')}` : ''}</div>`],
+    ['Termination', (o) => `<b>${escapeHtml(o.status)}</b>${o.termination ? `<div class="meta">${escapeHtml(o.termination)}</div>` : ` (deadline day ${o.deadline})`}`],
+  ]);
+  const predation = rows(sum.predation.slice().reverse(), [
+    ['Objective', (o) => `<code>${escapeHtml(o.id.split(':').pop())}</code>`], ['Pirates', (o) => escapeHtml(o.pirate)], ['Target', (o) => `${escapeHtml(o.target)} at ${loc(o.at)}`], ['Demand (basis)', (o) => escapeHtml(o.demand)],
+    ['Comms', (o) => escapeHtml(o.comms)], ['Response', (o) => `<b>${escapeHtml(o.response || '—')}</b>${o.phase ? ` · ${escapeHtml(o.phase)}` : ''}${o.paid ? ` · paid ${o.paid}` : ''}`], ['Termination', (o) => `<b>${escapeHtml(o.status)}</b>${o.termination ? `<div class="meta">${escapeHtml(o.termination)}</div>` : ''}`],
+  ]);
+  const pirates = rows(sum.pirates, [
+    ['Group (vid)', (g) => `${escapeHtml(g.name)}<div class="meta">${escapeHtml(g.vid)}</div>`], ['Haunt / at', (g) => `${escapeHtml(state.planets[g.haunt]?.name || g.haunt)} / ${escapeHtml(state.planets[g.at]?.name || g.at)}`], ['Status', (g) => `<b>${escapeHtml(g.status)}</b> ${g.hull}/${g.maxHull}`],
+    ['Demands · loot', (g) => `${g.demands} · ${g.loot}`], ['Cooldowns (no repeat)', (g) => escapeHtml(Object.entries(g.cooldowns).map(([v, d]) => `${v} to day ${d}`).join('; ') || '—')], ['History', (g) => escapeHtml(g.history.map((h) => typeof h === 'string' ? h : `day ${h.day} ${h.outcome || h.event || ''} ${h.target || ''}`).join('; ') || '—')],
+  ]);
+  const surrenders = rows([...sum.surrendered.map((x) => ({ ...x, now: true })), ...sum.surrenders.slice().reverse().filter((x) => !sum.surrendered.some((y) => y.hullId === x.hullId && y.day === x.day))].slice(0, 20), [
+    ['Vessel (vid)', (x) => `${escapeHtml(formatFaction(campaignFactionKeyFor(x.polity)))} ${escapeHtml(x.hullId)} (${escapeHtml(x.vid)})`], ['To', (x) => escapeHtml(x.to || '—')], ['Day', (x) => `day ${x.day}`], ['Reason', (x) => escapeHtml(x.reason || '')],
+    ['State', (x) => x.now ? `<b>holding</b> to day ${x.holdUntil}` : 'released or closed'],
+  ]);
+  const ldoc = state.localDoctrine || {};
+  const localEnc = [ldoc.enforcement, ldoc.lastEnforcement, ldoc.predation, ldoc.lastPredation].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i);
+  const localRows = rows(localEnc, [
+    ['Encounter', (x) => `<code>${escapeHtml(x.id)}</code>`], ['Kind', (x) => x.id.startsWith('le') ? 'enforcement (captain as target)' : 'pirate demand (captain as target)'],
+    ['Authority / demand', (x) => x.id.startsWith('le') ? `${escapeHtml(x.label)} · security_policy · leave restricted space` : `${escapeHtml(x.name)} · ${x.amount} latinum (${escapeHtml(x.basis)})`],
+    ['Stage / state', (x) => x.id.startsWith('le') ? `${x.stage} · ${escapeHtml(x.history.map((h) => h.name).join(' → '))}${x.compliance ? ' · complying' : ''}` : escapeHtml(x.state)],
+    ['Closed', (x) => x.closed ? `<b>${escapeHtml(x.closed.reason)}</b> — ${escapeHtml(x.closed.note || '')}` : 'open'],
+  ]);
+  const enfLog = rows(sum.enforcementLog.slice().reverse().slice(0, 20), [['Day', (x) => x.day], ['Entry', (x) => escapeHtml(Object.entries(x).filter(([k]) => k !== 'day').map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · '))]]);
   const observers = [...new Set([...Object.keys(db.knowledge), ...Object.keys(db.designations || {}).flatMap((p) => Object.keys(db.designations[p]).map((h) => `hull:${h}`)), ...(db.config.watchCommands || []).map((p) => `command:${p}`)])].sort();
   const incOpts = sum.incidents.map((i) => `<option value="${escapeHtml(i.id)}">${escapeHtml(i.eventType)} ${escapeHtml(i.id.split(':').slice(-2).join(':'))} — ${escapeHtml(i.polity || 'unknown')}</option>`).join('');
   const obsOpts = observers.map((o) => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join('');
   return `${head}
-    <div class="debug-actions"><button type="button" data-debug-code="doctrine patrol romulan">Romulan patrol now</button><button type="button" data-debug-code="doctrine lose">Lose latest patrol/survey (override, unwitnessed)</button><button type="button" data-debug-code="doctrine lose latest disabled">Disable latest (override)</button><button type="button" data-debug-code="doctrine ${db.config.enabled ? 'off' : 'on'}">Doctrine ${db.config.enabled ? 'off' : 'on'}</button><button type="button" data-debug-refresh>Refresh</button></div>
+    <div class="debug-actions"><button type="button" data-debug-code="doctrine patrol romulan">Romulan patrol now</button><button type="button" data-debug-code="doctrine lose">Lose latest patrol/survey (override, unwitnessed)</button><button type="button" data-debug-code="doctrine lose latest disabled">Disable latest (override)</button><button type="button" data-debug-code="doctrine ${db.config.enabled ? 'off' : 'on'}">Doctrine ${db.config.enabled ? 'off' : 'on'}</button><button type="button" data-debug-code="doctrine pirate demand">Pirate demand (override)</button><button type="button" data-debug-code="doctrine surrender nearest">Nearest ship surrenders (override)</button><button type="button" data-debug-refresh>Refresh</button></div>
     ${sum.incidents.length ? `<form data-debug-form="doctrine-relay"><label>Incident<select name="doctrine-incident">${incOpts}</select></label><label>From<select name="doctrine-from">${obsOpts}</select></label><label>To<select name="doctrine-to">${obsOpts}</select></label><label>Carries<select name="doctrine-profile"><option value="full">everything the sender knows</option><option value="overdue_notice">overdue notice</option><option value="findings">findings</option><option value="survivor_report">survivor report</option></select></label><label>Channel<select name="doctrine-channel"><option value="override">at once (override)</option><option value="network">network (delayed)</option></select></label><button type="submit">Send report</button></form>` : ''}
-    <h4>Active incidents</h4>${incidents}<h4>Last shadow evaluation per observer</h4>${evals}<h4>Doctrine objectives (investigation, rescue, reroute, escort)</h4>${objectives}<h4>Reports: pending and delivered (newest first)</h4>${reports}<h4>Reevaluations of the same incident</h4>${reevaluations}<h4>Objective conflicts and pre-emption</h4>${conflicts}<h4>Contracts and projects</h4>${contracts}<h4>Military objectives (patrol, defence, raid)</h4>${military}<h4>Area patrols</h4>${patrols}<h4>Raid orders</h4>${raidOrders}<h4>Disabled hulls: stranded until recovered</h4>${stranded}<h4>Local engagement chain (this system, now)</h4>${engage}<h4>Routine doctrine assignments</h4>${assignments}
-    <p class="meta">Incidents ${sum.stats.incidentsCreated || 0} (duplicates prevented ${sum.stats.duplicatesPrevented || 0}) · reports sent ${sum.stats.reportsSent || 0}, delivered ${sum.stats.reportsDelivered || 0}, expired ${sum.stats.reportsExpired || 0} · reevaluations ${sum.stats.reevaluations || 0} · live objectives ${sum.stats.liveObjectives || 0} (completed ${sum.stats.objectivesCompleted || 0}, aborted ${sum.stats.objectivesAborted || 0}, expired ${sum.stats.objectivesExpired || 0}) · deferred ${sum.stats.deferred} · military objectives ${sum.stats.militaryObjectives || 0} (closed ${sum.stats.militaryClosed || 0}, cancelled by lost war authority ${sum.stats.militaryCancelledByAuthority || 0}) · repeats prevented ${sum.stats.repeatPrevented || 0} · patrols returned ${sum.stats.patrolsReturned || 0} · evaluations ${sum.stats.shadowEvaluations} · blockade runs ${sum.stats.blockadeRuns}. Debug only: nothing in this section is sent to the captain's reports.</p>`;
+    <h4>Active incidents</h4>${incidents}<h4>Last shadow evaluation per observer</h4>${evals}<h4>Doctrine objectives (investigation, rescue, reroute, escort)</h4>${objectives}<h4>Reports: pending and delivered (newest first)</h4>${reports}<h4>Reevaluations of the same incident</h4>${reevaluations}<h4>Objective conflicts and pre-emption</h4>${conflicts}<h4>Contracts and projects</h4>${contracts}<h4>Military objectives (patrol, defence, raid)</h4>${military}<h4>Area patrols</h4>${patrols}<h4>Raid orders</h4>${raidOrders}<h4>Disabled hulls: stranded until recovered</h4>${stranded}<h4>Local engagement chain (this system, now)</h4>${engage}<h4>Enforcement objectives: target → jurisdiction → demand → response → escalation → termination</h4>${enforcement}<h4>Pirate groups (cooldowns and history)</h4>${pirates}<h4>Predation objectives</h4>${predation}<h4>Surrenders</h4>${surrenders}<h4>Local encounters (loaded scene)</h4>${localRows}<h4>Enforcement log</h4>${enfLog}<h4>Routine doctrine assignments</h4>${assignments}
+    <p class="meta">Incidents ${sum.stats.incidentsCreated || 0} (duplicates prevented ${sum.stats.duplicatesPrevented || 0}) · reports sent ${sum.stats.reportsSent || 0}, delivered ${sum.stats.reportsDelivered || 0}, expired ${sum.stats.reportsExpired || 0} · reevaluations ${sum.stats.reevaluations || 0} · live objectives ${sum.stats.liveObjectives || 0} (completed ${sum.stats.objectivesCompleted || 0}, aborted ${sum.stats.objectivesAborted || 0}, expired ${sum.stats.objectivesExpired || 0}) · deferred ${sum.stats.deferred} · military objectives ${sum.stats.militaryObjectives || 0} (closed ${sum.stats.militaryClosed || 0}, cancelled by lost war authority ${sum.stats.militaryCancelledByAuthority || 0}) · repeats prevented ${sum.stats.repeatPrevented || 0} · patrols returned ${sum.stats.patrolsReturned || 0} · evaluations ${sum.stats.shadowEvaluations} · blockade runs ${sum.stats.blockadeRuns} · enforcement ${sum.stats.enforcementObjectives || 0} (complied ${sum.stats.enforcementComplied || 0}, refusals ${sum.stats.enforcementRefusals || 0}, expired ${sum.stats.enforcementExpired || 0}, repeats prevented ${sum.stats.enforcementRepeatPrevented || 0}) · surrenders ${sum.stats.surrenders || 0} · pirate demands ${sum.stats.pirateDemands || 0} (repeats prevented ${sum.stats.predationRepeatPrevented || 0}). Debug only: nothing in this section is sent to the captain's reports.</p>`;
 }
 // Authored events and controls for this round. Each goes through the model; none writes a war by hand.
 function runCampaignAuthored(fn) {
@@ -14577,6 +15070,7 @@ function saveGame(slot = state.currentSaveSlot || 1) {
     securityPolicies: ensureSecurityPolicies(),
     securityZones: ensureSecurityZones(),
     securityEncounters: (captureSecurityParticipants(state.securityLiveSystemIndex), ensureSecurityEncounters()),
+    localDoctrine: state.localDoctrine || null,
     visitedSystems: state.visitedSystems,
     visitedDays: state.visitedDays || {},
     conditionLog: state.conditionLog || {},
@@ -14725,6 +15219,7 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   state.securityEncounters = sanitizeSecurityEncountersRecord(s.securityEncounters);
   state.securityLiveSystemIndex = null; // the NPCs about to be discarded are not this save's participants
   state.securityOutcomeNotice = null;
+  state.localDoctrine = sanitizeLocalDoctrine(s.localDoctrine);
   state.controlledSystems = Array.isArray(s.controlledSystems)
     ? s.controlledSystems.map((index) => Number(index)).filter(Number.isFinite)
     : [];
@@ -16627,6 +17122,16 @@ function updateSecurityOrderPanel() {
     if (visible && ledger && Number(notice.systemIndex) === Number(state.currentPlanet)) state.securityOutcomeNotice = null;
     notice = null;
   }
+  // Phase 4: a pirate's demand, a surrender, or enforcement after a refusal takes the panel first.
+  const doctrinePanel = visible ? localDoctrinePanel() : null;
+  if (doctrinePanel) {
+    securityOrderPanelEl.classList.remove('hidden');
+    layoutSecurityOrderPanel();
+    if (securityOrderPanelEl.dataset.renderKey === doctrinePanel.key) return;
+    securityOrderPanelEl.dataset.renderKey = doctrinePanel.key;
+    securityOrderPanelEl.innerHTML = doctrinePanel.html;
+    return;
+  }
   const visitor = ledger?.visitors?.player || null;
   const cleared = zone && zone.foreign && visitor?.clearance && !order;
   const arrival = zone?.foreign && state.arrivalHail?.systemIndex === state.currentPlanet && !state.arrivalHail.acknowledged;
@@ -16657,7 +17162,7 @@ function updateSecurityOrderPanel() {
           <button data-security-response="repeat">Repeat instruction</button>
           <button data-security-response="request" ${withdrawing ? 'disabled' : ''}>Request clearance</button>
           <button data-security-response="withdraw" ${withdrawing ? 'disabled' : ''}>Withdraw</button>
-          <button data-security-response="refuse" class="security-refuse" title="Refusal is recorded. Their installations will not receive you for this visit. It authorizes no weapons.">Refuse</button>
+          <button data-security-response="refuse" class="security-refuse" title="Refusal is recorded. Their installations will not receive you for this visit. It authorizes no weapons by itself; staying inside restricted space draws a final warning.">Refuse</button>
         </div>
       </div>`;
     return;
@@ -16680,6 +17185,13 @@ function updateSecurityOrderPanel() {
       : 'You refused their instruction. Their installations will not receive you until you leave and return.'}</div></div>`;
 }
 securityOrderPanelEl?.addEventListener('click', (e) => {
+  const doctrineButton = e.target.closest('[data-predation-response],[data-enforcement-response]');
+  if (doctrineButton) {
+    e.preventDefault();
+    const ok = doctrineButton.dataset.predationResponse ? respondToPredation(doctrineButton.dataset.predationResponse) : respondToLocalEnforcement(doctrineButton.dataset.enforcementResponse);
+    if (ok) { securityOrderPanelEl.dataset.renderKey = ''; updateSecurityOrderPanel(); updateStats(); }
+    return;
+  }
   const response = e.target.closest('[data-security-response]');
   if (!response) return;
   e.preventDefault();
@@ -18707,6 +19219,7 @@ function updateTractorBeams(frameScale = 1) {
 
 function firePlayerWeapon(slot = 1) {
   if (fleetBook().personalCondition === 'disabled') return;
+  if (playerSurrendered()) { setLog('You have surrendered. Weapons stay cold until you are released.'); return; }
   if (state.gameOver || !state.gameStarted || state.warp.active) return;
   const now = gameNow();
   normalizeWeaponLoadout();
@@ -18882,7 +19395,8 @@ function processHeldWeaponInputs() {
 }
 
 function fireNpcWeapon(npc, target = playerWorldPosition(), targetType = 'player', now = gameNow()) {
-  if (now<(npc.weaponReadyAt||0) || npc.condition === 'disabled' || npc.destroyed || !fleetFirePermitted(npc, target, targetType, now)) return;
+  if (now<(npc.weaponReadyAt||0) || npc.condition === 'disabled' || npc.destroyed || npc.surrendered || !fleetFirePermitted(npc, target, targetType, now)) return;
+  if (targetType === 'player' ? playerSurrendered() : target?.surrendered) return; // nobody fires on a vessel that has struck
   if (!sensorCanTrack(npc, targetType === 'player' ? state : target)) return;
   const weaponId = fleetNpcWeapon(npc);
   if (!weaponId) return;
@@ -19078,7 +19592,7 @@ function updateStationDefenses() {
     const cue=getCounterfireCue(station);if(cue)fireCounterfirePoint(station,cue,getWeapon(getStationWeaponIds(station)[0]),now);
     const range = station.defenseRange || STATION_DEFENSE_RANGE;
     // A player-owned installation never fires on the player, whatever flags were set on it.
-    if (!playerCloaked && !isSpawnProtected(now) && station.hostile && distanceToPlayer(station) <= range
+    if (!playerCloaked && !isSpawnProtected(now) && !playerSurrendered() && station.hostile && distanceToPlayer(station) <= range
       && getStationOwner(station, state.currentPlanet) !== PLAYER_SIDE) {
       fireStationWeapon(station, playerWorldPosition(), now);
       continue;
@@ -19415,7 +19929,7 @@ function resolveDefenderSide(defender) {
 // the player's side only under `defend`, ships hostile to the player or at war with the player's
 // flag count on sight. Under `return-fire` nothing counts without evidence.
 function isNpcSystemAttacker(npc, defender = null, now = gameNow()) {
-  if (!npc || npc.destroyed) return false;
+  if (!npc || npc.destroyed || npc.surrendered) return false; // a vessel that has struck is out of the fight
   const attackerSide = getNpcSideId(npc);
   const defenderSide = resolveDefenderSide(defender);
   if (!defenderSide) return false;
@@ -19460,7 +19974,7 @@ function isPlayerEscortNpc(npc) {
 }
 
 function isPlayerEscortShipTarget(npc, now = gameNow()) {
-  if (!npc || npc.destroyed || isPlayerSideNpc(npc)) return false;
+  if (!npc || npc.destroyed || npc.surrendered || isPlayerSideNpc(npc)) return false; // never a vessel that has struck, even on order
   if (npc.playerEscortOrderUntil && npc.playerEscortOrderUntil > now) return true; // explicit orders override ROE
   // Evidence always suffices: attacks on the player's side seen here, or a raid on this holding.
   if (isNpcSystemAttacker(npc, PLAYER_SIDE, now)) return true;
@@ -19536,9 +20050,14 @@ function getPlayerEscortPriorityTarget(escort, now = gameNow()) {
 }
 
 function shouldNpcTargetPlayer(npc, playerDistance, stationTarget, now = gameNow()) {
+  if (npc?.surrendered || playerSurrendered()) return false;
   if (!sensorCanTrack(npc,state)) return false;
   if (isPlayerCloaked(now)) return false;
   if (isSpawnProtected(now)) return false;
+  // Phase 4: a pirate that has made a demand waits for the answer, and one that was paid stands down;
+  // an interceptor with a live engagement order may close in. Neither bypasses the fire gates below.
+  if (npc.localPredation && !npc.localPredation.attack && (npc.localPredation.hold || npc.localPredation.standDown) && !(npc.playerAggroUntil > now)) return false;
+  if (npc.localEnforcement?.mode === 'engage') return fleetBook().personalCondition !== 'disabled' && playerDistance <= NPC_WEAPON_RANGE * 1.25;
   if (getFactionStanding(npc.faction) <= -50) return true;
   if (normalizeFactionKey(npc.faction) === 'pirate' && (state.shields < 35 || state.hull < 50)) {
     return playerDistance <= NPC_WEAPON_RANGE * 1.5;
@@ -19747,7 +20266,7 @@ function updateFleetAttacks(now = gameNow()) {
   // Raids are launched once by the saved system activity, not by an endless wall-clock timer.
   const attack = state.activeFleetAttack;
   if (!attack || Number(attack.systemIndex) !== Number(state.currentPlanet)) return;
-  const attackers = state.npcShips.filter((npc) => !npc.destroyed && npc.attackId === attack.id);
+  const attackers = state.npcShips.filter((npc) => !npc.destroyed && !npc.surrendered && npc.attackId === attack.id); // a crew that struck is out of the attack
   if (!attackers.length) {
     if (nextCampaignWave()) return;
     getSystemActivity().outcome='repelled';
@@ -19979,6 +20498,7 @@ function updateNpcShips(frameScale = 1) {
     ensureNpcCombatStats(npc);
     if (npc.destroyed) continue;
     if (npc.condition === 'disabled') { tickDisabledVessel(npc, now); continue; }
+    if (npc.surrendered) { npc.systemWarpIntensity = 0; npc.destination = { x: npc.x, y: npc.y }; npc.waitUntil = now + 200; ensureNpcPower(npc).combat = false; continue; } // struck: holds, never fires
     if (updateAmbientTrafficWarp(npc, now, frameScale)) continue;
     if (isNpcTractorHeld(npc, now)) {
       npc.systemWarpIntensity = 0;
@@ -20007,8 +20527,9 @@ function updateNpcShips(frameScale = 1) {
     const cue = getCounterfireCue(npc);
     const counterWeapon=fleetNpcWeapon(npc);
     if (cue && counterWeapon) fireCounterfirePoint(npc,cue,getWeapon(counterWeapon),now);
-    const stationTarget = npc.hostile ? getNpcStationTarget(npc) : null;
-    const targetPlayer = npc.hostile && shouldNpcTargetPlayer(npc, playerDistance, stationTarget, now);
+    // A pirate with an open demand on the captain deals with the captain, not the nearest installation.
+    const stationTarget = npc.hostile && !(npc.localPredation && localPredationTarget(npc)) ? getNpcStationTarget(npc) : null;
+    const targetPlayer = (npc.hostile || npc.localEnforcement?.mode === 'engage') && shouldNpcTargetPlayer(npc, playerDistance, stationTarget, now);
     const groupOrder=npc.fleetId&&fleetBook().formations.find(g=>g.members.includes(npc.fleetId))?.order;
     const defenseTarget = ['hold','withdraw'].includes(groupOrder)?null:getNpcDefenseTarget(npc);
     const escortTarget = npc.fleetId || isPlayerEscortNpc(npc) ? getPlayerEscortPriorityTarget(npc, now) : null;
@@ -20060,7 +20581,17 @@ function updateNpcShips(frameScale = 1) {
         fireNpcWeapon(npc, stationTarget.station, 'station', now);
       }
     }
-    if (!combatActive && npc.sensorPursuitKey) {
+    const shadowing = !combatActive && sensorCanTrack(npc, state) && (npc.localEnforcement?.mode === 'intercept' || (npc.localPredation?.hold && localPredationTarget(npc)));
+    if (shadowing) {
+      // Interception, or a pirate waiting on its demand: close to hailing distance and shadow the captain.
+      // No weapons either way.
+      const p = sensorPursuitPoint(npc, state, 'player');
+      const a = Math.atan2(npc.y - p.y, npc.x - p.x);
+      const r = npc.localEnforcement?.mode === 'intercept' ? 320 : NPC_WEAPON_RANGE * 0.9;
+      npc.destination = { x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r };
+      npc.destinationName = npc.localEnforcement ? 'intercept: your ship' : 'demand: your ship';
+      npc.sensorPursuitKey = null;
+    } else if (!combatActive && npc.sensorPursuitKey) {
       const last=sensorWorld.map(sensorKey(npc)).get(npc.sensorPursuitKey);
       const explicitEscortOrder=isPlayerEscortNpc(npc)&&getFleetStance()!=='follow';
       if(last?.position&&sensorClock-last.observedAt<10&&(!isPlayerEscortNpc(npc)||explicitEscortOrder)){
@@ -20192,7 +20723,9 @@ function tick(frameScale = 1) {
   updateProjectiles(frameScale);
   updateShieldRegeneration(frameScale);
   updateBoarding(frameScale / 60);
-  if (fleetBook().personalCondition === 'disabled') { state.ship.velocity = 0; state.ship.turnVelocity = 0; tickDisabledVessel(null, gameNow()); updateSecurityEncounters(frameScale); return; }
+  if (fleetBook().personalCondition === 'disabled') { state.ship.velocity = 0; state.ship.turnVelocity = 0; tickDisabledVessel(null, gameNow()); updateSecurityEncounters(frameScale); updateLocalDoctrineEncounters(frameScale); return; }
+  // Phase 4: a captain who has surrendered holds position and does not fire until released.
+  if (playerSurrendered()) { state.ship.velocity = approachValue(finiteNumber(state.ship.velocity, 0), 0, finiteNumber(state.ship.brake, 0.1) * 2 * frameScale); state.ship.turnVelocity = 0; state.ship.systemWarpIntensity = 0; updateSecurityEncounters(frameScale); updateLocalDoctrineEncounters(frameScale); return; }
   processHeldWeaponInputs();
   const s = state.ship;
   const up = keys.has('w') || keys.has('arrowup');
@@ -20251,6 +20784,7 @@ function tick(frameScale = 1) {
   s.y = canvas.height * 0.5;
   updateTractorBeams(frameScale);
   updateSecurityEncounters(frameScale);
+  updateLocalDoctrineEncounters(frameScale);
   if (hasWorldCargoToDeliver()) deliverDestinationCargoAtCurrentPlanet();
 
   const now = gameNow();
@@ -25951,6 +26485,8 @@ function buildCampaignWorld(force = false) {
     // place of a calendar floor. Offers and sights, never achievements.
     playerOpportunity: campaignPlayerOpportunity(),
     isFaction: (id) => isRecognizedFactionKey(id) && id !== 'pirate' && (id !== 'gorn' || getCampaignDiscoveries().gorn),
+    // Phase 4: the published security policy of a world's holder, which is what strategic enforcement reads.
+    borderPolicy: (i, w = world) => campaignBorderPolicy(i, w.systems[Number(i)]?.controller ?? null),
     factionName: (id) => (id === 'player' ? `${state.captainName || 'Captain'}'s empire` : formatFaction(id)),
     shipStats: (id) => { const s = state.shipStatsById[Number(id)]; if (!s) return null; return { price: getShipPrice(s), mass: finiteNumber(s.mass, 1), combatHull: getNpcCombatDurability(Number(id)).hull, faction: getShipFaction(Number(id)), cargo: Math.max(0, finiteNumber(s.cargoCapacity, 0)), speed: shipRunSpeed(Number(id)), cloak: shipClassCloak(Number(id)), combat: shipClassCombat(Number(id)) }; },
     pickHull: (polityId, u) => { if (polityId === 'player') return null; const key = campaignFactionKeyFor(polityId); const seed = Math.floor(u * 100000) + 1; for (const role of ['fleetAttack', 'patrol', 'traffic']) { const id = getNpcShipIdForFaction(key, seed, role); if (id != null) return Number(id); } return null; },
@@ -26624,6 +27160,7 @@ function applyCampaignEffects(effects, day = state.day) {
       case 'doctrineAssigned': case 'doctrineMoved': case 'doctrineIncident': case 'doctrineIncidentResolved': case 'doctrineObjective':
       case 'doctrineOnSite': case 'doctrineEvidenceRecovered': case 'doctrineRescued': case 'doctrineSighting': case 'doctrineVisible': case 'doctrineReleased':
       case 'doctrineContract': case 'doctrineDistressFound':
+      case 'doctrineEnforcement': case 'doctrineEnforcementStrike': case 'doctrinePredation': case 'vesselSurrendered': case 'surrenderReleased':
       case 'hullStranded':
         applyDoctrineEffect(e, day);
         break;
