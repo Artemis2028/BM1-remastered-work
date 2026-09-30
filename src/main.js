@@ -3,6 +3,7 @@ import { assessIntel, intelRandom } from './galaxy-intelligence.mjs';
 import * as StationRoles from './station-roles.mjs';
 import * as Campaign from './campaign-strategy.mjs';
 import * as Journey from './strategic-journey.mjs';
+import * as Encounter from './strategic-encounter.mjs';
 import * as Doctrine from './doctrine-runtime.mjs';
 import * as DoctrineCampaign from './doctrine-campaign.mjs';
 const TRANSPORTER_RANGE = 2500;
@@ -7277,6 +7278,8 @@ function closeLocalPredation(p, reason, note = '') {
   localDoctrineRecord('predation', { id: p.id, pirate: p.name, amount: p.amount, reason, note });
   ld.predation = null;
   ld.lastPredation = p;
+  // A demand made by a strategic pirate group: its result goes onto the same group and objective, once.
+  if (p.encounterId) resolveCaptainPredation(p, reason, note);
 }
 function updateLocalPredation(deltaMs) {
   const ld = localDoctrine();
@@ -7305,6 +7308,9 @@ function updateLocalPredation(deltaMs) {
   if (!state.gameStarted || state.gameOver || state.warp.active || state.docked || isPlayerCloaked(gameNow()) || isSpawnProtected(gameNow()) || playerSurrendered()) return;
   if (!doctrineLiveFor('pirate', 'raider', 'exploit_cargo')) return;
   if (getFactionStanding('pirate') <= -50) return; // sworn enemies are simply attacked, as before
+  // A strategic pirate group's waters: the demand there is the group's own (made as the captain arrives),
+  // never a second one from a stray crew beside it.
+  if (DoctrineCampaign.pirateWatersAt(campaignBook(), buildCampaignWorld(), state.currentPlanet).length) return;
   const npc = getLivingNpcShips().filter((n) => normalizeFactionKey(n.faction) === 'pirate' && !n.surrendered && n.condition !== 'disabled' && !isPlayerSideNpc(n) && !n.localPredation?.standDown
     && !n.attackId && !['fleetAttack', 'raid'].includes(n.role) // raiders on a raid keep to it
     && !(ld.cooldowns[localPirateCrewKey()] > ld.clockMs) && sensorCanTrack(n, state) && distanceToPlayer(n) <= range * PREDATION_DEMAND_RANGE_FACTOR
@@ -9076,6 +9082,7 @@ function refreshDebugReadout() {
   const doctrinePanel=debugMenuEl.querySelector('[data-doctrine-debug]');if(doctrinePanel)doctrinePanel.innerHTML=renderDoctrineDebug();
   const journeyPanel=debugMenuEl.querySelector('[data-journey-debug]');if(journeyPanel)journeyPanel.innerHTML=renderJourneyDebug();
   const planningPanel=debugMenuEl.querySelector('[data-planning-debug]');if(planningPanel)planningPanel.innerHTML=renderPlanningDebug();
+  const encounterPanel=debugMenuEl.querySelector('[data-encounter-debug]');if(encounterPanel)encounterPanel.innerHTML=renderEncounterDebug();
   const resource = debugMenuEl.querySelector('[name="resource"]').value;
   debugMenuEl.querySelector('[name="amount"]').max = debugResourceFields[resource].max();
   const faction = debugMenuEl.querySelector('[name="faction"]').value;
@@ -9146,6 +9153,7 @@ function openDebugMenu() {
     <section data-doctrine-section><h3>Faction doctrine (debug)</h3><div data-doctrine-debug>${renderDoctrineDebug()}</div></section>
     <!-- after the doctrine section, so the older debug sections keep their place and height in the dialog -->
     <section data-planning-section><h3>ETA-aware planning (debug)</h3><div data-planning-debug>${renderPlanningDebug()}</div></section>
+    <section data-encounter-section><h3>Strategic ↔ tactical encounters (debug)</h3><div data-encounter-debug>${renderEncounterDebug()}</div></section>
     <section><h3>Cheat codes</h3><form data-debug-form="code"><label>Code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="standing romulan 50" required></label><button type="submit">Run code</button></form>
       <details><summary>Remaster code list</summary><p>Codes are case-insensitive. Faction keys appear in the selector above.</p><ul>
         <li><code>crisis romulan klingon</code>, <code>war romulan klingon</code>, <code>peace romulan klingon</code> — change bilateral relations.</li><li><code>standing romulan 50</code> — set one faction's standing.</li><li><code>latinum 10000</code>, <code>duranium 500</code>, <code>antimatter 6</code> — set resources.</li>
@@ -9622,6 +9630,7 @@ function activityTrafficShip(index, seed, role) {
 function updateSystemActivity(frameScale) {
   recordLocalIntel();
   maybeMaterializeCampaignOperation();
+  updateStrategicEncounters();
   const record = getSystemActivity();
   if (
     record.triggered ||
@@ -10135,9 +10144,8 @@ function openWarpBriefing() {
   if (!state.warp.active || state.warp.briefingSeen) return;
   state.warp.briefingOpen = true;
   updateSecurityOrderPanel();
-  // Commit the travel calendar once; arrival uses the same persisted journey id.
-  state.warp.journeyId ||= Fleet.nextId(fleetBook(), 'journey');
-  advanceFleetCalendar(state.warp.travelDays ?? 1, state.warp.journeyId);
+  // Commit the travel calendar once, leg by leg; arrival (and a reload) uses the same record.
+  advanceCaptainWarpLegs();
   openGalaxyReports();
 }
 function closeGalaxyReports() {
@@ -11714,7 +11722,7 @@ function captureWorldEncounter(nextSystem = state.securityLiveSystemIndex) {
   // Leaving the system hands a claimed campaign battle back to the offscreen model with the survivors
   // as they stand; a same-system snapshot (save, regeneration) keeps the loaded battle as it is.
   const leaving = Number(nextSystem) !== Number(index);
-  if (leaving) releaseLocalCampaignBattle();
+  if (leaving) { releaseLocalCampaignBattle(); leaveStrategicEncounters(index); }
   const campaignAttack = Boolean(state.activeFleetAttack?.campaignOpId);
   p.encounters[index] = {
     day: state.day,
@@ -11734,7 +11742,10 @@ function captureWorldEncounter(nextSystem = state.securityLiveSystemIndex) {
     ships: (state.npcShips || [])
       .filter(
         (n) => !n.fleetId && (Number(nextSystem) === Number(index) || n.condition !== 'disabled')
-          && !(leaving && campaignAttack && n.attackId && n.campaignHullId),
+          && !(leaving && campaignAttack && n.attackId && n.campaignHullId)
+          // A strategic encounter's ships are campaign vessels: once he leaves, their records (written back)
+          // are what exists, so the system's snapshot never keeps a second copy (STRATEGIC-TACTICAL-HANDOFF).
+          && !(leaving && n.encounterId && (n.campaignHullId || n.pirateGroupId)),
       )
       .map((n) => ({
         actor: Object.fromEntries(
@@ -11758,6 +11769,15 @@ function captureWorldEncounter(nextSystem = state.securityLiveSystemIndex) {
             'attitude',
             'identityLocked',
             'campaignHullId',
+            // STRATEGIC-TACTICAL-HANDOFF: an engagement in the scene is saved with its ships.
+            'encounterId',
+            'encounterRef',
+            'encounterSide',
+            'encounterVsPlayer',
+            'encounterClosed',
+            'pirateGroupId',
+            'vid',
+            'localPredation',
           ]
             .filter((k) => n[k] !== undefined)
             .map((k) => [k, Fleet.copy(n[k])]),
@@ -15155,6 +15175,8 @@ function saveGame(slot = state.currentSaveSlot || 1) {
   const payload = {
     playtest: Fleet.copy(ensurePlaytestState()),
     pendingJourney:state.warp.active?{...Fleet.copy(state.warp),elapsed:Math.max(0,gameNow()-state.warp.startedAt)}:null,
+    warpResume: state.warpResume ? Fleet.copy(state.warpResume) : null,
+    pendingForcedRetreat: state.pendingForcedRetreat ? Fleet.copy({ to: state.pendingForcedRetreat.to, plan: state.pendingForcedRetreat.plan }) : null,
     fleetBook: Fleet.copy(Fleet.compactFinancialBook(fleetBook())),
     sensorVersion: 1, ...snapshotActorSensors(state), sensorArchives: snapshotSensorArchives(),
     savedAt: new Date().toISOString(),
@@ -15458,6 +15480,11 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   state.recoveryAt=savedPhysical?.recoveryMs?loadNow+savedPhysical.recoveryMs:0;
   if(savedPhysical?.weaponCooldowns)state.weaponLastFiredAt=[0,1,2].map(i=>loadNow+(savedPhysical.weaponCooldowns[i]||0)-getScaledWeaponCooldown(state.playership,getWeapon(state.weaponSlots[i])));
   restoreFleetProjectiles();
+  state.warpResume = s.warpResume && typeof s.warpResume === 'object' ? Fleet.copy(s.warpResume) : null;
+  // A forced retreat not yet flown is flown after the load; a scene's engagement window carries on from
+  // the time it had run (the page clock restarts with a new page).
+  state.pendingForcedRetreat = s.pendingForcedRetreat && typeof s.pendingForcedRetreat === 'object' ? { ...Fleet.copy(s.pendingForcedRetreat), atMs: gameNow() + 1500 } : null;
+  for (const e of Encounter.liveEncounters(campaignBook())) if (e.activatedAtMs != null) e.activatedAtMs = gameNow() - Math.max(0, finiteNumber(e.sceneElapsedMs, 0));
   const journey=s.pendingJourney;
   if(journey?.active&&journey.from===state.currentPlanet&&state.planets[journey.to]&&typeof journey.journeyId==='string'&&Number.isInteger(journey.travelDays)&&journey.travelDays>0)state.warp={...journey,startedAt:gameNow()-Math.min(journey.duration,journey.elapsed||0)};
   state.gameStarted = true;
@@ -17002,11 +17029,16 @@ function jumpPlanet() {
   beginWarpTravel(state.selectedPlanet, plan);
 }
 
-function beginWarpTravel(targetIndex, plan) {
+function beginWarpTravel(targetIndex, plan, opts = {}) {
   if (!canFleetDepart()) return false;
+  // A course being flown was interrupted and not resumed: it is dropped for this new one.
+  if (!opts.resume && !opts.retreat) state.warpResume = null;
   captureShipPowerState();
   const from = state.currentPlanet;
   const target = state.planets[targetIndex];
+  // Leaving: the scene's engagements end as the captain goes — decided on the state he leaves them in, on
+  // the day he leaves — before any day of the course passes (STRATEGIC-TACTICAL-HANDOFF §10).
+  if (state.securityLiveSystemIndex != null && Number(state.securityLiveSystemIndex) === Number(from)) { releaseLocalCampaignBattle(); leaveStrategicEncounters(from); }
   state.mapOpen = false;
   syncInterstellarMapFrame();
   closePlanetMenu();
@@ -17022,7 +17054,14 @@ function beginWarpTravel(targetIndex, plan) {
     from,
     to: targetIndex,
     route: plan,
-    travelDays: Fleet.travelDays(plan?.distance ?? plan?.range ?? (plan?.legs || []).reduce((n,l) => n + getRouteWarpDistance(l),0)),
+    // STRATEGIC-TACTICAL-HANDOFF §8: the captain's course is flown leg by leg, each leg its chart length (the
+    // same days every other journey is charged), and every system on the way is reached and crossed.
+    path: (plan?.systems || []).slice(1).map(Number),
+    legDays: routeLegDays(plan),
+    legsDone: 0,
+    crossings: [],
+    kind: opts.retreat ? 'retreat' : opts.resume ? 'resume' : 'course',
+    travelDays: routeLegDays(plan).reduce((n, d) => n + d, 0) || Fleet.travelDays(plan?.distance ?? plan?.range ?? (plan?.legs || []).reduce((n,l) => n + getRouteWarpDistance(l),0)),
     journeyId: Fleet.nextId(fleetBook(), 'journey'),
     startedAt: gameNow(),
     duration: WARP_DURATION_MS,
@@ -17033,12 +17072,13 @@ function beginWarpTravel(targetIndex, plan) {
   playGameSound('warpEnter', { cooldownKey: 'warp:enter' });
   setLog(state.warp.message);
   updateStats();
+  return true;
 }
 
 function completeWarpTravel() {
   if (!state.warp.active) return;
+  advanceCaptainWarpLegs();
   const targetIndex = state.warp.to;
-  advanceFleetCalendar(state.warp.travelDays ?? 1, state.warp.journeyId || Fleet.nextId(fleetBook(),'legacy-journey'));
   state.currentPlanet = targetIndex;
   state.myplanet = state.currentPlanet + 1;
   markSystemVisited(state.currentPlanet);
@@ -17063,7 +17103,8 @@ function completeWarpTravel() {
     const buildMessage = completedBuilds
       ? ` ${completedBuilds} station construction project${completedBuilds === 1 ? '' : 's'} completed.`
       : '';
-    setLog(`${state.log} Arrived at ${p.name}.${buildMessage}`);
+    setLog(state.warp.stop && state.warpResume ? `Dropped out of warp at ${p.name}: ${state.warp.stop.type === 'blockade' ? 'intercepted by the blockade' : state.warp.stop.type === 'predation' ? 'pirates' : 'a battle is being fought here'}. ${state.planets[state.warpResume.destination]?.name} is not reached until the course is resumed.`
+      : `${state.log} Arrived at ${p.name}.${buildMessage}`);
   }
   deliverContractIfPossible();
   checkWinLose();
@@ -17262,8 +17303,9 @@ function updateSecurityOrderPanel() {
     if (visible && ledger && Number(notice.systemIndex) === Number(state.currentPlanet)) state.securityOutcomeNotice = null;
     notice = null;
   }
-  // Phase 4: a pirate's demand, a surrender, or enforcement after a refusal takes the panel first.
-  const doctrinePanel = visible ? localDoctrinePanel() : null;
+  // Phase 4: a pirate's demand, a surrender, or enforcement after a refusal takes the panel first; then an
+  // engagement that stopped the captain's course, and the course waiting to be resumed.
+  const doctrinePanel = visible ? (localDoctrinePanel() || encounterCoursePanel()) : null;
   if (doctrinePanel) {
     securityOrderPanelEl.classList.remove('hidden');
     layoutSecurityOrderPanel();
@@ -17325,6 +17367,8 @@ function updateSecurityOrderPanel() {
       : 'You refused their instruction. Their installations will not receive you until you leave and return.'}</div></div>`;
 }
 securityOrderPanelEl?.addEventListener('click', (e) => {
+  const courseButton = e.target.closest('[data-course-resume]');
+  if (courseButton) { e.preventDefault(); resumeCaptainCourse(); securityOrderPanelEl.dataset.renderKey = ''; updateSecurityOrderPanel(); updateStats(); return; }
   const doctrineButton = e.target.closest('[data-predation-response],[data-enforcement-response]');
   if (doctrineButton) {
     e.preventDefault();
@@ -20198,6 +20242,8 @@ function shouldNpcTargetPlayer(npc, playerDistance, stationTarget, now = gameNow
   // an interceptor with a live engagement order may close in. Neither bypasses the fire gates below.
   if (npc.localPredation && !npc.localPredation.attack && (npc.localPredation.hold || npc.localPredation.standDown) && !(npc.playerAggroUntil > now)) return false;
   if (npc.localEnforcement?.mode === 'engage') return fleetBook().personalCondition !== 'disabled' && playerDistance <= NPC_WEAPON_RANGE * 1.25;
+  // A strategic contact handed to the scene against the captain (a blockade's interceptors): they close in.
+  if (npc.encounterVsPlayer && !npc.encounterClosed && encounterIsActive(npc.encounterId)) return fleetBook().personalCondition !== 'disabled';
   if (getFactionStanding(npc.faction) <= -50) return true;
   if (normalizeFactionKey(npc.faction) === 'pirate' && (state.shields < 35 || state.hull < 50)) {
     return playerDistance <= NPC_WEAPON_RANGE * 1.5;
@@ -20406,7 +20452,8 @@ function updateFleetAttacks(now = gameNow()) {
   // Raids are launched once by the saved system activity, not by an endless wall-clock timer.
   const attack = state.activeFleetAttack;
   if (!attack || Number(attack.systemIndex) !== Number(state.currentPlanet)) return;
-  const attackers = state.npcShips.filter((npc) => !npc.destroyed && !npc.surrendered && npc.attackId === attack.id); // a crew that struck is out of the attack
+  // A crew that struck is out of the attack, and so is a disabled hulk: neither can fight (PHASE 3/4; STRATEGIC-TACTICAL-HANDOFF §12).
+  const attackers = state.npcShips.filter((npc) => !npc.destroyed && !npc.surrendered && npc.condition !== 'disabled' && npc.attackId === attack.id);
   if (!attackers.length) {
     if (nextCampaignWave()) return;
     getSystemActivity().outcome='repelled';
@@ -20671,7 +20718,7 @@ function updateNpcShips(frameScale = 1) {
     const stationTarget = npc.hostile && !(npc.localPredation && localPredationTarget(npc)) ? getNpcStationTarget(npc) : null;
     const targetPlayer = (npc.hostile || npc.localEnforcement?.mode === 'engage') && shouldNpcTargetPlayer(npc, playerDistance, stationTarget, now);
     const groupOrder=npc.fleetId&&fleetBook().formations.find(g=>g.members.includes(npc.fleetId))?.order;
-    const defenseTarget = ['hold','withdraw'].includes(groupOrder)?null:getNpcDefenseTarget(npc);
+    const defenseTarget = ['hold','withdraw'].includes(groupOrder)?null:(getNpcDefenseTarget(npc) || getEncounterFoe(npc));
     const escortTarget = npc.fleetId || isPlayerEscortNpc(npc) ? getPlayerEscortPriorityTarget(npc, now) : null;
     ensureNpcPower(npc).combat = Boolean(escortTarget || defenseTarget || targetPlayer || stationTarget);
     let combatActive = false;
@@ -22546,7 +22593,7 @@ function drawMapLegend() {
   ctx.fillStyle = plan?.legs?.length ? (rangeStatus?.canTravel ? '#ffd66e' : '#ffb0b0') : '#9fb2d0';
   ctx.font = canvasUiFont(12);
   drawFittedMapText(`${cost}    First click plots | Second click warps`, boxX + 14, boxY + 75, boxW - 28);
-  const days=plan?.legs?.length?Fleet.travelDays(plan.distance):0;
+  const days=plan?.legs?.length?fleetTradeRouteDays(plan):0; // what the course is charged: its legs, day by day, as flown
   const daily=state.playerFleet.filter(f=>!f.destroyed).reduce((sum,f)=>sum+upkeepPerDay(f.shipId),0);
   drawFittedMapText(`${days} travel days | Current fleet upkeep ${daily*days} L (deliveries add upkeep on following days)`,boxX+14,boxY+95,boxW-28);
   ctx.restore();
@@ -25272,6 +25319,8 @@ function resetRunState() {
   state.starChart.zoom = STAR_CHART_DEFAULT_ZOOM;
   state.starChart.dragging = false;
   state.starChart.suppressClick = false;
+  state.warpResume = null;
+  state.pendingForcedRetreat = null;
   state.warp = {
     active: false,
     from: null,
@@ -25356,6 +25405,8 @@ function restartInEscapePod() {
   state.dockedStationId = null;
   state.mymenu = 0;
   state.cargopanel = 0;
+  state.warpResume = null;
+  state.pendingForcedRetreat = null;
   state.warp = {
     active: false,
     from: null,
@@ -27182,6 +27233,8 @@ function applyCampaignEffects(effects, day = state.day) {
         break;
       }
       case 'operationResolved': {
+        // Fought in the scene: the encounter's own report is the battle report — never a second one.
+        if (e.encounterId) break;
         const attacker = campaignFactionKeyFor(e.faction);
         const place = state.planets[e.targetSystem]?.name;
         const outcome = { captured: 'seized the world', destroyed: 'were destroyed', withdrew: 'withdrew after losses', 'stood-down': 'broke off the operation' }[e.outcome] || e.outcome;
@@ -27203,6 +27256,13 @@ function applyCampaignEffects(effects, day = state.day) {
           fleet: (est) => (settled ? `Our ships off ${place} report the attacking force standing down.` : `Our ships off ${place} report the action there is over.${intelAttribution(est)} Losses not established.`),
           rumour: (est) => (settled ? `Traders report the force that was gathering near ${place} has dispersed.` : `Traders report the fighting near ${place} has ended.${intelAttribution(est)} Outcome unconfirmed.`),
         });
+        break;
+      }
+      case 'encounterResolved': reportStrategicEncounter(e, day); break;
+      case 'encounterFallback': {
+        const enc = Encounter.encounterById(campaignBook(), e.id);
+        localDoctrineRecord('encounter-fallback', { id: e.id, type: e.encounterType, reason: e.reason });
+        if (enc && Number(enc.system) === Number(state.currentPlanet)) setLog(`${state.planets[enc.system]?.name}: the engagement could not be fought here (${e.reason}); it was settled strategically.`);
         break;
       }
       case 'dominionWarning': {
@@ -27387,11 +27447,31 @@ function spawnCampaignOperation(op, hulls, wave = 0) {
     ensureNpcCombatStats(npc);
     if (Number.isFinite(npc.maxCombatHull) && npc.maxCombatHull > 0 && h.maxHull > 0) npc.combatHull = Math.max(1, Math.round(npc.maxCombatHull * clamp(h.hull / h.maxHull, 0.05, 1)));
     npc.campaignHullId = h.id;
+    // The same hull, the same vessel, in the encounter that owns this battle.
+    const enc = Encounter.liveEncounterFor(campaignBook(), 'operation', op.id);
+    if (enc) { npc.encounterId = enc.id; npc.encounterRef = h.id; npc.encounterSide = 'attacker'; }
+    npc.vid = identity.vid || h.id;
     return npc;
   });
   if (!ships.length) return false;
+  // The world's actual defenders appear with the first wave — the same hulls the offscreen model would
+  // have counted, and never an abstract strength beside them.
+  const defenderShips = [];
+  if (wave === 0) {
+    const enc = Encounter.liveEncounterFor(campaignBook(), 'operation', op.id);
+    const defenders = enc ? enc.participants.filter((p) => p.side === 'defender' && p.spawn && !p.engineOwned) : [];
+    const anchor = state.systemPlanet || playerWorldPosition();
+    defenders.forEach((p, i) => { const d = spawnEncounterParticipant(enc, p, i, defenders.length, { x: anchor.x, y: anchor.y }, false); if (d) defenderShips.push(d); });
+  }
   for (const h of batch) op.spawnedHullIds.push(h.id);
-  state.npcShips.push(...ships);
+  state.npcShips.push(...ships, ...defenderShips);
+  // What the scene actually holds is what the encounter records as seen: wave by wave, never a later wave
+  // or a defender that could not be placed.
+  const encNow = Encounter.liveEncounterFor(campaignBook(), 'operation', op.id);
+  if (encNow) {
+    const add = [...ships, ...defenderShips].map((n) => encNow.participants.find((p) => String(p.ref) === String(n.encounterRef))?.vid || n.vid).filter(Boolean);
+    encNow.spawned = [...new Set([...(encNow.spawned || []), ...add])];
+  }
   state.activeFleetAttack = { id: attackId, systemIndex, faction: attackerFaction, startedAt: gameNow(), size: ships.length, campaignOpId: op.id, wave, remaining: pending.length - batch.length };
   state.fleetAttackControlSince = 0;
   recordLocalIntel();
@@ -27403,13 +27483,41 @@ function spawnCampaignOperation(op, hulls, wave = 0) {
 function maybeMaterializeCampaignOperation() {
   if (state.activeFleetAttack || state.warp.active || !state.gameStarted || state.gameOver) return;
   const book = campaignBook();
-  const op = book.operations.find((o) => o.status === 'engaged' && Number(o.targetSystem) === Number(state.currentPlanet) && !o.resolvedBy);
+  // A battle here the scene has not taken up yet: engaged and unclaimed, or handed off by the model while
+  // the captain was here (its encounter still pending).
+  const pendingOf = (o) => { const e = Encounter.liveEncounterFor(book, 'operation', o.id); return e && e.status === 'pending' ? e : null; };
+  const op = book.operations.find((o) => o.status === 'engaged' && Number(o.targetSystem) === Number(state.currentPlanet) && (!o.resolvedBy || (o.resolvedBy === 'local' && pendingOf(o))) && !Campaign.fellBackToday(o, state.day));
   if (!op) return;
-  if (campaignPolityIdFor(getSystemControl(state.currentPlanet).polityId) === op.faction) return; // already held: the model absorbs it
-  const claim = Campaign.claimOperationForScene(book, op.id);
+  if (campaignPolityIdFor(getSystemControl(state.currentPlanet).polityId) === op.faction) {
+    // Already held: the model absorbs it — a handoff waiting on the scene goes back to the model once.
+    const e = pendingOf(op);
+    if (e) { const effects = []; Campaign.fallbackEncounterNow(book, buildCampaignWorld(true), e.id, state.day, effects, 'the world is already held by the attacker'); applyCampaignEffects(effects, state.day); }
+    return;
+  }
+  const world = buildCampaignWorld(true);
+  // A ceasefire (or peace) before contact: no attack at all. The model stands the operation down.
+  if (!Campaign.operationIsAuthorised(book, world, op)) {
+    const e = pendingOf(op);
+    if (e) { Encounter.abortEncounter(book, e.id, state.day, 'the war ended before contact', Campaign.encounterHullLookup(book)); Encounter.bumpEncounterStat(book, 'staleSuppressed'); }
+    return;
+  }
+  const handedOff = Boolean(pendingOf(op)); // the model skipped today's battle for the scene
+  const claim = Campaign.claimOperationForScene(book, op.id, world, state.day);
   if (!claim) return;
   op.spawnedHullIds = []; // a fresh claim: every surviving hull of the operation is present again
-  if (!spawnCampaignOperation(op, claim.hulls, 0)) { op.resolvedBy = null; }
+  if (!spawnCampaignOperation(op, claim.hulls, 0) || globalThis.__bm1FailEncounterScene) {
+    // No scene could be made: the offscreen model resolves this battle, once, and the fallback is recorded.
+    for (const n of state.npcShips) if (n.encounterId && n.encounterId === claim.encounter?.id) n.encounterGone = true;
+    state.npcShips = state.npcShips.filter((n) => !(claim.encounter && n.encounterId === claim.encounter.id));
+    if (state.activeFleetAttack?.campaignOpId === op.id) state.activeFleetAttack = null;
+    const effects = [];
+    // A battle the model handed off today falls back to it once; one the model was already fighting
+    // offscreen (a fresh claim) simply goes back to it — today's battle day was already resolved.
+    if (claim.encounter && handedOff) Campaign.fallbackEncounterNow(book, world, claim.encounter.id, state.day, effects, globalThis.__bm1FailEncounterScene ? 'scene creation refused (test)' : 'no ship could be placed in the scene');
+    else { if (claim.encounter) Encounter.abortEncounter(book, claim.encounter.id, state.day, 'the scene could not be made', Campaign.encounterHullLookup(book)); op.resolvedBy = null; }
+    applyCampaignEffects(effects, state.day);
+    campaignWorldCache = null;
+  }
 }
 // When a wave is wiped out but the operation still has unspawned hulls, the next wave arrives
 // instead of the attack being declared repelled.
@@ -27432,15 +27540,26 @@ function nextCampaignWave() {
 function campaignSurvivorReport(op) {
   const book = campaignBook();
   const record = book.polities[op.faction]?.hulls || [];
-  return op.hullIds.map((id) => {
+  const npcOf = (id) => (state.npcShips || []).find((n) => n.campaignHullId === id) || null;
+  const fateOf = (npc) => npc.surrendered ? 'surrendered' : npc.condition === 'disabled' ? 'disabled' : null;
+  const out = op.hullIds.map((id) => {
     const h = record.find((x) => x.id === id);
     if (!h || h.status === 'lost') return null;
     if (!(op.spawnedHullIds || []).includes(id)) return { hullId: id, destroyed: false, hull: h.hull };
-    const npc = (state.npcShips || []).find((n) => n.campaignHullId === id);
+    const npc = npcOf(id);
     if (!npc || npc.destroyed) return { hullId: id, destroyed: true, hull: 0 };
     const fraction = npc.maxCombatHull > 0 ? clamp(npc.combatHull / npc.maxCombatHull, 0, 1) : 1;
-    return { hullId: id, destroyed: false, hull: fraction * h.maxHull };
+    return { hullId: id, destroyed: false, hull: fraction * h.maxHull, fate: fateOf(npc), vid: npc.vid || null, to: npc.surrendered?.to || null };
   }).filter(Boolean);
+  // The defenders that were in the scene, the same way (STRATEGIC-TACTICAL-HANDOFF §7).
+  const enc = Encounter.liveEncounterFor(book, 'operation', op.id);
+  for (const p of enc ? enc.participants.filter((x) => x.side === 'defender' && x.spawn && !x.engineOwned) : []) {
+    const npc = (state.npcShips || []).find((n) => n.encounterId === enc.id && n.encounterRef === p.ref);
+    if (!npc) continue;
+    const fraction = npc.maxCombatHull > 0 ? clamp(npc.combatHull / npc.maxCombatHull, 0, 1) : 1;
+    out.push(npc.destroyed ? { hullId: p.hullId, destroyed: true, hull: 0, vid: npc.vid } : { hullId: p.hullId, destroyed: false, hull: fraction * (Number(p.before?.maxHull) || 1), fate: fateOf(npc), vid: npc.vid || null });
+  }
+  return out;
 }
 function reconcileLocalCampaignBattle(outcome) {
   const attack = state.activeFleetAttack;
@@ -27470,8 +27589,503 @@ function releaseLocalCampaignBattle() {
   const book = campaignBook();
   const op = book.operations.find((o) => o.id === attack.campaignOpId);
   if (!op) return;
-  Campaign.releaseOperationFromScene(book, op.id, campaignSurvivorReport(op));
+  Campaign.releaseOperationFromScene(book, op.id, campaignSurvivorReport(op), buildCampaignWorld(true), state.day);
   op.spawnedHullIds = [];
+}
+// ===================================================================================================
+// STRATEGIC ↔ TACTICAL ENCOUNTERS (STRATEGIC-TACTICAL-HANDOFF). A contact the strategic layer decided —
+// a blockade interception, a raid's strike, a pirate attack, an enforcement strike, a battle — that
+// happens where the captain actually is, is fought here, in the loaded scene, with the same persistent
+// vessels (their vids, hulls, crews, sides, orders). The encounter record (src/strategic-encounter.mjs)
+// owns the resolution while it is live: nothing resolves it abstractly in parallel, and the scene hands
+// back exactly one result, written onto the same records.
+const ENCOUNTER_WINDOW_MS = 60000;        // how long an engagement is fought before it is decided on the state it has reached
+const ENCOUNTER_FORCED_BACK_HULL = 35;    // the captain's hull (%) at which a blockade drives him back
+const ENCOUNTER_RUNNER_HOLD = 0.5;        // AI runners' mean hull fraction below which they are forced back
+function encounterById(id) { return Encounter.encounterById(campaignBook(), id); }
+function liveEncountersHere() { return Encounter.liveEncounters(campaignBook(), state.currentPlanet); }
+function encounterIsActive(id) { const e = id ? encounterById(id) : null; return Boolean(e && e.status === 'tactical_active' && Number(e.system) === Number(state.currentPlanet)); }
+function encounterNpcs(enc) { return (state.npcShips || []).filter((n) => n.encounterId === enc.id); }
+function encounterNpcFor(enc, p) { return (state.npcShips || []).find((n) => n.encounterId === enc.id && n.encounterRef === p.ref) || null; }
+function encounterNpcOut(n) { return !n || n.destroyed || n.surrendered || n.condition === 'disabled' || n.trafficWarp?.phase === 'away' || n.encounterGone; }
+function encounterNpcFate(n) {
+  if (!n || n.destroyed) return 'destroyed';
+  if (n.surrendered) return 'surrendered';
+  if (n.condition === 'disabled') return 'disabled';
+  if (n.trafficWarp?.phase === 'away' || n.encounterGone) return 'escaped';
+  const frac = n.maxCombatHull > 0 ? n.combatHull / n.maxCombatHull : 1;
+  return frac < 0.999 ? 'damaged' : 'survived';
+}
+function encounterSideOf(enc, side) { return enc.participants.filter((p) => p.side === side); }
+function encounterFaction(p) { return p.polity === 'pirate' || p.pirateGroupId ? 'pirate' : campaignFactionKeyFor(p.polity); }
+// The same hull, the same ship: class, name and seed from its identity; its hull as a share of the
+// scene's durability for that class; its side and its owner; its cloak where the class has one.
+function spawnEncounterParticipant(enc, p, index, count, anchor, towardPlayer) {
+  const book = campaignBook();
+  let h = null, g = null, shipId = p.shipId, name = p.name, seed = hashString(`${enc.id}:${p.ref}`);
+  if (p.pirateGroupId) {
+    g = book.doctrine?.pirates?.[p.pirateGroupId];
+    if (!g || g.status === 'lost') return null;
+    // Pirates have no yard of their own: the group flies a hull taken from the independent traffic, chosen
+    // once (by the group) and kept on its record, so every scene shows the same vessel.
+    g.shipId ??= getNpcShipIdForFaction('pirate', hashString(g.id), 'patrol') ?? getNpcShipIdForFaction('neutral', hashString(g.id), 'patrol') ?? getNpcShipId(hashString(g.id), 'traffic');
+    shipId = g.shipId; name = g.name; seed = hashString(g.vid);
+  } else {
+    h = book.polities[p.polity]?.hulls.find((x) => x.id === p.hullId);
+    if (!h || h.status === 'lost' || Campaign.hullIsDisabled(h) || h.status === 'surrendered') return null;
+    const identity = factionHullIdentity(h, p.polity);
+    shipId = h.shipId; name = identity?.name || name; seed = identity?.seed ?? seed;
+  }
+  if (shipId == null || !getShipStats(shipId)) return null;
+  const faction = encounterFaction(p);
+  const angle = (index / Math.max(1, count)) * Math.PI * 2 + seeded(seed + 5) * 0.4;
+  const r = towardPlayer ? NPC_WEAPON_RANGE * (1.6 + seeded(seed + 7) * 0.5) : 900 + seeded(seed + 9) * 300;
+  const from = { x: anchor.x + Math.cos(angle) * r, y: anchor.y + Math.sin(angle) * r };
+  const hostileToPlayer = enc.playerHostile && ['blockader', 'attacker', 'pirate', 'enforcer'].includes(p.side);
+  const npc = createNpcShip({ id: `enc-${String(enc.id).split(':').pop()}-${index}`, shipId, faction, attitude: hostileToPlayer ? 'hostile' : 'neutral', hostile: hostileToPlayer, seed, name,
+    from, destination: { x: anchor.x, y: anchor.y }, destinationName: `engagement: ${enc.type}`, role: p.side === 'defender' ? 'patrol' : 'encounter' });
+  ensureNpcCombatStats(npc);
+  const before = p.before || {};
+  const frac = g ? g.hull / Math.max(1, g.maxHull) : h.hull / Math.max(1, h.maxHull);
+  if (Number.isFinite(npc.maxCombatHull) && npc.maxCombatHull > 0) npc.combatHull = Math.max(1, Math.round(npc.maxCombatHull * clamp(frac, 0.05, 1)));
+  if (h) npc.campaignHullId = h.id;
+  if (g) npc.pirateGroupId = g.id;
+  npc.vid = p.vid || (g ? g.vid : h.identity?.vid || h.id);
+  npc.encounterId = enc.id; npc.encounterRef = p.ref; npc.encounterSide = p.side; npc.encounterVsPlayer = hostileToPlayer;
+  npc.identityLocked = true;
+  // The crew the record carries, where the scene models one (it never adds people who are not there).
+  if (h && h.crew != null && npc.crew && typeof npc.crew === 'object' && Number.isFinite(npc.crew.complement)) npc.crew.aboard = Math.round(npc.crew.complement * clamp(Number(h.crew), 0, 1));
+  if (before.cloak === false || (p.cloak === false)) npc.cloakDisabled = true;
+  return npc;
+}
+function encounterAnchor(enc) {
+  if (enc.captain || enc.playerHostile) { const pos = playerWorldPosition(); return { x: pos.x, y: pos.y }; }
+  const target = state.stations.find((st) => !st.destroyed) || state.systemPlanet || playerWorldPosition();
+  return { x: target.x, y: target.y };
+}
+// Is the contact still one anyone may fight? A war that ended before contact, a blockade that is gone,
+// a raid whose authority lapsed: the encounter is called off, nothing is fought, nothing lands.
+function encounterStillValid(enc) {
+  const book = campaignBook(), world = buildCampaignWorld(true);
+  if (enc.type === 'blockade') { const b = (book.blockades || []).find((x) => x.id === enc.objective.ref); return b && b.status === 'active' && (enc.sides?.b === PLAYER_SIDE ? Campaign.blockadeApplies(book, world, b, PLAYER_SIDE) : Campaign.blockadeApplies(book, world, b, enc.sides?.b)) ? null : 'the blockade no longer bears on the runner'; }
+  if (enc.type === 'raid') { const o = (book.doctrine?.objectives || []).find((x) => x.id === enc.objective.ref); if (!o || o.status !== 'active') return 'the raid is over'; return Campaign.warAuthorityHolds(book, world, o.authority?.stamp) ? null : 'the war ended before contact'; }
+  if (enc.type === 'predation' || enc.type === 'enforcement') { const o = (book.doctrine?.objectives || []).find((x) => x.id === enc.objective.ref); return o && o.status === 'active' ? null : 'the objective is closed'; }
+  return null;
+}
+function spawnStrategicEncounter(enc) {
+  const book = campaignBook();
+  const invalid = encounterStillValid(enc);
+  if (invalid) {
+    Encounter.abortEncounter(book, enc.id, state.day, invalid, Campaign.encounterHullLookup(book));
+    Encounter.bumpEncounterStat(book, 'staleSuppressed');
+    setLog(`${state.planets[enc.system]?.name || 'Here'}: the engagement was called off — ${invalid}.`);
+    return false;
+  }
+  const want = enc.participants.filter((p) => p.spawn && !p.engineOwned);
+  const anchor = encounterAnchor(enc);
+  const ships = [];
+  want.forEach((p, i) => { const npc = spawnEncounterParticipant(enc, p, i, want.length, anchor, enc.captain || enc.playerHostile); if (npc) ships.push(npc); });
+  // The scene could not make the ships (a class it has no model for, a record gone): the strategic
+  // resolver runs for this contact exactly once, and the fallback is recorded.
+  const hostileSides = new Set(['blockader', 'attacker', 'pirate', 'enforcer']);
+  const needed = enc.captain ? ships.some((n) => hostileSides.has(n.encounterSide)) : new Set(ships.map((n) => n.encounterSide)).size >= 2 || (enc.playerHostile && ships.length > 0);
+  if (!ships.length || globalThis.__bm1FailEncounterScene || !needed) {
+    const effects = [];
+    Campaign.fallbackEncounterNow(book, buildCampaignWorld(true), enc.id, state.day, effects, !ships.length ? 'no ship could be placed in the scene' : globalThis.__bm1FailEncounterScene ? 'scene creation refused (test)' : 'only one side could be placed in the scene');
+    applyEncounterFallbackToCaptain(enc, effects);
+    applyCampaignEffects(effects, state.day);
+    campaignWorldCache = null;
+    return false;
+  }
+  state.npcShips.push(...ships);
+  Encounter.activateEncounter(book, enc.id, state.day, ships.map((n) => n.vid));
+  enc.activatedAtMs = gameNow();
+  enc.spawnedAtClock = Math.round(localDoctrine().clockMs);
+  recordLocalIntel();
+  const place = state.planets[enc.system]?.name || 'this system';
+  const heads = { blockade: enc.captain ? `Intercepted at ${place}: ${ships.length} blockading ship${ships.length === 1 ? '' : 's'} closing` : `A blockade intercepts ships crossing ${place}`,
+    raid: `Raider attacking ${place}`, predation: enc.captain ? `Pirates close in at ${place}` : `Pirates attacking a ship at ${place}`, enforcement: `Enforcement action at ${place}` };
+  if (heads[enc.type]) setLog(`${heads[enc.type]}.`);
+  return true;
+}
+// What the scene did, participant by participant, as the encounter's report: the same vid for the same
+// ship, its fate, and its hull as a share of its record's hull.
+function encounterReport(enc) {
+  const participants = {};
+  // A scene holding none of the encounter's ships says nothing about them (never "missing, so destroyed").
+  if (!encounterNpcs(enc).length) return participants;
+  for (const p of enc.participants) {
+    if (p.engineOwned || !p.spawn) continue;
+    const n = encounterNpcFor(enc, p);
+    if (!n) { if ((enc.spawned || []).includes(p.vid)) participants[p.ref] = { fate: 'destroyed', hull: 0, vid: p.vid }; continue; }
+    const frac = n.maxCombatHull > 0 ? clamp(n.combatHull / n.maxCombatHull, 0, 1) : 1;
+    const max = Number(p.before?.maxHull) || 1;
+    const fate = encounterNpcFate(n);
+    participants[p.ref] = { fate, hull: fate === 'destroyed' ? 0 : Math.round(frac * max * 10) / 10, vid: n.vid, to: fate === 'surrendered' ? (n.surrendered?.to || null) : null, acceptedBy: n.surrendered?.acceptedBy || null };
+  }
+  return participants;
+}
+function sideFrac(enc, side) {
+  const list = encounterSideOf(enc, side).filter((p) => p.spawn && !p.engineOwned).map((p) => encounterNpcFor(enc, p)).filter((n) => n && !encounterNpcOut(n));
+  if (!list.length) return 0;
+  return list.reduce((a, n) => a + (n.maxCombatHull > 0 ? n.combatHull / n.maxCombatHull : 1), 0) / list.length;
+}
+function sideOut(enc, side) { return encounterSideOf(enc, side).filter((p) => p.spawn && !p.engineOwned).every((p) => encounterNpcOut(encounterNpcFor(enc, p))); }
+function sideAllBeaten(enc, side) { return encounterSideOf(enc, side).filter((p) => p.spawn && !p.engineOwned).every((p) => { const n = encounterNpcFor(enc, p); return !n || n.destroyed || n.surrendered || n.condition === 'disabled'; }); }
+// The rule that decides a live engagement, per family. Returns null while it is still being fought.
+function encounterDecision(enc, { leaving = false } = {}) {
+  const elapsed = gameNow() - finiteNumber(enc.activatedAtMs, gameNow());
+  const timeUp = elapsed >= ENCOUNTER_WINDOW_MS || leaving;
+  if (enc.type === 'blockade') {
+    if (enc.captain) {
+      if (leaving) return { outcome: 'escaped', note: 'the captain broke away' };
+      if (sideOut(enc, 'blockader')) return { outcome: sideAllBeaten(enc, 'blockader') ? 'broken' : 'passed', note: 'the interceptors are out of the fight' };
+      if (state.hull < ENCOUNTER_FORCED_BACK_HULL || fleetBook().personalCondition === 'disabled') return { outcome: 'forced_back', note: `hull ${Math.round(state.hull)}%: driven back` };
+      if (timeUp) return { outcome: 'passed', note: 'held them off: the interceptors broke off' };
+      return null;
+    }
+    if (sideOut(enc, 'runner')) return { outcome: 'forced_back', note: 'the runners are out of the fight' };
+    if (sideOut(enc, 'blockader')) return { outcome: sideAllBeaten(enc, 'blockader') ? 'broken' : 'passed' };
+    if (timeUp) return { outcome: sideFrac(enc, 'runner') >= ENCOUNTER_RUNNER_HOLD ? 'passed' : 'forced_back', note: leaving ? 'decided on the state the captain left' : 'the engagement ran its course' };
+    return null;
+  }
+  if (enc.type === 'raid') {
+    const raider = encounterSideOf(enc, 'attacker')[0];
+    const n = raider && encounterNpcFor(enc, raider);
+    if (encounterNpcOut(n)) return { outcome: encounterNpcFate(n) === 'escaped' ? 'withdrew' : 'repelled' };
+    if (sideOut(enc, 'defender') || timeUp) return { outcome: leaving && !sideOut(enc, 'defender') ? 'disengaged' : 'struck' };
+    return null;
+  }
+  if (enc.type === 'predation') {
+    if (enc.captain) return null; // the captain's own demand is decided by the demand itself (closeLocalPredation)
+    if (sideOut(enc, 'target') || sideOut(enc, 'pirate') || timeUp) return { outcome: 'fought' };
+    return null;
+  }
+  if (enc.type === 'enforcement') {
+    if (sideOut(enc, 'target') || sideOut(enc, 'enforcer') || timeUp) return { outcome: 'fought' };
+    return null;
+  }
+  return null;
+}
+function resolveStrategicEncounter(enc, decision, extra = {}) {
+  const book = campaignBook();
+  const effects = [];
+  const participants = encounterReport(enc);
+  const result = { ...decision, ...extra };
+  const r = Campaign.resolveEncounterNow(book, buildCampaignWorld(true), enc.id, { result, participants }, state.day, effects);
+  // Ships whose fight is over leave the scene's engagement: survivors keep their records (and, if still
+  // here, simply stop being part of it).
+  for (const n of encounterNpcs(enc)) { n.encounterClosed = true; n.encounterVsPlayer = false; if (!n.destroyed && !n.surrendered) { n.hostile = false; n.playerAggroUntil = 0; } }
+  applyCampaignEffects(effects, state.day);
+  campaignWorldCache = null;
+  afterEncounterResolved(enc, result);
+  return r;
+}
+// The fallback, for the captain's own interception: the strategic run's damage lands on his ship and
+// escorts exactly as a formation's would.
+function applyEncounterFallbackToCaptain(enc, effects) {
+  if (!enc.captain || enc.type !== 'blockade') return;
+  const run = effects.find((e) => e.type === 'blockadeRun' && e.encounterId === enc.id && !e.tactical);
+  if (!run) return;
+  const me = (run.hulls || []).find((x) => x.hullId === 'captain');
+  if (me && Number(me.hull) < Number(me.before)) state.hull = clamp(Number(me.hull), 1, 100);
+  applyRunToFleet(run, enc.system);
+  run.engineApplied = true;
+  afterEncounterResolved(enc, { outcome: run.continues ? 'passed' : 'forced_back', strategic: true });
+}
+function afterEncounterResolved(enc, result) {
+  if (!enc.captain) return;
+  const resume = state.warpResume;
+  if (resume && resume.encounterId === enc.id) {
+    resume.ready = result.outcome !== 'forced_back';
+    resume.decided = result.outcome;
+    if (result.outcome === 'forced_back') {
+      // Driven back: the rest of the course is off; the captain falls back to where he came from.
+      const back = resume.previous;
+      state.warpResume = null;
+      if (back != null && Number(back) !== Number(state.currentPlanet)) {
+        setLog(`Forced back at ${state.planets[enc.system]?.name}: falling back to ${state.planets[back]?.name}.`);
+        const plan = getPlottedRoute(state.currentPlanet, back) || null;
+        if (plan && plan.legs.length) { state.pendingForcedRetreat = { to: back, atMs: gameNow() + 1500, plan }; }
+      }
+    } else if (resume.final || !(resume.path || []).length) state.warpResume = null; // he was at his destination: nothing to resume
+    else setLog(`${state.planets[enc.system]?.name}: the way to ${state.planets[resume.destination]?.name} is open. Resume course when ready.`);
+  }
+}
+// Every way an interruption can end (fought, fallen back, called off) leaves the course either ready to
+// resume or dropped: never waiting on an engagement that is over.
+function reconcileCaptainCourse() {
+  const r = state.warpResume;
+  if (!r || r.ready) return;
+  const book = campaignBook();
+  const enc = r.encounterId ? Encounter.encounterById(book, r.encounterId) : null;
+  if (enc && Encounter.isLive(enc)) return;
+  if (!r.encounterId && r.stopType === 'operation' && (book.operations || []).some((o) => o.id === r.opId && o.status === 'engaged' && (o.resolvedBy === 'local' || Encounter.liveEncounterFor(book, 'operation', o.id)))) return;
+  if (r.final || !(r.path || []).length) { state.warpResume = null; return; }
+  r.ready = true; r.decided ||= enc ? (enc.result?.outcome || enc.status) : 'over';
+}
+function updateStrategicEncounters() {
+  if (!state.gameStarted || state.gameOver || state.warp.active) return;
+  reconcileCaptainCourse();
+  if (state.pendingForcedRetreat && gameNow() >= state.pendingForcedRetreat.atMs) {
+    const r = state.pendingForcedRetreat; state.pendingForcedRetreat = null;
+    // Not able to depart yet (disabled, boarding): the retreat waits, it is not dropped.
+    if (!beginWarpTravel(r.to, r.plan, { retreat: true, free: true })) state.pendingForcedRetreat = { ...r, atMs: gameNow() + 5000 };
+    return;
+  }
+  const book = campaignBook();
+  if (!(book.encounters || []).length) return;
+  for (const enc of liveEncountersHere()) {
+    if (enc.type === 'operation') continue; // operations use the wave machinery below (maybeMaterializeCampaignOperation)
+    if (enc.status === 'pending') {
+      if (enc.type === 'predation' && enc.captain) {
+        const invalid = encounterStillValid(enc);
+        if (invalid) { Encounter.abortEncounter(book, enc.id, state.day, invalid, Campaign.encounterHullLookup(book)); continue; }
+        if (!spawnCaptainPredation(enc)) { const effects = []; Campaign.fallbackEncounterNow(book, buildCampaignWorld(true), enc.id, state.day, effects, localDoctrine().predation ? 'another demand is already open' : 'no pirate ship could be placed in the scene'); applyCampaignEffects(effects, state.day); }
+        continue;
+      }
+      spawnStrategicEncounter(enc); continue;
+    }
+    // Live but nobody in the scene (a reload into a new cycle): the fight restarts from the records, which
+    // have not been touched since contact.
+    if (enc.type === 'predation' && enc.captain) {
+      // Reloaded without the demand in the scene: it was never answered here, so it lapses (no abstract attack).
+      if (!localDoctrine().predation || localDoctrine().predation.encounterId !== enc.id) { if (!encounterNpcs(enc).length) resolveStrategicEncounter(enc, { outcome: 'escaped', note: 'the demand lapsed with the scene' }); }
+      continue;
+    }
+    if (!encounterNpcs(enc).length) { enc.status = 'pending'; enc.history.push({ day: state.day, event: 'respawned', detail: 'scene reloaded without its ships: restarted from contact' }); spawnStrategicEncounter(enc); continue; }
+    enc.activatedAtMs ??= gameNow();
+    enc.sceneElapsedMs = Math.max(0, gameNow() - enc.activatedAtMs); // saved: the window survives a reload
+    const d = encounterDecision(enc);
+    if (d) resolveStrategicEncounter(enc, d);
+  }
+}
+// The captain leaves (or the scene is being replaced): a contact not yet in the scene falls back to the
+// strategic resolver once; one being fought is decided on the state it reached, written back, and the
+// strategic layer carries on from there.
+function leaveStrategicEncounters(systemIndex) {
+  const book = campaignBook();
+  for (const enc of Encounter.liveEncounters(book, systemIndex)) {
+    if (enc.type === 'operation') {
+      // A battle the scene is fighting as a fleet attack is handed back by releaseLocalCampaignBattle (with
+      // the survivors as they stand); one never taken up falls back to the model once; any other ends here.
+      if (state.activeFleetAttack?.campaignOpId === enc.objective.ref && enc.status === 'tactical_active') continue;
+      if (enc.status === 'pending') { const effects = []; Campaign.fallbackEncounterNow(book, buildCampaignWorld(true), enc.id, state.day, effects, 'the captain left before contact'); applyCampaignEffects(effects, state.day); continue; }
+      resolveStrategicEncounter(enc, { outcome: 'disengaged', note: 'the captain left' });
+      continue;
+    }
+    if (enc.status === 'pending') {
+      const effects = [];
+      Campaign.fallbackEncounterNow(book, buildCampaignWorld(true), enc.id, state.day, effects, 'the captain left before contact');
+      applyEncounterFallbackToCaptain(enc, effects);
+      applyCampaignEffects(effects, state.day);
+      continue;
+    }
+    if (enc.type === 'predation' && enc.captain) {
+      const ld = localDoctrine();
+      if (ld.predation?.encounterId === enc.id) { closeLocalPredation(ld.predation, 'target_escaped', 'the captain left the system'); continue; }
+    }
+    const d = encounterDecision(enc, { leaving: true }) || { outcome: 'disengaged' };
+    resolveStrategicEncounter(enc, d);
+  }
+  campaignWorldCache = null;
+}
+// NPC targeting: the other side of the same engagement.
+function getEncounterFoe(npc) {
+  if (!npc?.encounterId || npc.encounterClosed || npc.surrendered || npc.condition === 'disabled') return null;
+  if (!encounterIsActive(npc.encounterId)) return null;
+  return getLivingNpcShips().filter((t) => t !== npc && t.encounterId === npc.encounterId && !t.encounterClosed && t.encounterSide && t.encounterSide !== npc.encounterSide && !t.surrendered && t.condition !== 'disabled' && sensorCanTrack(npc, t))
+    .map((t) => ({ t, d: sensorDistance(npc, sensorKnownPosition(npc, t)) })).sort((a, b) => a.d - b.d)[0]?.t || null;
+}
+// ---- the captain crossing a system on his course (STRATEGIC-TACTICAL-HANDOFF §8) ----
+function captainRunner(key) {
+  const me = { hullId: 'captain', vid: ensurePersonalIdentity().vid, shipId: Number(state.playership), hull: clamp(finiteNumber(state.hull, 100), 0, 100), maxHull: 100, role: 'escort',
+    cloak: shipClassCloak(state.playership), combat: shipClassCombat(state.playership), speed: shipRunSpeed(state.playership) };
+  const escorts = getPlayerEscortFleetShips().filter((f) => !f.destroyed && fleetVesselCondition(f) === 'operational').map(fleetRunnerHull);
+  return { key, sponsor: PLAYER_SIDE, kind: 'captain', hulls: [me, ...escorts] };
+}
+// Reaching `at` on the course: every blockade there that bears on him is run — contact decided by the
+// strategic layer; an interception stops the course here and is fought in the scene. A battle under way
+// here against his side, or the pirates of these waters, stop him too. Returns the stop, or null.
+function captainCrossingCheck(at, ctx) {
+  const book = campaignBook();
+  syncPlayerPolity(book);
+  const world = buildCampaignWorld(true);
+  const day = state.day;
+  const effects = [];
+  let stop = null;
+  for (const b of Campaign.applicableBlockadesAt(book, world, at, PLAYER_SIDE)) {
+    const runner = captainRunner(`captain:${ctx.journeyId}:l${ctx.leg}`);
+    const contact = Campaign.blockadeContact(book, world, b, runner, day);
+    if (contact.caught) {
+      const enc = Campaign.openBlockadeEncounter(book, world, b, runner, day, { contact, captain: true, reason: `the captain intercepted crossing ${state.planets[at]?.name}` });
+      stop = { type: 'blockade', encounterId: enc.id, blockadeId: b.id };
+      break;
+    }
+    // Seen and let past, or never seen: the run is on the blockade's record (no damage either way).
+    const r = Campaign.resolveBlockadeRun(book, world, b, runner, day, effects, { meta: { captain: true, engineApplied: true } });
+    reportBlockadeRun(r, { lost: [], disabled: [], damaged: [] });
+  }
+  if (!stop && !ctx.last) {
+    const op = (book.operations || []).find((o) => o.status === 'engaged' && Number(o.targetSystem) === Number(at) && !o.resolvedBy && campaignPartyRelation(PLAYER_SIDE, o.faction) === 'war');
+    if (op) stop = { type: 'operation', opId: op.id };
+  }
+  if (!stop && doctrineLiveFor('pirate', 'raider', 'exploit_cargo') && getFactionStanding('pirate') > -50) {
+    const me = ensurePersonalIdentity();
+    const g = DoctrineCampaign.pirateGroupFor(book, world, at, me.vid, day);
+    if (g) {
+      const cap = Math.max(0, finiteNumber(getShipStats(state.playership)?.cargoCapacity, 0));
+      const res = DoctrineCampaign.openCaptainPredation(book, world, g.id, { vid: me.vid, demand: cap >= 500 ? 240 : cap >= 100 ? 120 : 60, observed: cap >= 500 ? 'bulk' : cap >= 100 ? 'freighter' : 'light', cargo: ordinaryCargoPods().length > 0 }, at, day, effects);
+      if (res) stop = { type: 'predation', encounterId: res.encounter.id, groupId: g.id };
+    }
+  }
+  if (effects.length) applyCampaignEffects(effects, day);
+  campaignWorldCache = null;
+  return stop;
+}
+// Every leg of the captain's course settled on the calendar in order, once (idempotent across the
+// briefing, the arrival and a reload), each crossing checked as he reaches it.
+function advanceCaptainWarpLegs() {
+  const w = state.warp;
+  if (!w.active || w.legsSettled) return;
+  w.journeyId ||= Fleet.nextId(fleetBook(), 'journey');
+  if (!Array.isArray(w.path) || !Array.isArray(w.legDays)) { advanceFleetCalendar(w.travelDays ?? 1, w.journeyId); w.legsSettled = true; return; }
+  w.crossings ||= [];
+  w.legIds ||= [];
+  // The course's charge is its travel days; a charge set apart from the chart's legs (a fixed traversal or
+  // an explicit override) is spread over the same legs, so the calendar and the crossings still agree.
+  const total = Number.isInteger(w.travelDays) && w.travelDays > 0 ? w.travelDays : null;
+  if (total != null && !w.legsDone && w.legDays.reduce((n, d) => n + d, 0) !== total && w.legDays.length) {
+    const sum = Math.max(1, w.legDays.reduce((n, d) => n + d, 0));
+    const scaled = w.legDays.map((d) => Math.floor((d * total) / sum));
+    for (let k = 0, rest = total - scaled.reduce((n, d) => n + d, 0); rest > 0; k = (k + 1) % scaled.length, rest--) scaled[k]++;
+    w.legDays = scaled;
+  }
+  for (let i = w.legsDone || 0; i < w.path.length; i++) {
+    // Each leg is its own calendar entry (the ledger's monotonic journey ids), recorded before it is
+    // charged, so a reload charges it once.
+    w.legIds[i] ||= i === 0 ? w.journeyId : Fleet.nextId(fleetBook(), 'journey');
+    advanceFleetCalendar(w.legDays[i], w.legIds[i]);
+    w.legsDone = i + 1;
+    const at = Number(w.path[i]);
+    const last = i === w.path.length - 1;
+    w.crossings.push({ system: at, day: state.day, leg: i });
+    const stop = captainCrossingCheck(at, { journeyId: w.journeyId, leg: i, last });
+    if (stop) {
+      w.stop = { ...stop, system: at, leg: i };
+      const previous = i > 0 ? Number(w.path[i - 1]) : Number(w.from);
+      // At the destination itself there is no rest of the course, but forced back he still falls back.
+      if (last) state.warpResume = { destination: at, from: at, previous, path: [], legDays: [], legs: [], systems: [at], encounterId: stop.encounterId || null, stopType: stop.type, opId: stop.opId || null, day: state.day, journeyId: w.journeyId, paid: true, ready: false, final: true };
+      if (!last) {
+        state.warpResume = { destination: Number(w.finalTo ?? w.to), from: at, previous, path: w.path.slice(i + 1).map(Number), legDays: w.legDays.slice(i + 1), legs: (w.route?.legs || []).slice(i + 1),
+          systems: [at, ...w.path.slice(i + 1).map(Number)], encounterId: stop.encounterId || null, stopType: stop.type, opId: stop.opId || null, day: state.day, journeyId: w.journeyId, paid: true, ready: stop.type === 'operation' ? false : false };
+        w.finalTo ??= w.to;
+        w.to = at;
+        w.message = `Dropped out of warp at ${state.planets[at]?.name}.`;
+      }
+      break;
+    }
+  }
+  w.legsSettled = true;
+}
+// Resume the rest of an interrupted course, once: the same remaining legs, each its real length, from today.
+function resumeCaptainCourse() {
+  const r = state.warpResume;
+  if (!r || state.warp.active) return false;
+  if (Number(state.currentPlanet) !== Number(r.from)) { state.warpResume = null; return false; }
+  const book = campaignBook();
+  const live = r.encounterId ? Encounter.encounterById(book, r.encounterId) : null;
+  if (live && Encounter.isLive(live)) { setLog('Not while the engagement lasts.'); return false; }
+  if (r.stopType === 'operation') { const op = (book.operations || []).find((o) => o.id === r.opId); if (op && op.status === 'engaged' && op.resolvedBy === 'local') { setLog('Not while the battle lasts.'); return false; } }
+  const plan = { from: r.from, to: r.destination, legs: r.legs, systems: r.systems, distance: (r.legs || []).reduce((n, l) => n + getRouteWarpDistance(l), 0), antimatter: 0 };
+  const ok = beginWarpTravel(r.destination, plan, { resume: true, free: true });
+  if (!ok) return false; // could not depart (boarding, disabled): the course stays to resume later
+  state.warpResume = null;
+  Encounter.bumpEncounterStat(book, 'journeysResumed'); // the captain's own course, resumed once
+  return true;
+}
+function captainCourseLine() {
+  const r = state.warpResume;
+  if (!r) return null;
+  const days = (r.legDays || []).reduce((n, d) => n + d, 0);
+  return { destination: r.destination, from: r.from, days, eta: state.day + days, ready: Boolean(r.ready) || (r.stopType === 'operation' && !(campaignBook().operations || []).some((o) => o.id === r.opId && o.status === 'engaged' && o.resolvedBy === 'local')), stopType: r.stopType, path: r.path };
+}
+// ---- the pirates of these waters and the captain (Phase 4's demand, tied to the strategic group) ----
+function spawnCaptainPredation(enc) {
+  const ld = localDoctrine();
+  if (ld.predation || globalThis.__bm1FailEncounterScene) return false;
+  const p = enc.participants.find((x) => x.side === 'pirate');
+  const npc = p && spawnEncounterParticipant(enc, p, 0, 1, playerWorldPosition(), true);
+  if (!npc) return false;
+  npc.role = 'traffic'; npc.hostile = true; npc.attitude = 'hostile';
+  npc.encounterVsPlayer = false; // the demand comes first: the pirates hold fire until it is refused
+  state.npcShips.push(npc);
+  const lp = issueLocalPredation(npc);
+  lp.encounterId = enc.id; lp.groupId = p.pirateGroupId; lp.vid = npc.vid;
+  lp.crewKey = `group:${p.pirateGroupId}`;
+  Encounter.activateEncounter(campaignBook(), enc.id, state.day, [npc.vid]);
+  enc.activatedAtMs = gameNow();
+  return true;
+}
+function resolveCaptainPredation(p, reason, note) {
+  const enc = p?.encounterId ? encounterById(p.encounterId) : null;
+  if (!enc || !Encounter.isLive(enc)) return;
+  const outcome = reason === 'cargo_received' ? 'paid' : reason === 'target_escaped' ? 'escaped' : 'fought';
+  resolveStrategicEncounter(enc, { outcome, note }, { answer: p.state === 'paid' ? 'pay' : p.state === 'cargo' ? 'surrender_cargo' : ['refused', 'run', 'timed_out'].includes(p.state) ? (p.state === 'run' ? 'run' : 'refuse') : null, paid: p.paid ?? (p.state === 'cargo' ? p.amount : 0) });
+}
+// One report per encounter, in the captain's words, from what he saw: the ships that were in the scene
+// (their classes and count), what became of them, and what happens next. Nothing of the wider operation,
+// blockade roster or hidden reinforcements is added to it.
+const ENCOUNTER_TYPE_NAMES = Object.freeze({ blockade: 'Blockade interception', operation: 'Engagement', raid: 'Raid', predation: 'Pirate attack', enforcement: 'Enforcement action' });
+function reportStrategicEncounter(e, day) {
+  const enc = Encounter.encounterById(campaignBook(), e.id);
+  const place = state.planets[e.system]?.name || `system ${e.system}`;
+  const seen = (e.participants || []).filter((p) => p.spawned);
+  const by = (fate) => seen.filter((p) => p.fate === fate).length;
+  const classes = {};
+  for (const p of seen) { const n = getShipStats(p.shipId)?.name || (p.polity === 'pirate' ? 'raider' : 'vessel'); classes[n] = (classes[n] || 0) + 1; }
+  const classText = Object.entries(classes).map(([n, c]) => `${c} × ${n}`).join(', ') || 'no ships';
+  const words = { passed: 'passed', escaped: 'broke away', broken: 'broke the blockade', forced_back: 'was forced back', destroyed: 'repelled the attack', repelled: 'the raider was driven off', withdrew: 'the attackers withdrew', captured: 'the world fell', struck: 'the raider struck and stayed', paid: 'paid and was let go', fought: 'fought', disengaged: 'left before it was decided' }[e.outcome] || e.outcome || 'ended';
+  const losses = `${by('destroyed')} destroyed, ${by('disabled')} disabled, ${by('surrendered')} surrendered`;
+  const factions = [...new Set(seen.map((p) => (p.polity === 'pirate' ? 'pirate' : campaignFactionKeyFor(p.polity))).filter(Boolean))];
+  addGalaxyReport({ id: `encounter:${e.id}`, systemIndex: e.system, day: e.day ?? day, category: 'combat', factions, playerRelated: true, kind: `${ENCOUNTER_TYPE_NAMES[e.encounterType] || 'Engagement'} — ${place}`, confidence: 'Local encounter record',
+    text: `${ENCOUNTER_TYPE_NAMES[e.encounterType] || 'Engagement'} at ${place}: ${classText} in the engagement; ${losses}. ${e.captain ? 'We ' : 'Outcome: '}${words}.${e.continuation ? ` ${e.continuation[0].toUpperCase()}${e.continuation.slice(1)}.` : ''}` });
+  if (enc) enc.reported = true;
+}
+// The panel for a course that dropped out of warp: what stopped it, and — once it is decided — the
+// remaining legs to the destination, resumed once.
+function encounterCoursePanel() {
+  const c = captainCourseLine();
+  const live = liveEncountersHere().find((e) => e.captain || e.playerHostile);
+  if (!c && !live) return null;
+  const place = state.planets[state.currentPlanet]?.name || 'here';
+  const head = live ? (ENCOUNTER_TYPE_NAMES[live.type] || 'Engagement') : 'Course interrupted';
+  const dest = c ? state.planets[c.destination]?.name : null;
+  const status = live ? (live.status === 'pending' ? 'Contact.' : 'Engaged.') : c.ready ? `${dest}: ${c.days} day${c.days === 1 ? '' : 's'} by the remaining ${c.path.length} leg${c.path.length === 1 ? '' : 's'} (arrives day ${c.eta}).` : 'Waiting for the engagement to end.';
+  return { key: `course:${live?.id || ''}:${live?.status || ''}:${c?.ready}:${c?.eta}`, html: `<div class="security-order-head"><span>${escapeHtml(head)}</span><span>${escapeHtml(place)}</span></div>
+    <div class="security-order-body"><div class="security-order-text">${escapeHtml(c ? `Course to ${dest} interrupted at ${place}.` : `Engaged at ${place}.`)}</div><div class="security-order-status">${escapeHtml(status)}</div>
+    ${c ? `<div class="security-order-buttons"><button data-course-resume ${c.ready && !live ? '' : 'disabled'}>Resume course to ${escapeHtml(dest)}</button></div>` : ''}</div>` };
+}
+// Debug: every strategic ↔ tactical encounter — what it is, who is in it (by vid), what owned it, where it
+// is in its lifecycle, what the scene returned and what the strategic layer does next. A duplicate
+// resolution would show as a second record for one contact, or a non-zero suppression count beside it.
+function renderEncounterDebug() {
+  if (!state.gameStarted) return '<p class="meta">No campaign.</p>';
+  const book = campaignBook();
+  if (!book.initialized) return '<p class="meta">No campaign.</p>';
+  const st = Encounter.encounterStats(book);
+  const nm = (i) => escapeHtml(state.planets[Number(i)]?.name || (i == null ? '—' : `system ${i}`));
+  const head = `<p class="meta" data-encounter-stats>Opened ${st.opened} (${escapeHtml(Object.entries(st.byType || {}).map(([k, n]) => `${k} ${n}`).join(', ') || 'none')}) · fought in the scene ${st.activated} · resolved ${st.resolved} · strategic fallbacks ${st.fallbacks} · called off ${st.aborted} · duplicate contacts prevented ${st.duplicatesPrevented} · abstract resolutions suppressed ${st.abstractSuppressed} · stale attacks suppressed ${st.staleSuppressed} · same-vid round trips ${st.sameVidRoundTrips} · losses written back ${st.lossesWrittenBack} · journeys resumed ${st.journeysResumed} · objectives closed ${st.objectivesClosed}</p>`;
+  const list = [...(book.encounters || [])].slice(-12).reverse();
+  if (!list.length) return `${head}<p class="meta">No encounters yet.</p>`;
+  const course = captainCourseLine();
+  const rows = list.map((e) => `<tr data-encounter-row="${escapeHtml(e.id)}"><td><code>${escapeHtml(String(e.id).split(':').slice(-2).join(':'))}</code></td><td>${nm(e.system)}</td><td>${escapeHtml(e.type)}${e.captain ? ' (captain)' : ''}</td>
+    <td>${e.participants.map((p) => `${escapeHtml(p.side)}: ${escapeHtml(p.vid || p.ref)}${p.fate ? ` → <b>${escapeHtml(p.fate)}</b>` : ''}${p.engineOwned ? ' (engine)' : ''}`).join('<br>')}</td>
+    <td>${escapeHtml(e.objective?.kind || '')} <code>${escapeHtml(String(e.objective?.ref ?? '').split(':').slice(-2).join(':'))}</code></td><td>${escapeHtml(e.authority?.kind || '—')}${e.authority?.stamp ? ` #${escapeHtml(String(e.authority.stamp.instance ?? ''))}` : ''}</td>
+    <td>${escapeHtml(e.status)}${e.activatedDay != null ? ` (day ${e.activatedDay})` : ''}</td><td>${escapeHtml(e.result?.outcome || '—')}${e.result?.run ? ` · run ${escapeHtml(e.result.run)}` : ''}</td>
+    <td>${escapeHtml(typeof e.continuation === 'string' ? e.continuation : e.continuation?.continuation || '—')}</td><td>${e.fallback ? `<b>yes</b>: ${escapeHtml(e.fallback.reason)}` : 'no'}${e.suppressed ? ` · suppressed ${e.suppressed}` : ''}</td></tr>`).join('');
+  const courseLine = course ? `<p class="meta" data-encounter-course>Captain's course: stopped at ${nm(course.from)} for ${escapeHtml(course.stopType)}; remaining ${escapeHtml(course.path.map((i) => state.planets[i]?.name || i).join(' → '))} (${course.days} days; ${course.ready ? 'ready to resume' : 'waiting'}).</p>` : '';
+  return `${head}${courseLine}<table class="doctrine-debug" data-encounter-table><thead><tr><th>Encounter</th><th>System</th><th>Type</th><th>Participants (vid → fate)</th><th>Objective / operation</th><th>Authority</th><th>Handoff state</th><th>Tactical result</th><th>Strategic continuation</th><th>Fallback</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 function launchBudgetedAmbientRaid(attackerFaction, record) {
   const book = campaign();
@@ -27487,9 +28101,14 @@ function launchBudgetedAmbientRaid(attackerFaction, record) {
   const op = Campaign.launchOperation(book, world, attackerFaction, hulls, Number(state.currentPlanet), state.day, 0, record.type, effects, { immediate: true });
   op.status = 'engaged'; op.engagedDay = state.day; op.arriveDay = state.day;
   for (const h of hulls) h.systemIndex = Number(state.currentPlanet);
-  const claim = Campaign.claimOperationForScene(book, op.id);
+  const claim = Campaign.claimOperationForScene(book, op.id, world, state.day);
   op.spawnedHullIds = [];
-  if (!claim || !spawnCampaignOperation(op, claim.hulls, 0)) { if (claim) op.resolvedBy = null; return { ok: false, reason: 'scene refused' }; }
+  if (!claim || !spawnCampaignOperation(op, claim.hulls, 0)) {
+    // No scene: nothing was fought; the encounter is called off (its hulls released) and the model has it.
+    if (claim?.encounter) Encounter.abortEncounter(book, claim.encounter.id, state.day, 'the scene could not be made', Campaign.encounterHullLookup(book));
+    if (claim) op.resolvedBy = null;
+    return { ok: false, reason: 'scene refused' };
+  }
   return { ok: true, op };
 }
 // ---- design recovery missions ----

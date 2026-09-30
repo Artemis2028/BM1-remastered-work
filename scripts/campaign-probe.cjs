@@ -75,7 +75,7 @@ const EXPORTS = 'window.testBM1={state,startWithFaction,advanceFleetCalendar,fle
       const sizes = [wave1.length];
       // save and reload mid-battle keeps the same claimed operation and the same hull links
       t.saveGame(4); t.loadGame(4);
-      const afterLoad = { attack: s.activeFleetAttack?.campaignOpId, ships: s.npcShips.filter((n) => n.campaignHullId).length, claimed: t.campaign().operations.find((o) => o.id === op.id).resolvedBy };
+      const afterLoad = { attack: s.activeFleetAttack?.campaignOpId, ships: s.npcShips.filter((n) => n.campaignHullId && n.encounterSide !== 'defender').length, /* the world's own defenders now stand in the scene as campaign hulls too (STRATEGIC-TACTICAL-HANDOFF §7) */ claimed: t.campaign().operations.find((o) => o.id === op.id).resolvedBy };
       // wipe the first wave
       for (const n of s.npcShips.filter((n) => n.attackId === s.activeFleetAttack.id)) n.destroyed = true;
       t.updateFleetAttacks();
@@ -143,7 +143,7 @@ const EXPORTS = 'window.testBM1={state,startWithFaction,advanceFleetCalendar,fle
       s.currentPlanet = home; s.myplanet = home + 1; t.applySystemState(home);
       s.activeFleetAttack = null;
       t.updateSystemActivity(0);
-      const back = s.npcShips.filter((n) => n.campaignHullId && !n.destroyed);
+      const back = s.npcShips.filter((n) => n.campaignHullId && !n.destroyed && n.encounterSide !== 'defender'); // the operation's own ships (the world's defenders stand in the scene too: STRATEGIC-TACTICAL-HANDOFF §6)
       return { released, back: back.length, distinct: new Set(back.map((n) => n.campaignHullId)).size, claimedAgain: op.resolvedBy, halfHull: back.some((n) => n.combatHull < n.maxCombatHull * 0.6) };
     });
     assert.equal(r.released.resolvedBy, null); assert.equal(r.released.status, 'engaged'); assert.equal(r.released.lost, 1); assert.equal(r.released.damaged, 1);

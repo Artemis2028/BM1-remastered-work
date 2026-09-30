@@ -80,9 +80,9 @@ The check was repeated on the candidate. Every hull `systemIndex` write left in 
 | 18 | Dominion recon, staging and expedition hulls created beyond the map | **INTENTIONALLY ABSTRACT** | Creation, not movement: the far side of the wormhole is the Dominion's own off-map production. The hulls then move by journey. |
 | 19 | ambient raid launched from the loaded scene | **INTENTIONALLY ABSTRACT** | The scene itself is the raid (`opts.immediate`). Its hulls are already here or one route away, and the one hop is the scene's arrival. Survivors now fly home by a `return` journey, and the force selector skips hulls in warp. |
 | 20 | operations materialised in a scene | **INTENTIONALLY ABSTRACT** | Tactical-scene ownership of a force that already arrived by journey; not strategic travel. |
-| 21 | the captain's own warp (and ships escorting him) | **DEFERRED** → strategic interception to tactical combat handoff | The captain's own crossing of a blockade is exactly the interception-to-tactical handoff the next round builds. Warp keeps its one-leg-over-the-whole-route timing until then. |
+| 21 | the captain's own warp (and ships escorting him) | **UNIFIED** (STRATEGIC-TACTICAL-HANDOFF §7) | The course is flown leg by leg, each leg its chart length (the same days as every other journey; the route map shows the same figure), and every system on the way is reached and checked. A blockade that catches him, an engaged hostile operation, or a pirate group at B stops him there. C is reached only after he resumes the remaining legs, once. *Was: DEFERRED; one leg over the whole route.* |
 | 22 | legacy single-ship `f.transit` fallback | **INTENTIONALLY ABSTRACT** (save migration) | Only a pre-formation save or an orphaned record reaches it. |
-| 23 | pirate group following its prey | **DEFERRED** → tactical handoff | It is a bounded local crew moving within its haven and the neighbouring systems, as part of a predation encounter. It moves with that encounter, not as a strategic force, and belongs with interception. |
+| 23 | pirate group following its prey | **UNIFIED** (STRATEGIC-TACTICAL-HANDOFF §8) | Where the captain is, a predation contact is an encounter: the same group vessel (its vid) makes the demand or the attack in the scene, and the result updates the same group and objective. Elsewhere it stays bounded to its haven and neighbours, as before. *Was: DEFERRED.* |
 | 24 | stranded hulk recovery | **DEFERRED** → towing/salvage | Recovery in place, at the hulk's own yard world. Real recovery movement (towing) is the towing/salvage round. |
 | 25 | production, garrison replacement, capture transfer | **INTENTIONALLY ABSTRACT** (not movement) | Creation or a change of hands in place. The pure test 24 checks that none of them makes a journey or moves a hull. |
 
@@ -115,16 +115,22 @@ became of it). Travel stays ship-independent.
 | 12 (repair) | Yard is the nearest by real days. |
 | 15, 17 (Dominion corridor and reinforcements) | Count toward the expedition only on arrival. Escalation targets are ordered by ETA. |
 
-## Carried into the handoff (still deferred)
+## After STRATEGIC-TACTICAL-HANDOFF
+
+Rows 21 (the captain's warp) and 23 (the pirate group's local follow) are unified; the rules are in
+STRATEGIC-TACTICAL-HANDOFF.md. The strategic interception → tactical combat handoff is done.
+
+## Still deferred
 
 - **This audit:**
-  - the captain's own warp (row 21);
-  - the pirate group's local follow (row 23);
   - stranded recovery movement (row 24);
   - moving the trade record onto the journey record (row 2).
 - **The standing list:**
-  - strategic interception → tactical combat handoff;
+  - **SHIP-DEPENDENT STRATEGIC SPEED** (its own future round). The requirements are in
+    STRATEGIC-TIME-SCALE-CORRECTION §10.
   - towing/salvage;
+  - trader record-shape consolidation;
+  - treaty expansion;
   - NPC tactical-scene persistence;
   - autonomous war declarations;
   - doctrine invasion/occupation;
@@ -132,7 +138,4 @@ became of it). Travel stays ship-independent.
   - Hirogen hunting;
   - Borg assimilation;
   - Gorn activation;
-  - Tactical Cube;
-  - treaty expansion;
-  - **SHIP-DEPENDENT STRATEGIC SPEED** (its own future round). The requirements are in
-    STRATEGIC-TIME-SCALE-CORRECTION §10.
+  - Tactical Cube.

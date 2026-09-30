@@ -23,8 +23,9 @@
 
 import * as D from './doctrine-runtime.mjs';
 import { seededUnit, applicableBlockadesAt, resolveBlockadeRun, shortestRoute, strategicAssignments, warAuthorityStamp, warAuthorityHolds, rescueStrandedCrew, hullIsDisabled, hullAwaitingCrew, localDefenseStrength, raidStrikeDay, standDownOperation, hullStrength,
-  startJourney, stepJourney, journeyById, registerJourneyKind, legDaysBetween, routeLegDaysFor } from './campaign-strategy.mjs';
+  startJourney, stepJourney, journeyById, registerJourneyKind, legDaysBetween, routeLegDaysFor, defendingHullsAt, encounterHullLookup, fellBackToday, settleAbandonedHandoff } from './campaign-strategy.mjs';
 import * as J from './strategic-journey.mjs';
+import * as SE from './strategic-encounter.mjs';
 import { classifyDamage } from './ship-fleet.mjs';
 
 export const DOCTRINE_BOOK_VERSION = 1;
@@ -1843,6 +1844,13 @@ function advanceRaids(book, world, db, day, effects) {
     }
     if (ratio < c.raidMinRatio) { o.forceRatioPoor = true; o.state = 'withdrawing'; o.actions.push({ day, action: 'withdraw', detail: `force ratio ${ratio.toFixed(2)} < ${c.raidMinRatio}` }); continue; }
     if (ratio < c.raidEngageRatio) { o.state = 'shadowing'; o.actions.push({ day, action: 'shadow', detail: `force ratio ${ratio.toFixed(2)}: holding, not striking` }); continue; }
+    // STRATEGIC-TACTICAL-HANDOFF: a strike where the captain is is fought in the scene, and while the
+    // encounter owns it no abstract strike lands.
+    const owning = SE.liveEncounterFor(book, 'raid', o.id);
+    if (settleAbandonedHandoff(book, world, owning, day, effects)) continue;
+    if (owning) { SE.suppressAbstract(book, owning, 'raid strike'); continue; }
+    if (o.tacticalDay === day) continue; // today's strike was the scene's
+    if (world.localSystem != null && Number(world.localSystem) === Number(o.target.systemIndex) && !fellBackToday(o, day)) { openRaidEncounter(book, world, db, o, day, 'the captain is in the system'); continue; }
     o.state = 'engaged';
     const res = raidStrikeDay(book, world, o.raid, [h], o.target.systemIndex, day, effects);
     // The strike is seen where it lands, the day it lands.
@@ -2945,6 +2953,7 @@ function advanceEnforcement(doctrine, book, world, db, day, effects) {
   }
   for (const o of db.objectives) {
     if (o.status !== 'active' || o.kind !== 'enforcement' || o.pendingClose) continue;
+    { const owning = SE.liveEncounterFor(book, 'enforcement', o.id); if (settleAbandonedHandoff(book, world, owning, day, effects)) continue; if (owning) { SE.suppressAbstract(book, owning, 'enforcement day'); continue; } }
     const S = o.target.systemIndex;
     const eh = liveHull(book, o.polity, o.assigned.hullId);
     const th = hullOf(book, o.target.polity, o.target.hullId);
@@ -3061,9 +3070,9 @@ function advanceEnforcement(doctrine, book, world, db, day, effects) {
     }
     // refuse / ignore: one step up the ladder, never straight to force.
     o.escalation.refusals++; bump(db, 'enforcementRefusals');
-    if (o.escalation.stage === 4) { enforcementStrike(book, world, db, o, eh, th, day, effects); continue; }
+    if (o.escalation.stage === 4) { enforcementEngage(book, world, db, o, eh, th, day, effects); continue; }
     escalate(doctrine, book, world, db, o, a, th, day, effects, `${resp === 'refuse' ? 'refused' : resp}: ${demandText(o.demand.type)}`);
-    if (o.escalation.stage === 4) enforcementStrike(book, world, db, o, eh, th, day, effects);
+    if (o.escalation.stage === 4) enforcementEngage(book, world, db, o, eh, th, day, effects);
   }
 }
 function reviseDemand(o, dm, day, why) {
@@ -3239,6 +3248,10 @@ function predationDecision(book, world, db, o, a, h, g) {
   return roll < 0.7 ? 'pay' : 'run';
 }
 function workPredation(doctrine, book, world, db, o, day, effects) {
+  // STRATEGIC-TACTICAL-HANDOFF: while the scene owns this predation, nothing of it happens abstractly —
+  // not the follow, not the answer, not a strike.
+  { const owning = SE.liveEncounterFor(book, 'predation', o.id); if (settleAbandonedHandoff(book, world, owning, day, effects)) return; if (owning) { SE.suppressAbstract(book, owning, 'predation day'); return; } }
+  if (o.target.polity === 'player') return; // the captain's own predation is fought in the scene only
   const g = db.pirates?.[o.pirateId];
   const h = hullOf(book, o.target.polity, o.target.hullId);
   const a = db.assignments.find((x) => x.id === o.target.assignmentId);
@@ -3280,6 +3293,9 @@ function workPredation(doctrine, book, world, db, o, day, effects) {
     surrenderVessel(book, world, { polity: o.target.polity, hullId: h.id, to: null, day, reason: `surrendered its cargo to ${g.name}`, objectiveId: o.id, acceptedBy: g.id, holdDays: 1 }, effects);
     payPirates(book, world, db, o, a, h, g, 'surrender_cargo', day, effects); return;
   }
+  // Where the captain is, the attack itself is fought in the scene (the same group, the same target).
+  if (o.tacticalDay === day) return;
+  if (world.localSystem != null && Number(world.localSystem) === Number(g.systemIndex) && !fellBackToday(o, day)) { openPredationEncounter(book, world, db, o, g, h, day, 'pirates attacking where the captain is'); return; }
   predationStrike(book, world, db, o, h, g, day, effects);
   o.attack.days++;
   if (hullIsDisabled(h)) { takeFromHulk(book, world, db, o, a, h, g, day, effects); return; }
@@ -3327,6 +3343,208 @@ function predationStrike(book, world, db, o, h, g, day, effects) {
   effects.push({ type: 'doctrinePredation', id: o.id, pirate: g.id, systemIndex: o.target.systemIndex, targetVid: o.target.vid, targetPolity: o.target.polity, event: 'attack', day });
 }
 
+// ===== STRATEGIC-TACTICAL-HANDOFF: the doctrine families (raid, predation, enforcement) =====
+SE.registerFateHooks({ surrender: (book, world, spec, effects) => surrenderVessel(book, world, spec, effects) });
+function closeManagedNow(book, world, db, o, day, effects) {
+  const st = o.pendingClose;
+  if (!st || o.status !== 'active') return false;
+  o.status = st.status; o.closedDay = day;
+  bump(db, { completed: 'objectivesCompleted', aborted: 'objectivesAborted', expired: 'objectivesExpired' }[st.status] || 'objectivesClosedOther');
+  o.resolution = { status: st.status, reasons: st.reasons, alsoSucceeded: [], day, note: st.note || null };
+  o.actions.push({ day, action: 'closed', detail: `${st.status}: ${st.reasons.join(', ')}` });
+  closeManaged(book, world, db, o, st, day, effects);
+  return true;
+}
+// A raid's strike where the captain is: the raider and the ships that actually defend the world.
+export function openRaidEncounter(book, world, db, o, day, reason = 'the captain is in the system') {
+  const h = liveHull(book, o.polity, o.assigned.hullId);
+  if (!h) return null;
+  const target = Number(o.target.systemIndex);
+  o.handoffs = (o.handoffs || 0) + 1;
+  const holder = world.systems[target]?.controller ?? null;
+  const { enc } = SE.openEncounter(book, { key: `raid:${o.id}:${day}:h${o.handoffs}`, system: target, type: 'raid', objective: { kind: 'raid', ref: o.id }, authority: { kind: 'war', stamp: o.authority?.stamp || null },
+    sides: { a: o.polity, b: holder }, playerHostile: holder === 'player', reason, contact: { strikeDays: o.strikeDays || 0, raidId: o.raid?.id || null },
+    participants: [{ hullId: h.id, polity: o.polity, side: 'attacker', record: h },
+      ...defendingHullsAt(book, world, target, o.polity).map(({ h: d, polity }) => ({ hullId: d.id, polity, side: 'defender', record: d, engineOwned: polity === 'player', spawn: polity !== 'player' }))] }, day, encounterHullLookup(book));
+  o.encounterId = enc.id;
+  o.actions.push({ day, action: 'handoff', detail: 'strike fought where the captain is' });
+  return enc;
+}
+SE.registerEncounterFamily('raid', {
+  resolve(book, world, enc, report, day, effects) {
+    const db = doctrineBook(book);
+    const o = db.objectives.find((x) => x.id === enc.objective.ref);
+    if (!o || o.status !== 'active') return { continuation: 'the raid was already over' };
+    const c = db.config;
+    const raider = enc.participants.find((p) => p.side === 'attacker');
+    const outcome = report.result?.outcome || 'struck';
+    o.tacticalDay = day;
+    if (raider && ['destroyed', 'disabled'].includes(raider.fate)) { o.forceRatioPoor = true; o.actions.push({ day, action: 'engage', detail: `raider ${raider.fate} in the engagement` }); return { continuation: 'the raid closes: its raider is out of the fight', objectiveClosed: true }; }
+    if (raider?.fate === 'surrendered') { o.cancelRequested ||= 'surrendered'; o.surrenderedDay = day; o.actions.push({ day, action: 'surrender', detail: 'surrendered in the engagement' }); return { continuation: 'the raid closes: its raider surrendered', objectiveClosed: true }; }
+    if (outcome === 'withdrew' || raider?.fate === 'escaped') { o.forceRatioPoor = true; o.state = 'withdrawing'; o.actions.push({ day, action: 'withdraw', detail: 'broke off the engagement' }); return { continuation: 'the raider withdraws', objectiveClosed: true }; }
+    if (outcome === 'disengaged') return { continuation: 'the raid goes on strategically from the scene\'s state' };
+    // The war that authorised it ended while it was being fought: no strike is counted, and the raid stands down.
+    if (o.authority?.stamp && !warAuthorityHolds(book, world, o.authority.stamp)) { o.cancelRequested ||= 'authority_lapsed'; o.actions.push({ day, action: 'engage', detail: 'the war ended during the engagement: no strike counted' }); return { continuation: 'called off: the war ended during the engagement' }; }
+    // It fought and is still there: that was one strike day, and the raid stays finite.
+    o.strikeDays++;
+    const lost = enc.participants.filter((p) => p.side === 'defender' && p.fate === 'destroyed').length;
+    o.raid.defenderLosses = (o.raid.defenderLosses || 0) + lost;
+    if (db.config.militaryResponses !== false) witnessAttack(book, world, db, { id: `inc:attack:${o.raid.id}`, source: 'raid', sourceId: o.id, attackerFaction: o.polity, systemIndex: o.target.systemIndex, day, force: 1 }, effects);
+    o.actions.push({ day, action: 'engage', detail: `strike ${o.strikeDays}/${c.raidStrikeDays} fought in the scene: defenders lost ${lost}` });
+    if (o.strikeDays >= c.raidStrikeDays) { o.found = { complete: true }; return { continuation: 'the raid is complete', objectiveClosed: true }; }
+    return { continuation: `strike ${o.strikeDays}/${c.raidStrikeDays}: the raid goes on` };
+  },
+  fallback(book, world, enc, day, effects) {
+    const db = doctrineBook(book);
+    const o = db.objectives.find((x) => x.id === enc.objective.ref);
+    const h = o && liveHull(book, o.polity, o.assigned.hullId);
+    if (!o || o.status !== 'active' || !h) return { continuation: 'nothing to strike' };
+    o.handoff = 'fallback'; o.handoffFallbackDay = day;
+    const res = raidStrikeDay(book, world, o.raid, [h], o.target.systemIndex, day, effects);
+    if (db.config.militaryResponses !== false) witnessAttack(book, world, db, { id: `inc:attack:${o.raid.id}`, source: 'raid', sourceId: o.id, attackerFaction: o.polity, systemIndex: o.target.systemIndex, day, force: 1 }, effects);
+    o.strikeDays++; o.tacticalDay = day;
+    if (o.strikeDays >= db.config.raidStrikeDays) o.found = { complete: true };
+    return { continuation: `strategic strike: defenders lost ${res.defenderLosses || 0}` };
+  },
+});
+// The pirates' attack where the captain is: the group itself (one persistent vessel with its vid) against
+// the ship it demanded from.
+export function openPredationEncounter(book, world, db, o, g, h, day, reason = 'pirates attacking where the captain is', extra = {}) {
+  o.handoffs = (o.handoffs || 0) + 1;
+  const target = extra.captain ? [] : [{ hullId: h.id, polity: o.target.polity, side: 'target', record: h, cargo: o.target.observed || null }];
+  const { enc } = SE.openEncounter(book, { key: `predation:${o.id}:${day}:h${o.handoffs}`, system: Number(g.systemIndex), type: 'predation', objective: { kind: 'predation', ref: o.id, group: g.id }, authority: { kind: 'predation', source: o.authority?.source || 'predation_role' },
+    sides: { a: 'pirate', b: o.target.polity }, captain: Boolean(extra.captain), playerHostile: Boolean(extra.captain), reason, contact: { demand: o.demand, cause: o.attack?.cause || null, answer: o.response?.state || null },
+    participants: [{ pirateGroupId: g.id, ref: g.id, vid: g.vid, polity: 'pirate', side: 'pirate', name: g.name, before: { hull: g.hull, maxHull: g.maxHull, crew: null, status: g.status, systemIndex: g.systemIndex } }, ...target] }, day, encounterHullLookup(book));
+  o.encounterId = enc.id; g.encounterId = enc.id;
+  return enc;
+}
+// The captain himself as the pirates' prey (Phase 4's local demand), tied to the strategic group: its vid,
+// its hull, its loot, its cooldowns. One objective and one encounter per demand; the answer and any fight
+// are the scene's.
+export function pirateGroupFor(book, world, systemIndex, targetVid, day) {
+  const db = doctrineBook(book);
+  if (db.config.predation === false) return null;
+  formPirates(book, world, db, day);
+  for (const g of Object.values(db.pirates || {}).sort((x, y) => String(x.id).localeCompare(String(y.id)))) {
+    if (!['lurking'].includes(g.status) || g.objectiveId || g.encounterId) continue;
+    const hc = world.systems[g.haunt]?.controller;
+    if (hc && hc !== 'pirate') continue;
+    if (!pirateArea(world, g.haunt).includes(Number(systemIndex))) continue;
+    if (targetVid && g.cooldowns[targetVid] && g.cooldowns[targetVid] >= day) { bump(db, 'predationRepeatPrevented'); continue; }
+    return g;
+  }
+  return null;
+}
+// The pirate groups whose waters include a system (their own crews: no stray demand beside theirs).
+export function pirateWatersAt(book, world, systemIndex) {
+  const db = doctrineBook(book);
+  return Object.values(db.pirates || {}).filter((g) => !['lost', 'dispersed'].includes(g.status) && pirateArea(world, g.haunt).includes(Number(systemIndex)));
+}
+export function openCaptainPredation(book, world, groupId, captain, systemIndex, day, effects = []) {
+  const db = doctrineBook(book);
+  const g = db.pirates?.[groupId];
+  if (!g) return null;
+  const id = nid(book, db, 'obj');
+  const o = { id, kind: 'predation', incidentId: null, template: 'negotiation', clock: CLOCK, actor: g.id, polity: 'pirate', profileId: 'pirate', role: 'raider', response: 'exploit_cargo', pirateId: g.id,
+    assigned: { hullId: null, vid: g.vid }, target: { hullId: null, vid: captain.vid, polity: 'player', assignmentId: null, systemIndex: Number(systemIndex), locationId: locationIdFor(world, systemIndex), observed: captain.observed || 'freighter', captain: true },
+    authority: { source: 'predation_role', detail: 'pirate raider: bounded extortion (unlawful; authorises nothing for anyone else)', jurisdiction: null },
+    demand: { type: 'payment', amount: captain.demand ?? 120, alternative: captain.cargo ? 'cargo' : null, issuedDay: day, basis: `observed ${captain.observed || 'freighter'} hull (hold unseen)` },
+    comms: { state: 'received', sentDay: day, receivedDay: day, hails: 1, log: [{ day, event: 'sent' }, { day, event: 'received' }] },
+    response: { state: 'awaiting', day: null, history: [] }, attack: { phase: false, days: 0 },
+    createdDay: day, deadline: at(day + db.config.predationDeadlineDays + db.config.predationAttackDays + 1), status: 'active', resolution: null, assignmentId: null, actions: [{ day, action: 'demand_cargo', detail: `Transfer ${captain.demand ?? 120} to the captain's ship` }] };
+  g.objectiveId = id; g.status = 'demanding'; g.lastDemandDay = day; g.demands++; g.systemIndex = Number(systemIndex);
+  db.objectives.push(o); db.stats.objectives++; bump(db, 'pirateDemands');
+  effects.push({ type: 'doctrinePredation', id, pirate: g.id, systemIndex: Number(systemIndex), targetVid: captain.vid, targetPolity: 'player', event: 'demand', amount: o.demand.amount, day });
+  const enc = openPredationEncounter(book, world, db, o, g, null, day, 'the pirates demand from the captain', { captain: true });
+  return { objective: o, encounter: enc, group: g };
+}
+SE.registerEncounterFamily('predation', {
+  resolve(book, world, enc, report, day, effects) {
+    const db = doctrineBook(book);
+    const o = db.objectives.find((x) => x.id === enc.objective.ref);
+    const g = db.pirates?.[enc.objective.group];
+    const r = report.result || {};
+    const pp = enc.participants.find((p) => p.side === 'pirate');
+    if (g) {
+      delete g.encounterId;
+      if (pp?.fate === 'destroyed') { g.hull = 0; g.status = 'lost'; bump(db, 'pirateGroupsLost'); g.history.push({ day, outcome: 'destroyed in an engagement' }); }
+      else {
+        if (pp?.after?.hull != null) g.hull = Math.max(1, Math.min(g.maxHull, Math.round(Number(pp.after.hull))));
+        if (pp?.fate === 'surrendered') { g.status = 'recovering'; g.history.push({ day, outcome: 'surrendered in an engagement' }); }
+        else if (g.hull < g.maxHull * 0.4 || pp?.fate === 'disabled') g.status = 'recovering';
+      }
+      if (r.paid > 0) g.loot += Number(r.paid);
+      g.history = g.history.slice(-10);
+    }
+    if (!o || o.status !== 'active') return { continuation: 'the demand was already closed' };
+    o.tacticalDay = day;
+    const tp = enc.participants.find((p) => p.side === 'target');
+    if (r.answer) { o.response.state = r.answer; o.response.day = day; o.response.history.push({ day, response: r.answer, tactical: true }); }
+    if (r.paid != null) o.paid = Number(r.paid);
+    const reasons = r.outcome === 'paid' ? ['cargo_received'] : r.outcome === 'escaped' || tp?.fate === 'escaped' ? ['target_escaped'] : tp?.fate === 'destroyed' ? ['target_destroyed']
+      : tp?.fate === 'disabled' ? ['cargo_received', 'target_disabled'] : tp?.fate === 'surrendered' ? ['cargo_received'] : ['attacker_disengaged'];
+    const status = reasons.includes('attacker_disengaged') ? 'aborted' : 'completed';
+    if (tp?.fate === 'surrendered' && tp.hullId) payPirates(book, world, db, o, db.assignments.find((x) => x.id === o.target.assignmentId), hullOf(book, o.target.polity, o.target.hullId), g || { loot: 0, status: 'lurking' }, 'surrender_cargo', day, effects);
+    if (o.pendingClose) o.pendingClose = null;
+    closeLater(o, status, reasons, r.note || `${r.outcome || 'engagement'} in the scene`);
+    if (g && g.status === 'demanding') g.status = 'lurking';
+    closeManagedNow(book, world, db, o, day, effects);
+    return { continuation: `demand closed (${reasons.join('+')}); the group ${g ? g.status : 'is gone'}`, objectiveClosed: true };
+  },
+  fallback(book, world, enc, day, effects) {
+    const db = doctrineBook(book);
+    const o = db.objectives.find((x) => x.id === enc.objective.ref);
+    const g = db.pirates?.[enc.objective.group];
+    if (g) delete g.encounterId;
+    if (!o || o.status !== 'active') return { continuation: 'nothing to resolve' };
+    o.handoff = 'fallback'; o.handoffFallbackDay = day;
+    if (o.target.polity === 'player') {
+      // The pirates never attack the captain abstractly: no scene, no attack.
+      closeLater(o, 'aborted', ['attacker_disengaged'], 'no contact'); if (g && g.status === 'demanding') g.status = 'lurking';
+      closeManagedNow(book, world, db, o, day, effects);
+      return { continuation: 'no abstract attack on the captain: the demand lapsed' };
+    }
+    const h = hullOf(book, o.target.polity, o.target.hullId);
+    if (h && g) { predationStrike(book, world, db, o, h, g, day, effects); o.attack.days++; o.tacticalDay = day; }
+    return { continuation: 'strategic strike, once' };
+  },
+  abort(book, enc) { const g = doctrineBook(book).pirates?.[enc.objective.group]; if (g) delete g.encounterId; },
+});
+// The authorised strike to disable, where the captain is: fought in the scene.
+function enforcementEngage(book, world, db, o, eh, th, day, effects) {
+  if (o.tacticalDay === day) return;
+  if (world.localSystem != null && Number(world.localSystem) === Number(o.target.systemIndex) && !fellBackToday(o, day) && th.status !== 'surrendered' && !hullIsDisabled(th)) {
+    o.handoffs = (o.handoffs || 0) + 1;
+    const { enc } = SE.openEncounter(book, { key: `enforcement:${o.id}:${day}:h${o.handoffs}`, system: Number(o.target.systemIndex), type: 'enforcement', objective: { kind: 'enforcement', ref: o.id },
+      authority: { kind: o.authority?.source || 'policy', stage: o.escalation?.stage ?? null }, sides: { a: o.polity, b: o.target.polity }, reason: 'an authorised strike where the captain is',
+      contact: { demand: o.demand?.type || null, modes: o.lastEngageCheck?.modes || [] },
+      participants: [{ hullId: eh.id, polity: o.polity, side: 'enforcer', record: eh }, { hullId: th.id, polity: o.target.polity, side: 'target', record: th }] }, day, encounterHullLookup(book));
+    o.encounterId = enc.id;
+    o.actions.push({ day, action: 'handoff', detail: 'the strike to disable is fought where the captain is' });
+    return;
+  }
+  enforcementStrike(book, world, db, o, eh, th, day, effects);
+}
+SE.registerEncounterFamily('enforcement', {
+  resolve(book, world, enc, report, day, effects) {
+    const db = doctrineBook(book);
+    const o = db.objectives.find((x) => x.id === enc.objective.ref);
+    if (!o || o.status !== 'active') return { continuation: 'the enforcement was already closed' };
+    o.tacticalDay = day;
+    const tp = enc.participants.find((p) => p.side === 'target');
+    o.actions.push({ day, action: 'engage', detail: `engagement in the scene: target ${tp?.fate || 'unknown'}` });
+    return { continuation: 'the enforcement goes on from the written-back state (a disabled or surrendered target closes it next day)' };
+  },
+  fallback(book, world, enc, day, effects) {
+    const db = doctrineBook(book);
+    const o = db.objectives.find((x) => x.id === enc.objective.ref);
+    if (!o || o.status !== 'active') return { continuation: 'nothing to resolve' };
+    o.handoff = 'fallback'; o.handoffFallbackDay = day;
+    const eh = hullOf(book, o.polity, o.assigned.hullId), th = hullOf(book, o.target.polity, o.target.hullId);
+    if (eh && th) { enforcementStrike(book, world, db, o, eh, th, day, effects); o.tacticalDay = day; }
+    return { continuation: 'strategic strike to disable, once' };
+  },
+});
 export function advanceDoctrineDay(book, world, day, effects, doctrine) {
   if (!doctrine) { if (book.doctrine) releaseDoctrineHulls(book, day, 'doctrine runtime unavailable', effects); return; }
   const db = doctrineBook(book);

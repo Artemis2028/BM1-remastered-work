@@ -9,10 +9,11 @@
 //
 // Every number in CAMPAIGN_RULES is first-pass tuning (units documented inline), not measured balance.
 
-import { stableHash, bounded, copy, planStanding, classifyDamage } from './ship-fleet.mjs';
+import { stableHash, bounded, copy, planStanding, classifyDamage, disableThreshold } from './ship-fleet.mjs';
 import * as Identity from './vessel-identity.mjs';
 import { evaluateWar, settlementTerms, WAR_RULES } from './war-termination.mjs';
 import * as J from './strategic-journey.mjs';
+import * as SE from './strategic-encounter.mjs';
 
 export const CAMPAIGN_VERSION = 1;
 
@@ -896,7 +897,10 @@ export function hullAwaitingCrew(h) { return Boolean(h?.recrew) && h.status !== 
 // …or surrendered: stood down and held, inactive, until released (PHASE4 §6).
 // A hull in warp between two systems (a leg of a shared journey) is nowhere anyone can pick it up.
 export function hullInTransit(h) { return Boolean(h?.transit); }
-export function hullUnavailable(h) { return hullIsDisabled(h) || hullAwaitingCrew(h) || h?.status === 'surrendered' || hullInTransit(h); }
+// …or fighting in a live strategic ↔ tactical encounter: the scene has it, and nothing else may pick it up,
+// move it, damage it or count it free until the encounter hands it back (STRATEGIC-TACTICAL-HANDOFF).
+export function hullInEncounter(h) { return Boolean(h?.encounterId); }
+export function hullUnavailable(h) { return hullIsDisabled(h) || hullAwaitingCrew(h) || h?.status === 'surrendered' || hullInTransit(h) || hullInEncounter(h); }
 // What a hull released from a job becomes: available if it can sail, stranded if it cannot.
 function releaseStatus(h) { return hullUnavailable(h) ? 'repairing' : 'ready'; }
 // The moment a stranded hull's structure is repaired. With its own crew still aboard it is simply back.
@@ -1384,7 +1388,14 @@ function enforceRelations(book, world, day, effects) {
   for (const op of book.operations) {
     if (op.status === 'resolved') continue;
     if (operationIsAuthorised(book, world, op)) { op.standDownPending = false; continue; }
-    if (op.resolvedBy === 'local') { op.standDownPending = true; continue; }
+    if (op.resolvedBy === 'local') {
+      // A battle handed to the scene but not yet fought is simply called off: the ceasefire came before
+      // contact, so there is no attack at all (STRATEGIC-TACTICAL-HANDOFF). One already being fought is the
+      // scene's to end (it ends it as a withdrawal).
+      const enc = SE.liveEncounterFor(book, 'operation', op.id);
+      if (enc?.status === 'pending') { SE.abortEncounter(book, enc.id, day, 'the war ended before contact', lookupHull(book)); SE.bumpEncounterStat(book, 'staleSuppressed'); }
+      else { op.standDownPending = true; continue; }
+    }
     const target = world.systems[op.targetSystem]?.name || `system ${op.targetSystem}`;
     const note = `${world.factionName(op.faction)} broke off the operation at ${target}: the objective is no longer a legal target.`;
     op.standDownPending = false;
@@ -1434,8 +1445,16 @@ function advanceOperations(book, world, day, effects) {
       continue;
     }
     if (op.status !== 'engaged') continue;
+    // STRATEGIC-TACTICAL-HANDOFF: an encounter owns this battle — the scene fights it, and no offscreen day is
+    // resolved in parallel (an explicit guard, counted).
+    const owning = SE.liveEncounterFor(book, 'operation', op.id);
+    const here = world.localSystem != null && Number(world.localSystem) === Number(op.targetSystem);
+    // A handoff the scene never took up, the captain gone: the model settles it, once (the fallback's day).
+    if (settleAbandonedHandoff(book, world, owning, day, effects)) continue;
+    if (owning) { SE.suppressAbstract(book, owning, 'offscreen battle day'); continue; }
     if (op.resolvedBy === 'local') continue;                 // the loaded scene owns this battle
-    if (world.localSystem === op.targetSystem) continue;    // player is present: never resolve offscreen
+    // The captain is there: the battle is handed to the scene, once a day (not again on a day it fell back).
+    if (here && !fellBackToday(op, day)) { openOperationEncounter(book, world, op, day, 'the captain is in the system'); continue; }
     if (capturedToday.has(op.targetSystem)) { op.holdDays = 0; continue; } // another power took it today; contest it tomorrow
     const before = book.stats.captures;
     resolveOffscreenDay(book, world, op, day, effects);
@@ -1506,6 +1525,7 @@ function applyLosses(book, world, hulls, fraction, op, day) {
   let i = 0;
   for (const h of hulls) {
     if (budget <= 0) break;
+    if (hullInEncounter(h)) continue; // fighting in the loaded scene: the scene decides its damage
     const dmg = Math.min(h.hull, budget * (0.5 + seededUnit(book.seed, 'dmg', op.id, day, i++)));
     h.hull -= dmg; budget -= dmg;
     if (h.hull <= 0) { h.hull = 0; h.status = 'lost'; op.losses++; polity(book, op.faction).lostHulls++; book.stats.hullsLost++; }
@@ -1516,7 +1536,7 @@ function applyDefenderLosses(book, world, systemIndex, fraction, op, day, effect
     const p = polity(book, id);
     // Losses fall on the defenders and on any hulk lying there: a disabled hull adds nothing to the defence
     // but is not out of the fight's reach (it can be finished off where it lies).
-    const local = p.hulls.filter((h) => defendsHere(h, systemIndex) || (hullIsDisabled(h) && Number(h.systemIndex) === Number(systemIndex) && !h.opId));
+    const local = p.hulls.filter((h) => !hullInEncounter(h) && (defendsHere(h, systemIndex) || (hullIsDisabled(h) && Number(h.systemIndex) === Number(systemIndex) && !h.opId)));
     if (!local.length) continue;
     let budget = local.reduce((n, h) => n + h.maxHull, 0) * fraction, i = 0;
     const report = [];
@@ -1599,7 +1619,7 @@ function finishOperation(book, world, op, day, outcome, effects, resolvedBy, not
     if (!r.ok || r.arrived) for (const { h } of xs) { h.status = releaseStatus(h); h.originSystem = null; }
   }
   addHistory(book, day, 'battle', note || `${world.factionName(op.faction)} operation at ${world.systems[op.targetSystem]?.name}: ${outcome} (${op.losses} lost, ${op.defenderLosses} defenders lost).`, { opId: op.id, systemIndex: op.targetSystem, outcome, faction: op.faction });
-  effects.push({ type: 'operationResolved', opId: op.id, faction: op.faction, targetSystem: op.targetSystem, outcome, losses: op.losses, defenderLosses: op.defenderLosses, day, resolvedBy: op.resolvedBy });
+  effects.push({ type: 'operationResolved', opId: op.id, faction: op.faction, targetSystem: op.targetSystem, outcome, losses: op.losses, defenderLosses: op.defenderLosses, day, resolvedBy: op.resolvedBy, encounterId: op.resolvedBy === 'local' ? op.encounterId || null : null });
 }
 // A single operation ending by something other than battle (DOCTRINE-RUNTIME-PHASE3: an accepted
 // surrender). Survivors are released the ordinary way.
@@ -1611,23 +1631,73 @@ export function standDownOperation(book, world, opId, day, effects = [], outcome
 }
 // Local scene reconciliation: the engine takes ownership of an engaged operation while the player is
 // present, materialises exactly these hulls, and hands back survivors and an outcome once.
-export function claimOperationForScene(book, opId) {
+export function claimOperationForScene(book, opId, world = null, day = null) {
   const op = book.operations.find((o) => o.id === opId);
-  if (!op || op.status !== 'engaged' || op.resolvedBy) return null;
-  op.resolvedBy = 'local';
+  if (!op || op.status !== 'engaged') return null;
+  // An operation the model already handed off (the captain was there on the day it engaged) is claimed by
+  // taking up its pending encounter; otherwise it must be free of any resolution.
+  const pending = SE.liveEncounterFor(book, 'operation', op.id);
+  if (op.resolvedBy && !(pending && op.resolvedBy === 'local')) return null;
+  if (pending && pending.status !== 'pending') return null;
+  const enc = pending || openOperationEncounter(book, world, op, day ?? op.engagedDay ?? 0, 'the scene claimed it');
+  if (enc) SE.activateEncounter(book, enc.id, day ?? op.engagedDay ?? 0, []); // the engine records each ship as it actually appears
   // Only the force actually standing at the target, able to fight, is the scene's: a hull disabled on the
   // way, surrendered, or still in warp stays where it is and is not materialised.
-  const force = Array.isArray(op.journeyIds) ? operationForce(book, op) : operationHulls(book, op);
-  op.sceneHullIds = force.map((h) => h.id);
-  return { op, hulls: force.map((h) => ({ ...h })) };
+  const ids = enc ? enc.participants.filter((p) => p.side === 'attacker').map((p) => p.hullId) : [];
+  op.sceneHullIds = ids;
+  const hulls = ids.map((id) => hullOf(book, op.faction, id)).filter(Boolean);
+  return { op, hulls: hulls.map((h) => ({ ...h })), encounter: enc };
 }
+// Everyone whose forces actually stand in a world's defence against this attacker, hull by hull: the ships
+// that appear in the scene as its defenders (never an abstract strength beside them). The captain's own
+// vessels are the engine's and are recorded, not spawned.
+export function defendingHullsAt(book, world, systemIndex, attackerId) {
+  if (!world) return [];
+  const out = [];
+  for (const id of defendingPolityIds(book, world, systemIndex, attackerId)) {
+    for (const h of polity(book, id).hulls) if (defendsHere(h, systemIndex) && !hullInEncounter(h)) out.push({ h, polity: id });
+  }
+  return out;
+}
+function lookupHull(book) { return (p) => (p.hullId != null && p.polity ? hullOf(book, p.polity, p.hullId) : null); }
+export function encounterHullLookup(book) { return lookupHull(book); }
+function openOperationEncounter(book, world, op, day, reason) {
+  const force = Array.isArray(op.journeyIds) ? operationForce(book, op) : operationHulls(book, op);
+  const defenders = defendingHullsAt(book, world, op.targetSystem, op.faction);
+  op.handoffs = (op.handoffs || 0) + 1;
+  const holder = world?.systems[op.targetSystem]?.controller ?? op.defender ?? null;
+  const { enc, fresh } = SE.openEncounter(book, { key: `op:${op.id}:h${op.handoffs}`, system: op.targetSystem, type: 'operation', objective: { kind: 'operation', ref: op.id },
+    authority: op.war ? { kind: 'war', stamp: op.war } : { kind: op.kind || 'operation' }, sides: { a: op.faction, b: holder }, journeys: op.journeyIds || [],
+    playerHostile: holder === 'player' || (world ? formallyAtWar(world, op.faction, 'player') : false), reason,
+    contact: { engagedDay: op.engagedDay ?? day, opKind: op.kind },
+    participants: [...force.map((h) => ({ hullId: h.id, polity: op.faction, side: 'attacker', record: h })),
+      ...defenders.map(({ h, polity: pid }) => ({ hullId: h.id, polity: pid, side: 'defender', record: h, engineOwned: pid === 'player', spawn: pid !== 'player' }))] }, day, lookupHull(book));
+  if (fresh) op.resolvedBy = 'local';
+  op.encounterId = enc.id;
+  return enc;
+}
+// The scene's result for a claimed battle. `survivorReport` = [{ hullId, hull, destroyed?, fate? }] for the
+// attackers (and, when the engine reports them, the defenders); `outcome` destroyed | withdrew | captured.
 export function reconcileLocalOutcome(book, world, opId, survivorReport, outcome, day, effects = []) {
   const op = book.operations.find((o) => o.id === opId);
   if (!op || op.status === 'resolved') return false;
+  const enc = SE.liveEncounterFor(book, 'operation', op.id);
+  if (enc) {
+    const participants = {};
+    for (const p of enc.participants) {
+      if (p.engineOwned) continue;
+      const s = survivorReport.find((r) => String(r.hullId) === String(p.hullId));
+      if (!s) { if (p.side === 'attacker') participants[p.ref] = { fate: 'destroyed', hull: 0 }; continue; }
+      participants[p.ref] = { fate: s.destroyed ? 'destroyed' : s.fate || 'survived', hull: s.destroyed ? 0 : s.hull, crew: s.crew ?? null, vid: s.vid ?? null, to: s.to ?? null };
+    }
+    SE.resolveEncounter(book, world, enc.id, { result: { outcome }, participants }, day, effects, lookupHull(book));
+    return true;
+  }
+  // A claim from before encounters existed (an old save mid-battle): the old reconciliation, once.
   const p = polity(book, op.faction);
   const inScene = Array.isArray(op.sceneHullIds) ? new Set(op.sceneHullIds) : null;
   for (const h of operationHulls(book, op)) {
-    if (inScene && !inScene.has(h.id)) continue; // never in the scene: the scene's outcome is not its fate
+    if (inScene && !inScene.has(h.id)) continue;
     const s = survivorReport.find((r) => r.hullId === h.id);
     if (!s || s.destroyed) { h.hull = 0; h.status = 'lost'; op.losses++; p.lostHulls++; book.stats.hullsLost++; }
     else h.hull = bounded(Number(s.hull) || h.hull, 0, h.maxHull);
@@ -1636,15 +1706,132 @@ export function reconcileLocalOutcome(book, world, opId, survivorReport, outcome
   if (outcome === 'captured') { const from = world.systems[op.targetSystem]?.controller || null; recordCapture(book, world, op.targetSystem, op.faction, from, day); for (const h of operationHulls(book, op)) { if (inScene && !inScene.has(h.id)) continue; if (h.transit || hullIsDisabled(h) || h.status === 'surrendered') continue; h.status = releaseStatus(h); h.opId = null; h.systemIndex = op.targetSystem; } }
   return true;
 }
-// The engine reports what it saw for operations that were mid-battle when the scene unloaded.
-export function releaseOperationFromScene(book, opId, survivorReport) {
+// The captain left mid-battle: what the scene did so far is written back onto the same hulls, and the
+// offscreen model carries the battle on from there (the encounter is resolved as 'disengaged').
+export function releaseOperationFromScene(book, opId, survivorReport, world = null, day = null) {
   const op = book.operations.find((o) => o.id === opId);
   if (!op || op.status !== 'engaged' || op.resolvedBy !== 'local') return false;
+  const enc = SE.liveEncounterFor(book, 'operation', op.id);
+  if (enc) {
+    const participants = {};
+    for (const p of enc.participants) {
+      if (p.engineOwned) continue;
+      const s = survivorReport.find((r) => String(r.hullId) === String(p.hullId));
+      if (!s) { if (p.side === 'attacker' && enc.status === 'tactical_active' && (enc.spawned || []).includes(p.vid)) participants[p.ref] = { fate: 'destroyed', hull: 0 }; continue; }
+      participants[p.ref] = { fate: s.destroyed ? 'destroyed' : s.fate || 'survived', hull: s.destroyed ? 0 : s.hull, crew: s.crew ?? null, vid: s.vid ?? null, to: s.to ?? null };
+    }
+    SE.resolveEncounter(book, world, enc.id, { result: { outcome: 'disengaged' }, participants }, day ?? op.engagedDay ?? 0, [], lookupHull(book));
+    return true;
+  }
   const p = polity(book, op.faction);
   for (const h of operationHulls(book, op)) { const s = survivorReport.find((r) => r.hullId === h.id); if (!s || s.destroyed) { h.hull = 0; h.status = 'lost'; op.losses++; p.lostHulls++; book.stats.hullsLost++; } else h.hull = bounded(Number(s.hull) || h.hull, 0, h.maxHull); }
   op.resolvedBy = null; // offscreen resolution may continue from the persisted state
   return true;
 }
+// The engine's entry points: the same encounter functions, with the book's own hull lookup.
+// A battle that fell back to the model is not handed to the scene again the same day (it was settled for
+// that day); the next day it may be. (An older record without the day counts as today.)
+// The safety net under every guard: a handoff still pending while the captain is not in its system (he left,
+// or it was opened and never taken up) is settled by the model, once, instead of holding the objective.
+export function settleAbandonedHandoff(book, world, enc, day, effects) {
+  if (!enc || !SE.isLive(enc) || (world.localSystem != null && Number(world.localSystem) === Number(enc.system))) return false;
+  if (enc.status === 'pending') { SE.fallbackEncounter(book, world, enc.id, day, effects, 'the captain was gone before the scene took it up', lookupHull(book)); return true; }
+  // An engagement being fought is only given up when the captain is known to be somewhere else (in warp,
+  // or in a world that does not place him, the departure itself has already handed it back).
+  if (world.localSystem == null) return false;
+  // A scene he is no longer in can fight nothing: the engagement is disengaged with the records as they stand
+  // (the scene's damage, if any, was written when he left), and the strategic layer carries on.
+  SE.resolveEncounter(book, world, enc.id, { result: { outcome: 'disengaged', note: 'no scene: the captain is elsewhere' }, participants: {} }, day, effects, lookupHull(book));
+  return true;
+}
+export function fellBackToday(op, day) { return op?.handoff === 'fallback' && Number(op.handoffFallbackDay ?? day) === Number(day); }
+export function resolveEncounterNow(book, world, id, report, day, effects = []) { return SE.resolveEncounter(book, world, id, report, day, effects, lookupHull(book)); }
+export function fallbackEncounterNow(book, world, id, day, effects = [], reason = 'no tactical scene') { return SE.fallbackEncounter(book, world, id, day, effects, reason, lookupHull(book)); }
+// ---- one tactical fate on one strategic hull (STRATEGIC-TACTICAL-HANDOFF §5) ----
+// The same record, the same vid: destroyed retires it; disabled leaves it where it is, stranded, awaiting
+// recovery (no repair); surrendered follows the Phase 4 rules (doctrine registers that hook); anything else
+// writes the hull the scene left it with. The hull figure and the fate must agree: a ship reported
+// "survived" at a disabled hull is disabled.
+function applyEncounterFate(book, world, p, r, enc, day, effects) {
+  const h = hullOf(book, p.polity, p.hullId);
+  if (!h || h.status === 'lost') return null;
+  const maxHull = Number(h.maxHull) || 1;
+  let fate = r.fate || 'survived';
+  let hull = fate === 'destroyed' ? 0 : r.hull != null ? bounded(Number(r.hull), 0, maxHull) : Number(h.hull);
+  if (r.crew != null && Number.isFinite(Number(r.crew))) h.crew = bounded(Number(r.crew), 0, 1);
+  const cond = classifyDamage(hull, maxHull);
+  if (fate !== 'surrendered') {
+    if (cond === 'destroyed') fate = 'destroyed';
+    else if (cond === 'disabled') fate = 'disabled';
+    else if (fate === 'disabled') hull = Math.min(hull, Math.max(1, Math.floor(disableThreshold(maxHull))));
+  }
+  p.fate = fate;
+  if (fate === 'destroyed') {
+    if (h.transit) delete h.transit;
+    loseHull(book, world, p.polity, h.id, enc.system, day, effects, enc.sides?.a === p.polity ? enc.sides?.b : enc.sides?.a);
+    h.fate = 'destroyed_in_action';
+    return { lost: true };
+  }
+  h.hull = Math.round(hull * 10) / 10;
+  if (fate === 'disabled') {
+    // It stays in the encounter's system, off whatever job it had, in the accepted stranded model.
+    if (h.transit) delete h.transit;
+    h.systemIndex = Number(enc.system);
+    if (h.defendingAt != null) delete h.defendingAt;
+    if (!h.stranded && p.polity !== 'player') strandHull(book, h, p.polity, day, effects);
+    if (h.status === 'ready' || h.status === 'assigned') h.status = 'repairing';
+    return { disabled: true };
+  }
+  if (fate === 'surrendered') {
+    const hook = SE.fateHooks().surrender;
+    if (hook) hook(book, world, { polity: p.polity, hullId: h.id, to: r.to || (enc.sides?.a === p.polity ? enc.sides?.b : enc.sides?.a) || 'player', day, reason: `surrendered in the engagement at system ${enc.system}`, acceptedBy: r.acceptedBy || 'tactical', objectiveId: enc.objective?.ref ?? null }, effects);
+    else { h.status = 'surrendered'; h.surrendered = { to: r.to || 'player', day, systemIndex: Number(enc.system), reason: 'surrendered in a tactical engagement' }; }
+    return { surrendered: true };
+  }
+  return { survived: true };
+}
+SE.registerFateHooks({ applyFate: applyEncounterFate });
+// ---- encounter families: operations ----
+SE.registerEncounterFamily('operation', {
+  resolve(book, world, enc, report, day, effects) {
+    const op = operationById(book, enc.objective.ref);
+    if (!op || op.status === 'resolved') return { continuation: 'the operation was already over' };
+    const outcome = report.result?.outcome || 'destroyed';
+    for (const p of enc.participants) {
+      if (p.fate !== 'destroyed') continue;
+      if (p.side === 'attacker') op.losses = (op.losses || 0) + 1;
+      else op.defenderLosses = (op.defenderLosses || 0) + 1;
+    }
+    op.sceneHullIds = null;
+    if (outcome === 'disengaged') {
+      // What was fought is written; the rest of the battle goes back to the offscreen model.
+      op.resolvedBy = null;
+      return { continuation: 'the offscreen battle carries on from the scene\'s state' };
+    }
+    // Only a live war still authorises the outcome: a ceasefire that came during the fight ends it as a
+    // withdrawal, never a capture.
+    const final = outcome === 'captured' && !operationIsAuthorised(book, world, op) ? 'withdrew' : outcome;
+    finishOperation(book, world, op, day, final, effects, 'local');
+    if (final === 'captured') {
+      const from = world.systems[op.targetSystem]?.controller || null;
+      recordCapture(book, world, op.targetSystem, op.faction, from, day);
+      const scene = new Set(enc.participants.filter((p) => p.side === 'attacker').map((p) => p.hullId));
+      for (const h of operationHulls(book, op)) { if (!scene.has(h.id)) continue; if (h.transit || hullIsDisabled(h) || h.status === 'surrendered') continue; h.status = releaseStatus(h); h.opId = null; h.systemIndex = op.targetSystem; }
+    }
+    return { continuation: final === 'captured' ? 'captured: the victors hold the world' : 'survivors fly home by journey', objectiveClosed: true };
+  },
+  fallback(book, world, enc, day, effects) {
+    const op = operationById(book, enc.objective.ref);
+    if (!op || op.status !== 'engaged') return { continuation: 'nothing to resolve' };
+    op.resolvedBy = null; op.handoff = 'fallback'; op.handoffFallbackDay = day; op.sceneHullIds = null;
+    resolveOffscreenDay(book, world, op, day, effects);
+    return { continuation: 'resolved offscreen (one battle day), then offscreen as usual' };
+  },
+  abort(book, enc) {
+    const op = operationById(book, enc.objective.ref);
+    if (op && op.resolvedBy === 'local') { op.resolvedBy = null; op.sceneHullIds = null; }
+  },
+});
 
 // ---------- Dominion ----------
 // Is there an opening? Not "is it late enough", which is what a date asks. The near side has to have
@@ -2816,27 +3003,46 @@ export function crossJourneyLeg(book, world, tr, effects = [], opts = {}) {
     if (hullIsDisabled(h)) { J.detachMember(tr, id, at, day, 'disabled'); out.disabled.push(id); hooks.onDetach?.(book, world, tr, h, 'disabled', at, day, effects); }
   }
   effects.push(journeyEffect(tr, 'journeyCrossed', day, { systemIndex: at, leg: tr.legIndex, legs: tr.path.length, final: !J.hasMoreLegs(tr) }));
-  if (tr.members.length && opts.blockades !== false) {
-    for (const b of applicableBlockadesAt(book, world, at, tr.sponsor)) {
-      if (tr.encounters.some((e) => e.blockadeId === b.id && e.leg === tr.legIndex && e.seq === tr.seq)) continue;
-      const ships = journeyMemberHulls(book, tr).filter((h) => classifyDamage(h.hull, h.maxHull) === 'operational');
-      if (!ships.length) break;
-      const runner = opts.runner ? opts.runner(ships) : { key: hooks.runnerKey?.(book, tr) ?? `${tr.ref != null ? `${tr.ref}:` : ''}${tr.id}:s${tr.seq}:l${tr.legIndex}`, sponsor: tr.sponsor, kind: tr.kind,
-        hulls: ships.map((h) => ({ hullId: h.id, vid: vidOfHull(h), shipId: h.shipId, hull: h.hull, maxHull: h.maxHull, crew: h.crew, role: hooks.role?.(book, tr, h) ?? null })) };
-      const r = resolveBlockadeRun(book, world, b, runner, day, effects, { meta: { journeyId: tr.id, journeyKind: tr.kind, ref: tr.ref, ...(hooks.runMeta?.(book, tr) || {}), ...(opts.meta || {}) } });
-      st.blockadeRuns[tr.kind] = (st.blockadeRuns[tr.kind] || 0) + 1;
-      const lost = [], disabled = [];
-      for (const x of r.hulls) {
-        if (!tr.members.includes(x.hullId)) continue;
-        if (x.condition === 'destroyed') { lost.push(tr.vids[x.hullId] ?? x.hullId); J.detachMember(tr, x.hullId, at, day, 'destroyed'); out.destroyed.push(x.hullId); hooks.onDetach?.(book, world, tr, { id: x.hullId, status: 'lost' }, 'destroyed', at, day, effects); }
-        else if (x.condition === 'disabled') { disabled.push(tr.vids[x.hullId] ?? x.hullId); J.detachMember(tr, x.hullId, at, day, 'disabled'); out.disabled.push(x.hullId); const h = hullOf(book, tr.sponsor, x.hullId); if (h) hooks.onDetach?.(book, world, tr, h, 'disabled', at, day, effects); }
-      }
-      tr.encounters.push({ system: at, day, leg: tr.legIndex, seq: tr.seq, blockadeId: b.id, power: b.power, outcome: r.outcome, estimate: r.estimate, coverage: r.observed?.tier ?? null, force: r.observed?.force ?? null, lost, disabled });
-      out.runs.push(r);
-      if (!r.continues) { out.turnedBack = true; break; }
-    }
-  }
+  if (tr.members.length && opts.blockades !== false) runJourneyBlockades(book, world, tr, at, day, effects, out, opts);
   return out;
+}
+// Every blockade at a crossing that bears on the journey's sponsor, once each. Where the captain is present
+// (opts.handoff, for the model's own journeys of another sponsor) an interception is handed to the scene: the
+// journey is held at this crossing until the encounter hands back a result. Returns true if turned back.
+function runJourneyBlockades(book, world, tr, at, day, effects, out, opts = {}) {
+  const st = book.stats.journeys;
+  const hooks = JOURNEY_KINDS[tr.kind] || {};
+  for (const b of applicableBlockadesAt(book, world, at, tr.sponsor)) {
+    if (opts.skip?.has(b.id)) continue;
+    if (tr.encounters.some((e) => e.blockadeId === b.id && e.leg === tr.legIndex && e.seq === tr.seq)) continue;
+    const ships = journeyMemberHulls(book, tr).filter((h) => classifyDamage(h.hull, h.maxHull) === 'operational');
+    if (!ships.length) break;
+    const runner = opts.runner ? opts.runner(ships) : { key: hooks.runnerKey?.(book, tr) ?? `${tr.ref != null ? `${tr.ref}:` : ''}${tr.id}:s${tr.seq}:l${tr.legIndex}`, sponsor: tr.sponsor, kind: tr.kind,
+      hulls: ships.map((h) => ({ hullId: h.id, vid: vidOfHull(h), shipId: h.shipId, hull: h.hull, maxHull: h.maxHull, crew: h.crew, role: hooks.role?.(book, tr, h) ?? null })) };
+    // STRATEGIC-TACTICAL-HANDOFF: the captain is in this system — an interception is fought in the scene.
+    if (opts.handoff && tr.sponsor !== 'player' && world.localSystem != null && Number(world.localSystem) === Number(at)) {
+      const contact = blockadeContact(book, world, b, runner, day);
+      if (contact.caught) {
+        const enc = openBlockadeEncounter(book, world, b, runner, day, { contact, journeyId: tr.id, leg: tr.legIndex, seq: tr.seq, reason: 'a runner intercepted where the captain is' });
+        tr.held = { encounterId: enc.id, at: Number(at), day: Number(day), leg: tr.legIndex, seq: tr.seq, blockadeId: b.id };
+        st.blockadeRuns[tr.kind] = (st.blockadeRuns[tr.kind] || 0) + 1;
+        out.held = enc.id;
+        return false;
+      }
+    }
+    const r = resolveBlockadeRun(book, world, b, runner, day, effects, { meta: { journeyId: tr.id, journeyKind: tr.kind, ref: tr.ref, ...(hooks.runMeta?.(book, tr) || {}), ...(opts.meta || {}) } });
+    st.blockadeRuns[tr.kind] = (st.blockadeRuns[tr.kind] || 0) + 1;
+    const lost = [], disabled = [];
+    for (const x of r.hulls) {
+      if (!tr.members.includes(x.hullId)) continue;
+      if (x.condition === 'destroyed') { lost.push(tr.vids[x.hullId] ?? x.hullId); J.detachMember(tr, x.hullId, at, day, 'destroyed'); out.destroyed.push(x.hullId); hooks.onDetach?.(book, world, tr, { id: x.hullId, status: 'lost' }, 'destroyed', at, day, effects); }
+      else if (x.condition === 'disabled') { disabled.push(tr.vids[x.hullId] ?? x.hullId); J.detachMember(tr, x.hullId, at, day, 'disabled'); out.disabled.push(x.hullId); const h = hullOf(book, tr.sponsor, x.hullId); if (h) hooks.onDetach?.(book, world, tr, h, 'disabled', at, day, effects); }
+    }
+    tr.encounters.push({ system: at, day, leg: tr.legIndex, seq: tr.seq, blockadeId: b.id, power: b.power, outcome: r.outcome, estimate: r.estimate, coverage: r.observed?.tier ?? null, force: r.observed?.force ?? null, lost, disabled });
+    out.runs.push(r);
+    if (!r.continues) { out.turnedBack = true; return true; }
+  }
+  return false;
 }
 // Default for a hull that leaves a journey disabled or reassigned: it is off the job, where it is.
 function releaseDetached(tr, h, reason) {
@@ -2862,6 +3068,9 @@ export function replotJourney(book, world, tr, spec, day, effects = []) {
 // What happens after a crossing, in order: nobody left; turned back; the reason for the journey lapsed
 // (checked here, at the boundary, never mid-leg); a pending order; the next leg; arrival.
 function settleCrossing(book, world, tr, cross, effects) {
+  // Held at this crossing while its interception is fought in the scene: nothing settles until the
+  // encounter hands the result back (releaseHeldCrossing).
+  if (cross.held) return;
   const hooks = JOURNEY_KINDS[tr.kind] || {};
   const st = book.stats.journeys;
   const { at, day } = cross;
@@ -2921,10 +3130,22 @@ function settleCrossing(book, world, tr, cross, effects) {
   hooks.onArrive?.(book, world, tr, at, day, effects);
 }
 // Every model journey, leg by leg, up to `day`. Doctrine journeys are stepped by their own assignments.
-export function stepJourney(book, world, tr, day, effects = []) {
+export function stepJourney(book, world, tr, day, effects = [], opts = {}) {
+  if (tr.held) {
+    const enc = SE.encounterById(book, tr.held.encounterId);
+    if (enc && settleAbandonedHandoff(book, world, enc, day, effects)) return; // its fallback releases the crossing
+    if (enc && SE.isLive(enc)) { SE.suppressAbstract(book, enc, 'held crossing'); return; }
+    // The encounter is gone without releasing it (aborted: the contact vanished): the crossing completes
+    // strategically, once, as if nothing had been handed off.
+    const held = tr.held; delete tr.held;
+    const out = { at: held.at, day: held.day, fresh: true, runs: [], turnedBack: false, disabled: [], destroyed: [], leftEnRoute: [] };
+    runJourneyBlockades(book, world, tr, held.at, held.day, effects, out, {});
+    settleCrossing(book, world, tr, out, effects);
+  }
   let guard = 0;
   while (J.legDue(tr, day) && guard++ < 64) {
-    const cross = crossJourneyLeg(book, world, tr, effects);
+    const cross = crossJourneyLeg(book, world, tr, effects, opts);
+    if (cross.held) break;
     if (!cross.fresh) break;
     settleCrossing(book, world, tr, cross, effects);
   }
@@ -2948,7 +3169,7 @@ function advanceJourneys(book, world, day, effects) {
   const list = journeyBook(book);
   for (const tr of [...list]) {
     if (tr.status !== 'underway' || tr.kind === 'doctrine') continue;
-    stepJourney(book, world, tr, day, effects);
+    stepJourney(book, world, tr, day, effects, { handoff: true });
   }
   // Bounded: every journey under way, and the newest finished ones for the record.
   if (list.length > 200) {
@@ -3507,7 +3728,8 @@ function settleBlockadeDay(book, world, b, day, effects, opening = false) {
   const mobile = defendingPolityIds(book, world, b.target).reduce((n, pid) => n + (book.polities[pid]?.hulls || []).filter((h) => h.status === 'ready' && Number(h.systemIndex) === b.target).reduce((m, h) => m + hullStrength(book, world, h), 0), 0);
   if (!opening && mobile > 0) {
     b.damageBank += mobile * c.blockadeAttrition;
-    const weakest = () => b.hulls.map((t) => ({ t, h: hullOf(book, b.power, t.hullId) })).filter((x) => x.h).sort((x, y) => hullStrength(book, world, x.h) - hullStrength(book, world, y.h) || String(x.h.id).localeCompare(String(y.h.id)))[0];
+    // A blockader fighting in the scene is the scene's: the attrition picks the weakest of the others.
+    const weakest = () => b.hulls.map((t) => ({ t, h: hullOf(book, b.power, t.hullId) })).filter((x) => x.h && !hullInEncounter(x.h)).sort((x, y) => hullStrength(book, world, x.h) - hullStrength(book, world, y.h) || String(x.h.id).localeCompare(String(y.h.id)))[0];
     let w = weakest();
     while (w && b.damageBank >= hullStrength(book, world, w.h)) {
       b.damageBank -= hullStrength(book, world, w.h);
@@ -3601,7 +3823,7 @@ function runnerProfile(book, world, runner) {
 // The blockade's side, from the hulls actually on station and able to act.
 function blockadeForce(book, world, b) {
   const c = book.config;
-  const hulls = b.hulls.filter((t) => !t.joining).map((t) => hullOf(book, b.power, t.hullId)).filter((h) => h && !hullOutOfAction(h) && !h.transit);
+  const hulls = b.hulls.filter((t) => !t.joining).map((t) => hullOf(book, b.power, t.hullId)).filter((h) => h && !hullOutOfAction(h) && !h.transit && !hullInEncounter(h)); // one already fighting in the scene is not on station for another
   const S = hulls.reduce((n, h) => n + hullStrength(book, world, h), 0);
   const speeds = hulls.map((h) => Number(world.shipStats(h.shipId)?.speed) || c.interceptRefSpeed);
   const speed = speeds.length ? speeds.reduce((a, v) => a + v, 0) / speeds.length : c.interceptRefSpeed;
@@ -3651,7 +3873,7 @@ function runObservation(outcome, f, day, u) {
 function damageBlockade(book, world, b, amount, day, effects, by) {
   const out = { damaged: [], disabled: [], lost: [] };
   let left = amount;
-  const order = () => b.hulls.map((t) => hullOf(book, b.power, t.hullId)).filter((h) => h && !hullOutOfAction(h))
+  const order = () => b.hulls.map((t) => hullOf(book, b.power, t.hullId)).filter((h) => h && !hullOutOfAction(h) && !hullInEncounter(h))
     .sort((x, y) => hullStrength(book, world, x) - hullStrength(book, world, y) || String(x.id).localeCompare(String(y.id)));
   let guard = 0;
   while (left > 0 && guard++ < 20) {
@@ -3667,6 +3889,131 @@ function damageBlockade(book, world, b, amount, day, effects, by) {
     else { out.damaged.push(h.id); break; }
   }
   return out;
+}
+// STRATEGIC-TACTICAL-HANDOFF §6. The strategic layer still decides whether there is contact at all — the
+// same seeded draws, on the same key and day, as resolveBlockadeRun — and only an interception (a runner
+// seen AND caught) becomes a fight. Where the captain is present that fight is handed to the scene; the
+// runner that slipped by or was only challenged is resolved exactly as before (no damage either way).
+export function blockadeContact(book, world, b, runner, day) {
+  const f = blockadeForce(book, world, b);
+  const a = assessBlockadeRun(book, world, b, runner, f);
+  const u = (tag) => seededUnit(book.seed, 'blockade-run', b.id, runner.key, day, tag);
+  const detected = u('detect') < a.pDetect;
+  const caught = detected && u('catch') < a.pCatch;
+  return { detected, caught, fight: caught, estimate: a.estimate, odds: { pDetect: a.pDetect, pCatch: a.pCatch, pPass: a.pPass }, force: f.n, coverage: f.coverage, tier: blockadeTier(f.coverage) };
+}
+// The interception handed to the scene: the blockade's hulls actually on station against the runner's.
+// A runner of the captain's (his own ship, his escorts) is the engine's and is recorded, not spawned.
+export function openBlockadeEncounter(book, world, b, runner, day, spec = {}) {
+  const f = blockadeForce(book, world, b);
+  const contact = spec.contact || blockadeContact(book, world, b, runner, day);
+  const player = runner.sponsor === 'player';
+  const { enc, fresh } = SE.openEncounter(book, { key: `blockade:${b.id}:${runner.key}:${day}`, system: Number(b.target), type: 'blockade', objective: { kind: 'blockade', ref: b.id },
+    authority: { kind: 'war', warKey: b.warKey || null, power: b.power }, sides: { a: b.power, b: runner.sponsor }, journeys: spec.journeyId ? [spec.journeyId] : [],
+    captain: Boolean(spec.captain), playerHostile: player, reason: spec.reason || 'interception where the captain is',
+    contact: { ...contact, runner: { key: runner.key, sponsor: runner.sponsor, kind: runner.kind || null, hulls: runner.hulls.map((x) => ({ ...x })) }, journeyId: spec.journeyId || null, leg: spec.leg ?? null, seq: spec.seq ?? null, blockadeId: b.id, power: b.power },
+    participants: [...f.hulls.map((h) => ({ hullId: h.id, polity: b.power, side: 'blockader', record: h })),
+      ...runner.hulls.map((x) => ({ hullId: x.hullId, vid: x.vid ?? null, polity: runner.sponsor, side: 'runner', shipId: x.shipId, role: x.role || null, cloak: x.cloak ?? null,
+        engineOwned: player, spawn: !player, record: player ? null : hullOf(book, runner.sponsor, x.hullId), before: { hull: x.hull, maxHull: x.maxHull, crew: x.crew ?? null } }))] }, day, lookupHull(book));
+  return enc; // counted as an interception when it is settled (tactically, or by the strategic run on fallback)
+}
+// What the tactical result means for the blockade, written in the blockade's own terms: the run it records,
+// its losses, what the runner's crews saw (only the ships that were actually in the scene), and whether it
+// still stands.
+const TACTICAL_RUN_OUTCOME = Object.freeze({ passed: 'fought_through', escaped: 'fought_through', broken: 'blockade_broken', forced_back: 'intercepted_forced_back', disengaged: 'fought_through' });
+function applyTacticalRun(book, world, b, enc, outcome, day, effects) {
+  book.stats.interceptions = (book.stats.interceptions || 0) + 1;
+  const out = { lost: [], disabled: [], surrendered: [], damaged: [] };
+  for (const p of enc.participants) {
+    if (p.side !== 'blockader') continue;
+    if (p.fate === 'destroyed') { out.lost.push(p.hullId); b.losses = (b.losses || 0) + 1; }
+    else if (p.fate === 'disabled') { out.disabled.push(p.hullId); effects.push({ type: 'strategicShipReleased', id: b.id, sponsor: b.power, hullId: p.hullId, day }); }
+    else if (p.fate === 'surrendered') out.surrendered.push(p.hullId);
+    else if (p.after?.hull != null && p.before && Number(p.after.hull) < Number(p.before.hull)) out.damaged.push(p.hullId);
+    if (['destroyed', 'disabled', 'surrendered'].includes(p.fate)) {
+      b.hulls = b.hulls.filter((t) => t.hullId !== p.hullId);
+      const h = hullOf(book, b.power, p.hullId);
+      if (h && h.opId === b.id && p.fate !== 'destroyed') h.opId = null;
+    }
+  }
+  let run = TACTICAL_RUN_OUTCOME[outcome] || 'fought_through';
+  let broken = false;
+  if (b.status === 'active') {
+    const live = blockadeForce(book, world, b);
+    if (!live.n || outcome === 'broken') { endBlockade(book, world, b, day, 'broken', enc.captain ? 'its interceptors were beaten off by the captain' : 'its interceptors were beaten off in a fight', effects); broken = true; }
+    else refreshBlockadeCoverage(book, world, b, day, effects);
+  }
+  if (broken && RUN_CONTINUES.has(run)) run = 'blockade_broken';
+  const spawned = enc.participants.filter((p) => p.side === 'blockader' && p.spawn && (enc.spawned || []).includes(p.vid || p.ref)).length;
+  const observed = { day, level: 'engaged', tier: blockadeTier(b.coverage ?? 0), force: String(spawned), tactical: true };
+  if (enc.sides?.b === 'player' || enc.captain || enc.observedByPlayer) b.sightings = { ...(b.sightings || {}), player: observed };
+  b.runs = [...(b.runs || []), { day, by: enc.contact?.runner?.key || enc.id, sponsor: enc.sides?.b, kind: enc.contact?.runner?.kind || null, outcome: run, tactical: true, encounterId: enc.id }].slice(-30);
+  if (RUN_CONTINUES.has(run)) { b.breaches.push({ day, by: enc.contact?.runner?.key || enc.id, kind: enc.contact?.runner?.kind || 'run' }); b.breaches = b.breaches.slice(-30); }
+  return { run, continues: RUN_CONTINUES.has(run), broken, observed, blockaderLosses: { lost: out.lost.length, disabled: out.disabled.length, surrendered: out.surrendered.length, damaged: out.damaged.length } };
+}
+SE.registerEncounterFamily('blockade', {
+  resolve(book, world, enc, report, day, effects) {
+    const b = (book.blockades || []).find((x) => x.id === enc.objective.ref);
+    const outcome = report.result?.outcome || 'passed';
+    const res = b ? applyTacticalRun(book, world, b, enc, outcome, day, effects) : { run: outcome === 'forced_back' ? 'intercepted_forced_back' : 'fought_through', continues: outcome !== 'forced_back', broken: false };
+    enc.result = { ...enc.result, run: res.run, continues: res.continues, broken: res.broken, blockaderLosses: res.blockaderLosses || null };
+    // One report line for the engine (the encounter report): never a second, abstract "blockade run" report.
+    effects.push({ type: 'blockadeRun', tactical: true, engineApplied: true, encounterId: enc.id, blockadeId: enc.objective.ref, power: enc.contact?.power, target: enc.system, sponsor: enc.sides?.b, key: enc.contact?.runner?.key, kind: enc.contact?.runner?.kind || null, day, outcome: res.run,
+      continues: res.continues, detected: true, intercepted: true, hulls: [], blockaderLosses: res.blockaderLosses || null, broken: res.broken, observed: res.observed || null, journeyId: enc.contact?.journeyId || null });
+    const tr = enc.contact?.journeyId ? journeyById(book, enc.contact.journeyId) : null;
+    if (tr && tr.held?.encounterId === enc.id) { releaseHeldCrossing(book, world, tr, enc, { outcome: res.run, continues: res.continues }, day, effects); return { continuation: res.continues ? 'the runners fly on' : 'the runners turn back', journeyResumed: true }; }
+    return { continuation: enc.captain ? (res.continues ? 'the captain may resume his course' : 'the captain falls back') : (res.continues ? 'passed' : 'forced back') };
+  },
+  fallback(book, world, enc, day, effects) {
+    const b = (book.blockades || []).find((x) => x.id === enc.objective.ref);
+    const runner = enc.contact?.runner;
+    if (!b || !runner || b.status !== 'active') {
+      const tr = enc.contact?.journeyId ? journeyById(book, enc.contact.journeyId) : null;
+      if (tr && tr.held?.encounterId === enc.id) releaseHeldCrossing(book, world, tr, enc, { outcome: 'slipped_through', continues: true }, day, effects);
+      return { continuation: 'the blockade was gone: the runner goes on' };
+    }
+    // The ordinary strategic run, exactly once, on the contact's own key and day.
+    const r = resolveBlockadeRun(book, world, b, runner, Number(enc.createdDay), effects, { meta: { encounterId: enc.id, fallback: true, journeyId: enc.contact.journeyId || null, engineApplied: false } });
+    enc.fallback.run = { outcome: r.outcome, continues: r.continues };
+    // The strategic run decided the runners' fates on their records: the held crossing detaches them the
+    // same way a tactical result would (a lost or disabled runner never flies on with the journey).
+    for (const x of r.hulls || []) {
+      const p = enc.participants.find((q) => q.side === 'runner' && String(q.hullId) === String(x.hullId));
+      if (p && ['destroyed', 'disabled'].includes(x.condition)) p.fate = x.condition;
+    }
+    enc.result = { outcome: r.continues ? 'passed' : 'forced_back', run: r.outcome, continues: r.continues, strategic: true };
+    const tr = enc.contact?.journeyId ? journeyById(book, enc.contact.journeyId) : null;
+    if (tr && tr.held?.encounterId === enc.id) releaseHeldCrossing(book, world, tr, enc, r, day, effects);
+    return { continuation: `strategic run: ${r.outcome}`, run: r };
+  },
+  abort(book, enc) {
+    const tr = enc.contact?.journeyId ? journeyById(book, enc.contact.journeyId) : null;
+    if (tr && tr.held?.encounterId === enc.id) tr.heldAborted = true;
+  },
+});
+// A model journey held at a crossing while its interception was fought in the scene: the rest of that
+// crossing now happens — the result on its record, the ships lost or disabled there dropped out where it
+// happened, any other blockade at the same system run strategically — and the journey settles exactly as
+// if the run had been resolved there and then (on, back, or arrived). Never a second crossing.
+function releaseHeldCrossing(book, world, tr, enc, run, day, effects) {
+  const held = tr.held;
+  if (!held) return;
+  delete tr.held;
+  const at = Number(held.at);
+  const hooks = JOURNEY_KINDS[tr.kind] || {};
+  const out = { at, day: Number(held.day), fresh: true, runs: [run], turnedBack: !run.continues, disabled: [], destroyed: [], leftEnRoute: [], released: true };
+  const lost = [], disabled = [];
+  for (const p of enc.participants) {
+    if (p.side !== 'runner' || !tr.members.includes(p.hullId)) continue;
+    if (p.fate === 'destroyed') { lost.push(tr.vids[p.hullId] ?? p.hullId); J.detachMember(tr, p.hullId, at, day, 'destroyed'); out.destroyed.push(p.hullId); hooks.onDetach?.(book, world, tr, { id: p.hullId, status: 'lost' }, 'destroyed', at, day, effects); }
+    else if (p.fate === 'disabled' || p.fate === 'surrendered') { disabled.push(tr.vids[p.hullId] ?? p.hullId); J.detachMember(tr, p.hullId, at, day, p.fate); out.disabled.push(p.hullId); const h = hullOf(book, tr.sponsor, p.hullId); if (h) hooks.onDetach?.(book, world, tr, h, p.fate, at, day, effects); }
+  }
+  tr.encounters.push({ system: at, day: Number(held.day), leg: held.leg, seq: held.seq, blockadeId: held.blockadeId, power: enc.contact?.power ?? null, outcome: run.outcome, tactical: !enc.fallback, encounterId: enc.id, lost, disabled });
+  if (run.continues && tr.members.length) {
+    const more = runJourneyBlockades(book, world, tr, at, Number(held.day), effects, out, { skip: new Set([held.blockadeId]) });
+    if (more) out.turnedBack = true;
+  }
+  settleCrossing(book, world, tr, out, effects);
 }
 // Resolve one crossing. Deterministic for a given book seed and key: the same runner reaching the same
 // blockade on the same day gets the same answer after a reload. Applies everything it decides to the
