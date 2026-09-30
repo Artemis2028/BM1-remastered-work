@@ -97,6 +97,24 @@ The check was repeated on the candidate. Every hull `systemIndex` write left in 
 - **`campaign legs N`:** a new debug override, never saved, that makes every leg N days. The doctrine
   phase gates use it because their scenarios are authored one hop at a time.
 
+## After STRATEGIC-TIME-SCALE-CORRECTION
+
+No row is reclassified. Every UNIFIED path still moves on the shared journey record at real leg lengths.
+What changed is the planning that feeds those journeys, which now reads the same real days
+(`docs/movement/STRATEGIC-TIME-SCALE-CORRECTION.md` §1 lists every one-hop-era assumption found and what
+became of it). Travel stays ship-independent.
+
+| row | what the planner now reads |
+|---|---|
+| 3, 4 (doctrine patrol and defence) | Patrol legs are at most 15 days, with time on station in proportion to the leg. Defence reach is 20 days by ETA, with a deadline from arrival. There is no replacement while a patrol is in warp. |
+| 5 (raids) | The deadline is counted from the arrival milestone. |
+| 6 (rescue / investigation) | Reach and deadline come from `vesselEta` (the route the assignment flies). Rescue is bounded by survivor endurance, and investigation by travel + on station + slack. |
+| 7 (escort) | The escort's ETA is set against the charge's real arrival at each stop. |
+| 9 (evacuation) | Refuge by real days and safety; target by the trips possible before the threat arrives; retry after 1 day; a loaded convoy in flight lands its people after the origin falls. |
+| 10, 11 (operations, returns) | Target by ETA and the defence on arrival (`forceAccount`: standing / incoming / later, no double counting). Home is the nearest by real days, from the end of the leg in flight. |
+| 12 (repair) | Yard is the nearest by real days. |
+| 15, 17 (Dominion corridor and reinforcements) | Count toward the expedition only on arrival. Escalation targets are ordered by ETA. |
+
 ## Carried into the handoff (still deferred)
 
 - **This audit:**
@@ -115,4 +133,6 @@ The check was repeated on the candidate. Every hull `systemIndex` write left in 
   - Borg assimilation;
   - Gorn activation;
   - Tactical Cube;
-  - treaty expansion.
+  - treaty expansion;
+  - **SHIP-DEPENDENT STRATEGIC SPEED** (its own future round). The requirements are in
+    STRATEGIC-TIME-SCALE-CORRECTION §10.

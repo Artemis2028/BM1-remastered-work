@@ -17,7 +17,7 @@ const { startProbe } = require('./probe-harness.cjs');
   const t0 = Date.now();
   await fresh('movement-longrun');
   await ev(() => {
-    window.__acc = { maxActiveJourneys: 0, journeyDaySum: 0, samples: 0, warLog: [], seenWar: {}, controllerChanges: 0, lastControl: null, opsSeen: {}, evacSeen: {}, blockSeen: {}, disabledMax: 0 };
+    window.__acc = { forceDays: { standing: 0, committed: 0, transit: 0 }, patrolDays: { travelling: 0, standing: 0 }, maxActiveJourneys: 0, journeyDaySum: 0, samples: 0, warLog: [], seenWar: {}, controllerChanges: 0, lastControl: null, opsSeen: {}, evacSeen: {}, blockSeen: {}, disabledMax: 0 };
   });
   const samples = [];
   for (let d = 0; d < days; d += 10) {
@@ -31,8 +31,12 @@ const { startProbe } = require('./probe-harness.cjs');
         const ctl = t.buildCampaignWorld(true).systems.map((s) => s.controller).join(',');
         if (a.lastControl && a.lastControl !== ctl) a.controllerChanges += ctl.split(',').filter((c, j) => c !== a.lastControl.split(',')[j]).length;
         a.lastControl = ctl;
-        for (const o of book.operations || []) a.opsSeen[o.id] = { losses: o.losses, defenderLosses: o.defenderLosses, faction: o.faction, kind: o.kind, created: o.createdDay, arrive: o.arriveDay, engaged: o.engagedDay, resolved: o.resolvedDay, outcome: o.outcome, status: o.status, hops: o.journeyIds ? o.journeyIds.length : null };
-        for (const e of book.evacuations || []) a.evacSeen[e.id] = { sponsor: e.sponsor, start: e.startDay, end: e.endDay, status: e.status, moved: e.moved, target: e.target, runs: (e.convoy?.attempts || []).length };
+        // Forces: standing (free, not moving), committed (on an order, not moving), in transit.
+        for (const p of Object.values(book.polities)) for (const h of p.hulls || []) { if (h.status === 'lost') continue; if (h.transit) a.forceDays.transit++; else if (h.opId || h.status === 'assigned') a.forceDays.committed++; else a.forceDays.standing++; }
+        // Doctrine patrols: days in warp against days on station or at home.
+        { const db = t.DoctrineCampaign?.doctrineBook(book); for (const x of db?.assignments || []) { if (x.status !== 'active' || !['patrol', 'area_patrol', 'patrol_area'].includes(x.kind)) continue; const h = book.polities[x.polity]?.hulls.find((y) => y.id === x.hullId); if (!h) continue; if (h.transit) a.patrolDays.travelling++; else a.patrolDays.standing++; } }
+        for (const o of book.operations || []) a.opsSeen[o.id] = { plannedEta: o.plan?.etaDays ?? null, actualEta: o.arriveDay != null && o.createdDay != null ? o.arriveDay - o.createdDay : null, losses: o.losses, defenderLosses: o.defenderLosses, faction: o.faction, kind: o.kind, created: o.createdDay, arrive: o.arriveDay, engaged: o.engagedDay, resolved: o.resolvedDay, outcome: o.outcome, status: o.status, hops: o.journeyIds ? o.journeyIds.length : null };
+        for (const e of book.evacuations || []) a.evacSeen[e.id] = { oneWayDays: t.Campaign.evacuationRoundTripDays ? t.Campaign.evacuationRoundTripDays(t.buildCampaignWorld(true), e) / 2 : null, trips: e.convoy?.trip ?? null, sponsor: e.sponsor, start: e.startDay, end: e.endDay, status: e.status, moved: e.moved, target: e.target, runs: (e.convoy?.attempts || []).length };
         for (const b of book.blockades || []) a.blockSeen[b.id] = { losses: b.losses, power: b.power, start: b.startDay, active: b.activeDay, status: b.status, end: b.endDay, runs: (b.runs || []).length, byKind: (b.runs || []).reduce((m, r) => { m[r.kind] = (m[r.kind] || 0) + 1; return m; }, {}) };
         const dis = Object.values(book.polities).flatMap((p) => p.hulls).filter((h) => t.Campaign.hullIsDisabled(h)).length;
         a.disabledMax = Math.max(a.disabledMax, dis);
@@ -59,6 +63,21 @@ const { startProbe } = require('./probe-harness.cjs');
     const mean = (xs) => (xs.length ? Math.round(10 * xs.reduce((n, x) => n + x, 0) / xs.length) / 10 : null);
     let saveBytes = null; try { t.saveGame(3); saveBytes = (t.getSaveSlotRaw?.(3) || '').length; } catch (e) { saveBytes = String(e.message || e); }
     return {
+      timeScale: (() => {
+        const db = t.DoctrineCampaign?.doctrineBook(book); const st = db?.stats || {};
+        const cancelled = ops.filter((o) => o.status === 'resolved' && o.engaged == null && ['stood-down', 'recalled', 'turned-back', 'superseded', 'cancelled'].includes(o.outcome));
+        const dist = {}; for (const e of evs) { const d = e.oneWayDays; if (d == null) continue; const b = d <= 10 ? '≤10' : d <= 20 ? '11–20' : d <= 30 ? '21–30' : d <= 45 ? '31–45' : '>45'; dist[b] = (dist[b] || 0) + 1; }
+        const done = evs.filter((e) => e.status === 'completed');
+        const fd = a.forceDays, n = a.samples || 1;
+        return {
+          operationEta: { planned: mean(ops.filter((o) => o.plannedEta != null).map((o) => o.plannedEta)), actual: mean(ops.filter((o) => o.actualEta != null).map((o) => o.actualEta)), cancelledUnderway: cancelled.length },
+          patrol: { travellingDays: a.patrolDays.travelling, standingDays: a.patrolDays.standing, travellingShare: (a.patrolDays.travelling + a.patrolDays.standing) ? Math.round(100 * a.patrolDays.travelling / (a.patrolDays.travelling + a.patrolDays.standing)) : null, replacementHeldDays: st.patrolReplacementHeldDays || 0 },
+          rescue: { proposed: st.etaRescueProposed || 0, feasible: st.etaRescueFeasible || 0, failedByDistance: st.etaRescueFailedByDistance || 0 },
+          investigation: { proposed: st.etaInvestigationProposed || 0, feasible: st.etaInvestigationFeasible || 0, failedByDistance: st.etaInvestigationFailedByDistance || 0 },
+          evacuation: { started: evs.length, completed: done.length, meanCycleDays: mean(done.filter((e) => e.trips).map((e) => (e.end - e.start) / e.trips)), moved: evs.reduce((n2, e) => n2 + e.moved, 0), destinationOneWayDays: dist, meanOneWayDays: mean(evs.filter((e) => e.oneWayDays != null).map((e) => e.oneWayDays)) },
+          forcesMeanPerDay: { standing: Math.round(fd.standing / n), committed: Math.round(fd.committed / n), inTransit: Math.round(fd.transit / n) },
+        };
+      })(),
       operations: { total: ops.length, byOutcome: by(ops, (o) => o.outcome || o.status), engaged: ops.filter((o) => o.engaged != null).length, meanDaysToEngage: mean(ops.filter((o) => o.engaged != null).map((o) => o.engaged - o.created)), resolved: ops.filter((o) => o.status === 'resolved').length },
       evacuations: { total: evs.length, byStatus: by(evs, (e) => e.status), meanCompletionDays: mean(evs.filter((e) => e.status === 'completed').map((e) => e.end - e.start)), moved: evs.reduce((n, e) => n + e.moved, 0) },
       lossesBySource: { operationsAttacker: ops.reduce((n, o) => n + (o.losses || 0), 0), operationsDefender: ops.reduce((n, o) => n + (o.defenderLosses || 0), 0), blockades: bls.reduce((n, b) => n + (b.losses || 0), 0),
@@ -67,7 +86,8 @@ const { startProbe } = require('./probe-harness.cjs');
       maxActiveJourneys: a.maxActiveJourneys, meanActiveJourneys: a.samples ? Math.round(10 * a.journeyDaySum / a.samples) / 10 : 0, disabledMax: a.disabledMax,
       doctrine: (() => { const db = t.DoctrineCampaign?.doctrineBook(book); if (!db) return null; const st = db.stats || {};
         return { incidents: st.incidentsCreated || 0, liveObjectives: st.liveObjectives || 0, deferred: st.deferred || 0, completed: st.objectivesCompleted || 0, aborted: st.objectivesAborted || 0, expired: st.objectivesExpired || 0, blockadeRuns: st.blockadeRuns || 0, patrolsReturned: st.patrolsReturned || 0,
-          assignmentsCompleted: db.assignments.filter((x) => x.status === 'completed').length, byResponse: by(db.objectives, (o) => `${typeof o.response === 'string' ? o.response : o.kind}:${o.status}`) }; })(),
+          assignmentsCompleted: db.assignments.filter((x) => x.status === 'completed').length, byResponse: by(db.objectives, (o) => `${typeof o.response === 'string' ? o.response : o.kind}:${o.status}`),
+          etaObjectives: db.objectives.filter((o) => ['investigate', 'rescue'].includes(o.response)).map((o) => ({ response: o.response, created: o.createdDay, plan: o.plan || null, deadline: o.deadline?.value, arrived: o.arrivedDay ?? null, status: o.status, reasons: o.resolution?.reasons || null, note: o.resolution?.note || null })) }; })(),
       controllerChanges: a.controllerChanges, warLog: a.warLog, saveBytes, hullsLost: book.stats.hullsLost, battles: book.stats.battlesResolved };
   });
   const res = { label, days, seconds: Math.round((Date.now() - t0) / 1000), samples, final: fin, errors: probe.errors.slice(0, 5) };

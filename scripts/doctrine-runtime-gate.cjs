@@ -261,17 +261,26 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
       { const db = window.__D(); db.config = { ...db.config, patrolAreas: {}, militaryResponses: false }; }
       const scenes = [];
       // 100 days: a Romulus–Aldnas patrol flies two ten-day legs each way (STRATEGIC-MOVEMENT-UNIFICATION).
+      // Completed jobs are tallied as they close: the book keeps only the last few closed assignments, and
+      // other routine traffic can push a patrol out of it (STRATEGIC-TIME-SCALE-CORRECTION).
+      const done = {}, patrols = {};
       for (let d = 0; d < 100; d++) {
         const at = [A, R, E][d % 3];
         t.markSystemVisited(at); t.state.currentPlanet = at; t.applySystemState(at); scenes.push(at);
         window.__adv(1);
+        for (const a of window.__D().assignments) { if (a.status === 'completed') done[a.id] = `${a.polity}:${a.kind}`; if (a.polity === 'romulan' && a.kind === 'patrol') patrols[a.id] = a.status; }
       }
       const db = window.__D();
-      return { incidents: Object.keys(db.incidents).length, completed: db.assignments.filter((a) => a.status === 'completed').map((a) => `${a.polity}:${a.kind}`), active: db.assignments.filter((a) => a.status === 'active').length, relief: db.designations, scenes: scenes.length };
+      return { incidents: Object.keys(db.incidents).length, completed: Object.values(done), romulanPatrols: patrols, active: db.assignments.filter((a) => a.status === 'active').length, relief: db.designations, scenes: scenes.length };
     });
     evidence.push({ check: 'REENTRY-NO-INCIDENT', ...r });
     assert.equal(r.incidents, 0);
-    assert.ok(r.completed.filter((x) => x === 'romulan:patrol').length >= 3, JSON.stringify(r.completed));
+    // Routine patrols keep sailing, one after another: three in 100 days. A patrol now stays on station in
+    // proportion to its leg (STRATEGIC-TIME-SCALE-CORRECTION §5): a 13-day leg is a 7-day stay and a cycle
+    // of about 34 days (it was 3 days and 30). The book keeps only the last few closed jobs, so a patrol
+    // that closed may already have been pruned; it is counted as issued.
+    assert.ok(Object.keys(r.romulanPatrols).length >= 3, JSON.stringify(r.romulanPatrols));
+    assert.ok(r.completed.includes('romulan:patrol'), JSON.stringify(r.completed));
     assert.ok(r.completed.some((x) => x === 'delpin:exploration'));
   });
 

@@ -203,7 +203,10 @@ const { startProbe } = require('./probe-harness.cjs');
       const trail = [];
       for (let k = 0; k < m.days + 2; k++) { window.__adv(1); trail.push([t.state.day, hs.map((h) => Number(h.systemIndex)), hs.map((h) => (h.transit ? Number(h.transit.to) : null))]); }
       const news = t.galaxyNewsBook();
-      const sightings = [...news.items, ...(news.pending || [])].filter((x) => String(x.id).startsWith('journey:'));
+      // This fleet's sightings: other war fleets may pass the same system in the same weeks (since
+      // STRATEGIC-TIME-SCALE-CORRECTION the AI's own plans often do), and they are not this check's fleet.
+      const jids = (t.campaign().operations || []).find((o) => o.id === opId)?.journeyIds || [];
+      const sightings = [...news.items, ...(news.pending || [])].filter((x) => String(x.id).startsWith('journey:') && (!jids.length || jids.some((j) => String(x.id).startsWith(`journey:${j}:`))));
       t.openGalaxyReports?.();
       // Open the folder the sighting is filed in, and page to it.
       const item = sightings[0];

@@ -377,6 +377,10 @@ const { startProbe } = require('./probe-harness.cjs');
       if (!res.ok) return { fail: res.reason };
       window.__e = res.record.id;
       window.__adv(1);
+      // The blockade must outlast the three phases being compared (each three real round trips). With the
+      // stock 90-day patience it withdrew during the first phase on every build since f34542d, so the
+      // escorted phases met no blockade at all (STRATEGIC-TIME-SCALE-CORRECTION).
+      t.campaign().config.blockadeMaxDays = 400;
       window.__bid = window.__aiBlockade('klingon', AC, 18);
       return { fail: null, P, AC, E, route: res.record.route, vids: ids.map(window.__vid) };
     });
@@ -451,10 +455,15 @@ const { startProbe } = require('./probe-harness.cjs');
     const [u, e2, l] = a.trace;
     assert.ok(u.runs.length > 0, 'the convoy never ran the blockade');
     assert.ok(u.passed < u.runs.length, `unescorted, every run succeeded: ${u.runs}`);
+    // Escorted, the runs go better (a phase with no runs — the blockade already broken — is not scored),
+    // and deliveries do not fall. STRATEGIC-TIME-SCALE-CORRECTION: a convoy turned back now retries the next
+    // day instead of waiting three, so the unescorted convoy's deliveries are bounded by its round trips as
+    // the escorted one's are; the difference escorts make shows in the runs and in the blockade breaking.
     const share = (x) => x.passed / Math.max(1, x.runs.length);
-    assert.ok(share(e2) + share(l) > 2 * share(u) || (e2.perDay + l.perDay) / 2 > u.perDay, `escorts did not improve the runs: ${JSON.stringify(a.trace)}`);
+    const scored = [e2, l].filter((x) => x.runs.length);
+    assert.ok((scored.length && scored.every((x) => share(x) > share(u))) || (e2.perDay + l.perDay) / 2 > u.perDay || (e2.blockade[0] === 'broken' && share(e2) >= share(u)), `escorts did not improve the runs: ${JSON.stringify(a.trace)}`);
     assert.ok(a.end.block[1] < 18 || a.end.block[0] !== 'active', `the blockade lost nothing: ${a.end.block}`);
-    assert.ok((e2.perDay + l.perDay) / 2 > u.perDay, `deliveries did not rise: ${JSON.stringify(a.trace)}`);
+    assert.ok((e2.perDay + l.perDay) / 2 >= u.perDay, `deliveries fell: ${JSON.stringify(a.trace)}`);
     // Persistent vessels: every hauler is the same vid it started with, whatever happened to it.
     for (const [id, vid] of a.end.fleet) assert.ok(vid.startsWith('vsl:'), `${id} ${vid}`);
     assert.deepEqual(a.end.fleet.filter((x) => /Hauler/.test(x[0])).map((x) => x[1]), a.setup.vids);

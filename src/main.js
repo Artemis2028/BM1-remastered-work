@@ -9075,6 +9075,7 @@ function refreshDebugReadout() {
   const bulletin=debugMenuEl.querySelector('[data-diplomacy-bulletin]');if(bulletin)bulletin.innerHTML=renderDiplomacyBulletin();
   const doctrinePanel=debugMenuEl.querySelector('[data-doctrine-debug]');if(doctrinePanel)doctrinePanel.innerHTML=renderDoctrineDebug();
   const journeyPanel=debugMenuEl.querySelector('[data-journey-debug]');if(journeyPanel)journeyPanel.innerHTML=renderJourneyDebug();
+  const planningPanel=debugMenuEl.querySelector('[data-planning-debug]');if(planningPanel)planningPanel.innerHTML=renderPlanningDebug();
   const resource = debugMenuEl.querySelector('[name="resource"]').value;
   debugMenuEl.querySelector('[name="amount"]').max = debugResourceFields[resource].max();
   const faction = debugMenuEl.querySelector('[name="faction"]').value;
@@ -9143,6 +9144,8 @@ function openDebugMenu() {
       <p>Wars still come from the diplomacy controls above. Operations, captures, integration, recovery contracts and relay orders follow the model; nothing here spawns Dominion forces outside the wormhole route.</p></section>
     <section data-journey-section><h3>Strategic journeys (debug)</h3><div data-journey-debug>${renderJourneyDebug()}</div></section>
     <section data-doctrine-section><h3>Faction doctrine (debug)</h3><div data-doctrine-debug>${renderDoctrineDebug()}</div></section>
+    <!-- after the doctrine section, so the older debug sections keep their place and height in the dialog -->
+    <section data-planning-section><h3>ETA-aware planning (debug)</h3><div data-planning-debug>${renderPlanningDebug()}</div></section>
     <section><h3>Cheat codes</h3><form data-debug-form="code"><label>Code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="standing romulan 50" required></label><button type="submit">Run code</button></form>
       <details><summary>Remaster code list</summary><p>Codes are case-insensitive. Faction keys appear in the selector above.</p><ul>
         <li><code>crisis romulan klingon</code>, <code>war romulan klingon</code>, <code>peace romulan klingon</code> — change bilateral relations.</li><li><code>standing romulan 50</code> — set one faction's standing.</li><li><code>latinum 10000</code>, <code>duranium 500</code>, <code>antimatter 6</code> — set resources.</li>
@@ -10509,11 +10512,20 @@ function startPlayerBlockade(target, fleetIds, purpose = 'isolate_world') {
 function reinforcePlayerBlockade(id, fleetIds) { return runStrategicCommand((book, world, effects) => Campaign.reinforceBlockade(book, world, id, (fleetIds || []).map((x) => `pf:${x}`), state.day, effects)); }
 function withdrawPlayerBlockade(id) { return runStrategicCommand((book, world, effects) => Campaign.withdrawBlockade(book, world, id, state.day, effects, 'withdrawn by the captain')); }
 // Where the captain may send evacuees from a world: every known system the model accepts.
+// Best first by real days of travel and safety (STRATEGIC-TIME-SCALE-CORRECTION), as the model scores them.
 function evacuationDestinationsFor(origin) {
   const book = campaign(); const world = buildCampaignWorld();
-  return world.systems.filter((s) => s.index !== Number(origin) && isChartSystemVisible(s.index))
-    .map((s) => ({ index: s.index, name: s.name, check: Campaign.validateEvacuationDestination(book, world, PLAYER_SIDE, Number(origin), s.index) }))
-    .filter((x) => x.check.ok).sort((a, b) => a.check.hops - b.check.hops || a.name.localeCompare(b.name));
+  // The captain sees real days and whether a refuge is on the front line (who is at war with whom is
+  // public). Blockades on the way are ground truth he may not know of, so they neither label nor order
+  // his list: it is ordered by days, front-line refuges after.
+  const pen = book.config.evacDistancePenaltyDays ?? 10;
+  return Campaign.evacuationDestinations(book, world, PLAYER_SIDE, Number(origin)).filter((x) => isChartSystemVisible(x.index))
+    .map((x) => {
+      // Front line as he can see it: an enemy-held neighbour on his chart.
+      const frontline = (world.neighbours(x.index) || []).map(Number).some((n) => isChartSystemVisible(n) && world.systems[n]?.controller && campaignPartyRelation(PLAYER_SIDE, world.systems[n].controller) === 'war');
+      return { index: x.index, name: x.name, days: x.days, frontline, crowded: x.crowded, rank: x.days + (frontline ? pen : 0) + (x.crowded ? pen / 2 : 0), check: { ok: true, route: x.route, hops: x.hops, days: x.days } };
+    })
+    .sort((a, b) => a.rank - b.rank || a.days - b.days || a.index - b.index);
 }
 // What the captain knows about an operation. Their own: everything. Otherwise the best source they have
 // at the place: being there or a ship there sees the ships; a relay reads the traffic; hearsay only
@@ -11181,6 +11193,45 @@ function renderJourneyDebug() {
     <td>${tr.legIndex + 1}/${tr.path.length}: ${nm(tr.from)} → ${nm(tr.path[tr.legIndex])}${tr.waiting ? ' (waiting)' : ''}</td><td>${nm(tr.destination)}</td>
     <td>left day ${tr.legDepartDay} · arrives day ${tr.legArrivalDay} · eta day ${tr.etaDay}</td><td>${auth(tr)}</td><td>${nextBlocker(tr)}</td></tr>`).join('');
   return `${head}<table class="doctrine-debug" data-journey-table><thead><tr><th>Actor (vids)</th><th>Purpose</th><th>Origin</th><th>Current leg</th><th>Destination</th><th>Departure / arrival</th><th>Authority</th><th>Next blocker</th></tr></thead><tbody>${rows}</tbody></table>${endedTable}`;
+}
+// STRATEGIC-TIME-SCALE-CORRECTION: what each planner saw, in real days. Every figure is the route the
+// journey itself flies (Fleet.travelDays per leg) — there is no planning-only speed.
+function renderPlanningDebug() {
+  if (!state.gameStarted) return '<p class="meta">No campaign.</p>';
+  const book = campaignBook();
+  if (!book.initialized) return '<p class="meta">No campaign.</p>';
+  const world = buildCampaignWorld();
+  const day = Number(book.settled ?? state.day);
+  const nm = (i) => escapeHtml(state.planets[Number(i)]?.name || (i == null ? '—' : `system ${i}`));
+  const fac = (id) => escapeHtml(formatFaction(campaignFactionKeyFor(id)));
+  // AI war planning: the last plan of each power, every target it weighed.
+  const plans = Object.entries(book.polities).filter(([, p]) => p.lastPlan).map(([id, p]) => {
+    const rows = (p.lastPlan.considered || []).map((r) => `<tr data-plan-row="${escapeHtml(id)}:${r.index}"${r.index === p.lastPlan.chosen ? ' class="chosen"' : ''}><td>${nm(r.index)}</td><td>${r.hops ?? '—'}</td><td>${r.etaDays ?? '—'}</td><td>${r.defenseNow ?? '—'}</td><td>${r.incomingDefense ?? '—'}</td><td>${r.defenseAtEta ?? '—'}</td><td>${r.score ?? '—'}</td><td>${r.index === p.lastPlan.chosen ? '<b>chosen</b>' : escapeHtml(r.skip || '')}</td></tr>`).join('');
+    return `<h4>${fac(id)} — day ${p.lastPlan.day}, strength ${p.lastPlan.strength}${p.lastPlan.chosen == null ? ' · no target' : ` · target ${nm(p.lastPlan.chosen)}`}</h4><table class="doctrine-debug" data-plan-table="${escapeHtml(id)}"><thead><tr><th>Target</th><th>Jumps</th><th>ETA (days)</th><th>Defence now</th><th>Incoming defence</th><th>Defence on arrival</th><th>Score</th><th>Decision</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }).join('');
+  // Operations under way: plan against what the force will meet, front accounting at the target.
+  const ops = (book.operations || []).filter((o) => o.status !== 'resolved');
+  const opRows = ops.map((o) => {
+    const f = Campaign.forceAccount(book, world, o.targetSystem, o.arriveDay ?? Infinity, o.faction);
+    return `<tr data-op-plan="${escapeHtml(o.id)}"><td>${fac(o.faction)} ${escapeHtml(o.kind)}</td><td>${nm(o.targetSystem)}</td><td>day ${o.createdDay}</td><td>${o.plan ? `${o.plan.etaDays} days → day ${o.plan.arriveDay}` : `day ${o.arriveDay ?? '—'}`}</td><td>${o.engagedDay != null ? `day ${o.engagedDay}` : escapeHtml(o.status)}</td><td>${f.standing}</td><td>${f.incoming.map((x) => `${fac(x.sponsor)} ${x.kind} ${x.strength} (day ${x.eta})`).join(', ') || '—'}</td><td>${f.later.map((x) => `${fac(x.sponsor)} ${x.strength} (day ${x.eta})`).join(', ') || '—'}</td></tr>`;
+  }).join('');
+  const opTable = opRows ? `<h4>Operations under way</h4><table class="doctrine-debug" data-op-plan-table><thead><tr><th>Force</th><th>Target</th><th>Launched</th><th>Planned ETA</th><th>Engaged</th><th>Standing there</th><th>Incoming first</th><th>Arriving after</th></tr></thead><tbody>${opRows}</tbody></table>` : '<p class="meta">No operations under way.</p>';
+  // Forces: standing, committed (on an order, not moving), in transit.
+  const hulls = Object.entries(book.polities).flatMap(([id, p]) => (p.hulls || []).filter((h) => h.status !== 'lost').map((h) => ({ id, h })));
+  const forces = {}; for (const { id, h } of hulls) { const r = (forces[id] ||= { standing: 0, committed: 0, transit: 0 }); if (h.transit) r.transit++; else if (h.opId || h.status === 'assigned') r.committed++; else r.standing++; }
+  const forceTable = `<h4>Forces</h4><table class="doctrine-debug" data-force-table><thead><tr><th>Power</th><th>Standing</th><th>Committed (not moving)</th><th>In transit</th></tr></thead><tbody>${Object.entries(forces).map(([id, r]) => `<tr data-force-row="${escapeHtml(id)}"><td>${fac(id)}</td><td>${r.standing}</td><td>${r.committed}</td><td>${r.transit}</td></tr>`).join('')}</tbody></table>`;
+  // Evacuations: the refuge chosen and why, the cadence it can keep.
+  const evs = (book.evacuations || []).filter((e) => e.status === 'active' || day - (e.endDay ?? day) <= 60).slice(-8);
+  const evRows = evs.map((e) => `<tr data-evac-plan="${escapeHtml(e.id)}"><td>${fac(e.sponsor)}</td><td>${nm(e.origin)} → ${nm(e.destination)}</td><td>${e.plan ? `${e.plan.destinationDays} days each way · cycle ${e.plan.cycleDays} · ${e.plan.tripsBeforeThreat} trip${e.plan.tripsBeforeThreat === 1 ? '' : 's'} before day ${e.plan.threatArrivesDay ?? '—'}` : `${Campaign.evacuationRoundTripDays(world, e) / 2} days each way (player)`}</td><td>${e.plan ? escapeHtml(e.plan.alternatives.map((a) => `${state.planets[a.index]?.name || a.index} ${a.days}d${a.danger ? ' exposed' : ''}`).join(', ') || '—') : '—'}</td><td>${e.moved}/${e.target}</td><td>${escapeHtml(e.status)}${e.convoy ? ` · trip ${e.convoy.trip} ${escapeHtml(e.convoy.phase)}` : ''}</td></tr>`).join('');
+  const evTable = evRows ? `<h4>Evacuations</h4><table class="doctrine-debug" data-evac-plan-table><thead><tr><th>Sponsor</th><th>Route</th><th>Plan</th><th>Other refuges</th><th>Moved</th><th>Status</th></tr></thead><tbody>${evRows}</tbody></table>` : '<p class="meta">No evacuations.</p>';
+  // Doctrine objectives: the deadline and what it was built from.
+  const db = DoctrineCampaign.doctrineBook(book);
+  const objs = (db.objectives || []).filter((o) => o.plan).slice(-10).reverse();
+  const objRows = objs.map((o) => `<tr data-objective-plan="${escapeHtml(o.id)}"><td>${fac(o.polity)} ${escapeHtml(o.response || o.kind)}</td><td>${nm(o.target?.systemIndex)}</td><td>day ${o.createdDay}</td><td>${o.plan.etaDays ?? '—'} days → day ${o.plan.arriveDay ?? '—'}</td><td>${o.plan.onStationDays ?? '—'}</td><td>day ${o.deadline?.value}</td><td>${escapeHtml(o.plan.basis || '')}${o.plan.survivorsUntil != null ? ` · survivors to day ${o.plan.survivorsUntil}` : ''}${o.plan.freshUntil != null ? ` · trail to day ${o.plan.freshUntil}` : ''}</td><td>${escapeHtml(o.status)}${o.arrivedDay != null ? ` · arrived day ${o.arrivedDay}` : ''}</td></tr>`).join('');
+  const st = db.stats || {};
+  const eta = `<p class="meta" data-eta-stats>Rescue proposed ${st.etaRescueProposed || 0} · feasible ${st.etaRescueFeasible || 0} · out of reach ${st.etaRescueFailedByDistance || 0} — investigation proposed ${st.etaInvestigationProposed || 0} · feasible ${st.etaInvestigationFeasible || 0} · out of reach ${st.etaInvestigationFailedByDistance || 0} — patrol replacements held while one is in warp ${st.patrolReplacementHeldDays || 0} day(s)</p>`;
+  const objTable = objRows ? `<h4>Doctrine objectives</h4><table class="doctrine-debug" data-objective-plan-table><thead><tr><th>Actor</th><th>Target</th><th>Created</th><th>ETA</th><th>On station</th><th>Deadline</th><th>Basis</th><th>Status</th></tr></thead><tbody>${objRows}</tbody></table>` : '<p class="meta">No doctrine objectives with a plan.</p>';
+  return `<p class="meta">Day ${day}. Travel is the chart's own leg length (ship-independent); every ETA below is the route its journey flies.</p>${forceTable}${plans || '<p class="meta">No war plans yet.</p>'}${opTable}${evTable}${eta}${objTable}`;
 }
 function renderDoctrineDebug() {
   const s = doctrineStatus();
@@ -27876,7 +27927,7 @@ function renderStrategicOperations(book, world) {
   const dests = opsForm.origin != null ? evacuationDestinationsFor(opsForm.origin) : [];
   if (!dests.some((d) => d.index === opsForm.destination)) opsForm.destination = dests[0]?.index ?? null;
   const evacForm = mine.length ? `<label>From <select data-ops-origin>${mine.map((s) => `<option value="${s.index}" ${s.index === opsForm.origin ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}</select></label>
-    <label>To <select data-ops-destination>${dests.map((d) => `<option value="${d.index}" ${d.index === opsForm.destination ? 'selected' : ''}>${escapeHtml(d.name)} · ${d.check.hops} jump${d.check.hops === 1 ? '' : 's'}</option>`).join('') || '<option value="">No valid destination</option>'}</select></label>
+    <label>To <select data-ops-destination>${dests.map((d) => `<option value="${d.index}" ${d.index === opsForm.destination ? 'selected' : ''}>${escapeHtml(d.name)} · ${d.days} day${d.days === 1 ? '' : 's'} each way${d.frontline ? ' · front line' : ''}${d.crowded ? ' · small settlement' : ''}</option>`).join('') || '<option value="">No valid destination</option>'}</select></label>
     ${renderOpsShipPicker(freeFleetShipsAt(opsForm.origin), 'transport')}<button data-ops-start-evac>Start evacuation</button>` : '<p class="meta">You hold no inhabited world.</p>';
   const enemies = world.systems.filter((s) => s.controller && s.controller !== PLAYER_SIDE && isChartSystemVisible(s.index) && campaignPartyRelation(PLAYER_SIDE, s.controller) === 'war'
     && freeFleetShipsAt([s.index, ...(world.neighbours(s.index) || [])]).length);

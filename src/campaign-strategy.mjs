@@ -147,9 +147,9 @@ export const CAMPAIGN_RULES = Object.freeze({
   evacPeoplePerCargo: 40,           // evacuees one unit of cargo capacity carries per trip
   evacProtectedShare: 10,           // evacuees per unit of the world's population figure an evacuation sets out to move (bounded, abstract)
   evacMinTarget: 2000, evacMaxTarget: 60000,
-  evacLoadingDays: 1,               // a round trip is two days a jump plus a day loading
-  evacRetryDays: 3,                 // a convoy turned back at the origin's blockade waits this long before trying again
-  evacMaxHops: 6,                   // a destination further than this is not a viable route
+  evacLoadingDays: 1,               // a day in port loading at the origin; the legs each way are their real length
+  evacRetryDays: 1,                 // a convoy turned back at the origin's blockade tries again at the next day's departure (TIME-SCALE: its trips are already weeks long)
+  evacMaxHops: 6,                   // retained for saved configs; no longer read — reach is evacMaxOneWayDays, in real days
   evacLossRate: 0.12,               // per day, at full effective interdiction, the chance-equivalent of losing an unescorted transport
   evacAbandonLossShare: 0.5,        // an AI sponsor abandons an evacuation once it has lost this share of its transports
   evacMinPopulation: 5000,          // an AI evacuates only a world with people worth moving
@@ -192,6 +192,12 @@ export const CAMPAIGN_RULES = Object.freeze({
   recoveryOfferDays: 400,          // an unpursued recovery contract lapses after this many days (then one broker lead)
   historyLimit: 300,
   maxOperations: 60,
+  // STRATEGIC-TIME-SCALE-CORRECTION: planning in real days of travel.
+  maxOperationEtaDays: 120,        // an operation that cannot reach its objective within a season is not mounted
+  operationEtaHalfValueDays: 30,   // a target this many days away is worth half as much to plan for as one at hand
+  evacMaxOneWayDays: 45,           // a refuge further than this (one way, in real days) is not a viable evacuation
+  evacDistancePenaltyDays: 10,     // destination score: days of travel a less safe refuge must save to be preferred
+  evacAiMaxTransports: 4,
   maxQueuePerPolity: 12,
   maxHullsPerPolity: 120,          // standing hulls, not hulls ever built: losses free capacity
   maxLiveRecoveries: 40,           // open recovery contracts; the bound is enforced at creation, not by deleting offers
@@ -260,6 +266,9 @@ export function nextCampaignId(book, type) { return `${book.seed}:${type}:${++bo
 export function upgradeCampaignBook(book) {
   if (!book || typeof book !== 'object') return book;
   book.config = { ...CAMPAIGN_RULES, ...(book.config || {}) };
+  // STRATEGIC-TIME-SCALE-CORRECTION retuned one inline rule. A save still carrying the one-hop-era stock
+  // value takes the new one once; a value the save changed itself is left alone.
+  if (!book.timeScale) { if (book.config.evacRetryDays === 3) book.config.evacRetryDays = CAMPAIGN_RULES.evacRetryDays; book.timeScale = 1; }
   book.discoveries ||= { gorn: false };
   for (const key of ['polities', 'designs', 'incomeLedger', 'restoredStations', 'activatedStations', 'unstaffedStations', 'occupations', 'wars', 'warStates', 'territory']) book[key] ||= {};
   for (const key of ['operations', 'recoveries', 'missions', 'orders', 'history', 'journeys']) if (!Array.isArray(book[key])) book[key] = [];
@@ -999,7 +1008,8 @@ function advanceRepairs(book, world, day, effects = []) {
       // A damaged, uncommitted hull with no repair facility here sails to the nearest owned yard.
       // The captain's ships are the engine's: their mirror is never sent anywhere by the model.
       if (id !== 'player' && h.status === 'ready' && !hullIsDisabled(h) && !(budget[h.systemIndex] > 0) && h.hull < h.maxHull * 0.6 && yards.length && !(h.repairRetryAfter > day)) {
-        const target = yards.map((i) => ({ i, hops: world.routeHops([h.systemIndex], i, id) })).filter((x) => x.hops != null).sort((a, b) => a.hops - b.hops || a.i - b.i)[0];
+        // Nearest by the days the journey will actually fly, not by jumps (STRATEGIC-TIME-SCALE-CORRECTION).
+        const target = yards.map((i) => ({ i, days: plannedJourneyDays(world, h.systemIndex, i, id) })).filter((x) => x.days != null).sort((a, b) => a.days - b.days || a.i - b.i)[0];
         // It sails there, leg by leg, through whatever lies on the way (STRATEGIC-MOVEMENT-UNIFICATION).
         if (target) {
           const r = startJourney(book, world, { kind: 'repair', ref: h.id, sponsor: id, hulls: [h], destination: target.i, purpose: 'repair', authority: { kind: 'repair', ref: h.id } }, day, effects);
@@ -1119,7 +1129,8 @@ export function defendingPolityIds(book, world, systemIndex, attackerId = null) 
 // Who stands in a world's defence: its ready hulls, and hulls sent there on a defence objective
 // (DOCTRINE-RUNTIME-PHASE3) once they have arrived. Never a disabled hulk.
 function defendsHere(h, systemIndex) {
-  return Number(h.systemIndex) === Number(systemIndex) && !hullIsDisabled(h)
+  // A ship in warp is at no system: it defends nothing, where it left or where it is going. [TIME-SCALE]
+  return !h.transit && Number(h.systemIndex) === Number(systemIndex) && !hullIsDisabled(h)
     && (h.status === 'ready' || (h.status === 'assigned' && h.defendingAt != null && Number(h.defendingAt) === Number(systemIndex)));
 }
 export function localDefenseStrength(book, world, systemIndex) {
@@ -1138,6 +1149,50 @@ export function localDefenseStrength(book, world, systemIndex) {
     for (const h of polity(book, id).hulls) if (defendsHere(h, systemIndex)) strength += hullStrength(book, world, h);
   }
   return strength;
+}
+// The force a world can count on, told apart (STRATEGIC-TIME-SCALE-CORRECTION): what stands there now
+// (localDefenseStrength — never a ship in warp), what is on its way there by `byDay` on a journey of a side
+// that defends it (committed and in transit, not yet present), and what is on its way but arrives later.
+// A ship in transit is counted once, at its destination and only by its arrival day — never at its origin.
+function defendsOnArrival(book, tr) {
+  if (tr.kind === 'return') return true;
+  if (tr.kind === 'doctrine') {
+    const a = (book.doctrine?.assignments || []).find((x) => x.id === tr.meta?.assignmentId);
+    const o = a?.objectiveId ? (book.doctrine?.objectives || []).find((x) => x.id === a.objectiveId) : null;
+    return Boolean(o && o.kind === 'defense' && o.status === 'active');
+  }
+  return false;
+}
+export function forceAccount(book, world, systemIndex, byDay = Infinity, attackerId = null) {
+  const standing = localDefenseStrength(book, world, systemIndex);
+  const defenders = new Set(defendingPolityIds(book, world, systemIndex, attackerId));
+  const incoming = [], later = [];
+  for (const tr of book.journeys || []) {
+    if (tr.status !== 'underway' || !defenders.has(tr.sponsor) || Number(tr.destination) !== Number(systemIndex)) continue;
+    // Only ships that will stand in the world's defence when they get there: a force going home (it is
+    // ready on arrival) or a doctrine vessel sent on a defence objective. An assault, a blockade force,
+    // a freighter or a patrol arriving there defends nothing.
+    if (!defendsOnArrival(book, tr)) continue;
+    const strength = journeyMemberHulls(book, tr).filter((h) => !hullIsDisabled(h)).reduce((n, h) => n + hullStrength(book, world, h), 0);
+    (Number(tr.etaDay) <= byDay ? incoming : later).push({ journeyId: tr.id, sponsor: tr.sponsor, kind: tr.kind, eta: Number(tr.etaDay), strength: Math.round(strength) });
+  }
+  const sum = (l) => l.reduce((n, x) => n + x.strength, 0);
+  return { standing: Math.round(standing), incoming, later, incomingStrength: sum(incoming), laterStrength: sum(later), atEta: Math.round(standing + sum(incoming)) };
+}
+// The days a force takes to reach a system: every group from where it stands, by the route its journey
+// will fly; the slowest group sets the operation's arrival.
+function forceEtaDays(world, hulls, target, polityId) {
+  let worst = 0;
+  for (const from of [...new Set(hulls.map((h) => Number(h.systemIndex)))]) {
+    const plan = plotJourney(world, from, target, polityId);
+    if (!plan) return null;
+    worst = Math.max(worst, plan.legDays.reduce((n, d) => n + d, 0));
+  }
+  return worst;
+}
+// What a target is worth planning for, before distance: its people (what an assault gains), weighted up.
+function targetValue(world, systemIndex) {
+  return 1 + Math.max(0, Number(world.systems[Number(systemIndex)]?.population) || 0) / 1000;
 }
 function planOperations(book, world, day, effects) {
   const c = book.config;
@@ -1169,10 +1224,41 @@ function planOperations(book, world, day, effects) {
     const commit = bounded(Math.round(spare.length * c.attackCommitFraction * doctrine.aggression), 3, spare.length);
     const chosen = spare.slice(0, commit);
     const strength = chosen.reduce((n, h) => n + hullStrength(book, world, h), 0) * bounded(p.supply, c.supplyFloor, 1);
-    const target = targets.find((t) => strength >= localDefenseStrength(book, world, t.index) * c.minReadinessRatioToAttack) || null;
-    if (!target) continue;
-    launchOperation(book, world, id, chosen, target.index, day, target.hops, 'assault', effects);
+    const pick = chooseOperationTarget(book, world, id, chosen, strength, targets, day);
+    p.lastPlan = pick.record;
+    if (!pick.target) continue;
+    const op = launchOperation(book, world, id, chosen, pick.target.index, day, pick.target.hops, 'assault', effects);
+    op.plan = pick.target.plan;
   }
+}
+// Which objective, by what the force will find when it gets there (STRATEGIC-TIME-SCALE-CORRECTION):
+//  - the real days of travel from where its ships stand (never a hop count);
+//  - the defence it will meet then — what stands there now plus the defenders' own ships already on their
+//    way and arriving first (committed, not yet present);
+//  - nothing it already has a force on the way to (that force is its commitment there);
+//  - worth over distance: a target twice as far is worth planning for less, beyond a season not at all.
+function chooseOperationTarget(book, world, id, chosen, strength, targets, day) {
+  const c = book.config;
+  const already = new Set((book.operations || []).filter((o) => o.faction === id && o.status !== 'resolved').map((o) => Number(o.targetSystem)));
+  const considered = [];
+  for (const t of targets) {
+    const row = { index: t.index, hops: t.hops };
+    considered.push(row);
+    if (already.has(Number(t.index))) { row.skip = 'a force of its own is already on its way'; continue; }
+    const eta = forceEtaDays(world, chosen, t.index, id);
+    if (eta == null) { row.skip = 'no route'; continue; }
+    row.etaDays = eta;
+    if (eta > c.maxOperationEtaDays) { row.skip = `${eta} days away (limit ${c.maxOperationEtaDays})`; continue; }
+    const f = forceAccount(book, world, t.index, day + eta, id);
+    row.defenseNow = f.standing; row.defenseAtEta = f.atEta; row.incomingDefense = f.incomingStrength;
+    if (strength < f.atEta * c.minReadinessRatioToAttack) { row.skip = `defence on arrival ${f.atEta} too strong for ${Math.round(strength)}`; continue; }
+    row.score = Math.round(1000 * targetValue(world, t.index) / (1 + eta / c.operationEtaHalfValueDays)) / 1000;
+  }
+  const ok = considered.filter((r) => r.score != null).sort((a, b) => b.score - a.score || a.etaDays - b.etaDays || a.index - b.index);
+  const best = ok[0] || null;
+  const record = { day, strength: Math.round(strength), chosen: best ? best.index : null, considered: considered.slice(0, 12) };
+  if (!best) return { target: null, record };
+  return { target: { ...targets.find((t) => t.index === best.index), plan: { etaDays: best.etaDays, arriveDay: day + best.etaDays, defenseNow: best.defenseNow, defenseAtEta: best.defenseAtEta, incomingDefense: best.incomingDefense, strength: Math.round(strength), score: best.score } }, record };
 }
 // Systems reachable from the wormhole's near terminus without transiting the wormhole. The expedition's
 // entry constraint lives in the map, so nothing can satisfy it by naming a faction.
@@ -2419,8 +2505,15 @@ export function expeditionAssessment(book, world, id) {
   const near = nearSideSystems(world, entry);
   const p = book.polities[id];
   if (!p) return null;
-  const present = livingHulls(p).filter((h) => near.has(Number(h.systemIndex)) || Number(h.systemIndex) === staging);
+  // A reinforcement counts once it has physically arrived (STRATEGIC-TIME-SCALE-CORRECTION): one still in
+  // the corridor, under way to the bridgehead, is incoming, not strength.
+  const inReach = livingHulls(p).filter((h) => near.has(Number(h.systemIndex)) || Number(h.systemIndex) === staging);
+  // Ships moving about the theatre (an assault, a return) are its strength; a reinforcement convoy or the
+  // corridor crossing still under way (kind `expedition`) is not yet.
+  const arriving = (h) => Boolean(h.transit) && journeyById(book, h.transit.journeyId)?.kind === 'expedition';
+  const present = inReach.filter((h) => !arriving(h));
   const strength = present.reduce((n, h) => n + hullStrength(book, world, h), 0);
+  const incomingStrength = inReach.filter(arriving).reduce((n, h) => n + hullStrength(book, world, h), 0);
   const capacity = Math.max(Number(p.readinessBaseline) || 0, Number(d.expeditionPeak) || 0, strength);
   const share = capacity > 0 ? strength / capacity : null;
   const bridgeheads = (id === 'dominion' ? dominionGround(book, world, near) : controlled(world, id).filter((s) => near.has(Number(s.index))).map((s) => s.index)).length;
@@ -2446,9 +2539,12 @@ export function expeditionAssessment(book, world, id) {
   const namedPartners = partners.filter((x) => pactKnownTo(book, id, x, 'player'));
   if (namedPartners.length) reasons.push(`support from ${namedPartners.map((x) => world.factionName(x)).join(', ')}`);
   if (blender) reasons.push('the Blender front under its command');
-  const collapsed = share != null && share <= (c.expeditionCollapseShare ?? 0.35) && !replace && !partners.length && !blender;
-  const stranded = bridgeheads === 0 && !access && strength <= 0;
-  return { id, active: ['invasion'].includes(d.phase) || id !== 'dominion', strength, capacity, share, bridgeheads, access, convoysLeft, replace,
+  if (incomingStrength > 0) reasons.push('reinforcements still in the corridor');
+  // Ships still under way are not strength yet, but Central does not call the expedition collapsed while
+  // they are on their way.
+  const collapsed = share != null && share <= (c.expeditionCollapseShare ?? 0.35) && !replace && !partners.length && !blender && incomingStrength <= 0;
+  const stranded = bridgeheads === 0 && !access && strength <= 0 && incomingStrength <= 0;
+  return { id, active: ['invasion'].includes(d.phase) || id !== 'dominion', strength, incomingStrength, capacity, share, bridgeheads, access, convoysLeft, replace,
     partners, blender, unsustainable: collapsed || stranded, reasons };
 }
 // Terms of an authored withdrawal: what the withdrawing side holds of the other's is abandoned (returned)
@@ -2557,10 +2653,12 @@ function dominionEscalate(book, world, day, spare, effects) {
     .filter((sys) => near.has(Number(sys.index)) && sys.controller && sys.controller !== 'dominion' && list.includes(sys.controller)
       && (sys.controller === 'player' || book.polities[sys.controller])
       && !['war', 'allied'].includes(world.relation('dominion', relSide(world, sys.controller))))
-    .map((sys) => ({ index: sys.index, controller: sys.controller, hops: world.routeHops(heldNear, sys.index, 'dominion') }))
-    .filter((x) => x.hops != null)
-    .sort((x, y) => x.hops - y.hops || x.index - y.index);
-  const target = candidates.find((x) => strength >= localDefenseStrength(book, world, x.index) * c.minReadinessRatioToAttack);
+    .map((sys) => ({ index: sys.index, controller: sys.controller, hops: world.routeHops(heldNear, sys.index, 'dominion'), eta: forceEtaDays(world, chosen, sys.index, 'dominion') }))
+    .filter((x) => x.hops != null && x.eta != null)
+    .sort((x, y) => x.eta - y.eta || x.index - y.index);
+  // The soonest in real days that the force can take against the defence it will meet on arrival
+  // (TIME-SCALE-CORRECTION).
+  const target = candidates.find((x) => x.eta <= c.maxOperationEtaDays && strength >= forceAccount(book, world, x.index, day + x.eta, 'dominion').atEta * c.minReadinessRatioToAttack);
   if (!target) return null;
   const name = world.systems[target.index]?.name || `system ${target.index}`;
   const st = declareFormalWar(book, world, 'dominion', target.controller, day, effects, { reason: `a deliberate attack on ${name}`, source: 'escalation', by: 'dominion' });
@@ -2867,8 +2965,11 @@ function operationHome(book, world, op, h) {
   const held = (i) => i != null && world.systems[Number(i)]?.controller === op.faction;
   if (held(origin)) return Number(origin);
   const own = controlled(world, op.faction).map((x) => x.index);
-  let best = null, bestHops = Infinity;
-  for (const i of own) { const n = world.routeHops([Number(h.systemIndex)], i, op.faction); if (n != null && (n < bestHops || (n === bestHops && i < best))) { best = i; bestHops = n; } }
+  // Nearest in the days the journey home will actually fly (STRATEGIC-TIME-SCALE-CORRECTION).
+  let best = null, bestDays = Infinity;
+  // A ship in warp goes home from the end of the leg it is flying (that is where its return starts).
+  const from = h.transit ? Number(h.transit.to) : Number(h.systemIndex);
+  for (const i of own) { const n = plannedJourneyDays(world, from, i, op.faction); if (n != null && (n < bestDays || (n === bestDays && i < best))) { best = i; bestDays = n; } }
   return best ?? (origin == null ? null : Number(origin));
 }
 function operationById(book, id) { return (book.operations || []).find((o) => o.id === id) || null; }
@@ -3030,6 +3131,37 @@ export function shortestRoute(world, from, to, polityId) {
   // routeHops honours the chart's closed routes (the wormhole before it is charted); a path it refuses is none.
   return world.routeHops([Number(from)], Number(to), polityId) == null ? null : path;
 }
+// The quickest route in real days (each hop its chart length), over the same adjacency and closed routes.
+// The days a journey from `from` to `to` will actually take: the route startJourney itself plots, each leg
+// its real length. null when there is none.
+export function plannedJourneyDays(world, from, to, polityId) {
+  if (Number(from) === Number(to)) return 0;
+  const plan = plotJourney(world, Number(from), Number(to), polityId);
+  return plan ? plan.legDays.reduce((n, d) => n + d, 0) : null;
+}
+// Every system's quickest route from `from`, in real days (one Dijkstra over journeyNeighbours).
+export function fastestRoutesFrom(world, from, polityId) {
+  const dist = new Map([[Number(from), 0]]), prev = new Map([[Number(from), null]]), done = new Set();
+  for (;;) {
+    let cur = null, best = Infinity;
+    for (const [k, v] of dist) if (!done.has(k) && (v < best || (v === best && k < cur))) { best = v; cur = k; }
+    if (cur == null) break;
+    done.add(cur);
+    for (const n of journeyNeighbours(world, cur, polityId)) {
+      const d = best + legDaysBetween(world, cur, n);
+      if (d < (dist.get(n) ?? Infinity) || (d === dist.get(n) && cur < prev.get(n))) { dist.set(n, d); prev.set(n, cur); }
+    }
+  }
+  const routeTo = (to) => {
+    if (!prev.has(Number(to))) return null;
+    const path = []; for (let x = Number(to); x != null; x = prev.get(x)) path.unshift(x);
+    return world.routeHops([Number(from)], Number(to), polityId) == null ? null : path;
+  };
+  return { dist, routeTo };
+}
+export function fastestRoute(world, from, to, polityId) {
+  return fastestRoutesFrom(world, from, polityId).routeTo(to);
+}
 // Political access: the sponsor's own worlds, and those of a power that will take its people. The engine
 // says who that is (a friend, not merely somebody the sponsor is not formally at war with); a world
 // without an engine reads alliance or peace.
@@ -3045,7 +3177,7 @@ function activeBlockadesAt(book, systemIndex) {
   return (book.blockades || []).filter((b) => b.status === 'active' && Number(b.target) === Number(systemIndex));
 }
 // Is this a place the sponsor may take its people to? Explicit, reachable, friendly, not itself besieged.
-export function validateEvacuationDestination(book, world, sponsor, origin, destination) {
+export function validateEvacuationDestination(book, world, sponsor, origin, destination, routes = null) {
   const c = book.config;
   const dest = world.systems[Number(destination)];
   if (!dest) return { ok: false, reason: 'No such destination.' };
@@ -3057,10 +3189,37 @@ export function validateEvacuationDestination(book, world, sponsor, origin, dest
   if (hostile.some((b) => blockadeTier(b.coverage) === 'heavy')) return { ok: false, reason: `${dest.name} is under blockade.` };
   if (book.operations.some((o) => o.status !== 'resolved' && Number(o.targetSystem) === Number(destination) && o.faction !== sponsor && formallyAtWar(world, o.faction, dest.controller)))
     return { ok: false, reason: `${dest.name} is under attack.` };
-  const route = shortestRoute(world, origin, destination, sponsor);
+  const route = (routes ? routes.routeTo(destination) : fastestRoute(world, origin, destination, sponsor)) || shortestRoute(world, origin, destination, sponsor);
   if (!route) return { ok: false, reason: `There is no route to ${dest.name}.` };
-  if (route.length - 1 > c.evacMaxHops) return { ok: false, reason: `${dest.name} is too far: ${route.length - 1} jumps.` };
-  return { ok: true, route, hops: route.length - 1 };
+  // Too far in real days, not in jumps (STRATEGIC-TIME-SCALE-CORRECTION).
+  const days = routeLegDaysFor(world, route).reduce((n, d) => n + d, 0);
+  if (days > (c.evacMaxOneWayDays ?? 45)) return { ok: false, reason: `${dest.name} is too far: ${days} days each way.` };
+  return { ok: true, route, hops: route.length - 1, days };
+}
+// Every refuge a sponsor may take its people to from `origin`, best first (STRATEGIC-TIME-SCALE-CORRECTION):
+// valid (friendly, reachable, settled, not besieged, not under attack, within the one-way limit), scored on
+// real days of travel plus a penalty for each danger — a front-line world (an enemy next door), a blockade
+// on the way — so a much nearer safe refuge beats a distant one, and a close hostile or inaccessible world
+// is never a refuge at all.
+export function evacuationDestinations(book, world, sponsor, origin) {
+  const c = book.config;
+  const out = [];
+  const routes = fastestRoutesFrom(world, origin, sponsor);
+  for (const sys of world.systems) {
+    if (Number(sys.index) === Number(origin) || !sys.controller) continue;
+    const v = validateEvacuationDestination(book, world, sponsor, origin, sys.index, routes);
+    if (!v.ok) continue;
+    const frontline = world.neighbours(sys.index).map(Number).some((n) => { const h = world.systems[n]?.controller; return h && formallyAtWar(world, sponsor, h); });
+    const blockadedOnRoute = v.route.slice(1).filter((i) => applicableBlockadesAt(book, world, i, sponsor).length).length;
+    const danger = (frontline ? 1 : 0) + blockadedOnRoute;
+    // Capacity: a settlement too small to take the people this evacuation sets out to move (the same
+    // abstract scale as its target) is a worse refuge, by half a danger step.
+    const capacity = Math.round(Math.max(0, Number(sys.population) || 0) * c.evacProtectedShare);
+    const crowded = capacity < evacuationTargetFor(book, world, origin);
+    out.push({ index: Number(sys.index), name: sys.name, controller: sys.controller, route: v.route, hops: v.hops, days: v.days, frontline, blockadedOnRoute, danger, capacity, crowded,
+      score: v.days + danger * (c.evacDistancePenaltyDays ?? 10) + (crowded ? (c.evacDistancePenaltyDays ?? 10) / 2 : 0) });
+  }
+  return out.sort((a, b) => a.score - b.score || a.days - b.days || a.index - b.index);
 }
 export function evacuationTargetFor(book, world, origin) {
   const c = book.config;
@@ -3751,8 +3910,11 @@ registerJourneyKind('evacuation', {
     cv.at = Number(at);
     if (tr.purpose === 'retreat') { cv.phase = 'held'; cv.nextDay = day + 1; return; }
     if (tr.meta?.phase === 'outbound' && Number(at) === Number(e.destination)) {
+      // The refuge must still take them on the day they land (it may have changed hands while they flew).
+      if (!friendlyTo(world, e.sponsor, world.systems[e.destination]?.controller)) return endEvacuation(book, world, e, day, e.moved > 0 ? 'partial' : 'failed', `${world.systems[e.destination]?.name} can no longer receive them`, effects);
       deliverEvacuees(book, world, e, day, effects);
       if (e.moved >= e.target) return endEvacuation(book, world, e, day, 'completed', null, effects);
+      if (e.originLostDay != null) return endEvacuation(book, world, e, day, 'partial', `${e.originLostReason}; the last convoy landed its people`, effects);
       cv.phase = 'inbound';
       const r = sailConvoy(book, world, e, at, 'origin', 'return', day, effects);
       if (!r) { cv.phase = 'held'; cv.nextDay = day + 1; }
@@ -3814,7 +3976,14 @@ function advanceEvacuationConvoy(book, world, e, day, effects) {
 function settleEvacuationDay(book, world, e, day, effects) {
   const c = book.config;
   const o = world.systems[e.origin], dst = world.systems[e.destination];
-  if (o?.controller !== e.sponsor) return endEvacuation(book, world, e, day, e.moved > 0 ? 'partial' : 'failed', `${o?.name} was lost`, effects);
+  if (o?.controller !== e.sponsor) {
+    // The world is lost, but a convoy already under way with people aboard flies on and lands them: it is
+    // over only when they are delivered (or lost). [TIME-SCALE]
+    const cv = e.convoy, tr = cv?.journeyId ? journeyById(book, cv.journeyId) : null;
+    if (cv && cv.phase === 'outbound' && cv.aboard > 0 && tr && tr.status === 'underway') { e.originLostDay ??= day; e.originLostReason ??= `${o?.name} was lost`; return advanceEvacuationConvoy(book, world, e, day, effects); }
+    return endEvacuation(book, world, e, day, e.moved > 0 ? (e.moved >= e.target ? 'completed' : 'partial') : 'failed', e.originLostReason || `${o?.name} was lost`, effects);
+  }
+  if (e.originLostDay != null) { e.originLostDay = null; e.originLostReason = null; } // retaken before the convoy landed
   if (!friendlyTo(world, e.sponsor, dst?.controller)) return endEvacuation(book, world, e, day, e.moved > 0 ? 'partial' : 'failed', `${dst?.name} can no longer receive them`, effects);
   if (e.deadlineDay != null && day > e.deadlineDay) return endEvacuation(book, world, e, day, e.moved > 0 ? 'partial' : 'failed', 'the deadline passed', effects);
   // Transports and escorts that are gone, or that have been taken off the route, no longer serve.
@@ -3855,12 +4024,21 @@ function aiStrategicOps(book, world, day, effects) {
       const carriers = free(sponsor, sys.index).filter((h) => evacuationLift(book, world, h) > 0)
         .sort((x, y) => hullStrength(book, world, x) - hullStrength(book, world, y) || String(x.id).localeCompare(String(y.id)));
       const garrison = c.homeGarrisonPerWorld || 0;
-      const transports = carriers.slice(0, Math.max(0, Math.min(3, carriers.length - garrison)));
+      const transports = carriers.slice(0, Math.max(0, Math.min(c.evacAiMaxTransports ?? 4, carriers.length - garrison)));
       if (!transports.length) continue;
-      const dests = controlled(world, sponsor).filter((d) => d.index !== sys.index).map((d) => ({ d, v: validateEvacuationDestination(book, world, sponsor, sys.index, d.index) }))
-        .filter((x) => x.v.ok && !book.operations.some((o2) => o2.status !== 'resolved' && o2.targetSystem === x.d.index)).sort((x, y) => x.v.hops - y.v.hops || x.d.index - y.d.index);
+      // The best refuge by real travel and safety (its own worlds or a friend's), never one under attack.
+      const dests = evacuationDestinations(book, world, sponsor, sys.index).filter((x) => !book.operations.some((o2) => o2.status !== 'resolved' && Number(o2.targetSystem) === x.index));
       if (!dests.length) continue;
-      startEvacuation(book, world, { sponsor, origin: sys.index, destination: dests[0].d.index, transports: transports.map((h) => h.id), reason: `${world.factionName(op.faction)} forces are bound for it` }, day, effects);
+      const dest = dests[0];
+      // What can really be moved before the attack arrives (STRATEGIC-TIME-SCALE-CORRECTION): every
+      // departure that can leave before the attackers' arrival day, a full lift each; at least one.
+      const lift = transports.reduce((n, h) => n + evacuationLift(book, world, h), 0);
+      const load = c.evacLoadingDays ?? 1, cycle = 2 * dest.days + load;
+      const window = Math.max(0, Number(op.arriveDay ?? day) - day);
+      const trips = Math.max(1, 1 + Math.floor(Math.max(0, window - load - 1) / Math.max(1, cycle)));
+      const target = Math.min(evacuationTargetFor(book, world, sys.index), trips * lift);
+      const r = startEvacuation(book, world, { sponsor, origin: sys.index, destination: dest.index, transports: transports.map((h) => h.id), target, reason: `${world.factionName(op.faction)} forces are bound for it` }, day, effects);
+      if (r.ok) r.record.plan = { destinationDays: dest.days, score: dest.score, danger: dest.danger, alternatives: dests.slice(1, 4).map((x) => ({ index: x.index, days: x.days, score: x.score, danger: x.danger })), threatArrivesDay: op.arriveDay ?? null, tripsBeforeThreat: trips, liftPerTrip: lift, cycleDays: cycle };
       break;
     }
   }

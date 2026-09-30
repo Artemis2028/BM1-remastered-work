@@ -70,7 +70,7 @@ export const DOCTRINE_PILOT = Object.freeze({
   arrivalGraceDays: 1, checkInGraceDays: 2,
   investigationDwellDays: 2, investigationDeadlineDays: 14,
   rescueDwellDays: 1, rescueDeadlineDays: 10,
-  maxResponseHops: 6, minSupply: 0.3, maxLiveObjectivesPerPolity: 1,
+  maxResponseHops: 6 /* retained for saved configs; no longer read (reach is in days) */, minSupply: 0.3, maxLiveObjectivesPerPolity: 1,
   evidenceLifeDays: 90, searchAreaFreshDays: 30, survivorWindowDays: 20, survivorPodChance: 0.5,
   shadowLogLimit: 120, reportLimit: 200, sightingLimit: 60, closedLimit: 40, closedAssignmentLimit: 12, incidentHistoryLimit: 20,
   // Phase 2
@@ -95,6 +95,15 @@ export const DOCTRINE_PILOT = Object.freeze({
   predation: true, pirateHaunts: 'auto', pirateStrength: 900, pirateMaxHull: 1500,
   pirateDemandEveryDays: 5, pirateTargetCooldownDays: 30, predationDeadlineDays: 2, predationAttackDays: 2,
   pirateRecoverPerDay: 0.05,
+  // STRATEGIC-TIME-SCALE-CORRECTION (docs/movement/STRATEGIC-TIME-SCALE-CORRECTION.md): reach and budgets in
+  // real days of travel, never in hops. A physical deadline (how long survivors last) stays what it is; an
+  // objective's own budget is its travel time plus its time on station plus a bounded slack.
+  responseMaxTravelDays: 45,          // how far (in days of travel) a command sends a ship for a non-emergency
+  investigationOnStationDays: 4, investigationSlackDays: 4,
+  rescueSlackDays: 2,                 // a rescue's budget never outlasts the survivors it is for
+  defenseMaxTravelDays: 20,           // a defence arriving later than this is not a defence of this attack
+  escortSlackDays: 5,
+  patrolMaxLegDays: 15, patrolStationShare: 0.5, patrolAreaMaxLegDays: 15, exploreMaxDays: 30, tradeMaxDays: 30,
 });
 
 // ---------- book ----------
@@ -418,7 +427,13 @@ export function deriveFacts(doctrine, book, world, db, observerId, incidentId, d
   set('credible_report', k.confidence === 'corroborated', `confidence ${k.confidence} from ${k.sources.map((s) => s.from || 'own records').join(', ')}`);
   const resolvedKnown = Boolean(k.resolution);
   const areaDay = k.claims.lastKnown?.observedAt?.value ?? k.receivedAt.value;
-  const freshArea = day - areaDay <= c.searchAreaFreshDays;
+  // Two clocks (STRATEGIC-TIME-SCALE-CORRECTION). Physical: a last-known area is worth searching only while
+  // what happened there could still be found (evidenceLifeDays from the sighting). Decision: an observer
+  // acts on it within searchAreaFreshDays of learning of it. At real leg lengths an overdue ship is only
+  // known to be missing after its whole way home was due, so measuring the decision window from the
+  // sighting made every distant loss stale on the day it was discovered.
+  const learnedDay = k.receivedAt?.value ?? areaDay;
+  const freshArea = day - areaDay <= c.evidenceLifeDays && day - Math.max(areaDay, learnedDay) <= c.searchAreaFreshDays;
   const since = k.claims.lastKnown?.observedAt?.value ?? -1;
   const liveEvidence = Object.values(k.evidence || {}).filter((e) => !e.recovered && e.recoverable !== false && day - (e.observedDay ?? day) <= c.evidenceLifeDays && (e.observedDay ?? day) >= since);
   const survivorsOpen = Boolean(k.survivors && !k.survivors.rescued && day - (k.survivors.observedDay ?? day) <= c.survivorWindowDays);
@@ -611,6 +626,26 @@ function departDayOf(a) {
 // Where a new plan for a vessel starts: where it stands today, or — in warp — the end of the leg in
 // flight, on the day it gets there. With `commit`, the journey is cut to that leg; reaching its end puts
 // the vessel at stop 0 of the new itinerary. A ship in warp never turns round mid-leg.
+// When a vessel could be at a system: from where it stands today, or — in warp — from the end of the leg in
+// flight on the day it gets there; by a real route, each hop its real length. The same days its journey
+// will actually fly (no planning-only estimate). null when there is no route.
+export function vesselEta(book, world, h, target, polity, day) {
+  if (!h) return null;
+  let from = h.transit ? { system: Number(h.transit.to), day: Math.max(Number(day), Number(h.transit.arrivalDay)) } : { system: Number(h.systemIndex), day: Number(day) };
+  // Setting out today on a doctrine leg it has not flown yet: a new order starts it from here, today
+  // (issueAssignment cuts that journey before departure), so the estimate does too.
+  const tr = h.transit ? journeyById(book, h.transit.journeyId) : null;
+  if (tr && tr.status === 'underway' && ['doctrine', 'release'].includes(tr.kind) && Number(tr.legDepartDay) === Number(day) && !tr.waiting) from = { system: Number(tr.from), day: Number(day) };
+  const route = routeBetween(world, from.system, Number(target), polity);
+  if (!route) return null;
+  const travel = routeLegDaysFor(world, route).reduce((n, d) => n + d, 0);
+  return { route, from: from.system, arrive: from.day + travel, days: from.day + travel - Number(day), hops: route.length - 1 };
+}
+// An objective's own budget: travel + time on station + bounded slack, never shorter than its old floor
+// (a nearby job keeps the budget it always had).
+function etaBudgetDeadline(day, arrive, onStation, slack, floorDays) {
+  return Math.max(Number(day) + floorDays, Number(arrive) + onStation + slack);
+}
 function replanPoint(book, a, h, day, commit = false) {
   const tr = a?.journeyId ? journeyById(book, a.journeyId) : null;
   if (tr && tr.status === 'underway' && h?.transit?.journeyId === tr.id && Number(tr.legDepartDay) === Number(day) && !tr.waiting) {
@@ -1142,17 +1177,23 @@ function generateRoutine(doctrine, book, world, db, day, effects) {
     if (!book.polities[polity] || !gen(polity, 'patrol')) continue;
     const p = book.polities[polity];
     if (day - (p.doctrinePatrolDay ?? -1e9) < c.patrolEveryDays) continue;
-    if (db.assignments.filter((a) => a.status === 'active' && a.polity === polity && a.kind === 'patrol' && !a.milestones.some((m) => m.status === 'missed')).length >= n) continue;
+    // A patrol still flying counts even if it has run late: its replacement waits until it is down, so no
+    // duplicate is sent while it is in warp (STRATEGIC-TIME-SCALE-CORRECTION).
+    const flying = (a) => Boolean(liveHull(book, a.polity, a.hullId)?.transit);
+    if (db.assignments.filter((a) => a.status === 'active' && a.polity === polity && a.kind === 'patrol' && (!a.milestones.some((m) => m.status === 'missed') || flying(a))).length >= n) { if (db.assignments.some((a) => a.status === 'active' && a.polity === polity && a.kind === 'patrol' && flying(a) && a.milestones.some((m) => m.status === 'missed'))) bump(db, 'patrolReplacementHeldDays'); continue; }
     const spare = spareHulls(book, world, db, polity, (h) => (world.shipStats(h.shipId)?.combat ?? 1) >= 0.5);
     const from = [...new Set(spare.map((h) => Number(h.systemIndex)))].filter((i) => world.systems[i]?.controller === polity);
-    const frontier = [];
-    for (const i of from) for (const nb of world.neighbours(i)) if (world.systems[nb]?.controller !== polity) frontier.push({ from: i, to: Number(nb) });
+    let frontier = [];
+    for (const i of from) for (const nb of world.neighbours(i)) if (world.systems[nb]?.controller !== polity) frontier.push({ from: i, to: Number(nb), days: legDaysBetween(world, i, nb) });
     if (!frontier.length) continue;
+    // Patrol legs a patrol can fly and come back from in a sensible time: within patrolMaxLegDays if any are,
+    // otherwise the shortest there is (STRATEGIC-TIME-SCALE-CORRECTION).
+    { const near = frontier.filter((x) => x.days <= c.patrolMaxLegDays); const min = Math.min(...frontier.map((x) => x.days)); frontier = near.length ? near : frontier.filter((x) => x.days === min); }
     const pick = frontier.sort((x, y) => x.to - y.to || x.from - y.from)[Math.floor(seededUnit(book.seed, 'doctrine-patrol', polity, day) * frontier.length)];
     const hull = spare.find((h) => Number(h.systemIndex) === pick.from);
     if (!hull) continue;
     const r = issueAssignment(book, world, { polity, hullId: hull.id, kind: 'patrol', doctrineRole: 'patrol',
-      stops: [{ systemIndex: pick.to, dwell: c.patrolDwellDays, milestone: 'arrival' }, { systemIndex: pick.from, dwell: 0, milestone: 'check_in' }] }, day, effects);
+      stops: [{ systemIndex: pick.to, dwell: patrolStationDays(world, c, pick.from, pick.to, c.patrolDwellDays), milestone: 'arrival' }, { systemIndex: pick.from, dwell: 0, milestone: 'check_in' }] }, day, effects);
     if (r.ok) p.doctrinePatrolDay = day;
   }
   for (const [polity, n] of Object.entries(c.explorers || {})) {
@@ -1164,10 +1205,12 @@ function generateRoutine(doctrine, book, world, db, day, effects) {
     if (!hull) continue;
     // A seeded walk outward without revisiting, then home the way it came.
     const path = [Number(hull.systemIndex)];
+    let spent = 0; // days out; the way home is as long again, so a survey goes out at most half its budget
     for (let i = 0; i < c.exploreHops; i++) {
-      const opts = world.neighbours(path.at(-1)).map(Number).filter((x) => !path.includes(x)).sort((a, b) => a - b);
+      const opts = world.neighbours(path.at(-1)).map(Number).filter((x) => !path.includes(x) && spent + legDaysBetween(world, path.at(-1), x) <= c.exploreMaxDays / 2).sort((a, b) => a - b);
       if (!opts.length) break;
       path.push(opts[Math.floor(seededUnit(book.seed, 'doctrine-survey', polity, day, i) * opts.length)]);
+      spent += legDaysBetween(world, path.at(-2), path.at(-1));
     }
     if (path.length < 2) continue;
     const stops = path.slice(1).map((s, i) => ({ systemIndex: s, dwell: c.exploreDwellDays, milestone: i === path.length - 2 ? 'arrival' : null }));
@@ -1187,7 +1230,7 @@ function generateRoutine(doctrine, book, world, db, day, effects) {
     for (const s of world.systems) {
       if (s.index === Number(hull.systemIndex) || !s.controller || atWar(world, polity, s.controller)) continue;
       const r = routeBetween(world, hull.systemIndex, s.index, polity);
-      if (r && r.length - 1 >= 2 && r.length - 1 <= c.tradeHops) ports.push(s.index);
+      if (r && r.length - 1 >= 2 && r.length - 1 <= c.tradeHops && routeLegDaysFor(world, r).reduce((n, d) => n + d, 0) <= c.tradeMaxDays) ports.push(s.index);
     }
     if (!ports.length) continue;
     ports.sort((x, y) => x - y);
@@ -1337,17 +1380,24 @@ export function issueDelivery(book, world, polity, hullId, destination, day, eff
   if (!route) return { ok: false, reason: 'no route' };
   const cargo = opts.cargo || { knowledge: 'verified', manifest: [{ cargoId: 'trade-goods', quantity: Math.max(1, Math.round(Number(world.shipStats(h.shipId)?.cargo) || 100)) }] };
   const c = newContract(book, db, { kind: 'delivery', holder: polity, origin: Number(h.systemIndex), destination: Number(destination), originLocationId: locationIdFor(world, h.systemIndex), destinationLocationId: locationIdFor(world, destination),
-    dueDay: day + 1 + (route.length - 1) + (opts.slack ?? db.config.deliverySlackDays), cargo: cargo.manifest }, day);
+    dueDay: day + 1 + routeLegDaysFor(world, route).reduce((n, d) => n + d, 0) + (opts.slack ?? db.config.deliverySlackDays), cargo: cargo.manifest }, day);
   const r = issueAssignment(book, world, { polity, hullId, kind: 'delivery', doctrineRole: 'civilian', contractId: c.id, cargo, loadDays: 1,
     stops: [{ systemIndex: destination, dwell: 1, milestone: 'arrival' }, { systemIndex: h.systemIndex, dwell: 0, milestone: 'check_in' }] }, day, effects);
   if (!r.ok) { delete db.contracts[c.id]; return r; }
   c.assignments.push(r.assignment.id);
   return { ok: true, contract: c, assignment: r.assignment };
 }
+// A project is due when its loads can really have been carried: every round trip (a day loading, a day
+// unloading) plus a margin, never sooner than the old budget.
+function projectDaysFor(world, db, polity, depot, site, deliveries) {
+  const r = routeBetween(world, depot, site, polity);
+  const one = r ? routeLegDaysFor(world, r).reduce((n, d) => n + d, 0) : 0;
+  return Math.max(db.config.projectDays, deliveries * (2 * one + 2) + db.config.contractGraceDays);
+}
 export function startProject(book, world, polity, depot, site, day, effects = [], opts = {}) {
   const db = doctrineBook(book);
   const c = newContract(book, db, { kind: 'construction', holder: polity, origin: Number(depot), destination: Number(site), originLocationId: locationIdFor(world, depot), destinationLocationId: locationIdFor(world, site),
-    deliveriesNeeded: opts.deliveries ?? db.config.projectDeliveries, dueDay: day + (opts.days ?? db.config.projectDays), cargo: [{ cargoId: 'construction-materials', quantity: null }] }, day);
+    deliveriesNeeded: opts.deliveries ?? db.config.projectDeliveries, dueDay: day + (opts.days ?? projectDaysFor(world, db, polity, depot, site, opts.deliveries ?? db.config.projectDeliveries)), cargo: [{ cargoId: 'construction-materials', quantity: null }] }, day);
   const t = issueTender(book, world, db, c, day, effects, opts.hullId);
   return { ok: true, contract: c, tender: t };
 }
@@ -1544,8 +1594,21 @@ export function recordSurrender(book, world, incidentId, day, { acceptedBy, effe
 // A patrol is a persistent assignment of one armed vessel to a bounded area: a frontier world it holds
 // and the systems next to it. It sails the area in cycles (out to one neighbour, back to its world to
 // report in). It may break off for a response inside its area only, and returns to the area afterwards.
-function patrolArea(world, polity, anchor) {
-  return [Number(anchor), ...world.neighbours(Number(anchor)).map(Number).filter((n) => { const c = world.systems[n]?.controller; return !c || c === polity || !atWar(world, polity, c); })].filter((v, i, a) => a.indexOf(v) === i).sort((x, y) => x - y);
+// The anchor and the neighbours a patrol can cover without spending its cycle in warp: those within
+// patrolAreaMaxLegDays (STRATEGIC-TIME-SCALE-CORRECTION). An anchor with none is patrolled where it is.
+// Time on station for a patrol (STRATEGIC-TIME-SCALE-CORRECTION): a patrol exists to be somewhere, so a
+// leg of weeks is worth a stay in proportion — patrolStationShare of the leg out, never less than the
+// configured dwell. (At one hop a day, a three-day stay was most of a patrol; at twelve-day legs it was 11%.)
+function patrolStationDays(world, c, from, to, floor) {
+  return Math.max(floor, Math.ceil(legDaysBetween(world, from, to) * (c.patrolStationShare ?? 0.5)));
+}
+function patrolArea(world, polity, anchor, maxLegDays = Infinity) {
+  const open = world.neighbours(Number(anchor)).map(Number).filter((n) => { const c = world.systems[n]?.controller; return !c || c === polity || !atWar(world, polity, c); });
+  // Compact in days where it can be; an anchor whose every neighbour is further keeps its nearest one, so
+  // the area is never the anchor alone (an itinerary with nowhere to go).
+  let near = open.filter((n) => legDaysBetween(world, anchor, n) <= maxLegDays);
+  if (!near.length && open.length) { const min = Math.min(...open.map((n) => legDaysBetween(world, anchor, n))); near = open.filter((n) => legDaysBetween(world, anchor, n) === min); }
+  return [Number(anchor), ...near].filter((v, i, a) => a.indexOf(v) === i).sort((x, y) => x - y);
 }
 function formPatrols(doctrine, book, world, db, day, effects, gen) {
   const c = db.config;
@@ -1567,10 +1630,13 @@ function formPatrols(doctrine, book, world, db, day, effects, gen) {
     const spare = spareHulls(book, world, db, polity, (h) => (world.shipStats(h.shipId)?.combat ?? 1) >= 0.5);
     const frontier = spare.map((h) => Number(h.systemIndex)).filter((i) => world.systems[i]?.controller === polity && world.neighbours(i).some((nb) => world.systems[Number(nb)]?.controller !== polity)).sort((x, y) => x - y);
     if (!frontier.length) continue;
-    const anchor = frontier[Math.floor(seededUnit(book.seed, 'doctrine-patrol-area', polity, day) * frontier.length)];
+    // Prefer a frontier world whose neighbours are close enough to patrol in real days.
+    const compact = frontier.filter((i) => world.neighbours(i).some((nb) => world.systems[Number(nb)]?.controller !== polity && legDaysBetween(world, i, nb) <= c.patrolAreaMaxLegDays));
+    const pool = compact.length ? compact : frontier;
+    const anchor = pool[Math.floor(seededUnit(book.seed, 'doctrine-patrol-area', polity, day) * pool.length)];
     const hull = spare.find((h) => Number(h.systemIndex) === anchor);
     const id = nid(book, db, 'pat');
-    const pat = db.patrols[id] = { id, polity, hullId: hull.id, vid: vidOf(hull), anchor, area: patrolArea(world, polity, anchor), status: 'patrolling', formedDay: day, cycles: 0, next: 0, responses: [], endedDay: null, endReason: null };
+    const pat = db.patrols[id] = { id, polity, hullId: hull.id, vid: vidOf(hull), anchor, area: patrolArea(world, polity, anchor, c.patrolAreaMaxLegDays), status: 'patrolling', formedDay: day, cycles: 0, next: 0, responses: [], endedDay: null, endReason: null };
     p.doctrinePatrolAreaDay = day;
     bump(db, 'patrolsFormed');
     issuePatrolCycle(book, world, db, pat, day, effects);
@@ -1583,7 +1649,7 @@ export function startAreaPatrol(book, world, polity, hullId, anchor, day, effect
   if (!h || hullIsDisabled(h) || h.opId || h.status !== 'ready') return { ok: false, reason: 'the vessel is not free' };
   if (world.systems[Number(anchor)]?.controller !== polity) return { ok: false, reason: 'a patrol area is anchored on a world of its own power' };
   const id = nid(book, db, 'pat');
-  const pat = db.patrols[id] = { id, polity, hullId: h.id, vid: vidOf(h), anchor: Number(anchor), area: patrolArea(world, polity, anchor), status: 'patrolling', formedDay: day, cycles: 0, next: 0, responses: [], endedDay: null, endReason: null };
+  const pat = db.patrols[id] = { id, polity, hullId: h.id, vid: vidOf(h), anchor: Number(anchor), area: patrolArea(world, polity, anchor, db.config.patrolAreaMaxLegDays), status: 'patrolling', formedDay: day, cycles: 0, next: 0, responses: [], endedDay: null, endReason: null };
   bump(db, 'patrolsFormed');
   const r = issuePatrolCycle(book, world, db, pat, day, effects);
   if (!r.ok) { endPatrol(db, pat, day, r.reason); return { ok: false, reason: r.reason }; }
@@ -1592,7 +1658,7 @@ export function startAreaPatrol(book, world, polity, hullId, anchor, day, effect
 function issuePatrolCycle(book, world, db, pat, day, effects) {
   const out = pat.area.filter((i) => i !== pat.anchor);
   const stops = [];
-  if (out.length) { const nb = out[pat.next % out.length]; pat.next++; stops.push({ systemIndex: nb, dwell: db.config.patrolAreaDwellDays, milestone: 'arrival' }); }
+  if (out.length) { const nb = out[pat.next % out.length]; pat.next++; stops.push({ systemIndex: nb, dwell: patrolStationDays(world, db.config, pat.anchor, nb, db.config.patrolAreaDwellDays), milestone: 'arrival' }); }
   stops.push({ systemIndex: pat.anchor, dwell: db.config.patrolAreaDwellDays, milestone: 'check_in' });
   const r = issueAssignment(book, world, { polity: pat.polity, hullId: pat.hullId, kind: 'area_patrol', doctrineRole: 'patrol', patrolId: pat.id, stops }, day, effects);
   if (r.ok) { r.assignment.patrolId = pat.id; pat.cycles++; pat.assignmentId = r.assignment.id; }
@@ -1654,19 +1720,20 @@ function defenseCapacity(book, world, db, observerId, k, day) {
   let best = null;
   for (const h of candidates) {
     if (Number(h.systemIndex) !== Number(target) && threatened.has(Number(h.systemIndex))) continue;
-    const route = routeBetween(world, h.systemIndex, target, polity);
-    if (!route || route.length - 1 > c.defenseHops) continue;
-    if (!best || route.length < best.route.length) best = { h, route };
+    // Reach in real days: a defence that arrives after the fight is not a defence of it.
+    const eta = vesselEta(book, world, h, target, polity, day);
+    if (!eta || eta.days > c.defenseMaxTravelDays) continue;
+    if (!best || eta.arrive < best.arrive || (eta.arrive === best.arrive && eta.hops < best.route.length - 1)) best = { h, route: eta.route, arrive: eta.arrive, days: eta.days };
   }
-  if (!best) return { ...out, reason: `no vessel within ${c.defenseHops} jumps of ${sysName(world, target)} that is not needed where it is` };
+  if (!best) return { ...out, reason: `no vessel within ${c.defenseMaxTravelDays} days of ${sysName(world, target)} that is not needed where it is` };
   // A defence is sent to hold a world, not fed into a fight already lost: with the ship added, the defence
   // must stand within `defenseHopelessRatio` of the attack it faces.
   const attack = attackStrengthAt(book, world, db, inc);
   const defense = localDefenseStrength(book, world, target) + hullStrength(book, world, best.h);
   if (attack > 0 && attack > defense * c.defenseHopelessRatio) return { ...out, reason: `${sysName(world, target)} cannot be held with what is spare (attack ${Math.round(attack)} against ${Math.round(defense)})` };
   const allowed = observerId.startsWith('hull:') ? commitmentAllows(db, best.h.id, 'protect') : { ok: true };
-  return { ok: true, response: 'protect', military: 'defense', hullId: best.h.id, vid: vidOf(best.h), route: best.route, hops: best.route.length - 1, target, obligation, preempts: allowed.preempts || null,
-    reason: `${best.h.id} (${best.route.length - 1} jumps) to defend ${sysName(world, target)}${allowed.preempts ? ` — breaks off ${allowed.preempts.label}` : ''}` };
+  return { ok: true, response: 'protect', military: 'defense', hullId: best.h.id, vid: vidOf(best.h), route: best.route, hops: best.route.length - 1, etaDays: best.days, arriveDay: best.arrive, target, obligation, preempts: allowed.preempts || null,
+    reason: `${best.h.id} (${best.route.length - 1} jumps, ${best.days} days) to defend ${sysName(world, target)}${allowed.preempts ? ` — breaks off ${allowed.preempts.label}` : ''}` };
 }
 // The strength of the attack an incident is about, as the campaign counts it (the attacking hulls alive).
 function attackStrengthAt(book, world, db, inc) {
@@ -1691,7 +1758,9 @@ function startDefense(book, world, db, o, cap, day, effects) {
   o.kind = 'defense'; o.military = true; o.state = 'moving';
   o.target = { locationId: locationIdFor(world, cap.target), systemIndex: cap.target, area: [locationIdFor(world, cap.target)] };
   o.authority = { source: 'defense_obligation', detail: cap.obligation, jurisdiction: `authority:${world.systems[cap.target]?.controller}` };
-  o.deadline = at(day + db.config.defenseDeadlineDays);
+  // Its time on station counts from when it can actually be there.
+  o.deadline = at(Number(cap.arriveDay ?? day) + db.config.defenseDeadlineDays);
+  o.plan = { etaDays: cap.etaDays ?? null, arriveDay: cap.arriveDay ?? day, onStationDays: db.config.defenseDeadlineDays, basis: 'travel + on station' };
   o.fromSystem = r.assignment.itinerary[0].systemIndex;
   if (Number(o.fromSystem) === Number(cap.target)) arriveDefense(book, world, db, o, day, effects);
   effects.push({ type: 'doctrineVisible', kind: 'defense-departed', objectiveId: o.id, polity: o.polity, systemIndex: o.fromSystem, to: cap.target, day });
@@ -1731,6 +1800,8 @@ export function orderRaid(book, world, { power, target, hullId, day, doctrine = 
   const r = issueAssignment(book, world, { polity: power, hullId: h.id, kind: 'raid', doctrineRole: 'raider', objectiveId: id, stops: [{ systemIndex: target, dwell: 0, milestone: 'arrival' }] }, day, effects);
   if (!r.ok) { rec.status = 'refused'; rec.reason = r.reason; return { ok: false, reason: r.reason, order: rec }; }
   o.assignmentId = r.assignment.id; o.fromSystem = r.assignment.itinerary[0].systemIndex;
+  // Its strike window counts from when it can be on station (STRATEGIC-TIME-SCALE-CORRECTION).
+  { const arr = r.assignment.milestones.find((m) => m.kind === 'arrival')?.dueDay ?? day; o.deadline = at(arr + db.config.raidDeadlineDays); o.plan = { etaDays: arr - day, arriveDay: arr, onStationDays: db.config.raidDeadlineDays, basis: 'travel + on station' }; }
   o.actions.push({ day, action: 'assigned', detail: `raid on ${o.target.locationId} under ${o.authority.detail}` });
   db.objectives.push(o); db.stats.objectives++; bump(db, 'liveObjectives'); bump(db, 'militaryObjectives');
   rec.status = 'executing'; rec.objectiveId = id;
@@ -1926,19 +1997,29 @@ function escortCapacity(book, world, db, observerId, k, day) {
   const committed = (book.polities[polity].hulls || []).filter((h) => h.status !== 'lost' && activeAssignmentFor(db, h.id)?.objectiveId).map((h) => commitmentOf(db, h.id).label);
   if (!candidates.length) return { ...out, reason: `no spare armed vessel (garrison floor kept${committed.length ? `; committed: ${committed.join(', ')}` : ''})` };
   // It must be able to meet the charge somewhere on the charge's way before the charge gets there.
+  // Both are timed in real days (STRATEGIC-TIME-SCALE-CORRECTION): the day the charge reaches each system
+  // on its way (a system it is already flying away from is passed), against the escort's actual ETA.
+  const chargeAt = [];
+  { let t = Number(day); const tr = chargeHull.transit;
+    for (let i = 0; i < ahead.length; i++) {
+      if (i === 0) { chargeAt.push(tr ? -Infinity : t); continue; }
+      if (i === 1 && tr && Number(tr.to) === ahead[1]) t = Math.max(t, Number(tr.arrivalDay));
+      else t += legDaysBetween(world, ahead[i - 1], ahead[i]);
+      chargeAt.push(t);
+    } }
   let best = null;
   for (const h of candidates) {
     for (let i = 0; i < ahead.length; i++) {
-      const r = routeBetween(world, h.systemIndex, ahead[i], polity);
-      if (!r || r.length - 1 > c.maxResponseHops) continue;
-      if (r.length - 1 > i) continue; // would arrive after the charge has passed
+      const eta = vesselEta(book, world, h, ahead[i], polity, day);
+      if (!eta || eta.days > c.responseMaxTravelDays) continue;
+      if (eta.arrive > chargeAt[i]) continue; // would arrive after the charge has passed
       // The earliest place on the charge's way it can be there first: the charge is covered for longest.
-      if (!best || i < best.i || (i === best.i && r.length - 1 < best.hops)) best = { h, meet: ahead[i], hops: r.length - 1, route: r, i };
+      if (!best || i < best.i || (i === best.i && eta.arrive < best.arrive)) best = { h, meet: ahead[i], hops: eta.hops, route: eta.route, i, arrive: eta.arrive, days: eta.days };
       break;
     }
   }
   if (!best) return { ...out, reason: 'no spare vessel can meet the charge before it arrives' };
-  return { ok: true, response: 'protect', hullId: best.h.id, vid: vidOf(best.h), route: best.route, hops: best.hops, meet: best.meet, charge: ch, reason: `${best.h.id} meets ${ch.assignment.hullId} at ${best.meet} (${best.hops} jumps)` };
+  return { ok: true, response: 'protect', hullId: best.h.id, vid: vidOf(best.h), route: best.route, hops: best.hops, meet: best.meet, charge: ch, etaDays: best.days, arriveDay: best.arrive, reason: `${best.h.id} meets ${ch.assignment.hullId} at ${best.meet} (${best.hops} jumps, day ${best.arrive})` };
 }
 function startEscort(book, world, db, o, cap, day, effects) {
   const ch = cap.charge.assignment;
@@ -1952,7 +2033,9 @@ function startEscort(book, world, db, o, cap, day, effects) {
   o.charge = { assignmentId: ch.id, hullId: ch.hullId, vid: ch.vid, contractId: cap.charge.contract.id, destination: locationIdFor(world, dest) };
   o.target = { locationId: locationIdFor(world, dest), systemIndex: dest, area: [...new Set(ch.itinerary.slice(ch.pos).map((s) => locationIdFor(world, s.systemIndex)))] };
   o.escortState = 'joining';
-  o.deadline = at(day + db.config.escortDeadlineDays);
+  // As long as the charge's own journey takes, plus a margin; never less than the old budget.
+  // The escort's job ends where the charge's delivery does (its next arrival), not at its return home.
+  { const pend = ch.milestones.filter((m) => m.status === 'pending'); const drop = pend.find((m) => m.kind === 'arrival'); const due = Math.max(day, ...(drop ? [drop] : pend).map((m) => Number(m.dueDay) || day)); o.deadline = at(Math.max(day + db.config.escortDeadlineDays, due + db.config.escortSlackDays)); o.plan = { chargeDueDay: due, etaDays: cap.etaDays ?? null, arriveDay: cap.arriveDay ?? null, basis: "the charge's delivery + slack" }; }
   const eh = liveHull(book, o.polity, cap.hullId), chh = liveHull(book, o.polity, ch.hullId);
   if (eh && chh && Number(eh.systemIndex) === Number(chh.systemIndex)) joinEscort(world, o, r.assignment, eh, ch, day, effects);
   return { ok: true };
@@ -1987,7 +2070,28 @@ function joinedEscortsOf(book, db, charge) {
 // A suitable vessel exists, is not committed incompatibly, has a route, the supply and range to use
 // it, and can reach the target before the objective's deadline. Otherwise the answer names what is
 // missing and the response is deferred — nothing is ever spawned.
+// Measurement (STRATEGIC-TIME-SCALE-CORRECTION): each rescue or investigation an observer weighs is
+// counted once per incident — proposed, then feasible or failed by distance (the ETA misses the window).
 export function responseCapacity(book, world, db, observerId, response, target, day, k = null) {
+  const cap = responseCapacityInner(book, world, db, observerId, response, target, day, k);
+  if ((response === 'rescue' || response === 'investigate') && k?.incidentId) {
+    const key = `${observerId}|${k.incidentId}|${response}`;
+    db.etaSeen = db.etaSeen || [];
+    // Counted once per incident, on the first check that reaches the ETA question (a check refused for
+    // budget or supply first is not an ETA outcome and is weighed again later).
+    if (!db.etaSeen.includes(key) && (cap.ok || cap.failedByDistance)) {
+      if (db.etaSeen.length >= 200) db.etaSeen.shift();
+      db.etaSeen.push(key);
+      const tag = response === 'rescue' ? 'Rescue' : 'Investigation';
+      bump(db, `eta${tag}Proposed`);
+      if (cap.ok) bump(db, `eta${tag}Feasible`);
+      else if (cap.failedByDistance) bump(db, `eta${tag}FailedByDistance`);
+      if (cap.etaDays != null) bump(db, `eta${tag}EtaDaysSum`, cap.etaDays);
+    }
+  }
+  return cap;
+}
+function responseCapacityInner(book, world, db, observerId, response, target, day, k = null) {
   const c = db.config;
   if (response === 'reroute') return rerouteCapacity(book, world, db, observerId, k, day);
   if (response === 'protect') return isMilitaryIncident(db.incidents[k?.incidentId]) ? defenseCapacity(book, world, db, observerId, k, day) : escortCapacity(book, world, db, observerId, k, day);
@@ -2012,7 +2116,6 @@ export function responseCapacity(book, world, db, observerId, response, target, 
   }
   const busy = db.objectives.filter((o) => o.status === 'active' && o.polity === polity && o.id !== replacing).length;
   if (busy >= c.maxLiveObjectivesPerPolity) return { ...out, reason: `operation budget spent (${busy} doctrine objective${busy > 1 ? 's' : ''} running)` };
-  const deadlineDays = response === 'rescue' ? c.rescueDeadlineDays : c.investigationDeadlineDays;
   const dwell = response === 'rescue' ? c.rescueDwellDays : c.investigationDwellDays;
   const candidates = [];
   if (observerId.startsWith('hull:')) {
@@ -2035,25 +2138,29 @@ export function responseCapacity(book, world, db, observerId, response, target, 
       return { ...out, reason: `no spare armed vessel (garrison floor kept${committed.length ? `; committed: ${committed.join(', ')}` : ''})` };
     }
   }
+  // The best-placed vessel: the soonest actual arrival (STRATEGIC-TIME-SCALE-CORRECTION).
   let best = null;
   for (const h of candidates) {
-    // A vessel in warp starts from where its leg in flight ends, on the day it gets there.
-    const from = h.transit ? { system: Number(h.transit.to), day: Math.max(day, Number(h.transit.arrivalDay)) } : { system: Number(h.systemIndex), day };
-    const route = routeBetween(world, from.system, target.systemIndex, polity);
-    if (!route) continue;
-    const hops = route.length - 1;
-    if (hops > c.maxResponseHops) continue;
-    // Real travel time: each hop its own length in days, as the journey will fly it.
-    const arrive = from.day + routeLegDaysFor(world, route).reduce((n, d) => n + d, 0);
-    if (!best || arrive < best.arrive || (arrive === best.arrive && hops < best.route.length - 1)) best = { h, route, arrive };
+    const eta = vesselEta(book, world, h, target.systemIndex, polity, day);
+    if (!eta) continue;
+    if (!best || eta.arrive < best.arrive || (eta.arrive === best.arrive && eta.hops < best.route.length - 1)) best = { h, route: eta.route, arrive: eta.arrive, days: eta.days };
   }
-  if (!best) return { ...out, reason: `no vessel with a route within ${c.maxResponseHops} jumps` };
+  if (!best) return { ...out, reason: 'no vessel with a route there' };
   const hops = best.route.length - 1;
   const arrive = best.arrive;
-  if (arrive + dwell > day + deadlineDays) return { ...out, reason: `cannot finish before the deadline (${hops} jumps, ${arrive - day} days + ${dwell} days > ${deadlineDays})` };
-  if (response === 'rescue' && target.survivorsUntil != null && arrive > target.survivorsUntil) return { ...out, reason: 'cannot reach the survivors in time' };
+  const eta = { etaDays: best.days, arriveDay: arrive };
+  if (response === 'rescue') {
+    // The physical deadline: people in lifeboats last as long as they last. Distance decides.
+    const until = target.survivorsUntil ?? day + c.rescueDeadlineDays;
+    if (arrive > until) return { ...out, ...eta, reason: `cannot reach the survivors in time (arrives day ${arrive}, ${best.days} days; survivors last to day ${until})`, failedByDistance: true };
+  } else {
+    // A search is not an emergency: it tolerates real travel, up to how far this command will send a ship,
+    // and only while there is still something to find when it gets there.
+    if (best.days > c.responseMaxTravelDays) return { ...out, ...eta, reason: `too far to send a ship (${best.days} days' travel > ${c.responseMaxTravelDays})`, failedByDistance: true };
+    if (target.freshUntil != null && arrive > target.freshUntil) return { ...out, ...eta, reason: `nothing left to find on arrival (day ${arrive}; the trail runs cold day ${target.freshUntil})`, failedByDistance: true };
+  }
   const allowed = observerId.startsWith('hull:') ? commitmentAllows(db, best.h.id, response) : { ok: true };
-  return { ok: true, hullId: best.h.id, vid: vidOf(best.h), route: best.route, hops, reason: `${best.h.id} (${hops} jumps)${allowed.preempts ? ` — breaks off ${allowed.preempts.label}` : ''}`, response, preempts: allowed.preempts || null };
+  return { ok: true, hullId: best.h.id, vid: vidOf(best.h), route: best.route, hops, ...eta, reason: `${best.h.id} (${hops} jumps, ${best.days} days)${allowed.preempts ? ` — breaks off ${allowed.preempts.label}` : ''}`, response, preempts: allowed.preempts || null };
 }
 function responseTarget(db, observerId, incidentId, response, day) {
   const k = knowledgeOf(db, observerId, incidentId);
@@ -2070,7 +2177,10 @@ function responseTarget(db, observerId, incidentId, response, day) {
   const lk = k.lastKnownArea, origin = k.claims.assignment?.originLocationId;
   const loc = ev?.locationId || (lk && lk !== origin ? lk : (db.incidents[incidentId]?.locationId || lk));
   if (!loc) return null;
-  return { locationId: loc, systemIndex: systemIndexForLocation(db, loc), lead: ev ? 'evidence' : 'area' };
+  // What is to be found stays findable for the evidence's life (debris, a hulk's trail), counted from when it
+  // was last seen — the trail a search can still follow when it gets there.
+  const seen = ev ? (ev.observedDay ?? day) : (since >= 0 ? since : day);
+  return { locationId: loc, systemIndex: systemIndexForLocation(db, loc), lead: ev ? 'evidence' : 'area', freshUntil: seen + db.config.evidenceLifeDays };
 }
 // Location ID → system index, derived from the world (never saved: it is the world's own naming).
 const LOCATION_CACHE = new Map();
@@ -2137,8 +2247,14 @@ function createObjective(book, world, db, doctrine, { observerId, doc, incident,
   }
   // A pre-emption the rule allows ends the vessel's current objective first, with the reason recorded.
   if (capacity.preempts) closePreempted(db, capacity, observerId, incident, response, day, effects);
-  const deadlineDays = response === 'rescue' ? db.config.rescueDeadlineDays : db.config.investigationDeadlineDays;
   const dwell = response === 'rescue' ? db.config.rescueDwellDays : db.config.investigationDwellDays;
+  // The objective's budget (STRATEGIC-TIME-SCALE-CORRECTION): a rescue ends when the survivors can no longer
+  // be helped, or a little after the ship can be done there; a search gets its travel, its time on station
+  // and a bounded slack.
+  const cc = db.config, arriveDay = capacity.arriveDay ?? day;
+  const deadlineValue = response === 'rescue'
+    ? Math.min(Number(target.survivorsUntil ?? day + cc.rescueDeadlineDays) + dwell, arriveDay + dwell + cc.rescueSlackDays)
+    : etaBudgetDeadline(day, arriveDay, Math.max(dwell, cc.investigationOnStationDays), cc.investigationSlackDays, cc.investigationDeadlineDays);
   // A diverted explorer ends its survey first; its command is told it has broken off.
   const job = activeAssignmentFor(db, capacity.hullId);
   if (job) {
@@ -2148,7 +2264,8 @@ function createObjective(book, world, db, doctrine, { observerId, doc, incident,
   const area = [...new Set([target.locationId])];
   const o = { id, incidentId: incident.id, template: tmplId, clock: tmpl.clock, actor: observerId, polity, profileId: doc.profileId, role: doc.role, response,
     assigned: { hullId: capacity.hullId, vid: capacity.vid }, target: { locationId: target.locationId, systemIndex: target.systemIndex, area },
-    createdDay: day, deadline: at(day + deadlineDays), status: 'active', resolution: null, assignmentId: null, actions: [], dwellDays: dwell, arrivedDay: null, workDays: 0, lead: target.lead || (response === 'rescue' ? 'survivors' : 'area') };
+    createdDay: day, deadline: at(deadlineValue), status: 'active', resolution: null, assignmentId: null, actions: [], dwellDays: dwell, arrivedDay: null, workDays: 0, lead: target.lead || (response === 'rescue' ? 'survivors' : 'area'),
+    plan: { etaDays: capacity.etaDays ?? null, arriveDay, onStationDays: response === 'rescue' ? dwell : Math.max(dwell, cc.investigationOnStationDays), survivorsUntil: target.survivorsUntil ?? null, freshUntil: target.freshUntil ?? null, basis: response === 'rescue' ? 'survivor endurance' : 'travel + on station + slack' } };
   const r = issueAssignment(book, world, { polity, hullId: capacity.hullId, kind: response === 'rescue' ? 'rescue' : 'investigation', doctrineRole: doc.role === 'commander' ? 'patrol' : doc.role, objectiveId: id,
     stops: [{ systemIndex: target.systemIndex, dwell: 0, milestone: 'arrival' }] }, day, effects);
   if (!r.ok) return { ok: false, reason: r.reason };
@@ -2167,6 +2284,15 @@ function createObjective(book, world, db, doctrine, { observerId, doc, incident,
 }
 // The objective's facts are its own state: arrived, worked, found; the incident resolved elsewhere or
 // the vessel gone is a cancellation; the deadline is on the objective's clock.
+// The day a vessel on an assignment would reach the end of its itinerary: from where it stands, or from the
+// end of the leg in flight on the day it gets there, each remaining hop its real length.
+function remainingArrivalDay(book, world, a, h, day) {
+  const sys = a.itinerary.map((x) => Number(x.systemIndex));
+  let at = a.pos, t = Number(day);
+  if (h?.transit) { const k = sys.indexOf(Number(h.transit.to), a.pos); if (k >= 0) { at = k; t = Math.max(t, Number(h.transit.arrivalDay)); } }
+  for (let i = at; i < sys.length - 1; i++) t += legDaysBetween(world, sys[i], sys[i + 1]);
+  return t;
+}
 function objectiveFacts(book, world, db, o, day) {
   const f = {};
   // Cancellation is something the command KNOWS: the incident resolved (its ship came home), or it gave
@@ -2193,7 +2319,10 @@ function objectiveFacts(book, world, db, o, day) {
   // back once too often, say). Ended now rather than sailed out to the day.
   if (['investigate', 'rescue'].includes(o.response) && !o.arrivedDay) {
     const a = db.assignments.find((x) => x.id === o.assignmentId);
-    if (a && a.status === 'active' && day + (a.itinerary.length - 1 - a.pos) + o.dwellDays > o.deadline.value) { f.objective_cancelled = true; o.cancelRequested ||= 'can no longer finish before its deadline'; }
+    // Remaining travel is read in real days along the rest of its itinerary (from the end of the leg in
+    // flight if it is in warp) — never one day per jump (STRATEGIC-TIME-SCALE-CORRECTION).
+    // A vessel silently lost is not known to be behind schedule: the objective runs on to its deadline.
+    if (a && a.status === 'active' && h && h.status !== 'lost' && remainingArrivalDay(book, world, a, h, day) + o.dwellDays > o.deadline.value) { f.objective_cancelled = true; o.cancelRequested ||= 'can no longer finish before its deadline'; }
   }
   return f;
 }

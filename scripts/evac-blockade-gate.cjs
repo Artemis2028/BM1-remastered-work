@@ -490,7 +490,12 @@ const { startProbe } = require('./probe-harness.cjs');
     const r = await ev(() => {
       const t = testBM1, s = t.state, book = t.campaign();
       window.__adv(20);
-      const quiet = (book.evacuations || []).filter((e) => e.sponsor !== 'player').length;
+      // Quiet worlds: an AI evacuation of a world no assault or invasion was sent against. (Since
+      // STRATEGIC-TIME-SCALE-CORRECTION the AI's own wars pick populous targets in the first weeks, and
+      // their evacuations are the rule working, not a quiet world evacuated.)
+      const attacked = new Set((book.operations || []).filter((o) => ['assault', 'invasion'].includes(o.kind)).map((o) => Number(o.targetSystem)));
+      const quiet = (book.evacuations || []).filter((e) => e.sponsor !== 'player' && !attacked.has(Number(e.origin))).length;
+      const underAttack = (book.evacuations || []).filter((e) => e.sponsor !== 'player' && attacked.has(Number(e.origin))).length;
       const ac = t.getSystemIndexByName('Alpha Centauri');
       const terran = book.polities.terran.hulls.filter((h) => h.status === 'ready' && !h.opId).slice(0, 5);
       for (const h of terran) h.systemIndex = ac;
@@ -499,7 +504,7 @@ const { startProbe } = require('./probe-harness.cjs');
       op.arriveDay = s.day + 8;
       window.__adv(1);
       const evac = (book.evacuations || []).find((e) => e.origin === ac && e.status === 'active');
-      return { quiet, started: evac ? { sponsor: evac.sponsor, dest: evac.destination, transports: evac.transports.length, reason: evac.reason, destHolder: t.buildCampaignWorld(true).systems[evac.destination].controller } : null };
+      return { quiet, underAttack, started: evac ? { sponsor: evac.sponsor, dest: evac.destination, transports: evac.transports.length, reason: evac.reason, destHolder: t.buildCampaignWorld(true).systems[evac.destination].controller } : null };
     });
     assert.equal(r.quiet, 0, 'an AI evacuated a world nobody was attacking');
     assert.ok(r.started, 'a threatened AI world did not evacuate');
