@@ -592,7 +592,7 @@ formation flies 10,12,10; the chart at 1.2× is 8,10,8".
 
 ## 18. Still deferred
 
-1. towing/salvage, plus stranded-hull recovery movement
+1. ~~towing/salvage, plus stranded-hull recovery movement~~: done in TOWING-SALVAGE-RECOVERY
 2. trader record-shape consolidation
 3. treaty expansion: DMZs, inspection regimes, tribute, reparations, basing rights, transit guarantees
 4. NPC tactical-scene persistence
@@ -603,4 +603,6 @@ formation flies 10,12,10; the chart at 1.2× is 8,10,8".
 9. Borg assimilation
 10. Gorn activation
 11. Tactical Cube
-12. **damage-based speed penalties** (§4: no reliable engine-condition state)
+12. **damage-based speed penalties** (§4: no reliable engine-condition state), now part of the
+    **individual / class-specific strategic speed refinement** carried forward in TOWING-SALVAGE-RECOVERY
+    §21. The categories here are a first implementation; explicit per-class speeds take precedence later.

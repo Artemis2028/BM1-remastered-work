@@ -51,7 +51,7 @@ The check was repeated on the candidate. Every hull `systemIndex` write left in 
 | **Blockade fleets** (forming) | **UNIFIED** | Kind `blockade`:<ul><li>ships not on station fly there, and the blockade is `forming` until they arrive;</li><li>if the war lapses on the way, they turn for home at the next system.</li></ul>The captain's blockade ships are mirrored onto the same journey. |
 | **Reinforcement movement** | **UNIFIED** | Blockade reinforcements join by journey: they count toward the blockade only once on station. Evacuation escorts join at the origin when the convoy is next home (as before). Dominion reinforcements: see above. |
 | **Retreat / return** | **UNIFIED** | Every kind returns by the same record:<ul><li>operation survivors go home by kind `return` — one still in warp turns for home at the end of its leg;</li><li>a force turned back retreats with the next sequence number and the same history;</li><li>a doctrine job that ends in warp flies out its leg as kind `release`.</li></ul> |
-| **Recovery movement** | yard runs **UNIFIED**; disabled-hull recovery **DEFERRED** | A damaged, uncommitted hull sails to the nearest yard as kind `repair`. A disabled hull still stays where it lies until real recovery acts; the towing/salvage round will make recovery movement real. The captain's own ships are never sent to a yard by the model. |
+| **Recovery movement** | yard runs **UNIFIED**; disabled-hull recovery **UNIFIED** (TOWING-SALVAGE-RECOVERY) | A damaged, uncommitted hull sails to the nearest yard as kind `repair`. A disabled hull moves only in tow: a recovery-capable tug's journey out, then the tow journey (kind `recovery`) with the hulk as a member. The captain's own ships are never sent to a yard by the model; he requests their recovery. |
 | **Authored event movement** | **UNIFIED** | Authored and doctrine-authored movement goes through `launchOperation` or `issueAssignment` (`runCampaignAuthored`), so it flies journeys. Debug overrides that place hulls directly remain labelled overrides. |
 
 ## Every inventory row
@@ -83,7 +83,7 @@ The check was repeated on the candidate. Every hull `systemIndex` write left in 
 | 21 | the captain's own warp (and ships escorting him) | **UNIFIED** (STRATEGIC-TACTICAL-HANDOFF §7) | The course is flown leg by leg, each leg its chart length (the same days as every other journey; the route map shows the same figure), and every system on the way is reached and checked. A blockade that catches him, an engaged hostile operation, or a pirate group at B stops him there. C is reached only after he resumes the remaining legs, once. *Was: DEFERRED; one leg over the whole route.* |
 | 22 | legacy single-ship `f.transit` fallback | **INTENTIONALLY ABSTRACT** (save migration) | Only a pre-formation save or an orphaned record reaches it. |
 | 23 | pirate group following its prey | **UNIFIED** (STRATEGIC-TACTICAL-HANDOFF §8) | Where the captain is, a predation contact is an encounter: the same group vessel (its vid) makes the demand or the attack in the scene, and the result updates the same group and objective. Elsewhere it stays bounded to its haven and neighbours, as before. *Was: DEFERRED.* |
-| 24 | stranded hulk recovery | **DEFERRED** → towing/salvage | Recovery in place, at the hulk's own yard world. Real recovery movement (towing) is the towing/salvage round. |
+| 24 | stranded hulk recovery | **UNIFIED** (TOWING-SALVAGE-RECOVERY) | A recovery-capable tug flies out by a shared journey (kind `recovery`), takes the hulk in tow as a member of the same journey record at the tow speed, and delivers it to a yard; the hulk is never moved otherwise. Recovery in place at an own yard is unchanged. |
 | 25 | production, garrison replacement, capture transfer | **INTENTIONALLY ABSTRACT** (not movement) | Creation or a change of hands in place. The pure test 24 checks that none of them makes a journey or moves a hull. |
 
 ## Checked and found not to be strategic movement
@@ -128,13 +128,17 @@ The per-consumer classification is `docs/movement/STRATEGIC-SPEED-AUDIT.md`, and
 `SHIP-DEPENDENT-STRATEGIC-SPEED.md`. The "travel stays ship-independent" note above holds only up to
 f0e219b.
 
+## After TOWING-SALVAGE-RECOVERY
+
+Row 24 is unified: stranded hulls move only by a real tow on the shared journey (TOWING-SALVAGE-RECOVERY.md).
+A written-off hulk leaves its owner's books but its wreck stays where it lay (book.derelicts) until it
+breaks up.
+
 ## Still deferred
 
 - **This audit:**
-  - stranded recovery movement (row 24);
   - moving the trade record onto the journey record (row 2).
 - **The standing list:**
-  - towing/salvage;
   - trader record-shape consolidation;
   - treaty expansion;
   - NPC tactical-scene persistence;
@@ -145,4 +149,5 @@ f0e219b.
   - Borg assimilation;
   - Gorn activation;
   - Tactical Cube;
-  - damage-based strategic speed penalties (no reliable engine-condition state; SHIP-DEPENDENT-STRATEGIC-SPEED §4).
+  - **individual / class-specific strategic speed refinement** (explicit per-class speeds, Sovereign-style
+    overrides, category only as a fallback; damage/engine-condition penalties with it) — TOWING-SALVAGE-RECOVERY §21.

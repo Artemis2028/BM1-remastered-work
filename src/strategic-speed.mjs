@@ -14,18 +14,32 @@
 // Nothing here reads a world, a book or the engine.
 
 export const SPEED_DEFAULT = 1.0;
-export const SPEED_MIN = 0.6;
+export const SPEED_MIN = 0.6;       // a class's authored speed: never below this
 export const SPEED_MAX = 1.5;
+// A journey's speed may go lower than any class's: a group towing a disabled hull
+// (TOWING-SALVAGE-RECOVERY §tow speed). Nothing else flies below SPEED_MIN.
+export const JOURNEY_SPEED_MIN = 0.4;
+export const TOW_PENALTY = 0.7;     // a tow flies at 70% of the slower of the towing group and the towed frame
+export const TOW_SPEED_MAX = 1.0;   // and never faster than the chart's own pace
 
 export function clampSpeed(v) {
   const n = Number(v);
   if (!Number.isFinite(n) || n <= 0) return SPEED_DEFAULT;
-  return Math.min(SPEED_MAX, Math.max(SPEED_MIN, Math.round(n * 100) / 100));
+  return Math.min(SPEED_MAX, Math.max(JOURNEY_SPEED_MIN, Math.round(n * 100) / 100));
 }
 // The class's strategic speed from its stats record (a catalogue entry, or a world.shipStats() result).
 export function classSpeed(stats) {
   if (!stats) return SPEED_DEFAULT;
-  return stats.strategicSpeed == null ? SPEED_DEFAULT : clampSpeed(stats.strategicSpeed);
+  return stats.strategicSpeed == null ? SPEED_DEFAULT : Math.max(SPEED_MIN, clampSpeed(stats.strategicSpeed));
+}
+// A tow: the towing group (its slowest able member, escorts included — they cannot hurry it) and the towed
+// frame, the slower of the two, times the tow penalty; bounded [JOURNEY_SPEED_MIN, TOW_SPEED_MAX].
+//   towSpeed = clamp(min(groupSpeed, towedClassSpeed) × TOW_PENALTY, 0.4, 1.0)
+export function towSpeed(groupSpeedValue, towedSpeed, penalty = TOW_PENALTY) {
+  const g = groupSpeedValue == null ? SPEED_DEFAULT : Number(groupSpeedValue);
+  const t = towedSpeed == null ? SPEED_DEFAULT : Number(towedSpeed);
+  const v = Math.min(g, t) * (Number(penalty) || TOW_PENALTY);
+  return Math.min(TOW_SPEED_MAX, Math.max(JOURNEY_SPEED_MIN, Math.round(v * 100) / 100));
 }
 // The group's speed: its slowest member. An empty group (nobody able to travel) has no speed.
 export function groupSpeed(speeds) {

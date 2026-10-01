@@ -90,7 +90,7 @@ export function openEncounter(book, spec, day, lookup) {
     const rec = p.record || (lookup ? lookup(p) : null);
     const before = rec ? { hull: Number(rec.hull), maxHull: Number(rec.maxHull), crew: rec.crew ?? null, status: rec.status ?? null, systemIndex: rec.systemIndex ?? null } : (p.before || null);
     const out = { ref: p.ref || p.hullId || p.pirateGroupId, hullId: p.hullId ?? null, vid: p.vid ?? rec?.identity?.vid ?? rec?.vid ?? null, polity: p.polity ?? null, side: p.side, role: p.role || null,
-      shipId: p.shipId ?? rec?.shipId ?? null, name: p.name ?? rec?.identity?.name ?? rec?.name ?? null, spawn: p.spawn !== false, engineOwned: Boolean(p.engineOwned),
+      shipId: p.shipId ?? rec?.shipId ?? null, name: p.name ?? rec?.identity?.name ?? rec?.name ?? null, spawn: p.spawn !== false, engineOwned: Boolean(p.engineOwned), towed: Boolean(p.towed),
       pirateGroupId: p.pirateGroupId ?? null, faction: p.faction ?? p.polity ?? null, cloak: p.cloak ?? null, cargo: p.cargo ?? null, before, after: null, fate: null };
     if (rec && p.hullId != null && !p.engineOwned) rec.encounterId = id;
     return out;

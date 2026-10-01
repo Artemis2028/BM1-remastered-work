@@ -15,6 +15,7 @@ import { evaluateWar, settlementTerms, WAR_RULES } from './war-termination.mjs';
 import * as J from './strategic-journey.mjs';
 import * as SE from './strategic-encounter.mjs';
 import * as SPD from './strategic-speed.mjs';
+import * as REC from './strategic-recovery.mjs';
 
 export const CAMPAIGN_VERSION = 1;
 
@@ -44,6 +45,21 @@ export const CAMPAIGN_RULES = Object.freeze({
   strandedRecoveryDays: 2,         // an own yard in the same system (not under blockade) takes this long to bring a hulk in
   derelictWriteOffDays: 90,        // a crewless hulk nobody recovers is written off this long after its crew were gone
   minOperatingCrew: 0.5,           // a repaired hull whose crew left sails again only with this much of a complement
+  // Towing, salvage and stranded-hull recovery (TOWING-SALVAGE-RECOVERY).
+  towPenalty: 0.7,                 // a tow flies at min(towing group, towed frame) × this (strategic-speed.mjs towSpeed)
+  towSignature: 0.2,               // a blockade sees a group with a hulk in tow this much more easily (signature +)
+  derelictLifeDays: 365,           // a written-off derelict stays salvageable this long, then breaks up (identity retired)
+  maxDerelicts: 60,                // the oldest derelicts break up first beyond this
+  recoveryMaxActive: 40,
+  recoveryHistoryKept: 60,         // closed recovery missions kept on the book (the newest)           // open recovery missions, all powers; a new one beyond this is refused
+  recoveryWaitDays: 20,            // a tow (or an outbound tug) with no way on waits this long, retrying daily, then gives up where it is
+  aiRecoveryIntervalDays: 5,       // an AI looks for a hulk worth recovering this often
+  aiRecoveryMaxPerPolity: 2,       // open recoveries an AI runs at once
+  aiRecoveryMinValue: 60000,       // an AI does not send a tug for a hull worth less than this (class price)
+  aiRecoveryMaxDays: 70,           // nor when outbound + tow would take longer than this
+  aiRecoveryValuePerDay: 1500,     // nor when the value recovered per day of tug time is below this
+  aiSalvageMinValue: 90000,        // salvage of an enemy or abandoned hulk: a higher bar
+  recoveryGarrisonFloor: 1,        // a tug is never the last ready hull standing at a world its power holds
   // Readiness
   strengthPerPrice: 1 / 1000,      // hull strength = price × this × condition × crew × supply
   crewRecoveryPerDay: 0.02,        // crew readiness regained per day at a world with morale effects
@@ -242,6 +258,8 @@ export function createCampaignBook(seed, day = 1, config = {}) {
     polities: {},
     operations: [],
     journeys: [],        // every strategic movement under way (STRATEGIC-MOVEMENT-UNIFICATION): one record shape
+    hullRecoveries: [],  // tow / salvage missions for disabled hulls (TOWING-SALVAGE-RECOVERY)
+    derelicts: [],       // written-off hulks still lying where they were abandoned (salvageable until they break up)
     dominion: { phase: 'dormant', phaseDay: null, warnings: [], entrySystem: null, stagingSystem: null, expeditionOpId: null, reinforcementCut: false, convoys: 0, lastConvoyDay: null },
     designs: {},         // shipId → { sources: [stationId], lost: [stationId], relocatedTo: stationId|null }
     recoveries: [],      // bounded recovery contracts
@@ -277,7 +295,7 @@ export function upgradeCampaignBook(book) {
   if (!book.strategicSpeed) { if (book.config.interceptRefSpeed === 45) book.config.interceptRefSpeed = CAMPAIGN_RULES.interceptRefSpeed; book.strategicSpeed = 1; }
   book.discoveries ||= { gorn: false };
   for (const key of ['polities', 'designs', 'incomeLedger', 'restoredStations', 'activatedStations', 'unstaffedStations', 'occupations', 'wars', 'warStates', 'territory']) book[key] ||= {};
-  for (const key of ['operations', 'recoveries', 'missions', 'orders', 'history', 'journeys']) if (!Array.isArray(book[key])) book[key] = [];
+  for (const key of ['operations', 'recoveries', 'missions', 'orders', 'history', 'journeys', 'hullRecoveries', 'derelicts']) if (!Array.isArray(book[key])) book[key] = [];
   book.dominion ||= { phase: 'dormant', phaseDay: null, warnings: [], entrySystem: null, stagingSystem: null, expeditionOpId: null, reinforcementCut: false, convoys: 0, lastConvoyDay: null };
   book.stats ||= { battlesResolved: 0, captures: 0, hullsBuilt: 0, hullsLost: 0, missionsOffered: 0 };
   book.stats.missionsOffered ??= 0;
@@ -455,9 +473,12 @@ function pruneLostHulls(book) {
     const kept = [];
     for (const h of p.hulls) {
       if (h.status !== 'lost' || referenced.has(h.id)) { kept.push(h); continue; }
+      // A written-off hulk is abandoned, not destroyed: it leaves its owner's books but still lies where it
+      // was, salvageable, with its identity intact, until it breaks up (TOWING-SALVAGE-RECOVERY §17).
+      if (h.derelict && h.hull > 0) { (book.derelicts ||= []).push(h); continue; }
       // Leaving the books destroyed: its identity is retired, never reused. A hull taken by the captain
       // is not retired — it lives on under the same vid in the captain's fleet. [identity]
-      if (h.identity && h.fate !== 'captured') Identity.retireVessel(book, h.identity, { day: book.settled ?? null, cause: 'destroyed', holder: id, systemIndex: h.systemIndex });
+      if (h.identity && h.fate !== 'captured' && h.fate !== 'salvaged') Identity.retireVessel(book, h.identity, { day: book.settled ?? null, cause: 'destroyed', holder: id, systemIndex: h.systemIndex });
     }
     p.hulls = kept;
   }
@@ -503,18 +524,19 @@ export function migrateHullIdentities(book) {
 // hull at once — an operation reconciling afterwards must not count it as a survivor or a loss — and
 // its identity leaves with it; the caller puts the same identity on the vessel's new record. Returns
 // that identity, or null if there is no such living hull.
-export function transferHullOut(book, hullId, { day = null, to = 'player', systemIndex = null } = {}) {
+export function transferHullOut(book, hullId, { day = null, to = 'player', systemIndex = null, event = 'captured' } = {}) {
   for (const [polityId, p] of Object.entries(book.polities || {})) {
     if (polityId === 'player') continue;
     const h = (p.hulls || []).find((x) => x.id === hullId);
     if (!h || h.status === 'lost') continue;
     h.identity ||= Identity.makeIdentity({ vid: h.id, shipId: h.shipId, seed: Identity.vesselHash(`${book.seed}:${h.id}`), builder: polityId, via: 'legacy', systemIndex: h.systemIndex, legacy: true });
-    Identity.recordProvenance(h.identity, { day, event: 'captured', from: polityId, to, systemIndex });
+    Identity.recordProvenance(h.identity, { day, event, from: polityId, to, systemIndex });
     h.status = 'lost';
-    h.fate = 'captured';
+    h.fate = event === 'salvaged' ? 'salvaged' : 'captured';
     h.hull = 0;
     p.lostHulls = (p.lostHulls || 0) + 1;
-    book.stats.hullsCaptured = (book.stats.hullsCaptured || 0) + 1;
+    if (event === 'salvaged') book.stats.hullsSalvagedOut = (book.stats.hullsSalvagedOut || 0) + 1;
+    else book.stats.hullsCaptured = (book.stats.hullsCaptured || 0) + 1;
     return { polityId, identity: Identity.normalizeIdentity(h.identity) };
   }
   return null;
@@ -635,6 +657,9 @@ function settleCampaignDay(book, world, day, effects) {
   world.doctrineStep?.(book, world, day, effects);
   evaluateWars(book, world, day, effects);
   advanceRecoveries(book, world, day, effects);
+  // Tows and salvage (TOWING-SALVAGE-RECOVERY): retries, derelicts breaking up, the AI's bounded tugs. Their
+  // journeys flew with every other journey above.
+  advanceHullRecoveries(book, world, day, effects);
   expireMissions(book, day, effects);
   pruneLostHulls(book);
   book.settled = day;
@@ -893,7 +918,9 @@ function advanceProduction(book, world, day, effects) {
 //   repair    only in_yard, by the ordinary yard repair below
 // Campaign days alone change nothing but the crew clock. A crewless hulk nobody recovers is written off.
 export function hullIsDisabled(h) {
-  return Boolean(h) && h.status !== 'lost' && Number(h.maxHull) > 0 && classifyDamage(h.hull, h.maxHull) === 'disabled';
+  // engineDisabled: a vessel of the captain's the engine holds disabled (its mirror may carry a repaired
+  // hull figure while its recovery timer still runs) — disabled until the engine says otherwise.
+  return Boolean(h) && h.status !== 'lost' && ((Number(h.maxHull) > 0 && classifyDamage(h.hull, h.maxHull) === 'disabled') || h.engineDisabled === true);
 }
 // A structurally repaired hull whose crew were rescued or lost: it stays in the yard, unavailable, until
 // the ordinary crew recovery gives it `minOperatingCrew` (PHASE3 §1a).
@@ -959,24 +986,36 @@ export function advanceStranded(book, world, day, effects = []) {
       // its claim and releases it by its own rules; released, it is stranded, not ready.
       if (h.status === 'ready' || (h.status === 'assigned' && !h.opId)) h.status = 'repairing';
       s.systemIndex = Number(h.systemIndex);
-      if (s.crew === 'aboard' && day > s.crewUntil) {
+      // Under tow, the tug's power keeps the hulk's people alive: the clock stops at attachment and runs
+      // again only if the tow is lost (TOWING-SALVAGE-RECOVERY §9).
+      if (s.crew === 'aboard' && !s.crewSupportedBy && day > s.crewUntil) {
         s.crew = 'lost'; s.crewEndDay = day; h.crew = 0;
         effects.push({ type: 'strandedCrewLost', polityId: id, hullId: h.id, vid: h.identity?.vid || h.id, systemIndex: s.systemIndex, day });
       }
       const blockaded = applicableBlockadesAt(book, world, s.systemIndex, id).length > 0;
+      // In tow: the tow mission owns where it is and where it goes; no yard here picks it up mid-tow.
+      if (s.recovery === 'under_tow') continue;
+      // Out of a yard's hands again: whatever kept her people alive there no longer does (a tow's crew support
+      // ends at the yard; the clock resumes with what was left of it).
+      const outOfYard = () => { if (s.crewSupportedBy) { s.crewUntil = day + (s.crewDaysLeft ?? 1); delete s.crewSupportedBy; delete s.crewDaysLeft; } };
       if (s.recovery === 'awaiting_recovery' && ownYardAt(world, id, s.systemIndex) && !blockaded) { s.recovery = 'recovering'; s.recoverySince = day; s.recoveredBy = 'yard'; }
-      else if (s.recovery === 'recovering' && (blockaded || !ownYardAt(world, id, s.systemIndex))) { s.recovery = 'awaiting_recovery'; s.recoverySince = null; s.recoveredBy = null; }
+      else if (s.recovery === 'recovering' && (blockaded || !ownYardAt(world, id, s.systemIndex))) { s.recovery = 'awaiting_recovery'; s.recoverySince = null; s.recoveredBy = null; outOfYard(); }
       // In the yard, it stays there through a later blockade (the yard has it); if the yard itself is lost —
       // the world taken, the yard destroyed — the hulk is out in the open again, awaiting recovery.
-      else if (s.recovery === 'in_yard' && !ownYardAt(world, id, s.systemIndex)) { s.recovery = 'awaiting_recovery'; s.recoverySince = null; s.recoveredBy = null; }
+      else if (s.recovery === 'in_yard' && !ownYardAt(world, id, s.systemIndex)) { s.recovery = 'awaiting_recovery'; s.recoverySince = null; s.recoveredBy = null; outOfYard(); }
       if (s.recovery === 'recovering' && day - s.recoverySince >= (c.strandedRecoveryDays ?? 2)) {
         s.recovery = 'in_yard';
         effects.push({ type: 'hullRecovered', polityId: id, hullId: h.id, vid: h.identity?.vid || h.id, systemIndex: s.systemIndex, day, via: s.recoveredBy });
       }
-      // Nobody aboard and nobody coming: the owner writes the hulk off. Its identity is retired, never reused.
-      if (s.recovery === 'awaiting_recovery' && s.crew !== 'aboard' && day - s.crewEndDay > (c.derelictWriteOffDays ?? 90)) {
-        h.status = 'lost'; h.hull = 0; h.fate = 'written_off'; h.opId = null;
+      // Nobody aboard and nobody coming: the owner writes the hulk off. A hulk somebody is coming for (a live
+      // recovery or salvage claim) is never written off while that mission lasts (TOWING-SALVAGE-RECOVERY §17).
+      // Written off means off the owner's books — counted lost, no longer its fleet — not gone: the wreck
+      // still lies where it was (book.derelicts), salvageable, its identity intact, until it breaks up.
+      if (s.recovery === 'awaiting_recovery' && s.crew !== 'aboard' && !liveRecoveryClaim(book, h) && day - s.crewEndDay > (c.derelictWriteOffDays ?? 90)) {
+        h.status = 'lost'; h.fate = 'written_off'; h.opId = null;
+        h.derelict = { since: day, systemIndex: s.systemIndex, abandonedBy: id, until: day + (c.derelictLifeDays ?? 365) };
         p.lostHulls = (p.lostHulls || 0) + 1; book.stats.hullsLost++;
+        book.stats.hullsWrittenOff = (book.stats.hullsWrittenOff || 0) + 1;
         effects.push({ type: 'strandedWrittenOff', polityId: id, hullId: h.id, vid: h.identity?.vid || h.id, systemIndex: s.systemIndex, day });
       }
     }
@@ -2911,19 +2950,33 @@ export function hullsSpeed(world, hulls) {
   const able = list.filter((h) => h.status !== 'lost' && !hullIsDisabled(h) && h.status !== 'surrendered' && !hullAwaitingCrew(h));
   return SPD.groupSpeed((able.length ? able : list).map((h) => hullSpeed(world, h))) ?? SPD.SPEED_DEFAULT;
 }
+// The speed a journey's members fly at: the slowest able member, or — a group with hulks in tow
+// (tr.tow) — the tow speed: min(towing group, towed frame) × towPenalty, bounded (TOWING-SALVAGE-RECOVERY §6).
+// Escorts are part of the towing group: they can only slow it.
+export function journeySpeed(world, book, tr, hulls) {
+  if (!tr?.tow?.targets?.length) return hullsSpeed(world, hulls);
+  const towed = new Set(tr.tow.targets.map(String));
+  const towing = hulls.filter((h) => !towed.has(String(h.id)));
+  const targets = hulls.filter((h) => towed.has(String(h.id)));
+  const g = towing.length ? hullsSpeed(world, towing) : SPD.SPEED_DEFAULT;
+  const t = targets.length ? Math.min(...targets.map((h) => hullSpeed(world, h))) : SPD.SPEED_DEFAULT;
+  return SPD.towSpeed(g, t, tr.tow.penalty ?? book?.config?.towPenalty ?? SPD.TOW_PENALTY);
+}
 // The model's adjacency for a journey: the chart's routes and the wormholes (an engine may close an edge
 // to a power, as the uncharted Bajoran wormhole is closed to everyone but the Dominion).
-function journeyNeighbours(world, i, polityId) {
+// noFixed: leave out fixed traversals (a wormhole-only edge) — a tow is not carried through one
+// (TOWING-SALVAGE-RECOVERY §6: unavailable rather than invented).
+function journeyNeighbours(world, i, polityId, noFixed = false) {
   const out = new Set((world.neighbours(i) || []).map(Number));
   for (const w of world.wormholes || []) { if (Number(w.from) === i) out.add(Number(w.to)); if (Number(w.to) === i) out.add(Number(w.from)); }
-  return [...out].filter((n) => world.edgeOpen ? world.edgeOpen(i, n, polityId) !== false : true).sort((a, b) => a - b);
+  return [...out].filter((n) => world.edgeOpen ? world.edgeOpen(i, n, polityId) !== false : true).filter((n) => !noFixed || !world.legFixed?.(i, n)).sort((a, b) => a - b);
 }
-function routeFewestJumps(world, from, to, polityId, avoid = null) {
+function routeFewestJumps(world, from, to, polityId, avoid = null, noFixed = false) {
   const prev = new Map([[Number(from), null]]); const q = [Number(from)];
   while (q.length) {
     const cur = q.shift();
     if (cur === Number(to)) break;
-    for (const x of journeyNeighbours(world, cur, polityId)) {
+    for (const x of journeyNeighbours(world, cur, polityId, noFixed)) {
       if (prev.has(x) || (avoid && avoid.has(x) && x !== Number(to))) continue;
       prev.set(x, cur); q.push(x);
     }
@@ -2935,9 +2988,9 @@ function routeFewestJumps(world, from, to, polityId, avoid = null) {
 // A route for a model mover: the fewest jumps (the model's routes have always been jump-counted and blind
 // to the captain's chart), each with its real length.
 // The route never depends on the ship (the same systems, the same legs); only its days do.
-export function plotJourney(world, from, to, polityId, avoid = null, speed = null) {
+export function plotJourney(world, from, to, polityId, avoid = null, speed = null, opts = {}) {
   if (Number(from) === Number(to)) return { systems: [Number(from)], path: [], legDays: [], legBase: [], speed: speed == null ? SPD.SPEED_DEFAULT : SPD.clampSpeed(speed) };
-  const systems = routeFewestJumps(world, from, to, polityId, avoid && avoid.size ? avoid : null);
+  const systems = routeFewestJumps(world, from, to, polityId, avoid && avoid.size ? avoid : null, Boolean(opts.noFixed));
   if (!systems) return null;
   const legBase = routeLegBase(world, systems);
   return { systems, path: systems.slice(1).map(Number), legDays: SPD.legDaysAt(legBase, speed), legBase, speed: speed == null ? SPD.SPEED_DEFAULT : SPD.clampSpeed(speed) };
@@ -2973,17 +3026,20 @@ export function startJourney(book, world, spec, day, effects = []) {
   const from = Number(spec.from ?? hulls[0].systemIndex);
   if (hulls.some((h) => Number(h.systemIndex) !== from)) return { ok: false, reason: 'split between systems' };
   if (hulls.some((h) => h.transit)) return { ok: false, reason: 'already under way' };
-  const plan = spec.plan || plotJourney(world, from, spec.destination, spec.sponsor, spec.avoid || null);
+  const tow = spec.tow?.targets?.length ? { targets: spec.tow.targets.map(String), penalty: spec.tow.penalty ?? book.config.towPenalty ?? SPD.TOW_PENALTY, recoveryId: spec.tow.recoveryId ?? null, need: spec.tow.need ?? null } : null;
+  const plan = spec.plan || plotJourney(world, from, spec.destination, spec.sponsor, spec.avoid || null, null, { noFixed: Boolean(tow) });
   if (!plan) return { ok: false, reason: 'no route' };
   // The days are always the ships' own: the route's legs (whoever plotted it) at the speed of the hulls
   // actually flying, its slowest able member (SHIP-DEPENDENT-STRATEGIC-SPEED). A planner that asked for
   // the same hulls' journeyDays got exactly these.
-  const speed = hullsSpeed(world, hulls);
+  if (tow && routeLegBase(world, [from, ...plan.path.map(Number)]).some((l) => l.fixed)) return { ok: false, reason: 'a tow cannot be taken through a fixed traversal (wormhole)' };
+  const speed = journeySpeed(world, book, { tow }, hulls);
   const legBase = routeLegBase(world, [from, ...plan.path.map(Number)]);
   const tr = J.createJourney({ id: nextCampaignId(book, 'journey'), kind: spec.kind, ref: spec.ref ?? null, sponsor: spec.sponsor, from, destination: Number(spec.destination),
     path: plan.path, legDays: SPD.legDaysAt(legBase, speed), day, members: hulls.map((h) => h.id), vids: Object.fromEntries(hulls.map((h) => [h.id, vidOfHull(h)])),
     purpose: spec.purpose || 'move', war: spec.war || null, authority: spec.authority || null, prior: spec.prior || null, meta: spec.meta || null });
   tr.legBase = legBase; tr.speed = speed; tr.speedHistory = [{ fromLeg: 0, speed }];
+  if (tow) tr.tow = tow;
   list.push(tr);
   st.started++; st.byKind[tr.kind] = (st.byKind[tr.kind] || 0) + 1;
   if (!tr.path.length) {
@@ -3009,9 +3065,20 @@ export function crossJourneyLeg(book, world, tr, effects = [], opts = {}) {
   const { at, day } = cross;
   const hooks = JOURNEY_KINDS[tr.kind] || {};
   st.crossings++;
+  const towed = new Set((tr.tow?.targets || []).map(String));
+  const legStart = Number(tr.legIndex > 0 ? tr.path[tr.legIndex - 1] : tr.plotFrom);
   for (const id of [...tr.members]) {
     const h = hullOf(book, tr.sponsor, id);
-    if (!h) { J.detachMember(tr, id, at, day, 'lost'); continue; }
+    // Gone from its books while the leg was in flight. With a tow, it was lost somewhere on this leg: the
+    // hulk it towed is let go where they last stood together, the leg's start (dropUntowed).
+    if (!h) { J.detachMember(tr, id, at, day, 'lost'); if (tr.tow) out.leftEnRoute.push({ id, reason: 'lost', systemIndex: legStart }); continue; }
+    // A hulk in tow is carried: it is disabled by definition and goes where the towing group goes. Lost (a
+    // run finished it off), it is gone like any other.
+    if (towed.has(String(id))) {
+      if (h.status === 'lost') { delete h.transit; J.detachMember(tr, id, h.systemIndex, day, 'lost'); out.destroyed.push(id); out.leftEnRoute.push({ id, reason: 'lost', systemIndex: Number(h.systemIndex) }); hooks.onDetach?.(book, world, tr, h, 'lost', Number(h.systemIndex), day, effects); continue; }
+      delete h.transit; h.systemIndex = at;
+      continue;
+    }
     if (h.transit?.journeyId === tr.id && (hullIsDisabled(h) || h.status === 'surrendered' || h.status === 'lost')) {
       // Disabled, surrendered or lost while the leg was in flight: it dropped out where it last stood (the
       // model has no position between systems) and is never carried on to the leg's end.
@@ -3039,9 +3106,32 @@ export function crossJourneyLeg(book, world, tr, effects = [], opts = {}) {
     if (hooks.keep && !hooks.keep(book, tr, h)) { J.detachMember(tr, id, at, day, 'released'); out.leftEnRoute.push({ id, reason: 'released', systemIndex: at }); releaseDetached(tr, h, 'released'); continue; }
     if (hullIsDisabled(h)) { J.detachMember(tr, id, at, day, 'disabled'); out.disabled.push(id); hooks.onDetach?.(book, world, tr, h, 'disabled', at, day, effects); }
   }
+  dropUntowed(book, world, tr, at, day, effects, out);
   effects.push(journeyEffect(tr, 'journeyCrossed', day, { systemIndex: at, leg: tr.legIndex, legs: tr.path.length, final: !J.hasMoreLegs(tr) }));
   if (tr.members.length && opts.blockades !== false) runJourneyBlockades(book, world, tr, at, day, effects, out, opts);
   return out;
+}
+// A tow whose towing ships are all gone (lost, disabled, surrendered, left): the hulk is let go where the
+// towing group last stood — never dragged onward without a tug (TOWING-SALVAGE-RECOVERY §7). A towing ship
+// that dropped out in warp left the hulk where it dropped out; at a crossing, it is here.
+function dropUntowed(book, world, tr, at, day, effects, out) {
+  if (!tr.tow?.targets?.length) return;
+  const towed = new Set(tr.tow.targets.map(String));
+  // Still in tow only while a member able to tow it is with it — the tug, or another operational ship whose
+  // capacity covers the hulk. Escorts that cannot tow do not carry it on.
+  const need = Number(tr.tow.need) || 0;
+  const towing = tr.members.filter((id) => !towed.has(String(id))).map((id) => hullOf(book, tr.sponsor, id)).filter((h) => h && h.status !== 'lost' && classifyDamage(h.hull, h.maxHull) === 'operational');
+  if (towing.some((h) => REC.classRecoveryCapacity(world.shipStats(h.shipId)) >= need)) return;
+  const dropped = out?.leftEnRoute?.filter((x) => !towed.has(String(x.id))) || [];
+  const where = dropped.length && dropped.every((x) => Number(x.systemIndex) !== Number(at)) ? Number(dropped[0].systemIndex) : Number(at);
+  for (const id of [...tr.members].filter((x) => towed.has(String(x)))) {
+    const h = hullOf(book, tr.sponsor, id);
+    if (h) { delete h.transit; h.systemIndex = where; }
+    J.detachMember(tr, id, where, day, 'tug lost');
+    out?.leftEnRoute?.push({ id, reason: 'tug lost', systemIndex: where });
+    (JOURNEY_KINDS[tr.kind] || {}).onTowDropped?.(book, world, tr, h, where, day, effects, Number(at));
+  }
+  tr.tow = { ...tr.tow, targets: [] };
 }
 // Every blockade at a crossing that bears on the journey's sponsor, once each. Where the captain is present
 // (opts.handoff, for the model's own journeys of another sponsor) an interception is handed to the scene: the
@@ -3052,10 +3142,16 @@ function runJourneyBlockades(book, world, tr, at, day, effects, out, opts = {}) 
   for (const b of applicableBlockadesAt(book, world, at, tr.sponsor)) {
     if (opts.skip?.has(b.id)) continue;
     if (tr.encounters.some((e) => e.blockadeId === b.id && e.leg === tr.legIndex && e.seq === tr.seq)) continue;
-    const ships = journeyMemberHulls(book, tr).filter((h) => classifyDamage(h.hull, h.maxHull) === 'operational');
+    const towedIds = new Set((tr.tow?.targets || []).map(String));
+    const ships = journeyMemberHulls(book, tr).filter((h) => !towedIds.has(String(h.id)) && classifyDamage(h.hull, h.maxHull) === 'operational');
     if (!ships.length) break;
+    // A hulk in tow runs with the group (TOWING-SALVAGE-RECOVERY §8): the shared engine sees the group at its
+    // tow speed and its bigger signature, and the hulk can be hit; nothing else about the run is different.
+    const towedHulls = journeyMemberHulls(book, tr).filter((h) => towedIds.has(String(h.id)) && h.status !== 'lost');
     const runner = opts.runner ? opts.runner(ships) : { key: hooks.runnerKey?.(book, tr) ?? `${tr.ref != null ? `${tr.ref}:` : ''}${tr.id}:s${tr.seq}:l${tr.legIndex}`, sponsor: tr.sponsor, kind: tr.kind,
-      hulls: ships.map((h) => ({ hullId: h.id, vid: vidOfHull(h), shipId: h.shipId, hull: h.hull, maxHull: h.maxHull, crew: h.crew, role: hooks.role?.(book, tr, h) ?? null })) };
+      hulls: [...ships.map((h) => ({ hullId: h.id, vid: vidOfHull(h), shipId: h.shipId, hull: h.hull, maxHull: h.maxHull, crew: h.crew, role: hooks.role?.(book, tr, h) ?? null })),
+        ...towedHulls.map((h) => ({ hullId: h.id, vid: vidOfHull(h), shipId: h.shipId, hull: h.hull, maxHull: h.maxHull, crew: h.crew, role: 'towed', towed: true }))],
+      ...(towedHulls.length ? { towSpeed: tr.speed } : {}) };
     // STRATEGIC-TACTICAL-HANDOFF: the captain is in this system — an interception is fought in the scene.
     if (opts.handoff && tr.sponsor !== 'player' && world.localSystem != null && Number(world.localSystem) === Number(at)) {
       const contact = blockadeContact(book, world, b, runner, day);
@@ -3072,11 +3168,14 @@ function runJourneyBlockades(book, world, tr, at, day, effects, out, opts = {}) 
     const lost = [], disabled = [];
     for (const x of r.hulls) {
       if (!tr.members.includes(x.hullId)) continue;
+      if (towedIds.has(String(x.hullId)) && x.condition !== 'destroyed') continue; // a hulk in tow stays in tow
       if (x.condition === 'destroyed') { lost.push(tr.vids[x.hullId] ?? x.hullId); J.detachMember(tr, x.hullId, at, day, 'destroyed'); out.destroyed.push(x.hullId); hooks.onDetach?.(book, world, tr, { id: x.hullId, status: 'lost' }, 'destroyed', at, day, effects); }
       else if (x.condition === 'disabled') { disabled.push(tr.vids[x.hullId] ?? x.hullId); J.detachMember(tr, x.hullId, at, day, 'disabled'); out.disabled.push(x.hullId); const h = hullOf(book, tr.sponsor, x.hullId); if (h) hooks.onDetach?.(book, world, tr, h, 'disabled', at, day, effects); }
     }
     tr.encounters.push({ system: at, day, leg: tr.legIndex, seq: tr.seq, blockadeId: b.id, power: b.power, outcome: r.outcome, estimate: r.estimate, coverage: r.observed?.tier ?? null, force: r.observed?.force ?? null, lost, disabled });
     out.runs.push(r);
+    dropUntowed(book, world, tr, at, day, effects, out);
+    if (!tr.members.length || tr.status !== 'underway') return false;
     if (!r.continues) { out.turnedBack = true; return true; }
   }
   return false;
@@ -3100,7 +3199,7 @@ export function replotJourney(book, world, tr, spec, day, effects = []) {
   if (tr.status === 'underway') J.supersedeJourney(tr, day, spec.reason || 'superseded');
   return startJourney(book, world, { kind: spec.kind || tr.kind, ref: spec.ref ?? tr.ref, sponsor: tr.sponsor, hulls, destination: spec.destination, purpose: spec.purpose || tr.purpose,
     war: spec.war === undefined ? tr.war : spec.war, authority: spec.authority === undefined ? tr.authority : spec.authority, meta: spec.meta === undefined ? tr.meta : spec.meta,
-    prior: tr, avoid: spec.avoid || null, plan: spec.plan || null }, day, effects);
+    prior: tr, avoid: spec.avoid || null, plan: spec.plan || null, tow: spec.tow === undefined ? tr.tow : spec.tow }, day, effects);
 }
 // What happens after a crossing, in order: nobody left; turned back; the reason for the journey lapsed
 // (checked here, at the boundary, never mid-leg); a pending order; the next leg; arrival.
@@ -3161,7 +3260,7 @@ function settleCrossing(book, world, tr, cross, effects) {
     // A leg boundary: the next leg flies at the speed of those still with the journey (one detached here
     // may have been its slowest). Legs already flown are never re-timed.
     const was = tr.speed;
-    J.respeedJourney(tr, hullsSpeed(world, journeyMemberHulls(book, tr)));
+    J.respeedJourney(tr, journeySpeed(world, book, tr, journeyMemberHulls(book, tr)));
     if (tr.speed !== was) hooks.onRespeed?.(book, world, tr, cross, effects);
     J.advanceLeg(tr, day);
     putMembersOnLeg(book, tr);
@@ -3857,14 +3956,18 @@ function runnerProfile(book, world, runner) {
     const strength = hullStrength(book, world, { shipId: x.shipId, hull, maxHull, crew: x.crew ?? 1 });
     return { ...x, hull, maxHull, cond, frac, cloak, combat, strength, speed: Number(x.speed) || (st.strategicSpeed != null ? SPD.classSpeed(st) : c.interceptRefSpeed), mass: Math.max(1, Number(st.mass) || 3) };
   }).filter((m) => m.cond !== 'destroyed');
-  const active = members.filter((m) => m.cond === 'operational');
+  const active = members.filter((m) => m.cond === 'operational' && !m.towed);
+  const towed = members.filter((m) => m.towed);
   const E = active.reduce((n, m) => n + m.strength * m.combat, 0);
-  const speed = active.length ? Math.min(...active.map((m) => m.speed)) : 0;
+  // A group with a hulk in tow dashes at its tow speed, not its tug's (TOWING-SALVAGE-RECOVERY §8).
+  const speed = active.length ? Math.min(...active.map((m) => m.speed), ...(towed.length && runner.towSpeed ? [Number(runner.towSpeed)] : [])) : 0;
   // Stealth is the least stealthy ship's: one uncloaked freighter gives the whole group away.
   const cloakAll = active.length > 0 && active.every((m) => m.cloak);
-  const signature = bounded(0.7 + 0.02 * active.length + 0.3 * Math.min(1, Math.max(...active.map((m) => m.mass), 1) / 10), 0.6, 1.5);
+  // A hulk in tow is seen: its mass counts, and a tow is a conspicuous thing (towSignature); it also
+  // spoils any cloak.
+  const signature = bounded(0.7 + 0.02 * active.length + 0.3 * Math.min(1, Math.max(...active.map((m) => m.mass), ...towed.map((m) => m.mass), 1) / 10) + (towed.length ? (c.towSignature ?? 0.2) : 0), 0.6, 1.5);
   const condition = active.length ? active.reduce((n, m) => n + m.frac, 0) / active.length : 0;
-  return { members, active, E, speed, cloakAll, signature, condition };
+  return { members, active, towed, E, speed, cloakAll: cloakAll && !towed.length, signature, condition };
 }
 // The blockade's side, from the hulls actually on station and able to act.
 function blockadeForce(book, world, b) {
@@ -3965,7 +4068,9 @@ export function openBlockadeEncounter(book, world, b, runner, day, spec = {}) {
     contact: { ...contact, runner: { key: runner.key, sponsor: runner.sponsor, kind: runner.kind || null, hulls: runner.hulls.map((x) => ({ ...x })) }, journeyId: spec.journeyId || null, leg: spec.leg ?? null, seq: spec.seq ?? null, blockadeId: b.id, power: b.power },
     participants: [...f.hulls.map((h) => ({ hullId: h.id, polity: b.power, side: 'blockader', record: h })),
       ...runner.hulls.map((x) => ({ hullId: x.hullId, vid: x.vid ?? null, polity: runner.sponsor, side: 'runner', shipId: x.shipId, role: x.role || null, cloak: x.cloak ?? null,
-        engineOwned: player, spawn: !player, record: player ? null : hullOf(book, runner.sponsor, x.hullId), before: { hull: x.hull, maxHull: x.maxHull, crew: x.crew ?? null } }))] }, day, lookupHull(book));
+        // A hulk in tow is not put into the scene (§18): its strategic record stands; if its tug is lost there,
+        // it is let go where the tug fought.
+        towed: Boolean(x.towed), engineOwned: player, spawn: !player && !x.towed, record: player ? null : hullOf(book, runner.sponsor, x.hullId), before: { hull: x.hull, maxHull: x.maxHull, crew: x.crew ?? null } }))] }, day, lookupHull(book));
   return enc; // counted as an interception when it is settled (tactically, or by the strategic run on fallback)
 }
 // What the tactical result means for the blockade, written in the blockade's own terms: the run it records,
@@ -4054,12 +4159,15 @@ function releaseHeldCrossing(book, world, tr, enc, run, day, effects) {
   const hooks = JOURNEY_KINDS[tr.kind] || {};
   const out = { at, day: Number(held.day), fresh: true, runs: [run], turnedBack: !run.continues, disabled: [], destroyed: [], leftEnRoute: [], released: true };
   const lost = [], disabled = [];
+  const towedIds = new Set((tr.tow?.targets || []).map(String));
   for (const p of enc.participants) {
     if (p.side !== 'runner' || !tr.members.includes(p.hullId)) continue;
+    if (towedIds.has(String(p.hullId)) && p.fate !== 'destroyed') continue; // in tow; not in the scene (§18)
     if (p.fate === 'destroyed') { lost.push(tr.vids[p.hullId] ?? p.hullId); J.detachMember(tr, p.hullId, at, day, 'destroyed'); out.destroyed.push(p.hullId); hooks.onDetach?.(book, world, tr, { id: p.hullId, status: 'lost' }, 'destroyed', at, day, effects); }
     else if (p.fate === 'disabled' || p.fate === 'surrendered') { disabled.push(tr.vids[p.hullId] ?? p.hullId); J.detachMember(tr, p.hullId, at, day, p.fate); out.disabled.push(p.hullId); const h = hullOf(book, tr.sponsor, p.hullId); if (h) hooks.onDetach?.(book, world, tr, h, p.fate, at, day, effects); }
   }
   tr.encounters.push({ system: at, day: Number(held.day), leg: held.leg, seq: held.seq, blockadeId: held.blockadeId, power: enc.contact?.power ?? null, outcome: run.outcome, tactical: !enc.fallback, encounterId: enc.id, lost, disabled });
+  dropUntowed(book, world, tr, at, day, effects, out);
   if (run.continues && tr.members.length) {
     const more = runJourneyBlockades(book, world, tr, at, Number(held.day), effects, out, { skip: new Set([held.blockadeId]) });
     if (more) out.turnedBack = true;
@@ -4103,6 +4211,8 @@ export function resolveBlockadeRun(book, world, b, runner, day, effects = [], op
       const share = fighters.includes(m) ? dmg * roll * (cover > 0 ? 1.3 : 1) : dmg * roll * (1 - cover);
       hit(m, Math.min(0.5, share));
     }
+    // A hulk in tow cannot dodge: it takes an unarmed ship's share, and it may not survive it.
+    for (const m of a.profile.towed || []) hit(m, Math.min(0.5, dmg * (0.5 + 0.6 * u(`hit:${m.hullId}`)) * (1 - cover)));
     if (outcome === 'intercepted_losses') {
       // The ship that is caught: escorts put themselves in the way as often as they cover the convoy
       // (the weakest of them takes it); otherwise the most exposed — least armed, worst condition.
@@ -4153,6 +4263,531 @@ export function resolveBlockadeRun(book, world, b, runner, day, effects = [], op
     hulls: results, blockaderLosses: { damaged: blockaderLosses.damaged.length, disabled: blockaderLosses.disabled.length, lost: blockaderLosses.lost.length }, broken, observed, ...(opts.meta || {}) };
   effects.push({ type: 'blockadeRun', ...out });
   return out;
+}
+
+// ---------- towing, salvage and stranded-hull recovery (TOWING-SALVAGE-RECOVERY) ----------
+// A disabled hull is physically recovered or it stays where it lies. A mission is one persistent record
+// (book.hullRecoveries) with a stable id; its movement is two shared journeys of kind `recovery` — the tug
+// (and its escorts) out to the hulk, then the towing group with the hulk as a member back to a yard, at the
+// tow speed (journeySpeed) — so every crossing, blockade run, tactical handoff, save and reload is the
+// shared engine's. The hulk is the same record and the same vid throughout; salvage changes its owner,
+// never its origin. Nothing here spawns a ship or moves one without a journey.
+function recoveryBook(book) { return (book.hullRecoveries ||= []); }
+export function hullRecoveryById(book, id) { return recoveryBook(book).find((r) => r.id === id) || null; }
+export function openHullRecoveries(book) { return recoveryBook(book).filter((r) => REC.recoveryOpen(r)); }
+function recoveryStats(book) {
+  return (book.stats.recovery ||= { requested: 0, refused: 0, launched: 0, delivered: 0, failed: 0, aborted: 0, tugLosses: 0, hulksLostUnderTow: 0,
+    salvageClaims: 0, salvaged: 0, valueRecovered: 0, outboundDays: 0, outboundN: 0, towDays: 0, towN: 0, skipped: {}, derelictsBrokenUp: 0 });
+}
+// The live claim on a hull: an open mission naming it as its target.
+export function liveRecoveryClaim(book, h) {
+  if (!h) return null;
+  return recoveryBook(book).find((r) => REC.recoveryOpen(r) && String(r.target.hullId) === String(h.id)) || null;
+}
+// A hull wherever it is: on a polity's books (alive), or lying abandoned (a derelict).
+function findHulk(book, hullId) {
+  for (const [pid, p] of Object.entries(book.polities || {})) {
+    const h = (p.hulls || []).find((x) => String(x.id) === String(hullId));
+    if (h && h.status !== 'lost') return { h, owner: pid, derelict: false };
+  }
+  const d = (book.derelicts || []).find((x) => String(x.id) === String(hullId) && !x.derelict?.goneDay);
+  return d ? { h: d, owner: d.derelict?.abandonedBy ?? null, derelict: true } : null;
+}
+export function recoveryCapacityOf(world, h) { return REC.classRecoveryCapacity(world.shipStats(h?.shipId)); }
+export function towRequirementOf(world, h) { return REC.towRequirement(world.shipStats(h?.shipId)); }
+function hulkValue(world, h) { return Math.max(0, Number(world.shipStats(h?.shipId)?.price) || 0); }
+function hulkCrew(h, owner) { return h?.stranded?.crew ?? (owner === 'player' ? 'aboard' : 'aboard'); }
+// A yard a tow may deliver to: the sponsor's own yard, or — for the captain, who buys repairs where he is
+// served — a yard in a system whose holder is not at war with him. Never under an applicable blockade.
+function towYardOk(book, world, sponsor, i) {
+  const sys = world.systems[Number(i)];
+  if (!sys || applicableBlockadesAt(book, world, i, sponsor).length) return false;
+  if (sys.controller === sponsor) return (stationEffects(world, Number(i), sponsor).repairCapacity || 0) > 0;
+  if (sponsor !== 'player' || !sys.controller) return false;
+  if (world.relation(relSide(world, 'player'), relSide(world, sys.controller)) === 'war') return false;
+  return (stationEffects(world, Number(i), sys.controller).repairCapacity || 0) > 0;
+}
+// The nearest suitable yard from `from`, by the days the tow will actually fly (never through a wormhole).
+function chooseTowYard(book, world, sponsor, from, speed, avoid = null) {
+  let best = null;
+  for (const sys of world.systems) {
+    if (!towYardOk(book, world, sponsor, sys.index)) continue;
+    const plan = Number(sys.index) === Number(from) ? { path: [], legDays: [] } : plotJourney(world, from, sys.index, sponsor, avoid, speed, { noFixed: true });
+    if (!plan) continue;
+    const days = plan.legDays.reduce((n, d) => n + d, 0);
+    if (!best || days < best.days || (days === best.days && sys.index < best.yard)) best = { yard: Number(sys.index), days, plan };
+  }
+  return best;
+}
+// The facts the claim rules read (strategic-recovery.mjs claimVerdict).
+function claimFacts(book, world, claimant, found, at, recordId = null) {
+  const { h, owner, derelict } = found;
+  const other = liveRecoveryClaim(book, h);
+  const atWarWithOwner = owner && claimant !== owner ? world.relation(relSide(world, claimant), relSide(world, owner)) === 'war' : false;
+  const ownerHoldsSystem = owner && claimant !== owner && world.systems[Number(at)]?.controller === owner;
+  const ownerGuards = owner && claimant !== owner && !derelict
+    && (book.polities[owner]?.hulls || []).some((x) => x.id !== h.id && Number(x.systemIndex) === Number(at) && !x.transit && x.status !== 'lost' && classifyDamage(x.hull, x.maxHull) === 'operational');
+  return { claimant, owner, abandoned: derelict, crew: hulkCrew(h, owner), surrendered: h.status === 'surrendered', atWar: atWarWithOwner,
+    ownerHoldsSystem, ownerGuards, otherClaim: other && other.id !== recordId ? other.id : null, engineOwned: owner === 'player' && claimant !== 'player', claimantIsPlayer: claimant === 'player' };
+}
+// Whether this hulk may be taken in tow by `claimant` now, and on what authority.
+export function recoveryClaim(book, world, claimant, hullId, recordId = null) {
+  const found = findHulk(book, hullId);
+  if (!found) return { ok: false, reason: 'no such hulk' };
+  const at = Number(found.h.systemIndex);
+  return { ...REC.claimVerdict(claimFacts(book, world, claimant, found, at, recordId)), owner: found.owner, derelict: found.derelict, systemIndex: at };
+}
+// Why a hulk cannot be the object of a recovery at all, or null.
+function hulkUnfit(book, found) {
+  const { h, derelict, owner } = found;
+  if (derelict) return h.hull > 0 ? null : 'broken up';
+  if (!hullIsDisabled(h)) return 'not disabled';
+  if (h.transit || hullInEncounter(h)) return 'not lying anywhere a tug can reach (in warp or in a fight)';
+  if (owner !== 'player' && ['recovering', 'in_yard'].includes(h.stranded?.recovery)) return 'already in a yard';
+  if (h.opId) return 'still held by its job';
+  return null;
+}
+// The plan for one recovery, without making it: who tows, how far each way, how fast, to which yard.
+export function planHullRecovery(book, world, spec, day = book.day) {
+  const sponsor = spec.sponsor;
+  const found = findHulk(book, spec.targetHullId);
+  if (!found) return { ok: false, reason: 'no such hulk' };
+  const unfit = hulkUnfit(book, found);
+  if (unfit) return { ok: false, reason: unfit };
+  const target = found.h, at = Number(target.systemIndex);
+  const claim = REC.claimVerdict(claimFacts(book, world, sponsor, found, at));
+  if (!claim.ok) return { ok: false, reason: claim.reason, claim };
+  const tug = hullOf(book, sponsor, spec.tugHullId);
+  if (!tug || tug.status === 'lost') return { ok: false, reason: 'no such recovery vessel' };
+  if (tug.id === target.id) return { ok: false, reason: 'a hulk cannot tow itself' };
+  if (hullUnavailable(tug) || tug.opId || (tug.status !== 'ready' && sponsor !== 'player')) return { ok: false, reason: 'the recovery vessel is not free' };
+  const can = REC.canTow(world.shipStats(tug.shipId), world.shipStats(target.shipId));
+  if (!can.ok) return { ok: false, reason: can.reason, capacity: can.capacity, need: can.need };
+  const escorts = (spec.escortHullIds || []).map((id) => hullOf(book, sponsor, id));
+  if (escorts.some((e) => !e || e.status === 'lost' || hullUnavailable(e) || e.opId || Number(e.systemIndex) !== Number(tug.systemIndex))) return { ok: false, reason: 'an escort is not free or not with the recovery vessel' };
+  const group = [tug, ...escorts];
+  const groupSpeed = hullsSpeed(world, group);
+  const outbound = Number(tug.systemIndex) === at ? { systems: [at], path: [], legDays: [] } : plotJourney(world, tug.systemIndex, at, sponsor, spec.avoid ? new Set(spec.avoid) : null, groupSpeed);
+  if (!outbound) return { ok: false, reason: 'no route to the hulk' };
+  const tSpeed = SPD.towSpeed(groupSpeed, hullSpeed(world, target), book.config.towPenalty);
+  const yard = spec.yard != null && towYardOk(book, world, sponsor, spec.yard)
+    ? { yard: Number(spec.yard), plan: Number(spec.yard) === at ? { path: [], legDays: [] } : plotJourney(world, at, spec.yard, sponsor, null, tSpeed, { noFixed: true }) }
+    : chooseTowYard(book, world, sponsor, at, tSpeed, spec.avoid ? new Set(spec.avoid) : null);
+  if (!yard || !yard.plan) return { ok: false, reason: 'no yard a tow can reach' };
+  const outboundDays = outbound.legDays.reduce((n, d) => n + d, 0), towDays = yard.plan.legDays.reduce((n, d) => n + d, 0);
+  return { ok: true, kind: claim.kind, authority: claim.authority, owner: found.owner, derelict: found.derelict, target, tug, escorts, at, yard: yard.yard,
+    capacity: can.capacity, need: can.need, groupSpeed, towSpeed: tSpeed, outbound, outboundDays, inbound: yard.plan, towDays, etaDays: outboundDays + towDays,
+    arriveDay: Number(day) + outboundDays, deliverDay: Number(day) + outboundDays + towDays, value: hulkValue(world, target), crew: hulkCrew(target, found.owner) };
+}
+function noteRecovery(rec, day, state, note = '') {
+  rec.state = state;
+  rec.history.push({ day: Number(day), state, note });
+  if (rec.history.length > 24) rec.history = rec.history.slice(-24);
+}
+function recoveryEffect(rec, type, day, extra = {}) {
+  return { type, id: rec.id, kind: rec.kind, sponsor: rec.sponsor, owner: rec.owner, targetHullId: rec.target.hullId, vid: rec.target.vid, tugHullId: rec.tug.hullId,
+    escortHullIds: rec.escorts.map((e) => e.hullId), targetSystem: rec.targetSystem, yard: rec.yard, state: rec.state, day: Number(day), ...extra };
+}
+// Start a recovery: the plan made real. The tug (and escorts) are committed and set out at once.
+export function requestHullRecovery(book, world, spec, day, effects = []) {
+  const st = recoveryStats(book);
+  st.requested++;
+  if (openHullRecoveries(book).length >= (book.config.recoveryMaxActive ?? 40)) { st.refused++; return { ok: false, reason: 'too many recoveries under way' }; }
+  const plan = planHullRecovery(book, world, spec, day);
+  if (!plan.ok) { st.refused++; return plan; }
+  const { target, tug, escorts } = plan;
+  const rec = { id: nextCampaignId(book, 'tow'), kind: plan.kind, sponsor: spec.sponsor, owner: plan.owner, requestedBy: spec.requestedBy || (spec.sponsor === 'player' ? 'player' : 'ai'),
+    target: { hullId: target.id, vid: vidOfHull(target), shipId: target.shipId, origin: target.identity?.origin?.builder ?? plan.owner, crewAtRequest: plan.crew },
+    tug: { hullId: tug.id, vid: vidOfHull(tug), shipId: tug.shipId, capacity: plan.capacity }, escorts: escorts.map((e) => ({ hullId: e.id, vid: vidOfHull(e), shipId: e.shipId })),
+    need: plan.need, targetSystem: plan.at, yard: plan.yard, claim: { authority: plan.authority, kind: plan.kind, since: Number(day) }, value: plan.value,
+    plan: { outboundDays: plan.outboundDays, towDays: plan.towDays, towSpeed: plan.towSpeed, groupSpeed: plan.groupSpeed, arriveDay: plan.arriveDay, deliverDay: plan.deliverDay },
+    outbound: null, inbound: null, journeyIds: [], attachment: null, crew: plan.crew, createdDay: Number(day), endedDay: null, reason: null, avoid: [...(spec.avoid || [])], waitingSince: null, history: [], losses: [] };
+  noteRecovery(rec, day, 'requested', `${plan.kind} of ${rec.target.vid} at ${plan.at}`);
+  recoveryBook(book).push(rec);
+  if (target.status !== 'lost') target.recoveryClaim = { id: rec.id, by: spec.sponsor, kind: plan.kind, since: Number(day) };
+  for (const h of [tug, ...escorts]) { if (spec.sponsor !== 'player') h.status = 'assigned'; h.opId = rec.id; }
+  noteRecovery(rec, day, 'assigned', `${rec.tug.vid} (capacity ${plan.capacity} ≥ ${plan.need})${escorts.length ? ` + ${escorts.length} escort(s)` : ''}`);
+  if (plan.kind === 'salvage') st.salvageClaims++;
+  st.launched++;
+  effects.push(recoveryEffect(rec, 'hullRecoveryAssigned', day, { etaDays: plan.etaDays, outboundDays: plan.outboundDays, towDays: plan.towDays, towSpeed: plan.towSpeed }));
+  if (spec.sponsor === 'player') effects.push({ type: 'strategicShipsAssigned', id: rec.id, sponsor: 'player', hulls: [tug.id, ...escorts.map((e) => e.id)], role: 'recovery', systemIndex: Number(tug.systemIndex), day });
+  addHistory(book, day, 'recovery', `${spec.sponsor} sends ${rec.tug.vid} to ${plan.kind === 'salvage' ? 'salvage' : 'recover'} ${rec.target.vid} at system ${plan.at}.`, { systemIndex: plan.at });
+  startOutbound(book, world, rec, day, effects);
+  return { ok: true, record: rec, plan };
+}
+function recoveryGroup(book, rec) { return [rec.tug, ...rec.escorts].map((x) => hullOf(book, rec.sponsor, x.hullId)).filter((h) => h && h.status !== 'lost'); }
+function startOutbound(book, world, rec, day, effects) {
+  const group = recoveryGroup(book, rec).filter((h) => !h.transit);
+  const tug = hullOf(book, rec.sponsor, rec.tug.hullId);
+  if (!tug || tug.status === 'lost' || hullIsDisabled(tug)) return failRecovery(book, world, rec, day, effects, 'the recovery vessel was lost before it reached the hulk', 'failed');
+  if (Number(tug.systemIndex) === Number(rec.targetSystem)) return onRecoveryScene(book, world, rec, day, effects);
+  const r = startJourney(book, world, { kind: 'recovery', ref: rec.id, sponsor: rec.sponsor, hulls: group.filter((h) => Number(h.systemIndex) === Number(tug.systemIndex)), destination: rec.targetSystem,
+    purpose: 'recovery', avoid: rec.avoid.length ? new Set(rec.avoid) : null, authority: { kind: 'recovery', ref: rec.id }, meta: { recoveryId: rec.id, leg: 'outbound' } }, day, effects);
+  if (!r.ok) { rec.waitingSince ??= Number(day); rec.waitReason = r.reason; return false; }
+  rec.waitingSince = null;
+  rec.journeyIds.push(r.journey.id);
+  rec.outbound = { journeyId: r.journey.id, route: [Number(tug.systemIndex), ...r.journey.path], legDays: r.journey.legDays.slice(), speed: r.journey.speed, departDay: Number(day), eta: r.journey.etaDay };
+  const st = recoveryStats(book); st.outboundDays += r.journey.legDays.reduce((n, d) => n + d, 0); st.outboundN++;
+  noteRecovery(rec, day, 'en_route_to_hulk', `${rec.outbound.route.length - 1} leg(s), arrives day ${r.journey.etaDay}`);
+  if (r.arrived) onRecoveryScene(book, world, rec, day, effects);
+  return true;
+}
+// The tug is at the hulk's system: everything is checked again, here, before anything is made fast.
+function onRecoveryScene(book, world, rec, day, effects) {
+  if (!REC.recoveryOpen(rec)) return releaseRecoveryGroup(book, world, rec, day, effects);
+  noteRecovery(rec, day, 'on_scene', `at system ${rec.targetSystem}`);
+  const found = findHulk(book, rec.target.hullId);
+  const tug = hullOf(book, rec.sponsor, rec.tug.hullId);
+  const why = (() => {
+    if (!found) {
+      const anywhere = Object.values(book.polities).flatMap((p) => p.hulls).find((x) => String(x.id) === String(rec.target.hullId));
+      return anywhere?.fate === 'captured' ? 'the hulk was captured before the tug arrived' : 'the hulk is gone (destroyed or broken up)';
+    }
+    if (Number(found.h.systemIndex) !== Number(rec.targetSystem)) return 'the hulk is no longer there';
+    if (found.owner !== rec.owner && found.owner !== rec.sponsor) return 'the hulk was taken by someone else';
+    if (!found.derelict && !hullIsDisabled(found.h)) return 'the hulk was already recovered';
+    if (!found.derelict && found.owner !== 'player' && ['recovering', 'in_yard'].includes(found.h.stranded?.recovery)) return 'the hulk was already recovered';
+    const claim = REC.claimVerdict(claimFacts(book, world, rec.sponsor, found, rec.targetSystem, rec.id));
+    if (!claim.ok) return `no claim: ${claim.reason}`;
+    if (!tug || tug.status === 'lost' || classifyDamage(tug.hull, tug.maxHull) !== 'operational') return 'the recovery vessel cannot take her in tow';
+    if (!REC.canTow(world.shipStats(tug.shipId), world.shipStats(found.h.shipId)).ok) return 'the recovery vessel cannot take her in tow';
+    return null;
+  })();
+  if (why) return failRecovery(book, world, rec, day, effects, why, 'aborted');
+  const h = found.h;
+  // Salvage: the hulk changes hands here — the same record, the same vid, the same damage and equipment; its
+  // origin (who built it) never changes.
+  if (rec.kind === 'salvage' && found.owner !== rec.sponsor) {
+    if (rec.sponsor === 'player') {
+      // The captain's books are the engine's: it adopts the very same vessel (identity, class, damage) and
+      // names the record it now keeps her under; the tow sets out once it has (adoptSalvagedHull).
+      const out = transferHullOut(book, h.id, { day, to: 'player', systemIndex: rec.targetSystem, event: 'salvaged' });
+      const identity = out?.identity || Identity.normalizeIdentity(h.identity);
+      if (found.derelict) { book.derelicts = book.derelicts.filter((x) => x !== h); h.derelict.salvagedBy = 'player'; }
+      rec.awaitingAdoption = true;
+      rec.attachment = { day: Number(day), at: rec.targetSystem, salvagedFrom: found.owner };
+      noteRecovery(rec, day, 'attached', `salvaged from ${found.owner ?? 'nobody'}; handed to the captain's books`);
+      recoveryStats(book).salvaged++;
+      effects.push(recoveryEffect(rec, 'hullSalvagedToPlayer', day, { identity, shipId: h.shipId, hull: h.hull, maxHull: h.maxHull, systemIndex: rec.targetSystem, from: found.owner, origin: rec.target.origin }));
+      return true;
+    }
+    if (found.derelict) { book.derelicts = book.derelicts.filter((x) => x !== h); delete h.derelict; h.fate = null; }
+    else { const op = book.polities[found.owner]; op.hulls = op.hulls.filter((x) => x !== h); op.lostHulls = (op.lostHulls || 0) + 1; }
+    polity(book, rec.sponsor).hulls.push(h);
+    h.status = 'repairing'; h.opId = null; h.salvagedFrom = found.owner;
+    // A new owner's write-off clock starts now, not the old owner's.
+    if (h.stranded && h.stranded.crew !== 'aboard') h.stranded.crewEndDay = Number(day);
+    h.identity ||= Identity.makeIdentity({ vid: h.id, shipId: h.shipId, seed: Identity.vesselHash(`${book.seed}:${h.id}`), builder: found.owner, via: 'legacy', systemIndex: h.systemIndex, legacy: true });
+    Identity.recordProvenance(h.identity, { day, event: 'salvaged', from: found.owner, to: rec.sponsor, systemIndex: rec.targetSystem });
+    h.stranded ||= { since: Number(day), systemIndex: rec.targetSystem, recovery: 'awaiting_recovery', recoverySince: null, recoveredBy: null, crew: 'lost', crewUntil: Number(day), crewEndDay: Number(day) };
+    recoveryStats(book).salvaged++;
+    effects.push(recoveryEffect(rec, 'hullSalvaged', day, { from: found.owner, origin: rec.target.origin }));
+  } else if (found.derelict) {
+    // Its own owner reclaiming a hulk it had written off: back on its books, the same vessel.
+    book.derelicts = book.derelicts.filter((x) => x !== h); delete h.derelict; h.fate = null; h.status = 'repairing'; h.opId = null;
+    if (h.stranded && h.stranded.crew !== 'aboard') h.stranded.crewEndDay = Number(day);
+    polity(book, rec.sponsor).hulls.push(h);
+  }
+  attachHulk(book, world, rec, h, day, effects);
+  return startTow(book, world, rec, day, effects);
+}
+function attachHulk(book, world, rec, h, day, effects) {
+  rec.attachment ||= { day: Number(day), at: rec.targetSystem };
+  if (rec.sponsor !== 'player' && h.stranded) {
+    h.stranded.recovery = 'under_tow';
+    // Her people (if any are aboard) are kept alive by the tug from here on.
+    if (h.stranded.crew === 'aboard') { h.stranded.crewSupportedBy = rec.id; h.stranded.crewDaysLeft = Math.max(1, Number(h.stranded.crewUntil) - Number(day)); }
+  }
+  h.towedBy = rec.id;
+  h.recoveryClaim = { id: rec.id, by: rec.sponsor, kind: rec.kind, since: rec.claim.since };
+  rec.crew = hulkCrew(h, rec.sponsor);
+  noteRecovery(rec, day, 'attached', `${rec.target.vid} made fast to ${rec.tug.vid}; crew ${rec.crew}`);
+  effects.push(recoveryEffect(rec, 'hullTowAttached', day, { crew: rec.crew }));
+}
+// The towing group, with the hulk as a member, sets out for the yard at the tow speed — never through a
+// fixed traversal. With no way through (or no yard), it holds where it is and tries again each day.
+function startTow(book, world, rec, day, effects) {
+  const target = hullOf(book, rec.sponsor, rec.target.hullId);
+  if (!target || target.status === 'lost') return failRecovery(book, world, rec, day, effects, 'the hulk was lost', 'failed');
+  const group = recoveryGroup(book, rec).filter((h) => h.id !== target.id && !h.transit && Number(h.systemIndex) === Number(target.systemIndex) && classifyDamage(h.hull, h.maxHull) === 'operational');
+  if (!group.some((h) => h.id === rec.tug.hullId)) return dropTowedHulk(book, world, rec, target, Number(target.systemIndex), day, effects, 'the recovery vessel is not with the hulk');
+  // Escorts that are not with the hulk are not part of the tow: free where they are.
+  for (const x of rec.escorts) { const e = hullOf(book, rec.sponsor, x.hullId); if (e && e.opId === rec.id && !group.includes(e) && !e.transit) { e.opId = null; if (rec.sponsor !== 'player') e.status = releaseStatus(e); } }
+  const from = Number(target.systemIndex);
+  const speed = SPD.towSpeed(hullsSpeed(world, group), hullSpeed(world, target), book.config.towPenalty);
+  if (!towYardOk(book, world, rec.sponsor, rec.yard)) {
+    const y = chooseTowYard(book, world, rec.sponsor, from, speed, rec.avoid.length ? new Set(rec.avoid) : null);
+    if (!y) { rec.waitingSince ??= Number(day); rec.waitReason = 'no yard a tow can reach'; noteRecovery(rec, day, 'towing', 'holding: no yard a tow can reach'); return false; }
+    rec.history.push({ day: Number(day), state: rec.state, note: `destination re-chosen: ${rec.yard} → ${y.yard}` });
+    rec.yard = y.yard;
+  }
+  if (from === Number(rec.yard)) return deliverHulk(book, world, rec, target, from, day, effects);
+  const plan = plotJourney(world, from, rec.yard, rec.sponsor, rec.avoid.length ? new Set(rec.avoid) : null, speed, { noFixed: true });
+  if (!plan) { rec.waitingSince ??= Number(day); rec.waitReason = 'no route a tow can take'; noteRecovery(rec, day, 'towing', 'holding: no route a tow can take'); return false; }
+  const r = startJourney(book, world, { kind: 'recovery', ref: rec.id, sponsor: rec.sponsor, hulls: [...group, target], destination: rec.yard, purpose: 'tow', plan,
+    tow: { targets: [target.id], recoveryId: rec.id, need: rec.need }, authority: { kind: 'recovery', ref: rec.id }, meta: { recoveryId: rec.id, leg: 'inbound' } }, day, effects);
+  if (!r.ok) { rec.waitingSince ??= Number(day); rec.waitReason = r.reason; noteRecovery(rec, day, 'towing', `holding: ${r.reason}`); return false; }
+  rec.waitingSince = null; rec.waitReason = null;
+  rec.journeyIds.push(r.journey.id);
+  rec.inbound = { journeyId: r.journey.id, route: [from, ...r.journey.path], legDays: r.journey.legDays.slice(), towSpeed: r.journey.speed, departDay: Number(day), eta: r.journey.etaDay };
+  const st = recoveryStats(book); st.towDays += r.journey.legDays.reduce((n, d) => n + d, 0); st.towN++;
+  noteRecovery(rec, day, 'towing', `under tow at ${r.journey.speed}× → ${rec.yard}, arrives day ${r.journey.etaDay}`);
+  if (rec.sponsor === 'player') effects.push({ type: 'strategicShipsAssigned', id: rec.id, sponsor: 'player', hulls: [target.id], role: 'towed', systemIndex: from, day });
+  effects.push(recoveryEffect(rec, 'hullTowStarted', day, { towSpeed: r.journey.speed, eta: r.journey.etaDay, route: rec.inbound.route }));
+  if (r.arrived) deliverHulk(book, world, rec, target, rec.yard, day, effects);
+  return true;
+}
+// At the yard: the yard's ordinary recovery takes the hulk in (strandedRecoveryDays), then the ordinary
+// repair; nothing is repaired here. Her crew stay whatever they were — aboard, rescued or lost.
+function deliverHulk(book, world, rec, h, at, day, effects) {
+  h.systemIndex = Number(at); delete h.transit; delete h.towedBy; delete h.recoveryClaim;
+  if (rec.sponsor !== 'player' && h.stranded) {
+    h.stranded.systemIndex = Number(at);
+    h.stranded.recovery = 'recovering'; h.stranded.recoverySince = Number(day); h.stranded.recoveredBy = `tow:${rec.id}`;
+    if (h.stranded.crewSupportedBy) h.stranded.crewSupportedBy = 'yard'; // her people are ashore at the yard now
+  }
+  rec.endedDay = Number(day); rec.reason = 'delivered';
+  noteRecovery(rec, day, 'delivered_to_yard', `at ${at}`);
+  const st = recoveryStats(book); st.delivered++; st.valueRecovered += rec.value || 0;
+  releaseRecoveryGroup(book, world, rec, day, effects);
+  effects.push(recoveryEffect(rec, 'hullRecoveryDelivered', day, { systemIndex: Number(at), crew: hulkCrew(h, rec.sponsor) }));
+  addHistory(book, day, 'recovery', `${rec.target.vid} towed in to system ${at}.`, { systemIndex: Number(at) });
+  return true;
+}
+// The tow lost its tug: the hulk is let go where the towing group last stood. Never dragged on, never sent
+// home: it is stranded there again, and a new recovery can be sent for it.
+function dropTowedHulk(book, world, rec, h, where, day, effects, why) {
+  if (h) {
+    h.systemIndex = Number(where); delete h.transit; delete h.towedBy; delete h.recoveryClaim;
+    if (rec.sponsor !== 'player' && h.stranded) {
+      h.stranded.systemIndex = Number(where); h.stranded.recovery = 'awaiting_recovery'; h.stranded.recoverySince = null; h.stranded.recoveredBy = null;
+      if (h.stranded.crewSupportedBy) { h.stranded.crewUntil = Number(day) + (h.stranded.crewDaysLeft ?? 1); delete h.stranded.crewSupportedBy; delete h.stranded.crewDaysLeft; }
+      // The owner's write-off clock for a crewless hulk restarts from the failed recovery, not from before it.
+      if (h.stranded.crew !== 'aboard') h.stranded.crewEndDay = Math.max(Number(h.stranded.crewEndDay ?? day), Number(day));
+    }
+  }
+  return failRecovery(book, world, rec, day, effects, why, 'failed', { droppedAt: Number(where) });
+}
+function failRecovery(book, world, rec, day, effects, reason, state = 'failed', extra = {}) {
+  if (!REC.recoveryOpen(rec)) return false;
+  rec.endedDay = Number(day); rec.reason = reason;
+  noteRecovery(rec, day, state, reason);
+  const st = recoveryStats(book); if (state === 'failed') st.failed++; else st.aborted++;
+  const target = findHulk(book, rec.target.hullId)?.h;
+  if (target && target.recoveryClaim?.id === rec.id) delete target.recoveryClaim;
+  releaseRecoveryGroup(book, world, rec, day, effects);
+  effects.push(recoveryEffect(rec, state === 'failed' ? 'hullRecoveryFailed' : 'hullRecoveryAborted', day, { reason, ...extra }));
+  return false;
+}
+// The tug and escorts go free where they are (one still in warp is freed when its leg ends).
+function releaseRecoveryGroup(book, world, rec, day, effects) {
+  const ids = [rec.tug, ...rec.escorts].map((x) => x.hullId);
+  for (const id of ids) {
+    const h = hullOf(book, rec.sponsor, id);
+    if (!h || h.status === 'lost' || h.opId !== rec.id) continue;
+    if (h.transit) continue;
+    h.opId = null;
+    if (rec.sponsor !== 'player') h.status = releaseStatus(h);
+  }
+  if (rec.sponsor === 'player') effects.push({ type: 'strategicShipReleased', id: rec.id, sponsor: 'player', hullIds: [...ids, rec.target.hullId], day, recovery: true });
+}
+// Cancel before the hulk is made fast. A tug in warp finishes its leg (it cannot turn mid-leg) and is free
+// where that leg ends; the hulk is left exactly where it is.
+export function cancelHullRecovery(book, world, id, day, effects = [], reason = 'cancelled') {
+  const rec = hullRecoveryById(book, id);
+  if (!rec) return { ok: false, reason: 'no such recovery' };
+  if (!REC.RECOVERY_CANCELLABLE.includes(rec.state)) return { ok: false, reason: rec.state === 'attached' || rec.state === 'towing' ? 'already in tow: it cannot be called off now' : `already ${rec.state}` };
+  const tr = rec.outbound ? journeyById(book, rec.outbound.journeyId) : null;
+  failRecovery(book, world, rec, day, effects, reason, 'aborted');
+  if (tr && tr.status === 'underway' && Number(tr.legDepartDay) === Number(day)) { J.haltJourney(tr, tr.from, day, 'cancelled', 'Recovery cancelled.'); for (const h of journeyMemberHulls(book, tr)) delete h.transit; releaseRecoveryGroup(book, world, rec, day, effects); }
+  return { ok: true, record: rec };
+}
+// The engine adopted a salvaged hull into the captain's books under `newHullId` (pf:…): the tow sets out.
+export function adoptSalvagedHull(book, world, id, newHullId, day, effects = []) {
+  const rec = hullRecoveryById(book, id);
+  if (!rec || !rec.awaitingAdoption) return { ok: false, reason: 'nothing awaiting adoption' };
+  rec.awaitingAdoption = false;
+  rec.target.salvagedFromHullId = rec.target.hullId;
+  rec.target.hullId = String(newHullId);
+  rec.owner = 'player';
+  return { ok: startTow(book, world, rec, day, effects), record: rec };
+}
+registerJourneyKind('recovery', {
+  role(book, tr, h) { const rec = hullRecoveryById(book, tr.ref); return rec && rec.tug.hullId === h.id ? 'tug' : 'escort'; },
+  valid(book, world, tr, day, effects = []) {
+    const rec = hullRecoveryById(book, tr.ref);
+    if (!rec || !REC.recoveryOpen(rec)) return { ok: false, reason: 'recovery called off' };
+    if (tr.meta?.leg === 'outbound') {
+      const found = findHulk(book, rec.target.hullId);
+      if (!found || Number(found.h.systemIndex) !== Number(rec.targetSystem)) { failRecovery(book, world, rec, day, effects, 'the hulk is gone from where it lay', 'aborted'); return { ok: false, reason: 'the hulk is gone' }; }
+      return { ok: true };
+    }
+    if (tr.meta?.leg === 'inbound' && tr.purpose !== 'retreat' && !towYardOk(book, world, rec.sponsor, rec.yard)) {
+      // The yard changed hands, or is blockaded: re-chosen here, at the boundary, from where the tow is.
+      const y = chooseTowYard(book, world, rec.sponsor, tr.from, tr.speed, rec.avoid.length ? new Set(rec.avoid) : null);
+      rec.history.push({ day: Number(day), state: rec.state, note: y ? `yard ${rec.yard} no longer usable; re-chosen ${y.yard} at ${tr.from}` : `yard ${rec.yard} no longer usable; none reachable from ${tr.from}` });
+      recoveryStats(book).yardReevaluations = (recoveryStats(book).yardReevaluations || 0) + 1;
+      if (!y) return { ok: false, reason: 'no usable yard', note: 'holding with the tow' };
+      rec.yard = y.yard;
+      if (Number(y.yard) === Number(tr.from)) return { ok: false, reason: 'yard is here', note: 'delivering here' };
+      return { ok: false, reason: 'yard re-chosen', pending: { destination: y.yard, purpose: 'tow', plan: y.plan, meta: tr.meta } };
+    }
+    return { ok: true };
+  },
+  onArrive(book, world, tr, at, day, effects) {
+    const rec = hullRecoveryById(book, tr.ref);
+    if (!rec) return;
+    if (!REC.recoveryOpen(rec)) { releaseRecoveryGroup(book, world, rec, day, effects); return; }
+    if (tr.purpose === 'retreat') {
+      // Turned back by a blockade: try again from here, around it.
+      if (tr.retreatFrom != null && !rec.avoid.includes(Number(tr.retreatFrom))) rec.avoid.push(Number(tr.retreatFrom));
+      if (tr.meta?.leg === 'inbound') startTow(book, world, rec, day, effects); else startOutbound(book, world, rec, day, effects);
+      return;
+    }
+    if (tr.meta?.leg === 'outbound') { onRecoveryScene(book, world, rec, day, effects); return; }
+    const h = hullOf(book, rec.sponsor, rec.target.hullId);
+    if (h && h.status !== 'lost') deliverHulk(book, world, rec, h, at, day, effects);
+    else failRecovery(book, world, rec, day, effects, 'the hulk was lost under tow', 'failed');
+  },
+  onHalt(book, world, tr, at, day, effects) {
+    const rec = hullRecoveryById(book, tr.ref);
+    if (!rec) return;
+    if (!REC.recoveryOpen(rec)) { releaseRecoveryGroup(book, world, rec, day, effects); return; }
+    if (!tr.members.length) {
+      // Everyone gone: a lost tug en route, or a tow whose hulk was let go (onTowDropped closed it).
+      if (tr.meta?.leg === 'outbound') failRecovery(book, world, rec, day, effects, `the recovery vessel was lost on the way (at ${at})`, 'failed');
+      return;
+    }
+    if (tr.meta?.leg === 'inbound') {
+      const h = hullOf(book, rec.sponsor, rec.target.hullId);
+      if (towYardOk(book, world, rec.sponsor, at) && h) { deliverHulk(book, world, rec, h, at, day, effects); return; }
+      // Holding with the tow where it is; tried again each day (advanceHullRecoveries).
+      for (const m of journeyMemberHulls(book, tr)) delete m.transit;
+      rec.waitingSince ??= Number(day); rec.waitReason = tr.endReason || 'halted';
+      noteRecovery(rec, day, 'towing', `holding at ${at}: ${rec.waitReason}`);
+      return;
+    }
+    failRecovery(book, world, rec, day, effects, `the outbound passage ended at ${at}: ${tr.endReason || 'halted'}`, 'aborted');
+  },
+  onDetach(book, world, tr, h, reason, at, day, effects = []) {
+    const rec = hullRecoveryById(book, tr.ref);
+    if (!rec || !h) return;
+    rec.losses.push({ day: Number(day), hullId: h.id, vid: tr.vids?.[h.id] ?? h.id, reason, at: Number(at) });
+    // Off the mission where it dropped out (the hulk itself is the mission's own business).
+    if (String(h.id) !== String(rec.target.hullId) && h.status !== 'lost' && h.opId === rec.id) { h.opId = null; if (rec.sponsor !== 'player') h.status = releaseStatus(h); if (rec.sponsor === 'player') effects.push({ type: 'strategicShipReleased', id: rec.id, sponsor: 'player', hullIds: [h.id], day, recovery: true }); }
+    if (rec.losses.length > 12) rec.losses = rec.losses.slice(-12);
+    if (h.id === rec.tug.hullId && ['destroyed', 'disabled', 'lost', 'surrendered'].includes(reason)) recoveryStats(book).tugLosses++;
+    if (String(h.id) === String(rec.target.hullId) && ['destroyed', 'lost'].includes(reason)) { recoveryStats(book).hulksLostUnderTow++; failRecovery(book, world, rec, day, effects, 'the hulk was destroyed under tow', 'failed'); }
+  },
+  onTowDropped(book, world, tr, h, where, day, effects, at = where) {
+    const rec = hullRecoveryById(book, tr.ref);
+    if (!rec) return;
+    // The towing group's journey ends here: any escorts left stand where they are and go free.
+    if (tr.status === 'underway') {
+      for (const m of journeyMemberHulls(book, tr)) { delete m.transit; m.systemIndex = Number(at); }
+      J.haltJourney(tr, Number(at), day, 'tug lost', `The tow was let go at system ${where}.`);
+      endJourneyEffect(book, tr, day, effects, { tugLost: true });
+    }
+    dropTowedHulk(book, world, rec, h, where, day, effects, `the tug was lost; the hulk was let go at system ${where}`);
+  },
+  // Turned back by a blockade after the mission closed (the hulk lost in that run): nobody goes back as a tow.
+  onForcedBack(book, world, tr, at, prev, day, effects) {
+    const rec = hullRecoveryById(book, tr.ref);
+    if (rec && REC.recoveryOpen(rec)) return false;
+    for (const m of journeyMemberHulls(book, tr)) { delete m.transit; m.systemIndex = Number(at); }
+    if (rec) releaseRecoveryGroup(book, world, rec, day, effects);
+    return true;
+  },
+});
+// Daily: retries for missions holding with no way on, the captain's salvage adoption, derelicts breaking
+// up, and the AI's bounded decision to send a tug.
+export function advanceHullRecoveries(book, world, day, effects = []) {
+  const c = book.config;
+  const st = recoveryStats(book);
+  for (const rec of openHullRecoveries(book)) {
+    if (rec.awaitingAdoption) continue;
+    const live = rec.journeyIds.map((id) => journeyById(book, id)).find((tr) => tr && tr.status === 'underway');
+    if (live) continue;
+    // Its journey ended by a path that told nobody (a forced halt): the mission ends where things lie.
+    if (rec.waitingSince == null) {
+      if (rec.state === 'towing') { const h = hullOf(book, rec.sponsor, rec.target.hullId); dropTowedHulk(book, world, rec, h, h?.systemIndex ?? rec.targetSystem, day, effects, 'the tow was halted; the hulk was let go where it stood'); }
+      else if (['assigned', 'en_route_to_hulk'].includes(rec.state)) failRecovery(book, world, rec, day, effects, 'the outbound passage was halted', 'aborted');
+      continue;
+    }
+    if (Number(day) - rec.waitingSince > (c.recoveryWaitDays ?? 20)) {
+      if (rec.state === 'towing') { const h = hullOf(book, rec.sponsor, rec.target.hullId); dropTowedHulk(book, world, rec, h, h?.systemIndex ?? rec.targetSystem, day, effects, `no way to a yard for ${c.recoveryWaitDays ?? 20} days; the hulk was let go where the tow held`); }
+      else failRecovery(book, world, rec, day, effects, `no way to the hulk for ${c.recoveryWaitDays ?? 20} days`, 'aborted');
+      continue;
+    }
+    if (rec.state === 'towing') startTow(book, world, rec, day, effects);
+    else if (['assigned', 'en_route_to_hulk'].includes(rec.state)) startOutbound(book, world, rec, day, effects);
+  }
+  // Derelicts break up after derelictLifeDays (or the oldest, beyond maxDerelicts): only then is the vessel's
+  // identity retired. One somebody is towing or coming for is not broken up.
+  const derelicts = book.derelicts || [];
+  const claimed = (d) => liveRecoveryClaim(book, d);
+  const over = Math.max(0, derelicts.length - (c.maxDerelicts ?? 60));
+  const old = [...derelicts].sort((a, b) => a.derelict.since - b.derelict.since);
+  const breakUp = new Set(old.slice(0, over).filter((d) => !claimed(d)));
+  for (const d of derelicts) if (Number(day) >= Number(d.derelict?.until ?? Infinity) && !claimed(d)) breakUp.add(d);
+  if (breakUp.size) {
+    for (const d of breakUp) { d.derelict.goneDay = Number(day); d.hull = 0; if (d.identity) Identity.retireVessel(book, d.identity, { day, cause: 'broken up', holder: d.derelict.abandonedBy, systemIndex: d.systemIndex }); st.derelictsBrokenUp++; }
+    book.derelicts = derelicts.filter((d) => !breakUp.has(d));
+  }
+  // Closed missions are history: the newest are kept for the record, the rest are let go (open ones never are).
+  const closed = recoveryBook(book).filter((r) => !REC.recoveryOpen(r));
+  if (closed.length > (c.recoveryHistoryKept ?? 60)) { const drop = new Set(closed.slice(0, closed.length - (c.recoveryHistoryKept ?? 60))); book.hullRecoveries = recoveryBook(book).filter((r) => !drop.has(r)); }
+  if (c.aiRecovery !== false) planAiRecoveries(book, world, day, effects);
+}
+function skip(st, why) { st.skipped[why] = (st.skipped[why] || 0) + 1; }
+// The AI's bounded recovery decision. Every few days, each power with a tug free may send it for its most
+// worthwhile hulk: valuable enough, near enough, a safe way there and back, a yard to deliver to, and never
+// its last ship at a world it holds. It never builds or conjures a tug; with none free, the hulk waits.
+function planAiRecoveries(book, world, day, effects) {
+  const c = book.config;
+  const every = Math.max(1, c.aiRecoveryIntervalDays ?? 5);
+  if (Number(day) % every !== 0) return;
+  const st = recoveryStats(book);
+  for (const [pid, p] of Object.entries(book.polities)) {
+    if (pid === 'player' || p.active === false) continue;
+    const open = openHullRecoveries(book).filter((r) => r.sponsor === pid).length;
+    if (open >= (c.aiRecoveryMaxPerPolity ?? 2)) continue;
+    // Its hulks, then (a higher bar) salvage: abandoned derelicts and crewless hulks of a power it is at war with.
+    const own = (p.hulls || []).filter((h) => h.status !== 'lost' && hullIsDisabled(h) && h.stranded?.recovery === 'awaiting_recovery' && !h.opId && !h.transit && !hullInEncounter(h) && !liveRecoveryClaim(book, h));
+    if (!own.length && !(book.derelicts || []).length) continue;
+    const ready = (p.hulls || []).filter((h) => h.status === 'ready' && !h.opId && !h.transit && !hullInEncounter(h) && !hullUnavailable(h) && recoveryCapacityOf(world, h) > 0);
+    if (!ready.length) { if (own.length) skip(st, 'no recovery-capable vessel free'); continue; }
+    const held = new Set(controlled(world, pid).map((s) => Number(s.index)));
+    const readyAt = {}; for (const h of p.hulls) if (h.status === 'ready' && !h.transit && !h.opId) readyAt[h.systemIndex] = (readyAt[h.systemIndex] || 0) + 1;
+    const tugs = ready.filter((h) => !held.has(Number(h.systemIndex)) || (readyAt[h.systemIndex] || 0) > (c.recoveryGarrisonFloor ?? 1));
+    if (!tugs.length) { if (own.length) skip(st, 'every capable vessel is a world\'s last garrison'); continue; }
+    const salvage = (book.derelicts || []).filter((d) => !liveRecoveryClaim(book, d))
+      .concat(Object.entries(book.polities).filter(([oid]) => oid !== pid && oid !== 'player').flatMap(([, op]) => op.hulls.filter((h) => h.status !== 'lost' && hullIsDisabled(h) && h.stranded && h.stranded.crew !== 'aboard' && !h.transit && !h.opId && !hullInEncounter(h) && !liveRecoveryClaim(book, h))));
+    const candidates = [...own.map((h) => ({ h, kind: 'recovery', min: c.aiRecoveryMinValue ?? 60000 })), ...salvage.map((h) => ({ h, kind: 'salvage', min: c.aiSalvageMinValue ?? 90000 }))];
+    let best = null;
+    for (const cand of candidates) {
+      const value = hulkValue(world, cand.h);
+      if (value < cand.min) { if (cand.kind === 'recovery') skip(st, 'below value threshold'); continue; }
+      if (cand.kind === 'salvage' && !recoveryClaim(book, world, pid, cand.h.id).ok) continue;
+      const need = towRequirementOf(world, cand.h);
+      const able = tugs.filter((t) => recoveryCapacityOf(world, t) >= need);
+      if (!able.length) { if (cand.kind === 'recovery') skip(st, 'no vessel able to tow it'); continue; }
+      // The nearest able tug by the days it would actually fly.
+      const pick = able.map((t) => ({ t, days: plannedJourneyDays(world, t.systemIndex, cand.h.systemIndex, pid, hullSpeed(world, t)) })).filter((x) => x.days != null).sort((a, b) => a.days - b.days || String(a.t.id).localeCompare(String(b.t.id)))[0];
+      if (!pick) { if (cand.kind === 'recovery') skip(st, 'no route'); continue; }
+      const plan = planHullRecovery(book, world, { sponsor: pid, targetHullId: cand.h.id, tugHullId: pick.t.id }, day);
+      if (!plan.ok) { if (cand.kind === 'recovery') skip(st, `unplannable: ${plan.reason}`); continue; }
+      if (plan.etaDays > (c.aiRecoveryMaxDays ?? 70)) { if (cand.kind === 'recovery') skip(st, 'too far'); continue; }
+      if (value / Math.max(1, plan.etaDays) < (c.aiRecoveryValuePerDay ?? 1500)) { if (cand.kind === 'recovery') skip(st, 'not worth the tug\'s time'); continue; }
+      // Danger: a blockade on the way out or back, or the hulk lying in a system held by an enemy.
+      const route = [...plan.outbound.systems, ...(plan.inbound.path || [])];
+      const sysCtl = world.systems[Number(plan.at)]?.controller;
+      if (route.some((i) => applicableBlockadesAt(book, world, i, pid).length) || (sysCtl && sysCtl !== pid && world.relation(relSide(world, pid), relSide(world, sysCtl)) === 'war')) { if (cand.kind === 'recovery') skip(st, 'too dangerous'); continue; }
+      const score = (cand.kind === 'recovery' ? 1 : 0.6) * value / Math.max(1, plan.etaDays);
+      if (!best || score > best.score) best = { score, cand, tug: pick.t };
+    }
+    if (best) requestHullRecovery(book, world, { sponsor: pid, targetHullId: best.cand.h.id, tugHullId: best.tug.id, requestedBy: 'ai' }, day, effects);
+  }
 }
 
 // ---------- the evacuation convoy ----------

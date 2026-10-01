@@ -111,7 +111,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 2,
@@ -224,7 +226,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 4,
@@ -335,7 +339,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 9,
@@ -444,7 +450,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 4,
+      "recoveryCapacityBasis": "category:freighter"
     },
     {
       "id": 10,
@@ -553,7 +561,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 10,
+      "recoveryCapacityBasis": "category:heavyTug"
     },
     {
       "id": 11,
@@ -663,7 +673,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 15,
@@ -779,7 +791,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 22,
@@ -890,7 +904,9 @@
         "resistance": "hardened"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 24,
@@ -999,7 +1015,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle"
+      "strategicSpeedBasis": "category:shuttle",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 25,
@@ -1108,7 +1126,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cargoShuttle"
+      "strategicSpeedBasis": "category:cargoShuttle",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 26,
@@ -1168,7 +1188,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital"
+      "strategicSpeedBasis": "category:capital",
+      "recoveryCapacity": 5,
+      "recoveryCapacityBasis": "category:capital"
     },
     {
       "id": 29,
@@ -1277,7 +1299,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout"
+      "strategicSpeedBasis": "category:scout",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 33,
@@ -1390,7 +1414,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 35,
@@ -1499,7 +1525,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital"
+      "strategicSpeedBasis": "category:capital",
+      "recoveryCapacity": 5,
+      "recoveryCapacityBasis": "category:capital"
     },
     {
       "id": 38,
@@ -1608,7 +1636,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital"
+      "strategicSpeedBasis": "category:capital",
+      "recoveryCapacity": 5,
+      "recoveryCapacityBasis": "category:capital"
     },
     {
       "id": 42,
@@ -1717,7 +1747,9 @@
         "resistance": "hardened"
       },
       "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship"
+      "strategicSpeedBasis": "category:battleship",
+      "recoveryCapacity": 6,
+      "recoveryCapacityBasis": "category:battleship"
     },
     {
       "id": 47,
@@ -1830,7 +1862,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 8,
+      "recoveryCapacityBasis": "category:tug"
     },
     {
       "id": 48,
@@ -1941,7 +1975,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital"
+      "strategicSpeedBasis": "category:capital",
+      "recoveryCapacity": 5,
+      "recoveryCapacityBasis": "category:capital"
     },
     {
       "id": 49,
@@ -2052,7 +2088,9 @@
         "resistance": "hardened"
       },
       "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship"
+      "strategicSpeedBasis": "category:battleship",
+      "recoveryCapacity": 6,
+      "recoveryCapacityBasis": "category:battleship"
     },
     {
       "id": 50,
@@ -2161,7 +2199,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 4,
+      "recoveryCapacityBasis": "category:freighter"
     },
     {
       "id": 51,
@@ -2272,7 +2312,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital"
+      "strategicSpeedBasis": "category:capital",
+      "recoveryCapacity": 5,
+      "recoveryCapacityBasis": "category:capital"
     },
     {
       "id": 53,
@@ -2385,7 +2427,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital"
+      "strategicSpeedBasis": "category:capital",
+      "recoveryCapacity": 5,
+      "recoveryCapacityBasis": "category:capital"
     },
     {
       "id": 54,
@@ -2496,7 +2540,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 55,
@@ -2609,7 +2655,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 60,
@@ -2732,7 +2780,9 @@
         "rationale": "Authored civilian/commercial exception, approved on review: the hull's marketRole is civilian, its art note names a separate civilian megaship identity, and the previous balance review preserved its commercial role. Held at the heavy-cargo tier for a battleship-class hull (220 x 6) rather than the 10,000 it shipped with, which nothing authored explains."
       },
       "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship"
+      "strategicSpeedBasis": "category:battleship",
+      "recoveryCapacity": 6,
+      "recoveryCapacityBasis": "category:battleship"
     },
     {
       "id": 61,
@@ -2847,7 +2897,9 @@
         "previousCargoCapacity": 2500
       },
       "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship"
+      "strategicSpeedBasis": "category:battleship",
+      "recoveryCapacity": 6,
+      "recoveryCapacityBasis": "category:battleship"
     },
     {
       "id": 62,
@@ -2962,7 +3014,9 @@
         "previousCargoCapacity": 6000
       },
       "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship"
+      "strategicSpeedBasis": "category:battleship",
+      "recoveryCapacity": 6,
+      "recoveryCapacityBasis": "category:battleship"
     },
     {
       "id": 63,
@@ -3021,7 +3075,9 @@
         "resistance": "hardened"
       },
       "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship"
+      "strategicSpeedBasis": "category:battleship",
+      "recoveryCapacity": 6,
+      "recoveryCapacityBasis": "category:battleship"
     },
     {
       "id": 64,
@@ -3136,7 +3192,9 @@
         "previousCargoCapacity": 4000
       },
       "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship"
+      "strategicSpeedBasis": "category:battleship",
+      "recoveryCapacity": 6,
+      "recoveryCapacityBasis": "category:battleship"
     },
     {
       "id": 65,
@@ -3251,7 +3309,9 @@
         "previousCargoCapacity": 3000
       },
       "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship"
+      "strategicSpeedBasis": "category:battleship",
+      "recoveryCapacity": 6,
+      "recoveryCapacityBasis": "category:battleship"
     },
     {
       "id": 66,
@@ -3368,7 +3428,9 @@
         "previousCargoCapacity": 4500
       },
       "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship"
+      "strategicSpeedBasis": "category:battleship",
+      "recoveryCapacity": 6,
+      "recoveryCapacityBasis": "category:battleship"
     },
     {
       "id": 206,
@@ -3481,7 +3543,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout"
+      "strategicSpeedBasis": "category:scout",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 207,
@@ -3594,7 +3658,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 208,
@@ -3708,7 +3774,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout"
+      "strategicSpeedBasis": "category:scout",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 209,
@@ -3821,7 +3889,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser"
+      "strategicSpeedBasis": "category:fastCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:fastCruiser"
     },
     {
       "id": 210,
@@ -3934,7 +4004,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle"
+      "strategicSpeedBasis": "category:shuttle",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 211,
@@ -4048,7 +4120,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital"
+      "strategicSpeedBasis": "category:capital",
+      "recoveryCapacity": 5,
+      "recoveryCapacityBasis": "category:capital"
     },
     {
       "id": 212,
@@ -4161,7 +4235,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout"
+      "strategicSpeedBasis": "category:scout",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 213,
@@ -4276,7 +4352,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital"
+      "strategicSpeedBasis": "category:capital",
+      "recoveryCapacity": 5,
+      "recoveryCapacityBasis": "category:capital"
     },
     {
       "id": 214,
@@ -4389,7 +4467,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 215,
@@ -4503,7 +4583,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 4,
+      "recoveryCapacityBasis": "category:freighter"
     },
     {
       "id": 216,
@@ -4616,7 +4698,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 217,
@@ -4729,7 +4813,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 218,
@@ -4842,7 +4928,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 219,
@@ -4955,7 +5043,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 220,
@@ -5068,7 +5158,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 221,
@@ -5181,7 +5273,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital"
+      "strategicSpeedBasis": "category:capital",
+      "recoveryCapacity": 5,
+      "recoveryCapacityBasis": "category:capital"
     },
     {
       "id": 222,
@@ -5294,7 +5388,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle"
+      "strategicSpeedBasis": "category:shuttle",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 223,
@@ -5407,7 +5503,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 4,
+      "recoveryCapacityBasis": "category:freighter"
     },
     {
       "id": 224,
@@ -5520,7 +5618,9 @@
         "resistance": "hardened"
       },
       "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship"
+      "strategicSpeedBasis": "category:battleship",
+      "recoveryCapacity": 6,
+      "recoveryCapacityBasis": "category:battleship"
     },
     {
       "id": 225,
@@ -5634,7 +5734,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 226,
@@ -5747,7 +5849,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 227,
@@ -5860,7 +5964,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 228,
@@ -5973,7 +6079,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout"
+      "strategicSpeedBasis": "category:scout",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 229,
@@ -6092,7 +6200,9 @@
         "previousCargoCapacity": 110
       },
       "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle"
+      "strategicSpeedBasis": "category:shuttle",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 230,
@@ -6206,7 +6316,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 231,
@@ -6320,7 +6432,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 232,
@@ -6433,7 +6547,9 @@
         "resistance": "hardened"
       },
       "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship"
+      "strategicSpeedBasis": "category:battleship",
+      "recoveryCapacity": 6,
+      "recoveryCapacityBasis": "category:battleship"
     },
     {
       "id": 233,
@@ -6546,7 +6662,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle"
+      "strategicSpeedBasis": "category:shuttle",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 234,
@@ -6659,7 +6777,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 235,
@@ -6772,7 +6892,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle"
+      "strategicSpeedBasis": "category:shuttle",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 236,
@@ -6885,7 +7007,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 4,
+      "recoveryCapacityBasis": "category:freighter"
     },
     {
       "id": 237,
@@ -6998,7 +7122,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser"
+      "strategicSpeedBasis": "category:fastCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:fastCruiser"
     },
     {
       "id": 238,
@@ -7111,7 +7237,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 4,
+      "recoveryCapacityBasis": "category:freighter"
     },
     {
       "id": 239,
@@ -7224,7 +7352,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 4,
+      "recoveryCapacityBasis": "category:freighter"
     },
     {
       "id": 240,
@@ -7337,7 +7467,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 241,
@@ -7450,7 +7582,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 242,
@@ -7563,7 +7697,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 243,
@@ -7676,7 +7812,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout"
+      "strategicSpeedBasis": "category:scout",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 244,
@@ -7789,7 +7927,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 4,
+      "recoveryCapacityBasis": "category:freighter"
     },
     {
       "id": 245,
@@ -7902,7 +8042,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser"
+      "strategicSpeedBasis": "category:fastCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:fastCruiser"
     },
     {
       "id": 246,
@@ -8015,7 +8157,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital"
+      "strategicSpeedBasis": "category:capital",
+      "recoveryCapacity": 5,
+      "recoveryCapacityBasis": "category:capital"
     },
     {
       "id": 247,
@@ -8128,7 +8272,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 248,
@@ -8241,7 +8387,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 249,
@@ -8354,7 +8502,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 250,
@@ -8467,7 +8617,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle"
+      "strategicSpeedBasis": "category:shuttle",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 251,
@@ -8580,7 +8732,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 252,
@@ -8693,7 +8847,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 253,
@@ -8806,7 +8962,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 254,
@@ -8919,7 +9077,9 @@
         "resistance": "hardened"
       },
       "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital"
+      "strategicSpeedBasis": "category:capital",
+      "recoveryCapacity": 5,
+      "recoveryCapacityBasis": "category:capital"
     },
     {
       "id": 255,
@@ -9032,7 +9192,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 256,
@@ -9145,7 +9307,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 257,
@@ -9258,7 +9422,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 258,
@@ -9371,7 +9537,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle"
+      "strategicSpeedBasis": "category:shuttle",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 259,
@@ -9484,7 +9652,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 260,
@@ -9597,7 +9767,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 261,
@@ -9717,7 +9889,9 @@
         "previousCargoCapacity": 4000
       },
       "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship"
+      "strategicSpeedBasis": "category:battleship",
+      "recoveryCapacity": 6,
+      "recoveryCapacityBasis": "category:battleship"
     },
     {
       "id": 262,
@@ -9830,7 +10004,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 263,
@@ -9943,7 +10119,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cargoShuttle"
+      "strategicSpeedBasis": "category:cargoShuttle",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 264,
@@ -10056,7 +10234,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 7,
+      "recoveryCapacityBasis": "category:support"
     },
     {
       "id": 265,
@@ -10169,7 +10349,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 266,
@@ -10282,7 +10464,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 267,
@@ -10395,7 +10579,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle"
+      "strategicSpeedBasis": "category:shuttle",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 268,
@@ -10508,7 +10694,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 269,
@@ -10621,7 +10809,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 270,
@@ -10734,7 +10924,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 271,
@@ -10847,7 +11039,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 7,
+      "recoveryCapacityBasis": "category:support"
     },
     {
       "id": 272,
@@ -10960,7 +11154,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout"
+      "strategicSpeedBasis": "category:scout",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 273,
@@ -11073,7 +11269,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle"
+      "strategicSpeedBasis": "category:shuttle",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 274,
@@ -11186,7 +11384,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 275,
@@ -11299,7 +11499,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 276,
@@ -11412,7 +11614,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 277,
@@ -11525,7 +11729,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 4,
+      "recoveryCapacityBasis": "category:freighter"
     },
     {
       "id": 278,
@@ -11638,7 +11844,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 4,
+      "recoveryCapacityBasis": "category:freighter"
     },
     {
       "id": 279,
@@ -11751,7 +11959,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 280,
@@ -11864,7 +12074,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 281,
@@ -11977,7 +12189,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout"
+      "strategicSpeedBasis": "category:scout",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 282,
@@ -12090,7 +12304,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 283,
@@ -12203,7 +12419,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 284,
@@ -12316,7 +12534,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 285,
@@ -12429,7 +12649,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 286,
@@ -12542,7 +12764,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 287,
@@ -12655,7 +12879,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 288,
@@ -12768,7 +12994,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 289,
@@ -12881,7 +13109,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital"
+      "strategicSpeedBasis": "category:capital",
+      "recoveryCapacity": 5,
+      "recoveryCapacityBasis": "category:capital"
     },
     {
       "id": 290,
@@ -12994,7 +13224,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 291,
@@ -13107,7 +13339,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser"
+      "strategicSpeedBasis": "category:fastCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:fastCruiser"
     },
     {
       "id": 292,
@@ -13220,7 +13454,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 4,
+      "recoveryCapacityBasis": "category:freighter"
     },
     {
       "id": 293,
@@ -13333,7 +13569,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 294,
@@ -13446,7 +13684,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 295,
@@ -13559,7 +13799,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 296,
@@ -13678,7 +13920,9 @@
         "previousCargoCapacity": 500
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 297,
@@ -13791,7 +14035,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 298,
@@ -13910,7 +14156,9 @@
         "previousCargoCapacity": 600
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 299,
@@ -14023,7 +14271,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital"
+      "strategicSpeedBasis": "category:capital",
+      "recoveryCapacity": 5,
+      "recoveryCapacityBasis": "category:capital"
     },
     {
       "id": 300,
@@ -14136,7 +14386,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 7,
+      "recoveryCapacityBasis": "category:support"
     },
     {
       "id": 301,
@@ -14249,7 +14501,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 302,
@@ -14362,7 +14616,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 303,
@@ -14475,7 +14731,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout"
+      "strategicSpeedBasis": "category:scout",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 305,
@@ -14592,7 +14850,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 306,
@@ -14709,7 +14969,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 307,
@@ -14826,7 +15088,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 308,
@@ -14943,7 +15207,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout"
+      "strategicSpeedBasis": "category:scout",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 309,
@@ -15061,7 +15327,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 4,
+      "recoveryCapacityBasis": "category:freighter"
     },
     {
       "id": 310,
@@ -15185,7 +15453,9 @@
         "previousCargoCapacity": 430
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 311,
@@ -15309,7 +15579,9 @@
         "previousCargoCapacity": 380
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 312,
@@ -15427,7 +15699,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 313,
@@ -15545,7 +15819,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 314,
@@ -15662,7 +15938,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout"
+      "strategicSpeedBasis": "category:scout",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 315,
@@ -15779,7 +16057,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 316,
@@ -15896,7 +16176,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cargoShuttle"
+      "strategicSpeedBasis": "category:cargoShuttle",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 317,
@@ -16013,7 +16295,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 318,
@@ -16130,7 +16414,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 4,
+      "recoveryCapacityBasis": "category:freighter"
     },
     {
       "id": 319,
@@ -16247,7 +16533,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 320,
@@ -16364,7 +16652,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital"
+      "strategicSpeedBasis": "category:capital",
+      "recoveryCapacity": 5,
+      "recoveryCapacityBasis": "category:capital"
     },
     {
       "id": 321,
@@ -16481,7 +16771,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser"
+      "strategicSpeedBasis": "category:fastCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:fastCruiser"
     },
     {
       "id": 322,
@@ -16598,7 +16890,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser"
+      "strategicSpeedBasis": "category:fastCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:fastCruiser"
     },
     {
       "id": 323,
@@ -16715,7 +17009,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 324,
@@ -16832,7 +17128,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital"
+      "strategicSpeedBasis": "category:capital",
+      "recoveryCapacity": 5,
+      "recoveryCapacityBasis": "category:capital"
     },
     {
       "id": 325,
@@ -16951,7 +17249,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser"
+      "strategicSpeedBasis": "category:fastCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:fastCruiser"
     },
     {
       "id": 326,
@@ -17068,7 +17368,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 327,
@@ -17185,7 +17487,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 328,
@@ -17302,7 +17606,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 329,
@@ -17415,7 +17721,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital"
+      "strategicSpeedBasis": "category:capital",
+      "recoveryCapacity": 5,
+      "recoveryCapacityBasis": "category:capital"
     },
     {
       "id": 330,
@@ -17532,7 +17840,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout"
+      "strategicSpeedBasis": "category:scout",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 331,
@@ -17649,7 +17959,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 4,
+      "recoveryCapacityBasis": "category:freighter"
     },
     {
       "id": 332,
@@ -17766,7 +18078,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 333,
@@ -17879,7 +18193,9 @@
         "resistance": "hardened"
       },
       "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship"
+      "strategicSpeedBasis": "category:battleship",
+      "recoveryCapacity": 6,
+      "recoveryCapacityBasis": "category:battleship"
     },
     {
       "id": 334,
@@ -17996,7 +18312,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 335,
@@ -18114,7 +18432,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort"
+      "strategicSpeedBasis": "category:escort",
+      "recoveryCapacity": 1,
+      "recoveryCapacityBasis": "category:escort"
     },
     {
       "id": 336,
@@ -18232,7 +18552,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser"
+      "strategicSpeedBasis": "category:lightCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:lightCruiser"
     },
     {
       "id": 338,
@@ -18349,7 +18671,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser"
+      "strategicSpeedBasis": "category:fastCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:fastCruiser"
     },
     {
       "id": 340,
@@ -18467,7 +18791,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 8,
+      "recoveryCapacityBasis": "category:tug"
     },
     {
       "id": 341,
@@ -18585,7 +18911,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 8,
+      "recoveryCapacityBasis": "category:tug"
     },
     {
       "id": 342,
@@ -18703,7 +19031,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter"
+      "strategicSpeedBasis": "category:freighter",
+      "recoveryCapacity": 7,
+      "recoveryCapacityBasis": "category:support"
     },
     {
       "id": 343,
@@ -18820,7 +19150,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser"
+      "strategicSpeedBasis": "category:cruiser",
+      "recoveryCapacity": 3,
+      "recoveryCapacityBasis": "category:cruiser"
     },
     {
       "id": 344,
@@ -18937,7 +19269,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser"
+      "strategicSpeedBasis": "category:fastCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:fastCruiser"
     },
     {
       "id": 345,
@@ -19054,7 +19388,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cargoShuttle"
+      "strategicSpeedBasis": "category:cargoShuttle",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 346,
@@ -19177,7 +19513,9 @@
         "previousCargoCapacity": 6000
       },
       "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship"
+      "strategicSpeedBasis": "category:battleship",
+      "recoveryCapacity": 6,
+      "recoveryCapacityBasis": "category:battleship"
     },
     {
       "id": 347,
@@ -19294,7 +19632,9 @@
         "previousCargoCapacity": 5000
       },
       "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship"
+      "strategicSpeedBasis": "category:battleship",
+      "recoveryCapacity": 6,
+      "recoveryCapacityBasis": "category:battleship"
     },
     {
       "id": 348,
@@ -19406,7 +19746,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cargoShuttle"
+      "strategicSpeedBasis": "category:cargoShuttle",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 349,
@@ -19519,7 +19861,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle"
+      "strategicSpeedBasis": "category:shuttle",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 350,
@@ -19631,7 +19975,9 @@
         "resistance": "light"
       },
       "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle"
+      "strategicSpeedBasis": "category:shuttle",
+      "recoveryCapacity": 0,
+      "recoveryCapacityBasis": "category:shuttle"
     },
     {
       "id": 351,
@@ -19749,7 +20095,9 @@
         "resistance": "standard"
       },
       "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser"
+      "strategicSpeedBasis": "category:fastCruiser",
+      "recoveryCapacity": 2,
+      "recoveryCapacityBasis": "category:fastCruiser"
     }
   ],
   "aliases": {

@@ -89,6 +89,9 @@
     "test:speed": "node scripts/ship-strategic-speed-test.mjs",
     "test:speed:ingame": "node scripts/ship-strategic-speed-gate.cjs",
     "measure:speed": "node scripts/ship-strategic-speed-measure.cjs",
+    "test:towing": "node scripts/towing-salvage-test.mjs",
+    "test:towing:ingame": "node scripts/towing-salvage-gate.cjs",
+    "measure:towing": "node scripts/towing-salvage-measure.cjs",
     "bench:map": "node scripts/map-render-bench.cjs",
     "screens:section6": "node scripts/section6-screens.cjs"
   },

@@ -5,6 +5,7 @@ import * as Campaign from './campaign-strategy.mjs';
 import * as Journey from './strategic-journey.mjs';
 import * as Encounter from './strategic-encounter.mjs';
 import * as Speed from './strategic-speed.mjs';
+import * as Recovery from './strategic-recovery.mjs';
 import * as Doctrine from './doctrine-runtime.mjs';
 import * as DoctrineCampaign from './doctrine-campaign.mjs';
 const TRANSPORTER_RANGE = 2500;
@@ -9155,6 +9156,7 @@ function openDebugMenu() {
     <!-- after the doctrine section, so the older debug sections keep their place and height in the dialog -->
     <section data-planning-section><h3>ETA-aware planning (debug)</h3><div data-planning-debug>${renderPlanningDebug()}</div></section>
     <section data-encounter-section><h3>Strategic ↔ tactical encounters (debug)</h3><div data-encounter-debug>${renderEncounterDebug()}</div></section>
+    <section data-recovery-section><h3>Recovery & salvage (debug)</h3><div data-recovery-debug>${renderRecoveryDebug()}</div></section>
     <section><h3>Cheat codes</h3><form data-debug-form="code"><label>Code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="standing romulan 50" required></label><button type="submit">Run code</button></form>
       <details><summary>Remaster code list</summary><p>Codes are case-insensitive. Faction keys appear in the selector above.</p><ul>
         <li><code>crisis romulan klingon</code>, <code>war romulan klingon</code>, <code>peace romulan klingon</code> — change bilateral relations.</li><li><code>standing romulan 50</code> — set one faction's standing.</li><li><code>latinum 10000</code>, <code>duranium 500</code>, <code>antimatter 6</code> — set resources.</li>
@@ -10517,6 +10519,95 @@ function startPlayerEvacuation(origin, destination, fleetIds, opts = {}) {
     transports: (fleetIds || []).map((id) => `pf:${id}`), escorts: (opts.escorts || []).map((id) => `pf:${id}`), target: opts.target, reason: opts.reason || 'ordered by the captain' }, state.day, effects));
 }
 function cancelPlayerEvacuation(id) { return runStrategicCommand((book, world, effects) => Campaign.cancelEvacuation(book, world, id, state.day, effects, 'cancelled by the captain')); }
+// ---- towing, salvage and stranded-hull recovery: the captain's side (TOWING-SALVAGE-RECOVERY) ----
+// A disabled vessel of the captain's is recovered only by a ship of his that can tow her flying out to where
+// she lies and towing her to a yard (the model's recovery mission and journeys); or she stays there.
+function playerRecoveryFor(fleetId) {
+  return Campaign.openHullRecoveries(campaignBook()).find((r) => r.sponsor === PLAYER_SIDE && String(r.target.hullId) === `pf:${fleetId}`) || null;
+}
+// Every ship of the captain's free to go and tow her, each with the plan it would fly (real days each way).
+function playerRecoveryOptions(fleetId) {
+  const target = (state.playerFleet || []).find((f) => String(f.id) === String(fleetId));
+  if (!target) return [];
+  const book = campaign(); syncPlayerPolity(book);
+  const world = buildCampaignWorld(true);
+  return (state.playerFleet || []).filter((f) => f !== target && fleetShipFreeForOperation(f))
+    .map((f) => ({ f, plan: Campaign.planHullRecovery(book, world, { sponsor: PLAYER_SIDE, targetHullId: `pf:${target.id}`, tugHullId: `pf:${f.id}` }, state.day) }))
+    .sort((a, b) => (a.plan.ok ? 0 : 1) - (b.plan.ok ? 0 : 1) || (a.plan.deliverDay ?? 1e9) - (b.plan.deliverDay ?? 1e9) || String(a.f.id).localeCompare(String(b.f.id)));
+}
+function requestPlayerRecovery(fleetId, tugId = null) {
+  const opts = playerRecoveryOptions(fleetId);
+  const pick = tugId ? opts.find((o) => String(o.f.id) === String(tugId)) : opts.find((o) => o.plan.ok);
+  if (!pick || !pick.plan.ok) { setLog(pick?.plan?.reason ? `No recovery: ${pick.plan.reason}.` : 'No ship of yours can tow her.'); return { ok: false, reason: pick?.plan?.reason || 'no recovery vessel' }; }
+  const r = runStrategicCommand((book, world, effects) => Campaign.requestHullRecovery(book, world, { sponsor: PLAYER_SIDE, targetHullId: `pf:${fleetId}`, tugHullId: `pf:${pick.f.id}`, requestedBy: 'player' }, state.day, effects));
+  if (r.ok) setLog(`Recovery assigned — ${pick.f.name}. Tug arrives in ${r.plan.outboundDays} days.`);
+  else setLog(`No recovery: ${r.reason}.`);
+  return r;
+}
+function cancelPlayerRecovery(id) {
+  const r = runStrategicCommand((book, world, effects) => Campaign.cancelHullRecovery(book, world, id, state.day, effects, 'cancelled by the captain'));
+  setLog(r.ok ? 'Recovery cancelled.' : `Cannot cancel: ${r.reason}.`);
+  return r;
+}
+// Salvage: hulks lying where the captain or one of his ships can see them (here, or a system one of his
+// ships is stationed at), that he may claim.
+function playerSalvageCandidates() {
+  const book = campaign(); syncPlayerPolity(book);
+  const world = buildCampaignWorld(true);
+  const seen = new Set([Number(state.currentPlanet), ...(state.playerFleet || []).filter((f) => !f.destroyed && f.assignment === 'defense').map((f) => Number(f.systemIndex))]);
+  const hulks = [...(book.derelicts || []), ...Object.entries(book.polities).filter(([id]) => id !== 'player').flatMap(([, p]) => p.hulls.filter((h) => Campaign.hullIsDisabled(h) && h.stranded))];
+  return hulks.filter((h) => seen.has(Number(h.systemIndex))).map((h) => ({ h, claim: Campaign.recoveryClaim(book, world, PLAYER_SIDE, h.id) }));
+}
+function requestPlayerSalvage(hullId, tugId) {
+  const r = runStrategicCommand((book, world, effects) => Campaign.requestHullRecovery(book, world, { sponsor: PLAYER_SIDE, targetHullId: hullId, tugHullId: `pf:${tugId}`, requestedBy: 'player' }, state.day, effects));
+  setLog(r.ok ? `Salvage assigned. Tug arrives in ${r.plan.outboundDays} days.` : `No salvage: ${r.reason}.`);
+  return r;
+}
+// The model made a salvaged hulk the captain's: the very same vessel joins his books (its identity, class and
+// damage; disabled, as she lies), never a fresh stock ship and never on a prize shelf; then the tow sets out.
+function adoptSalvagedToPlayer(e) {
+  const b = fleetBook();
+  const id = Fleet.nextId(b, 'salvage');
+  const identity = Identity.normalizeIdentity(e.identity) || mintVesselIdentity({ vid: `vsl:${id}`, shipId: e.shipId, name: getShipStats(e.shipId)?.name, seed: id, builder: e.origin || e.from, via: 'salvaged', systemIndex: e.systemIndex });
+  if (identity.history?.at(-1)?.event !== 'salvaged') Identity.recordProvenance(identity, { day: e.day, event: 'salvaged', from: e.from ?? null, to: PLAYER_SIDE, systemIndex: e.systemIndex });
+  const record = { id, shipId: Number(e.shipId), name: identity.name || getShipStats(e.shipId)?.name || 'Salvaged hulk', seed: id, identity, takenFrom: e.from ?? null, salvaged: true,
+    assignment: 'defense', systemIndex: Number(e.systemIndex), faction: state.playerFaction, destroyed: false };
+  const v = ensureFleetVesselSnapshot(record);
+  v.hull = Math.max(1, Math.round((Number(e.hull) / Math.max(1, Number(e.maxHull))) * Number(v.maxHull)));
+  v.condition = 'disabled';
+  state.playerFleet.push(record);
+  const r = runStrategicCommand((book, world, effects) => Campaign.adoptSalvagedHull(book, world, e.id, `pf:${id}`, state.day, effects));
+  return { record, started: r?.ok };
+}
+// One line for the captain about a vessel's recovery: assigned, under tow, or what it would take.
+// Hulks in sight that the captain may claim, each with the first free ship of his able to tow it.
+function playerSalvageSection(btn) {
+  const list = playerSalvageCandidates();
+  if (!list.length) return '';
+  const book = campaign(); const world = buildCampaignWorld(true);
+  const rows = list.map(({ h, claim }) => {
+    const name = `${escapeHtml(getShipStats(h.shipId)?.name || 'hulk')} (${escapeHtml(formatFaction(campaignFactionKeyFor(h.identity?.origin?.builder || claim.owner || 'neutral')))})`;
+    const where = escapeHtml(state.planets[Number(h.systemIndex)]?.name || '?');
+    if (!claim.ok) return `<p data-salvage-hulk="${escapeHtml(h.id)}">${name} at ${where} — ${escapeHtml(claim.reason)}</p>`;
+    const tug = (state.playerFleet || []).filter(fleetShipFreeForOperation).map((f) => ({ f, plan: Campaign.planHullRecovery(book, world, { sponsor: PLAYER_SIDE, targetHullId: h.id, tugHullId: `pf:${f.id}` }, state.day) })).find((o) => o.plan.ok);
+    return `<p data-salvage-hulk="${escapeHtml(h.id)}">${name} at ${where} — salvage: ${escapeHtml(claim.authority)}${tug ? ` · ${escapeHtml(tug.f.name)} arrives in ${tug.plan.outboundDays} days ${btn('salvage', 'Salvage', `${h.id}|${tug.f.id}`)}` : ' · no ship of yours can tow it'}</p>`;
+  }).join('');
+  return `<h3>Hulks in sight</h3>${rows}`;
+}
+function playerRecoveryLine(f) {
+  const rec = playerRecoveryFor(f.id);
+  const nm = (i) => state.planets[Number(i)]?.name || `system ${i}`;
+  if (rec) {
+    const tug = fleetEntryForHull(rec.tug.hullId);
+    if (rec.state === 'towing') return rec.waitingSince != null ? `Under tow — holding at ${nm(f.systemIndex)}: ${rec.waitReason || 'no way on'}` : `Under tow → ${nm(rec.yard)} · tow ETA day ${rec.inbound?.eta ?? '?'}`;
+    if (rec.state === 'attached') return `Tow made fast at ${nm(rec.targetSystem)}`;
+    return `Recovery assigned — ${tug?.name || rec.tug.vid} · tug arrives day ${rec.outbound?.eta ?? state.day}`;
+  }
+  const best = playerRecoveryOptions(f.id).find((o) => o.plan.ok);
+  if (best) return `Recovery possible — ${best.f.name} · tug arrives in ${best.plan.outboundDays} days · ${nm(best.plan.yard)} day ${best.plan.deliverDay}`;
+  const need = Recovery.towRequirement(getShipStats(f.shipId));
+  return `No recovery vessel free that can tow her (needs tow capacity ${need})`;
+}
 function assignPlayerEscorts(id, fleetIds) { return runStrategicCommand((book, world, effects) => Campaign.assignEvacuationEscorts(book, world, id, (fleetIds || []).map((x) => `pf:${x}`), state.day, effects)); }
 function startPlayerBlockade(target, fleetIds, purpose = 'isolate_world') {
   return runStrategicCommand((book, world, effects) => Campaign.startBlockade(book, world, { power: PLAYER_SIDE, target: Number(target), hullIds: (fleetIds || []).map((id) => `pf:${id}`), purpose }, state.day, effects));
@@ -10739,8 +10830,10 @@ function applyStrategicOpEffect(e, day) {
       break;
     }
     case 'strategicShipsAssigned': if (e.sponsor === PLAYER_SIDE) holdFleetForOperation(e.hulls, e.id, e.role, e.systemIndex); break;
+    // TOWING-SALVAGE-RECOVERY: the captain's tug, escorts and towed hulk go free together.
     case 'strategicShipReleased': {
       if (e.sponsor !== PLAYER_SIDE) break;
+      if (e.recovery) { releaseFleetFromOperation(e.hullIds, e.id); break; }
       // Disabled on a run: released where it happened, not where the operation began.
       const f = e.at != null ? fleetEntryForHull(e.hullId) : null;
       releaseFleetFromOperation([e.hullId], e.id);
@@ -10748,6 +10841,21 @@ function applyStrategicOpEffect(e, day) {
       break;
     }
     case 'evacuationHalfway': break;
+    case 'hullSalvagedToPlayer': adoptSalvagedToPlayer(e); break;
+    case 'hullRecoveryAssigned': case 'hullTowStarted': case 'hullRecoveryDelivered': case 'hullRecoveryFailed': case 'hullRecoveryAborted': {
+      if (e.sponsor !== PLAYER_SIDE) break;
+      const target = fleetEntryForHull(e.targetHullId);
+      // Let go by a lost tug: she lies where the tow last stood.
+      if (e.type === 'hullRecoveryFailed' && e.droppedAt != null && target) target.systemIndex = Number(e.droppedAt);
+      const name = target?.name || e.vid;
+      const kind = { hullRecoveryAssigned: 'Recovery assigned', hullTowStarted: 'Under tow', hullRecoveryDelivered: 'Recovered to yard', hullRecoveryFailed: 'Recovery failed', hullRecoveryAborted: 'Recovery called off' }[e.type];
+      const text = e.type === 'hullRecoveryAssigned' ? `${name}: tug arrives in ${e.outboundDays} days; tow ${e.towDays} days to ${nameOf(e.yard)}.`
+        : e.type === 'hullTowStarted' ? `${name} under tow at ${e.towSpeed}× → ${nameOf(e.yard)}, arriving day ${e.eta}.`
+        : e.type === 'hullRecoveryDelivered' ? `${name} is at ${nameOf(e.systemIndex)}, awaiting repair.`
+        : `${name}: ${e.reason}.`;
+      reportStrategicOp({ id: `tow:${e.id}:${e.type}`, systemIndex: e.systemIndex ?? e.targetSystem, day: d, kind: `${kind} — ${name}`, own: true, factions: [], direct: text });
+      break;
+    }
     // A transport lost on a run is told in the run's own report. [BLOCKADE-RUNNING-RULES]
     case 'evacuationLoss': break;
     case 'blockadeRun': {
@@ -11175,6 +11283,42 @@ function triggerDoctrineDebug(args) {
 // model's journeys (war fleets, returns, yard runs, blockade forces, convoys, expeditions, doctrine
 // vessels) and the captain's formations. Debug is omniscient: the next blocker is the first blockade
 // ahead on the route that bears on the mover, whether or not anyone knows of it.
+// TOWING-SALVAGE-RECOVERY: every recovery and salvage mission, and every stranded hull nobody is coming for.
+function renderRecoveryDebug() {
+  if (!state.gameStarted) return '<p class="meta">No campaign.</p>';
+  const book = campaignBook();
+  if (!book.initialized) return '<p class="meta">No campaign.</p>';
+  syncPlayerPolity(book);
+  const world = buildCampaignWorld();
+  const nm = (i) => escapeHtml(i == null ? '—' : state.planets[Number(i)]?.name || `system ${i}`);
+  const fac = (id) => escapeHtml(id ? (id === PLAYER_SIDE ? 'Captain' : formatFaction(campaignFactionKeyFor(id))) : '—');
+  const cls = (shipId) => escapeHtml(getShipStats(shipId)?.name || `class ${shipId}`);
+  const st = book.stats?.recovery || {};
+  const head = `<p class="meta" data-recovery-stats>Missions ${(book.hullRecoveries || []).length} · launched ${st.launched || 0} · delivered ${st.delivered || 0} · failed ${st.failed || 0} · aborted ${st.aborted || 0} · tug losses ${st.tugLosses || 0} · salvage claims ${st.salvageClaims || 0} (salvaged ${st.salvaged || 0}) · derelicts ${(book.derelicts || []).length} · AI skipped ${Object.values(st.skipped || {}).reduce((n, x) => n + x, 0)}</p>`;
+  const recs = (book.hullRecoveries || []).slice(-24).reverse();
+  const hulkOf = (r) => { for (const p of Object.values(book.polities)) { const h = p.hulls.find((x) => String(x.id) === String(r.target.hullId)); if (h) return h; } return (book.derelicts || []).find((x) => String(x.id) === String(r.target.hullId)) || null; };
+  const rows = recs.map((r) => {
+    const h = hulkOf(r);
+    const crew = h?.stranded?.crew ?? r.crew ?? '—';
+    const tr = r.inbound ? Campaign.journeyById(book, r.inbound.journeyId) : r.outbound ? Campaign.journeyById(book, r.outbound.journeyId) : null;
+    const route = r.inbound ? `out ${r.outbound ? r.outbound.route.map(nm).join(' → ') : '(on scene)'}<br>tow ${r.inbound.route.map(nm).join(' → ')}` : r.outbound ? `out ${r.outbound.route.map(nm).join(' → ')}` : '—';
+    return `<tr data-recovery-row="${escapeHtml(r.id)}"><td><code>${escapeHtml(r.target.vid)}</code><div class="meta">${cls(r.target.shipId)}</div></td><td>${fac(r.owner)} / origin ${fac(r.target.origin)}</td><td>${nm(h?.systemIndex ?? r.targetSystem)}</td><td>${escapeHtml(crew)}</td>
+      <td><b>${escapeHtml(r.state)}</b>${r.waitingSince != null ? `<div class="meta">holding since day ${r.waitingSince}: ${escapeHtml(r.waitReason || '')}</div>` : ''}</td><td><code>${escapeHtml(r.tug.vid)}</code> ${cls(r.tug.shipId)}${r.escorts.length ? `<div class="meta">+ ${r.escorts.length} escort(s)</div>` : ''}</td>
+      <td data-recovery-capacity>${r.tug.capacity} vs ${r.need}</td><td>${route}${tr ? `<div class="meta">leg ${tr.legIndex + 1}/${tr.path.length} · ${escapeHtml(tr.legDays.join(' + '))} days</div>` : ''}</td>
+      <td data-recovery-tow-speed>${r.inbound ? `${r.inbound.towSpeed}×` : `(${r.plan.towSpeed}× planned)`}</td><td>${nm(r.yard)}</td><td>${escapeHtml(r.kind)} · ${escapeHtml(r.claim.authority || '')}</td><td>${escapeHtml(r.reason || '')}${r.endedDay != null ? ` (day ${r.endedDay})` : ''}${r.state === 'delivered_to_yard' && h ? `<div class="meta" data-recovery-after>${h.recrew ? 'repaired — awaiting crew' : Campaign.hullIsDisabled(h) ? `in the yard (${escapeHtml(h.stranded?.recovery || 'awaiting repair')})` : 'repaired'}</div>` : ''}</td></tr>`;
+  }).join('');
+  const table = rows ? `<table class="doctrine-debug" data-recovery-table><thead><tr><th>Target vid</th><th>Owner / origin</th><th>System</th><th>Crew</th><th>Recovery state</th><th>Tug / formation</th><th>Capability vs needed</th><th>Route</th><th>Tow speed</th><th>Destination yard</th><th>Claim</th><th>Completion / failure</th></tr></thead><tbody>${rows}</tbody></table>` : '<p class="meta">No recovery missions.</p>';
+  const claimed = new Set(Campaign.openHullRecoveries(book).map((r) => String(r.target.hullId)));
+  const stranded = Object.entries(book.polities).flatMap(([pid, p]) => p.hulls.filter((h) => Campaign.hullIsDisabled(h) && !claimed.has(String(h.id))).map((h) => ({ pid, h })));
+  // The captain's vessels: their identity is on the fleet record (the model's mirror carries only the vid); one
+  // a tow delivered to the yard she lies at is waiting for his repair there, not for a tow.
+  const playerOrigin = (h) => fleetEntryForHull(h.id)?.identity?.origin?.builder || null;
+  const deliveredHere = (h) => (book.hullRecoveries || []).some((r) => r.state === 'delivered_to_yard' && String(r.target.hullId) === String(h.id) && Number(r.yard) === Number(h.systemIndex));
+  const strandedRows = stranded.slice(0, 40).map(({ pid, h }) => `<tr data-stranded-row="${escapeHtml(h.id)}"><td><code>${escapeHtml(h.identity?.vid || h.vid || h.id)}</code></td><td>${cls(h.shipId)}</td><td>${fac(pid)} / origin ${pid === PLAYER_SIDE ? escapeHtml(playerOrigin(h) ? formatFaction(campaignFactionKeyFor(playerOrigin(h))) : 'unrecorded') : fac(h.identity?.origin?.builder || pid)}</td><td>${nm(h.systemIndex)}</td><td>${escapeHtml(h.stranded?.crew || (pid === PLAYER_SIDE ? 'aboard' : '—'))}</td><td>${escapeHtml(h.stranded?.recovery || (pid === PLAYER_SIDE ? (deliveredHere(h) ? 'in a yard — awaiting repair' : 'awaiting_recovery') : '—'))}</td><td>${Recovery.towRequirement(world.shipStats(h.shipId))}</td></tr>`).join('');
+  const derelictRows = (book.derelicts || []).slice(0, 20).map((d) => `<tr data-derelict-row="${escapeHtml(d.id)}"><td><code>${escapeHtml(d.identity?.vid || d.id)}</code></td><td>${cls(d.shipId)}</td><td>abandoned by ${fac(d.derelict?.abandonedBy)} / origin ${fac(d.identity?.origin?.builder)}</td><td>${nm(d.systemIndex)}</td><td>${escapeHtml(d.stranded?.crew || '—')}</td><td>derelict until day ${d.derelict?.until}</td><td>${Recovery.towRequirement(world.shipStats(d.shipId))}</td></tr>`).join('');
+  const strandedTable = strandedRows || derelictRows ? `<h4>Stranded, no recovery assigned</h4><table class="doctrine-debug" data-stranded-table><thead><tr><th>Vid</th><th>Class</th><th>Owner / origin</th><th>System</th><th>Crew</th><th>State</th><th>Tow needs</th></tr></thead><tbody>${strandedRows}${derelictRows}</tbody></table>` : '<p class="meta">No stranded hull without a recovery.</p>';
+  return `${head}${table}${strandedTable}`;
+}
 function renderJourneyDebug() {
   if (!state.gameStarted) return '<p class="meta">No campaign.</p>';
   const book = campaignBook();
@@ -26707,7 +26851,7 @@ function buildCampaignWorld(force = false) {
     // Phase 4: the published security policy of a world's holder, which is what strategic enforcement reads.
     borderPolicy: (i, w = world) => campaignBorderPolicy(i, w.systems[Number(i)]?.controller ?? null),
     factionName: (id) => (id === 'player' ? `${state.captainName || 'Captain'}'s empire` : formatFaction(id)),
-    shipStats: (id) => { const s = state.shipStatsById[Number(id)]; if (!s) return null; return { price: getShipPrice(s), mass: finiteNumber(s.mass, 1), combatHull: getNpcCombatDurability(Number(id)).hull, faction: getShipFaction(Number(id)), cargo: Math.max(0, finiteNumber(s.cargoCapacity, 0)), speed: shipStrategicSpeed(Number(id)), strategicSpeed: shipStrategicSpeed(Number(id)), cloak: shipClassCloak(Number(id)), combat: shipClassCombat(Number(id)) }; },
+    shipStats: (id) => { const s = state.shipStatsById[Number(id)]; if (!s) return null; return { price: getShipPrice(s), mass: finiteNumber(s.mass, 1), combatHull: getNpcCombatDurability(Number(id)).hull, faction: getShipFaction(Number(id)), cargo: Math.max(0, finiteNumber(s.cargoCapacity, 0)), speed: shipStrategicSpeed(Number(id)), strategicSpeed: shipStrategicSpeed(Number(id)), cloak: shipClassCloak(Number(id)), combat: shipClassCombat(Number(id)), recoveryCapacity: Recovery.classRecoveryCapacity(s) }; },
     pickHull: (polityId, u) => { if (polityId === 'player') return null; const key = campaignFactionKeyFor(polityId); const seed = Math.floor(u * 100000) + 1; for (const role of ['fleetAttack', 'patrol', 'traffic']) { const id = getNpcShipIdForFaction(key, seed, role); if (id != null) return Number(id); } return null; },
     // A culture's catalogue for the purposes of captured industry: everything it actually builds, less
     // the named exceptions. Filtering this by the retail rule is what made capturing a Dominion major
@@ -26816,7 +26960,7 @@ function syncPlayerPolity(book) {
   // day, booking a fresh kill every day. 'assigned' keeps it out of both the defence total and the
   // attrition pass, exactly as a hull committed to an operation is.
   const sceneOwned = (f) => Boolean(fleetLocalActor(f.id));
-  p.hulls = (state.playerFleet || []).filter((f) => !f.destroyed && f.vessel?.condition !== 'destroyed').map((f) => ({ id: `pf:${f.id}`, vid: ensureFleetVesselIdentity(f).vid, shipId: Number(f.shipId), hull: finiteNumber(f.vessel?.hull, finiteNumber(f.vessel?.maxHull, 100)), maxHull: finiteNumber(f.vessel?.maxHull, 100), crew: 1, systemIndex: Number(f.assignment === 'escort' ? state.currentPlanet : f.systemIndex), status: f.assignment === 'transit' || sceneOwned(f) || f.strategicOp ? 'assigned' : 'ready', opId: f.strategicOp || null }));
+  p.hulls = (state.playerFleet || []).filter((f) => !f.destroyed && f.vessel?.condition !== 'destroyed').map((f) => ({ id: `pf:${f.id}`, vid: ensureFleetVesselIdentity(f).vid, shipId: Number(f.shipId), hull: finiteNumber(f.vessel?.hull, finiteNumber(f.vessel?.maxHull, 100)), maxHull: finiteNumber(f.vessel?.maxHull, 100), crew: 1, systemIndex: Number(f.assignment === 'escort' ? state.currentPlanet : f.systemIndex), status: f.assignment === 'transit' || sceneOwned(f) || f.strategicOp ? 'assigned' : 'ready', opId: f.strategicOp || null, ...(fleetVesselCondition(f) === 'disabled' ? { engineDisabled: true } : {}) }));
   // A captain's ship on a model journey (an evacuation convoy, a blockade force taking station) is where the
   // journey record says, on the leg it says: the record is authoritative and the mirror is rebuilt from it
   // on every call, so a leg in flight survives the rebuild (STRATEGIC-MOVEMENT-UNIFICATION §10).
@@ -27352,6 +27496,7 @@ function applyCampaignEffects(effects, day = state.day) {
       case 'evacuationStarted': case 'strategicShipsAssigned': case 'strategicShipReleased': case 'evacuationHalfway': case 'evacuationLoss': case 'evacuationEnded': case 'blockadeRun': case 'evacuationConvoyMoved':
       case 'journeyDeparted': case 'journeyCrossed': case 'journeyEnded':
       case 'blockadeStarted': case 'blockadeActive': case 'blockadeCoverage': case 'blockadeEnded':
+      case 'hullSalvagedToPlayer': case 'hullRecoveryAssigned': case 'hullTowStarted': case 'hullRecoveryDelivered': case 'hullRecoveryFailed': case 'hullRecoveryAborted':
         applyStrategicOpEffect(e, day);
         break;
       case 'pactChanged': {
@@ -29577,6 +29722,7 @@ function renderFleetManager(open = false) {
         ? btn('recall', 'Recall to captain', f.id) + btn('rendezvous', 'Change rendezvous', f.id) + btn('cancel-passage', 'Cancel', f.id)
         : btn('recall', 'Recall to captain', f.id) + btn('rendezvous', 'Rendezvous at system', f.id)}
       <p class="fleet-status${fleetVesselCondition(f) === 'disabled' ? ' fleet-status-disabled' : ''}">${escapeHtml(fleetTradeStatusLine(f) || 'Not trading')}</p>
+      ${fleetVesselCondition(f) === 'disabled' ? (() => { const rec = playerRecoveryFor(f.id); return `<p class="fleet-recovery" data-fleet-recovery="${escapeHtml(f.id)}">${escapeHtml(playerRecoveryLine(f))}</p>${rec ? (Recovery.RECOVERY_CANCELLABLE.includes(rec.state) ? btn('recovery-cancel', 'Cancel recovery', rec.id) : '') : btn('recovery-request', 'Request recovery', f.id)}`; })() : ''}
       ${(() => { const q = queuedFleetCommands(f); if (!q.length) return ''; const disabled = fleetVesselCondition(f) === 'disabled'; const reachable = fleetCommandReachable(f); return `<p class="fleet-queued">Queued, not yet received: ${q.map((o) => `${escapeHtml(fleetCommandLabel(o))} (day ${o.queuedDay})${disabled && reachable && o.command === 'trade-start' ? ' — waiting for repair' : ''}`).join(' · ')}${reachable ? '' : ` · ${fleetCommandInWarp(f) ? 'in warp to' : 'no relay link to'} ${escapeHtml(state.planets[fleetCommandSystem(f)]?.name || '?')}`}</p>`; })()}
       <p>Hold ${trade ? fleetTradeLoad(trade) : 0}/${fleetTradeCapacity(f)} t${trade?.paid ? ` · paid ${trade.paid} L for cargo` : ''}</p>
       ${trade?.manifest?.length ? `<p>Manifest: ${escapeHtml(fleetTradeManifestLine(trade))}</p>` : ''}
@@ -29674,7 +29820,7 @@ function renderFleetManager(open = false) {
   // the close never end up underneath the body the way the OPS panel's did. [playtest]
   fleetManagerEl.innerHTML = `<h2>Fleet &amp; shipyard${btn('close', '\u00d7')}</h2><div class="fleet-manager-body"><p>Calendar day ${state.day} · Fleet upkeep ${state.playerFleet.filter((f) => !f.destroyed).reduce((n, f) => n + upkeepPerDay(f.shipId), 0)} L/day. Personal vessel exempt.</p><p class="fleet-identity" data-personal-identity="${escapeHtml(ensurePersonalIdentity().vid)}">Your ship ${escapeHtml(state.shipName || '')} · ${escapeHtml(vesselIdentityLine(ensurePersonalIdentity()))}</p>
     <p>Arrears ${b.debt.toFixed(2)} L ${btn('pay', 'Settle arrears')}</p><p>Team: ${b.boarding ? b.boarding.phase : b.team.available ? 'Available' : 'Lost'} · XP ${b.team.xp}. ${btn('board', 'Board selected disabled ship')}${btn('cancel', 'Cancel deployment')}${btn('recruit', 'Recruit (2000 L)')}${btn('train', 'Train +5 XP (1000 L)')}</p>
-    <p>${btn('repair', 'Repair personal hull', 'player')}${btn('rescue', 'Request recovery')}</p><h3>Formations</h3>${groups}${btn('group', 'New formation')}<h3>Owned vessels (${state.playerFleet.filter((f) => !f.destroyed).length})</h3>${roster || '<p>No fleet vessels.</p>'}<h3>Plans & construction</h3>${plans || '<p>Dock at a suitable vendor.</p>'}${b.orders.map((o) => `<p>${escapeHtml(getShipStats(o.shipId).name)}: ${o.status}, ${Math.max(0, o.remainingDays)} work days remaining</p>`).join('')}<h3>Financial book</h3><p>Older history: ${b.ledgerArchive.entries} entries summarized below; recent entries remain itemized.</p>${Object.entries(b.ledgerArchive.byKind).map(([kind, total]) => `<p>${escapeHtml(kind)}: ${total.amount.toFixed(2)} L total, ${total.paid.toFixed(2)} L paid.</p>`).join('')}${b.ledger
+    <p>${btn('repair', 'Repair personal hull', 'player')}${btn('rescue', 'Request recovery')}</p><h3>Formations</h3>${groups}${btn('group', 'New formation')}<h3>Owned vessels (${state.playerFleet.filter((f) => !f.destroyed).length})</h3>${roster || '<p>No fleet vessels.</p>'}${playerSalvageSection(btn)}<h3>Plans & construction</h3>${plans || '<p>Dock at a suitable vendor.</p>'}${b.orders.map((o) => `<p>${escapeHtml(getShipStats(o.shipId).name)}: ${o.status}, ${Math.max(0, o.remainingDays)} work days remaining</p>`).join('')}<h3>Financial book</h3><p>Older history: ${b.ledgerArchive.entries} entries summarized below; recent entries remain itemized.</p>${Object.entries(b.ledgerArchive.byKind).map(([kind, total]) => `<p>${escapeHtml(kind)}: ${total.amount.toFixed(2)} L total, ${total.paid.toFixed(2)} L paid.</p>`).join('')}${b.ledger
       .slice(-20)
       .map((e) => `<p>Day ${e.day}: ${e.kind} ${e.amount.toFixed(2)} L</p>`)
       .join('')}</div>`;
@@ -29705,6 +29851,9 @@ document.addEventListener('click', (event) => {
   if (action === 'build') orderFleetBuild(Number(id));
   if (action === 'transfer') transferFleetCommand(id);
   if (action === 'rescue') recoverDisabledPlayer();
+  if (action === 'recovery-request') requestPlayerRecovery(id);
+  if (action === 'recovery-cancel') cancelPlayerRecovery(id);
+  if (action === 'salvage') { const [hid, tug] = String(id).split('|'); requestPlayerSalvage(hid, tug); }
   if (action === 'dispatch') dispatchFleetFormation(id);
   if (action === 'dispatch-attack') dispatchFleetFormation(id, { purpose: 'attack' });
   if (action === 'dispatch-cancel') cancelFormationTravel(id);

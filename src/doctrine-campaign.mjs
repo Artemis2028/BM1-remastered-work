@@ -899,7 +899,7 @@ function recordFates(book, world, db, day, effects = []) {
     if (a.status !== 'active' || db.ground.fates[a.id]) continue;
     const h = hullOf(book, a.polity, a.hullId);
     let fate = null;
-    if (!h || h.status === 'lost') fate = h?.fate === 'captured' ? 'captured' : 'destroyed';
+    if (!h || h.status === 'lost') fate = ['captured', 'salvaged'].includes(h?.fate) ? 'captured' : 'destroyed';
     else if (h.opId !== a.id && classifyDamage(h.hull, h.maxHull) === 'operational') fate = 'reassigned';
     else if (classifyDamage(h.hull, h.maxHull) === 'disabled') fate = 'disabled';
     if (!fate) continue;
