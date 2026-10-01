@@ -58,6 +58,7 @@ export function makeWorld(opts = {}) {
     isFaction: (id) => id in POOLS && id !== 'player' && id !== 'neutral',
     factionName: (id) => id,
     shipStats: (id) => HULLS[id] || null,
+    legFixed: (a, b) => [[6, 7]].some(([x, y]) => (x === a && y === b) || (x === b && y === a)),
     pickHull: (polityId, u) => { const pool = POOLS[polityId] || POOLS.neutral; return pool[Math.floor(u * pool.length) % pool.length]; },
     nativeDesigns: (faction) => POOLS[faction] || [],
     relation: (a, b) => { if (a === b) return 'allied'; return relations[`${a}:${b}`] || relations[`${b}:${a}`] || 'peace'; },

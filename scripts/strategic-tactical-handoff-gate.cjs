@@ -64,7 +64,8 @@ const { startProbe } = require('./probe-harness.cjs');
       if (!t.beginWarpTravel(to, plan) && !t.state.warp.active) return { fail: 'warp refused' };
       t.openWarpBriefing?.(); t.closeGalaxyReports?.();
       t.completeWarpTravel();
-      return { day0, day: t.state.day, at: t.state.currentPlanet, path: plan.systems, legDays: t.routeLegDays ? t.routeLegDays(plan) : null };
+      // The chart's legs at his course's strategic speed (SHIP-DEPENDENT-STRATEGIC-SPEED; chart days on a build without it).
+      return { day0, day: t.state.day, at: t.state.currentPlanet, path: plan.systems, legDays: t.routeLegDays ? t.routeLegDays(plan, t.captainCourseSpeed ? t.captainCourseSpeed() : null) : null };
     };
     // A Klingon blockade of `at` (the captain's side is at war with the Klingons at the start).
     window.__blockade = (at, n) => {

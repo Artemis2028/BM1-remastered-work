@@ -86,6 +86,9 @@
     "measure:handoff": "node scripts/strategic-tactical-handoff-measure.cjs",
     "measure:doctrine:p4": "node scripts/doctrine-phase4-longrun.cjs",
     "measure:movement": "node scripts/strategic-movement-longrun.cjs",
+    "test:speed": "node scripts/ship-strategic-speed-test.mjs",
+    "test:speed:ingame": "node scripts/ship-strategic-speed-gate.cjs",
+    "measure:speed": "node scripts/ship-strategic-speed-measure.cjs",
     "bench:map": "node scripts/map-render-bench.cjs",
     "screens:section6": "node scripts/section6-screens.cjs"
   },

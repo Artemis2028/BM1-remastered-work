@@ -10,16 +10,16 @@ const test = (name, fn) => { fn(); passed++; console.log('PASS', name); };
 // Class facts the engine supplies in game (speed, cloak, fighting value); the fixture adds a few
 // civilian and special hulls.
 const EXTRA = {
-  70: { price: 70000, mass: 6, combatHull: 600, faction: 'terran', cargo: 1500, speed: 25, cloak: false, combat: 0 },      // slow bulk freighter
-  71: { price: 70000, mass: 6, combatHull: 600, faction: 'terran', cargo: 1500, speed: 65, cloak: false, combat: 0 },      // the same freighter, fast
-  72: { price: 70000, mass: 6, combatHull: 600, faction: 'terran', cargo: 1500, speed: 25, cloak: true, combat: 0 },       // the same freighter, cloaked
-  74: { price: 70000, mass: 6, combatHull: 600, faction: 'terran', cargo: 60, speed: 25, cloak: false, combat: 0 },       // a small slow transport (evacuation convoys)
-  73: { price: 120000, mass: 5, combatHull: 1000, faction: 'terran', cargo: 100, speed: 45, cloak: true, combat: 1 },      // a cloaked warship
+  70: { price: 70000, mass: 6, combatHull: 600, faction: 'terran', cargo: 1500, strategicSpeed: 0.8, cloak: false, combat: 0 },      // slow bulk freighter
+  71: { price: 70000, mass: 6, combatHull: 600, faction: 'terran', cargo: 1500, strategicSpeed: 1.3, cloak: false, combat: 0 },      // the same freighter, fast
+  72: { price: 70000, mass: 6, combatHull: 600, faction: 'terran', cargo: 1500, strategicSpeed: 0.8, cloak: true, combat: 0 },       // the same freighter, cloaked
+  74: { price: 70000, mass: 6, combatHull: 600, faction: 'terran', cargo: 60, strategicSpeed: 0.8, cloak: false, combat: 0 },       // a small slow transport (evacuation convoys)
+  73: { price: 120000, mass: 5, combatHull: 1000, faction: 'terran', cargo: 100, strategicSpeed: 1.0, cloak: true, combat: 1 },      // a cloaked warship
 };
 const setup = (seed, raiders = 20) => {
   const { world } = makeWorld();
   const base = world.shipStats;
-  world.shipStats = (id) => EXTRA[id] || (base(id) ? { cargo: 100, speed: 45, combat: 1, ...base(id) } : null);
+  world.shipStats = (id) => EXTRA[id] || (base(id) ? { cargo: 100, strategicSpeed: 1.0, combat: 1, ...base(id) } : null);
   const book = C.createCampaignBook(seed, 1); C.initializeCampaign(book, world);
   book.config.aiStrategicOps = false;
   const k = C.getPolity(book, 'klingon');

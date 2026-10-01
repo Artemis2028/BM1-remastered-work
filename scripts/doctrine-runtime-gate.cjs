@@ -44,7 +44,8 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
     window.__adv = (n) => { for (let i = 0; i < n; i++) t.advanceFleetCalendar(1, t.Fleet.nextId(t.fleetBook(), 'journey')); };
     window.__idx = (name) => t.getSystemIndexByName(name);
     // The real length in days of a hop (STRATEGIC-MOVEMENT-UNIFICATION): test windows are counted in legs.
-    window.__leg = (a, b) => t.Campaign.journeyDays(t.buildCampaignWorld(true), window.__idx(a), window.__idx(b), 'romulan');
+    // The route's days; with a hull, at that hull's strategic speed (SHIP-DEPENDENT-STRATEGIC-SPEED; the chart's on a build without it).
+    window.__leg = (a, b, h = null) => { const w = t.buildCampaignWorld(true); return t.Campaign.journeyDays(w, window.__idx(a), window.__idx(b), 'romulan', h && t.Campaign.hullSpeed ? t.Campaign.hullSpeed(w, h) : null); };
     window.__D = () => t.DoctrineCampaign.doctrineBook(t.campaign());
     window.__P = (id) => t.campaign().polities[id];
     window.__ready = (polity, at = null) => (window.__P(polity)?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && (at == null || h.systemIndex === at)).sort((a, b) => String(a.id).localeCompare(String(b.id)));
@@ -360,7 +361,7 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
       const asg = window.__assign({ polity: 'romulan', hullId: h.id, kind: 'return', doctrineRole: 'patrol', stops: [{ systemIndex: R }] });
       const n0 = book.stats.interceptions || 0;
       // The hop takes its real length; the run is on the day it gets there.
-      window.__adv(window.__leg('Aldnas', 'Romulus'));
+      window.__adv(window.__leg('Aldnas', 'Romulus', h));
       const blk = (t.campaign().blockades || []).find((x) => x.id === b.record.id);
       return { applies: t.Campaign.blockadeApplies(t.campaign(), t.buildCampaignWorld(true), blk, 'romulan'), n: (t.campaign().stats.interceptions || 0) - n0, runs: (blk.runs || []).filter((x) => String(x.by).startsWith(asg.assignment.id)), asgRuns: window.__D().assignments.find((a) => a.id === asg.assignment.id)?.runs, vid: h.identity.vid };
     });

@@ -76,7 +76,10 @@ const { startProbe } = require('./probe-harness.cjs');
         if (!w[0][1] && w[0][0] === D) break;
       }
       const tr = t.fleetBook().formations.find((x) => x.id === gid).travel;
-      return { fail: null, ok, A, B, C, D, systems: route.systems, legDays: t.routeLegDays(route), firstLeg, trace, crossed: tr?.crossed || null, status: tr?.status || null, startDay: tr?.startDay };
+      // The chart's legs at the formation's strategic speed (its slowest ship; SHIP-DEPENDENT-STRATEGIC-SPEED —
+      // chart days on a build without ship speed).
+      const members = s.playerFleet.filter((f) => g.members.includes(f.id) && !f.destroyed);
+      return { fail: null, ok, A, B, C, D, systems: route.systems, legDays: t.routeLegDays(route, t.fleetGroupSpeed ? t.fleetGroupSpeed(members) : null), firstLeg, trace, crossed: tr?.crossed || null, status: tr?.status || null, startDay: tr?.startDay };
     }, ROUTE);
     evidence.push({ check: 'ROUTE-VISITS', ...r });
     assert.ok(!r.fail, r.fail);

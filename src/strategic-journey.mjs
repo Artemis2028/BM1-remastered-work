@@ -13,6 +13,13 @@
 //     waiting?, retreatFrom?, warLapsedDay? }
 //
 // Nothing here reads a world or a book: plotting and the consequences of a crossing are the caller's.
+//
+// Speed (SHIP-DEPENDENT-STRATEGIC-SPEED): a journey may carry `legBase[{days, fixed}]` (each leg's chart
+// days at speed 1.0, and whether it is a fixed traversal) and `speed` (what it is flying at). legDays are
+// always legBase at that speed. The leg in flight keeps the timing it was issued; a new speed (a member
+// detached, joined or slowed) takes effect from the next leg (respeedJourney, at a leg boundary). A
+// journey without legBase (a save from before this round) keeps its legDays as they are.
+import { adjustLegDays, clampSpeed } from './strategic-speed.mjs';
 
 export const JOURNEY_STATUSES = Object.freeze(['underway', 'arrived', 'halted', 'superseded']);
 
@@ -86,6 +93,25 @@ export function markCrossed(tr) {
   tr.crossed.push({ system: at, day, leg: tr.legIndex, seq: tr.seq });
   tr.from = at;
   return { at, day, fresh: true };
+}
+// Re-time the legs not yet begun at `speed` (the leg in flight is never re-timed). Returns true if any
+// leg's days changed.
+export function respeedJourney(tr, speed) {
+  if (!tr || !Array.isArray(tr.legBase) || tr.legBase.length !== tr.path.length || speed == null) return false;
+  const s = clampSpeed(speed);
+  let changed = false;
+  for (let i = tr.legIndex + 1; i < tr.path.length; i++) {
+    const d = adjustLegDays(tr.legBase[i].days, s, Boolean(tr.legBase[i].fixed));
+    if (d !== tr.legDays[i]) { tr.legDays[i] = d; changed = true; }
+  }
+  if (tr.speed !== s) {
+    // Bounded, but the departure speed (the first entry) is always kept.
+    const h = [...(tr.speedHistory || []), { fromLeg: tr.legIndex + 1, speed: s }];
+    tr.speedHistory = h.length > 12 ? [h[0], ...h.slice(-11)] : h;
+    tr.speed = s;
+  }
+  tr.etaDay = journeyEta(tr);
+  return changed;
 }
 export function hasMoreLegs(tr) { return tr.legIndex + 1 < tr.path.length; }
 export function advanceLeg(tr, day) {

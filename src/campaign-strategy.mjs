@@ -14,6 +14,7 @@ import * as Identity from './vessel-identity.mjs';
 import { evaluateWar, settlementTerms, WAR_RULES } from './war-termination.mjs';
 import * as J from './strategic-journey.mjs';
 import * as SE from './strategic-encounter.mjs';
+import * as SPD from './strategic-speed.mjs';
 
 export const CAMPAIGN_VERSION = 1;
 
@@ -174,7 +175,8 @@ export const CAMPAIGN_RULES = Object.freeze({
   blockadeMinSupply: 0.3, blockadeUnsuppliedDays: 10,
   // Blockade interception and running (BLOCKADE-RUNNING-RULES-270100ZSEP26): one engine for every
   // runner — a formation, a trader's passage, an evacuation convoy.
-  interceptRefSpeed: 45,            // the strategic dash speed a blockader is assumed to have when its class gives none
+  interceptSpeedExponent: 2,        // the relative strategic speed of runner and blockade, squared, is the interception's dash term (see assessBlockadeRun)
+  interceptRefSpeed: 1.0,           // the strategic speed a blockader or runner is taken to have when its class gives none (SHIP-DEPENDENT-STRATEGIC-SPEED: the same 1.0 default every journey flies at)
   interceptCloakFactor: 0.3,        // detection multiplier when every running ship has a working cloak
   interceptCloakMinCondition: 0.5,  // a cloak works only on a ship with at least this share of her hull
   interceptBreakRatio: 2,           // runner combat strength this many times the blockade's forces the fight its way
@@ -270,6 +272,9 @@ export function upgradeCampaignBook(book) {
   // STRATEGIC-TIME-SCALE-CORRECTION retuned one inline rule. A save still carrying the one-hop-era stock
   // value takes the new one once; a value the save changed itself is left alone.
   if (!book.timeScale) { if (book.config.evacRetryDays === 3) book.config.evacRetryDays = CAMPAIGN_RULES.evacRetryDays; book.timeScale = 1; }
+  // SHIP-DEPENDENT-STRATEGIC-SPEED: the blockade's relative-speed input is now the strategic speed (a
+  // multiplier around 1.0), not the tactical top speed (around 45); a save's stock fallback follows, once.
+  if (!book.strategicSpeed) { if (book.config.interceptRefSpeed === 45) book.config.interceptRefSpeed = CAMPAIGN_RULES.interceptRefSpeed; book.strategicSpeed = 1; }
   book.discoveries ||= { gorn: false };
   for (const key of ['polities', 'designs', 'incomeLedger', 'restoredStations', 'activatedStations', 'unstaffedStations', 'occupations', 'wars', 'warStates', 'territory']) book[key] ||= {};
   for (const key of ['operations', 'recoveries', 'missions', 'orders', 'history', 'journeys']) if (!Array.isArray(book[key])) book[key] = [];
@@ -1013,7 +1018,7 @@ function advanceRepairs(book, world, day, effects = []) {
       // The captain's ships are the engine's: their mirror is never sent anywhere by the model.
       if (id !== 'player' && h.status === 'ready' && !hullIsDisabled(h) && !(budget[h.systemIndex] > 0) && h.hull < h.maxHull * 0.6 && yards.length && !(h.repairRetryAfter > day)) {
         // Nearest by the days the journey will actually fly, not by jumps (STRATEGIC-TIME-SCALE-CORRECTION).
-        const target = yards.map((i) => ({ i, days: plannedJourneyDays(world, h.systemIndex, i, id) })).filter((x) => x.days != null).sort((a, b) => a.days - b.days || a.i - b.i)[0];
+        const target = yards.map((i) => ({ i, days: plannedJourneyDays(world, h.systemIndex, i, id, hullSpeed(world, h)) })).filter((x) => x.days != null).sort((a, b) => a.days - b.days || a.i - b.i)[0];
         // It sails there, leg by leg, through whatever lies on the way (STRATEGIC-MOVEMENT-UNIFICATION).
         if (target) {
           const r = startJourney(book, world, { kind: 'repair', ref: h.id, sponsor: id, hulls: [h], destination: target.i, purpose: 'repair', authority: { kind: 'repair', ref: h.id } }, day, effects);
@@ -1185,10 +1190,11 @@ export function forceAccount(book, world, systemIndex, byDay = Infinity, attacke
 }
 // The days a force takes to reach a system: every group from where it stands, by the route its journey
 // will fly; the slowest group sets the operation's arrival.
-function forceEtaDays(world, hulls, target, polityId) {
+// Each group flies at its own slowest ship (SHIP-DEPENDENT-STRATEGIC-SPEED), exactly as its journey will.
+export function forceEtaDays(world, hulls, target, polityId) {
   let worst = 0;
   for (const from of [...new Set(hulls.map((h) => Number(h.systemIndex)))]) {
-    const plan = plotJourney(world, from, target, polityId);
+    const plan = plotJourney(world, from, target, polityId, null, hullsSpeed(world, hulls.filter((h) => Number(h.systemIndex) === from)));
     if (!plan) return null;
     worst = Math.max(worst, plan.legDays.reduce((n, d) => n + d, 0));
   }
@@ -1260,9 +1266,11 @@ function chooseOperationTarget(book, world, id, chosen, strength, targets, day) 
   }
   const ok = considered.filter((r) => r.score != null).sort((a, b) => b.score - a.score || a.etaDays - b.etaDays || a.index - b.index);
   const best = ok[0] || null;
-  const record = { day, strength: Math.round(strength), chosen: best ? best.index : null, considered: considered.slice(0, 12) };
+  // The force's pace: its slowest ship (each group flies at its own slowest; the operation arrives with the last).
+  const speed = hullsSpeed(world, chosen);
+  const record = { day, strength: Math.round(strength), speed, chosen: best ? best.index : null, considered: considered.slice(0, 12) };
   if (!best) return { target: null, record };
-  return { target: { ...targets.find((t) => t.index === best.index), plan: { etaDays: best.etaDays, arriveDay: day + best.etaDays, defenseNow: best.defenseNow, defenseAtEta: best.defenseAtEta, incomingDefense: best.incomingDefense, strength: Math.round(strength), score: best.score } }, record };
+  return { target: { ...targets.find((t) => t.index === best.index), plan: { etaDays: best.etaDays, arriveDay: day + best.etaDays, defenseNow: best.defenseNow, defenseAtEta: best.defenseAtEta, incomingDefense: best.incomingDefense, strength: Math.round(strength), score: best.score, speed } }, record };
 }
 // Systems reachable from the wormhole's near terminus without transiting the wormhole. The expedition's
 // entry constraint lives in the map, so nothing can satisfy it by naming a faction.
@@ -2873,15 +2881,35 @@ function journeyBook(book) {
 }
 export function journeyById(book, id) { return (book.journeys || []).find((j) => j.id === id) || null; }
 export function activeJourneys(book) { return (book.journeys || []).filter((j) => j.status === 'underway'); }
-// The length in days of the hop from a to b: the engine's (distance over the fleet's daily range), or one.
-export function legDaysBetween(world, a, b) {
+// The hop from a to b as the chart has it (SHIP-DEPENDENT-STRATEGIC-SPEED): its base days at speed 1.0 (the
+// engine's distance over the daily range, or one) and whether it is a fixed traversal (a wormhole), whose
+// days no ship can shorten or lengthen.
+export function legBaseBetween(world, a, b) {
   const d = Number(world?.legDays?.(Number(a), Number(b)));
-  return Math.max(1, Math.round(Number.isFinite(d) && d > 0 ? d : 1));
+  return { days: Math.max(1, Math.round(Number.isFinite(d) && d > 0 ? d : 1)), fixed: Boolean(world?.legFixed?.(Number(a), Number(b))) };
 }
-export function routeLegDaysFor(world, systems) {
+export function routeLegBase(world, systems) {
   const out = [];
-  for (let i = 1; i < (systems || []).length; i++) out.push(legDaysBetween(world, systems[i - 1], systems[i]));
+  for (let i = 1; i < (systems || []).length; i++) out.push(legBaseBetween(world, systems[i - 1], systems[i]));
   return out;
+}
+// The length in days of the hop from a to b for a mover at `speed` (null: the default 1.0, the chart's own
+// days). The one formula every journey and every planner reads (strategic-speed.mjs: adjustLegDays).
+export function legDaysBetween(world, a, b, speed = null) {
+  const l = legBaseBetween(world, a, b);
+  return SPD.adjustLegDays(l.days, speed, l.fixed);
+}
+export function routeLegDaysFor(world, systems, speed = null) {
+  return SPD.legDaysAt(routeLegBase(world, systems), speed);
+}
+// A class's strategic speed, and a group's: the slowest of those able to travel (a disabled, surrendered or
+// crewless hull is not travelling and does not count; a group with none of those left flies at the
+// slowest of what it has, so a timing is always defined).
+export function hullSpeed(world, h) { return SPD.classSpeed(h ? world?.shipStats?.(h.shipId) : null); }
+export function hullsSpeed(world, hulls) {
+  const list = (hulls || []).filter(Boolean);
+  const able = list.filter((h) => h.status !== 'lost' && !hullIsDisabled(h) && h.status !== 'surrendered' && !hullAwaitingCrew(h));
+  return SPD.groupSpeed((able.length ? able : list).map((h) => hullSpeed(world, h))) ?? SPD.SPEED_DEFAULT;
 }
 // The model's adjacency for a journey: the chart's routes and the wormholes (an engine may close an edge
 // to a power, as the uncharted Bajoran wormhole is closed to everyone but the Dominion).
@@ -2906,15 +2934,18 @@ function routeFewestJumps(world, from, to, polityId, avoid = null) {
 }
 // A route for a model mover: the fewest jumps (the model's routes have always been jump-counted and blind
 // to the captain's chart), each with its real length.
-export function plotJourney(world, from, to, polityId, avoid = null) {
-  if (Number(from) === Number(to)) return { systems: [Number(from)], path: [], legDays: [] };
+// The route never depends on the ship (the same systems, the same legs); only its days do.
+export function plotJourney(world, from, to, polityId, avoid = null, speed = null) {
+  if (Number(from) === Number(to)) return { systems: [Number(from)], path: [], legDays: [], legBase: [], speed: speed == null ? SPD.SPEED_DEFAULT : SPD.clampSpeed(speed) };
   const systems = routeFewestJumps(world, from, to, polityId, avoid && avoid.size ? avoid : null);
   if (!systems) return null;
-  return { systems, path: systems.slice(1).map(Number), legDays: routeLegDaysFor(world, systems) };
+  const legBase = routeLegBase(world, systems);
+  return { systems, path: systems.slice(1).map(Number), legDays: SPD.legDaysAt(legBase, speed), legBase, speed: speed == null ? SPD.SPEED_DEFAULT : SPD.clampSpeed(speed) };
 }
-// The days a plotted route takes, leg by leg (what a caller planning by time should read).
-export function journeyDays(world, from, to, polityId) {
-  const plan = plotJourney(world, from, to, polityId);
+// The days a plotted route takes, leg by leg, at `speed` (what a caller planning by time should read; pass
+// the speed of the ships that will actually fly it — hullsSpeed).
+export function journeyDays(world, from, to, polityId, speed = null) {
+  const plan = plotJourney(world, from, to, polityId, null, speed);
   return plan ? plan.legDays.reduce((n, d) => n + d, 0) : null;
 }
 function vidOfHull(h) { return h?.identity?.vid || h?.vid || h?.id || null; }
@@ -2944,9 +2975,15 @@ export function startJourney(book, world, spec, day, effects = []) {
   if (hulls.some((h) => h.transit)) return { ok: false, reason: 'already under way' };
   const plan = spec.plan || plotJourney(world, from, spec.destination, spec.sponsor, spec.avoid || null);
   if (!plan) return { ok: false, reason: 'no route' };
+  // The days are always the ships' own: the route's legs (whoever plotted it) at the speed of the hulls
+  // actually flying, its slowest able member (SHIP-DEPENDENT-STRATEGIC-SPEED). A planner that asked for
+  // the same hulls' journeyDays got exactly these.
+  const speed = hullsSpeed(world, hulls);
+  const legBase = routeLegBase(world, [from, ...plan.path.map(Number)]);
   const tr = J.createJourney({ id: nextCampaignId(book, 'journey'), kind: spec.kind, ref: spec.ref ?? null, sponsor: spec.sponsor, from, destination: Number(spec.destination),
-    path: plan.path, legDays: plan.legDays, day, members: hulls.map((h) => h.id), vids: Object.fromEntries(hulls.map((h) => [h.id, vidOfHull(h)])),
+    path: plan.path, legDays: SPD.legDaysAt(legBase, speed), day, members: hulls.map((h) => h.id), vids: Object.fromEntries(hulls.map((h) => [h.id, vidOfHull(h)])),
     purpose: spec.purpose || 'move', war: spec.war || null, authority: spec.authority || null, prior: spec.prior || null, meta: spec.meta || null });
+  tr.legBase = legBase; tr.speed = speed; tr.speedHistory = [{ fromLeg: 0, speed }];
   list.push(tr);
   st.started++; st.byKind[tr.kind] = (st.byKind[tr.kind] || 0) + 1;
   if (!tr.path.length) {
@@ -3071,13 +3108,14 @@ function settleCrossing(book, world, tr, cross, effects) {
   // Held at this crossing while its interception is fought in the scene: nothing settles until the
   // encounter hands the result back (releaseHeldCrossing).
   if (cross.held) return;
-  const hooks = JOURNEY_KINDS[tr.kind] || {};
+  const registered = JOURNEY_KINDS[tr.kind];
+  const hooks = registered || {};
   const st = book.stats.journeys;
   const { at, day } = cross;
   hooks.onCross?.(book, world, tr, cross, effects);
   if (tr.status !== 'underway') return;
   // The crossing may have changed who owns the journey (an assignment ended in warp becomes a release).
-  if (JOURNEY_KINDS[tr.kind] !== hooks) return settleCrossing(book, world, tr, { ...cross, recheck: true }, effects);
+  if (JOURNEY_KINDS[tr.kind] !== registered) return settleCrossing(book, world, tr, { ...cross, recheck: true }, effects);
   if (!tr.members.length) {
     J.haltJourney(tr, at, day, 'no ships', `No ships left at system ${at}.`);
     endJourneyEffect(book, tr, day, effects);
@@ -3120,6 +3158,11 @@ function settleCrossing(book, world, tr, cross, effects) {
     return;
   }
   if (J.hasMoreLegs(tr)) {
+    // A leg boundary: the next leg flies at the speed of those still with the journey (one detached here
+    // may have been its slowest). Legs already flown are never re-timed.
+    const was = tr.speed;
+    J.respeedJourney(tr, hullsSpeed(world, journeyMemberHulls(book, tr)));
+    if (tr.speed !== was) hooks.onRespeed?.(book, world, tr, cross, effects);
     J.advanceLeg(tr, day);
     putMembersOnLeg(book, tr);
     effects.push(journeyEffect(tr, 'journeyDeparted', day, { from: tr.from, to: tr.path[tr.legIndex], arrivalDay: tr.legArrivalDay, eta: tr.etaDay, leg: tr.legIndex, legs: tr.path.length }));
@@ -3190,7 +3233,7 @@ function operationHome(book, world, op, h) {
   let best = null, bestDays = Infinity;
   // A ship in warp goes home from the end of the leg it is flying (that is where its return starts).
   const from = h.transit ? Number(h.transit.to) : Number(h.systemIndex);
-  for (const i of own) { const n = plannedJourneyDays(world, from, i, op.faction); if (n != null && (n < bestDays || (n === bestDays && i < best))) { best = i; bestDays = n; } }
+  for (const i of own) { const n = plannedJourneyDays(world, from, i, op.faction, hullSpeed(world, h)); if (n != null && (n < bestDays || (n === bestDays && i < best))) { best = i; bestDays = n; } }
   return best ?? (origin == null ? null : Number(origin));
 }
 function operationById(book, id) { return (book.operations || []).find((o) => o.id === id) || null; }
@@ -3355,9 +3398,9 @@ export function shortestRoute(world, from, to, polityId) {
 // The quickest route in real days (each hop its chart length), over the same adjacency and closed routes.
 // The days a journey from `from` to `to` will actually take: the route startJourney itself plots, each leg
 // its real length. null when there is none.
-export function plannedJourneyDays(world, from, to, polityId) {
+export function plannedJourneyDays(world, from, to, polityId, speed = null) {
   if (Number(from) === Number(to)) return 0;
-  const plan = plotJourney(world, Number(from), Number(to), polityId);
+  const plan = plotJourney(world, Number(from), Number(to), polityId, null, speed);
   return plan ? plan.legDays.reduce((n, d) => n + d, 0) : null;
 }
 // Every system's quickest route from `from`, in real days (one Dijkstra over journeyNeighbours).
@@ -3398,7 +3441,9 @@ function activeBlockadesAt(book, systemIndex) {
   return (book.blockades || []).filter((b) => b.status === 'active' && Number(b.target) === Number(systemIndex));
 }
 // Is this a place the sponsor may take its people to? Explicit, reachable, friendly, not itself besieged.
-export function validateEvacuationDestination(book, world, sponsor, origin, destination, routes = null) {
+// `speed`: the convoy's (its slowest transport or escort; SHIP-DEPENDENT-STRATEGIC-SPEED). The route is the
+// chart's quickest; only its days depend on who flies it.
+export function validateEvacuationDestination(book, world, sponsor, origin, destination, routes = null, speed = null) {
   const c = book.config;
   const dest = world.systems[Number(destination)];
   if (!dest) return { ok: false, reason: 'No such destination.' };
@@ -3413,8 +3458,8 @@ export function validateEvacuationDestination(book, world, sponsor, origin, dest
   const route = (routes ? routes.routeTo(destination) : fastestRoute(world, origin, destination, sponsor)) || shortestRoute(world, origin, destination, sponsor);
   if (!route) return { ok: false, reason: `There is no route to ${dest.name}.` };
   // Too far in real days, not in jumps (STRATEGIC-TIME-SCALE-CORRECTION).
-  const days = routeLegDaysFor(world, route).reduce((n, d) => n + d, 0);
-  if (days > (c.evacMaxOneWayDays ?? 45)) return { ok: false, reason: `${dest.name} is too far: ${days} days each way.` };
+  const days = routeLegDaysFor(world, route, speed).reduce((n, d) => n + d, 0);
+  if (days > (c.evacMaxOneWayDays ?? 45)) return { ok: false, reason: `${dest.name} is too far: ${days} days each way${speed != null && SPD.clampSpeed(speed) !== 1 ? ` at the convoy's ${SPD.speedLabel(speed)}` : ''}.` };
   return { ok: true, route, hops: route.length - 1, days };
 }
 // Every refuge a sponsor may take its people to from `origin`, best first (STRATEGIC-TIME-SCALE-CORRECTION):
@@ -3422,13 +3467,13 @@ export function validateEvacuationDestination(book, world, sponsor, origin, dest
 // real days of travel plus a penalty for each danger — a front-line world (an enemy next door), a blockade
 // on the way — so a much nearer safe refuge beats a distant one, and a close hostile or inaccessible world
 // is never a refuge at all.
-export function evacuationDestinations(book, world, sponsor, origin) {
+export function evacuationDestinations(book, world, sponsor, origin, speed = null) {
   const c = book.config;
   const out = [];
   const routes = fastestRoutesFrom(world, origin, sponsor);
   for (const sys of world.systems) {
     if (Number(sys.index) === Number(origin) || !sys.controller) continue;
-    const v = validateEvacuationDestination(book, world, sponsor, origin, sys.index, routes);
+    const v = validateEvacuationDestination(book, world, sponsor, origin, sys.index, routes, speed);
     if (!v.ok) continue;
     const frontline = world.neighbours(sys.index).map(Number).some((n) => { const h = world.systems[n]?.controller; return h && formallyAtWar(world, sponsor, h); });
     const blockadedOnRoute = v.route.slice(1).filter((i) => applicableBlockadesAt(book, world, i, sponsor).length).length;
@@ -3453,7 +3498,8 @@ export function startEvacuation(book, world, spec, day, effects = []) {
   const o = world.systems[Number(origin)];
   if (!o || o.controller !== sponsor) return { ok: false, reason: 'Only the world\'s own government can evacuate it.' };
   if ((book.evacuations || []).some((e) => e.status === 'active' && Number(e.origin) === Number(origin) && e.sponsor === sponsor)) return { ok: false, reason: `${o.name} is already being evacuated.` };
-  const dest = validateEvacuationDestination(book, world, sponsor, origin, destination);
+  const convoySpeed = hullsSpeed(world, [...transports, ...escorts].map((id) => hullOf(book, sponsor, id)).filter(Boolean));
+  const dest = validateEvacuationDestination(book, world, sponsor, origin, destination, null, convoySpeed);
   if (!dest.ok) return dest;
   const taken = strategicAssignments(book);
   const pick = (ids, role) => {
@@ -3809,7 +3855,7 @@ function runnerProfile(book, world, runner) {
     const cloak = Boolean(x.cloak ?? st.cloak) && cond === 'operational' && frac >= (c.interceptCloakMinCondition ?? 0.5);
     const combat = bounded(Number(x.combat ?? st.combat ?? 1), 0, 1);
     const strength = hullStrength(book, world, { shipId: x.shipId, hull, maxHull, crew: x.crew ?? 1 });
-    return { ...x, hull, maxHull, cond, frac, cloak, combat, strength, speed: Number(x.speed ?? st.speed) || c.interceptRefSpeed, mass: Math.max(1, Number(st.mass) || 3) };
+    return { ...x, hull, maxHull, cond, frac, cloak, combat, strength, speed: Number(x.speed) || (st.strategicSpeed != null ? SPD.classSpeed(st) : c.interceptRefSpeed), mass: Math.max(1, Number(st.mass) || 3) };
   }).filter((m) => m.cond !== 'destroyed');
   const active = members.filter((m) => m.cond === 'operational');
   const E = active.reduce((n, m) => n + m.strength * m.combat, 0);
@@ -3825,7 +3871,8 @@ function blockadeForce(book, world, b) {
   const c = book.config;
   const hulls = b.hulls.filter((t) => !t.joining).map((t) => hullOf(book, b.power, t.hullId)).filter((h) => h && !hullOutOfAction(h) && !h.transit && !hullInEncounter(h)); // one already fighting in the scene is not on station for another
   const S = hulls.reduce((n, h) => n + hullStrength(book, world, h), 0);
-  const speeds = hulls.map((h) => Number(world.shipStats(h.shipId)?.speed) || c.interceptRefSpeed);
+  // The same strategic speed the blockaders' journeys fly at (SHIP-DEPENDENT-STRATEGIC-SPEED §blockade running).
+  const speeds = hulls.map((h) => { const st = world.shipStats(h.shipId); return st?.strategicSpeed != null ? SPD.classSpeed(st) : c.interceptRefSpeed; });
   const speed = speeds.length ? speeds.reduce((a, v) => a + v, 0) / speeds.length : c.interceptRefSpeed;
   const D = blockadeOpposition(book, world, b);
   const coverage = Math.min(0.95, S / (S + D + c.blockadeTrafficScale));
@@ -3839,7 +3886,11 @@ export function assessBlockadeRun(book, world, b, runner, force = null) {
   const c = book.config;
   const f = force || blockadeForce(book, world, b);
   const r = runnerProfile(book, world, runner);
-  const rel = bounded((r.speed || f.speed) / Math.max(1, f.speed), 0.4, 2.5);
+  // Relative dash: the runner's strategic speed against the blockade's (the same values their journeys fly at).
+  // Strategic speeds are deliberately compressed (0.8–1.3); the interception's sensitivity to a dash was
+  // tuned on the much wider tactical spread, so the ratio is squared here (interceptSpeedExponent) — a
+  // calibration of this one term, not a second speed. (Max(1, …) was the guard for the old 45-unit scale.)
+  const rel = bounded(Math.pow((r.speed || f.speed) / Math.max(0.1, f.speed), c.interceptSpeedExponent ?? 2), 0.4, 2.5);
   const stealth = r.cloakAll ? (c.interceptCloakFactor ?? 0.3) * (1 + (b.cloakDetection || 0)) : 1;
   const pDetect = bounded((0.2 + 0.85 * f.coverage) * r.signature * stealth * (1.2 - 0.2 * rel), 0.02, 0.97);
   const deterrence = r.E > 0 ? f.S / (f.S + (c.interceptEscortWeight ?? 1.5) * r.E) : 1;
@@ -4152,12 +4203,20 @@ function convoyCrossing(book, world, e, sysIndex, day, effects) {
 function evacuationPlan(world, e, fromSystem, toward) {
   const route = e.route.map(Number);
   const i = route.indexOf(Number(fromSystem));
-  if (i < 0) return plotJourney(world, fromSystem, toward === 'destination' ? e.destination : e.origin, e.sponsor);
+  const speed = evacuationSpeed(world, e);
+  if (i < 0) return plotJourney(world, fromSystem, toward === 'destination' ? e.destination : e.origin, e.sponsor, null, speed);
   const systems = toward === 'destination' ? route.slice(i) : route.slice(0, i + 1).reverse();
-  return { systems, path: systems.slice(1), legDays: routeLegDaysFor(world, systems) };
+  return { systems, path: systems.slice(1), legDays: routeLegDaysFor(world, systems, speed) };
+}
+// The convoy's speed: its slowest transport or escort still with it (an escort never makes the transports
+// faster; one slow freighter sets the pace). Read from the classes on the record, so every planner of
+// this evacuation — the refuge, the trip count, the cycle — reads the days its journeys fly.
+export function evacuationSpeed(world, e) {
+  const members = [...(e?.transports || []), ...(e?.escorts || []).filter((x) => !x.joining)];
+  return SPD.groupSpeed(members.map((m) => SPD.classSpeed(world?.shipStats?.(m.shipId)))) ?? SPD.SPEED_DEFAULT;
 }
 export function evacuationRoundTripDays(world, e) {
-  const days = routeLegDaysFor(world, e.route).reduce((n, d) => n + d, 0);
+  const days = routeLegDaysFor(world, e.route, evacuationSpeed(world, e)).reduce((n, d) => n + d, 0);
   return 2 * days;
 }
 function sailConvoy(book, world, e, fromSystem, toward, purpose, day, effects) {
@@ -4373,8 +4432,10 @@ function aiStrategicOps(book, world, day, effects) {
       const garrison = c.homeGarrisonPerWorld || 0;
       const transports = carriers.slice(0, Math.max(0, Math.min(c.evacAiMaxTransports ?? 4, carriers.length - garrison)));
       if (!transports.length) continue;
-      // The best refuge by real travel and safety (its own worlds or a friend's), never one under attack.
-      const dests = evacuationDestinations(book, world, sponsor, sys.index).filter((x) => !book.operations.some((o2) => o2.status !== 'resolved' && Number(o2.targetSystem) === x.index));
+      // The best refuge by real travel and safety (its own worlds or a friend's), never one under attack —
+      // in the days these transports will actually take (their slowest; SHIP-DEPENDENT-STRATEGIC-SPEED).
+      const convoySpeed = hullsSpeed(world, transports);
+      const dests = evacuationDestinations(book, world, sponsor, sys.index, convoySpeed).filter((x) => !book.operations.some((o2) => o2.status !== 'resolved' && Number(o2.targetSystem) === x.index));
       if (!dests.length) continue;
       const dest = dests[0];
       // What can really be moved before the attack arrives (STRATEGIC-TIME-SCALE-CORRECTION): every
@@ -4385,7 +4446,7 @@ function aiStrategicOps(book, world, day, effects) {
       const trips = Math.max(1, 1 + Math.floor(Math.max(0, window - load - 1) / Math.max(1, cycle)));
       const target = Math.min(evacuationTargetFor(book, world, sys.index), trips * lift);
       const r = startEvacuation(book, world, { sponsor, origin: sys.index, destination: dest.index, transports: transports.map((h) => h.id), target, reason: `${world.factionName(op.faction)} forces are bound for it` }, day, effects);
-      if (r.ok) r.record.plan = { destinationDays: dest.days, score: dest.score, danger: dest.danger, alternatives: dests.slice(1, 4).map((x) => ({ index: x.index, days: x.days, score: x.score, danger: x.danger })), threatArrivesDay: op.arriveDay ?? null, tripsBeforeThreat: trips, liftPerTrip: lift, cycleDays: cycle };
+      if (r.ok) r.record.plan = { destinationDays: dest.days, score: dest.score, danger: dest.danger, alternatives: dests.slice(1, 4).map((x) => ({ index: x.index, days: x.days, score: x.score, danger: x.danger })), threatArrivesDay: op.arriveDay ?? null, tripsBeforeThreat: trips, liftPerTrip: lift, cycleDays: cycle, convoySpeed };
       break;
     }
   }

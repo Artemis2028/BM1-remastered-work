@@ -297,7 +297,7 @@ const { startProbe } = require('./probe-harness.cjs');
         assert.equal(r.k.exact, false);
         assert.ok(!new RegExp(`Force: ${r.real} ship`).test(r.card), `the card shows the hidden count: ${r.card}`);
         if (r.seen.level === 'contact') assert.match(r.card, /Known force: \d+–\d+ ships/);
-        if (r.seen.level === 'sighted') assert.doesNotMatch(r.card, /force/i);
+        if (r.seen.level === 'sighted') assert.doesNotMatch(r.card, /Known force/i); // ("Reinforcements …" in the effects list is not a force count)
       }
     }
     assert.match(r.card, /Seen by your ships day \d+/);
@@ -325,7 +325,10 @@ const { startProbe } = require('./probe-harness.cjs');
       // The runner reaches Alpha Centauri (day 10), then the blockade lifts and the waiter goes on.
       window.__adv(8);
       t.Campaign.withdrawBlockade(t.campaign(), t.buildCampaignWorld(true), id, t.state.day, []);
+      // Until the waiter has flown its three legs at its own 0.8× after the lift (a fixed 40 days assumed the
+      // chart's 1.0×; SHIP-DEPENDENT-STRATEGIC-SPEED), bounded.
       window.__adv(40);
+      for (let k = 0; k < 40 && window.__g(wait).travel.status === 'underway'; k++) window.__adv(1);
       const late = { wait: snap(wait), waitStatus: window.__g(wait).travel.status, waitCrossed: window.__g(wait).travel.crossed.map((c) => c.system), rerouteCrossed: window.__g(reroute).travel.crossed.map((c) => c.system), runEnc: window.__g(run).travel.encounters.map((e) => e.system) };
       return { O, V, A, known, early, late, rows };
     }, R);
@@ -410,7 +413,11 @@ const { startProbe } = require('./probe-harness.cjs');
     // STRATEGIC-MOVEMENT-UNIFICATION: each leg takes its real length, so every window is three round trips.
     const trip = await step(() => { const t = testBM1; const e = (t.campaign().evacuations || []).find((x) => x.id === window.__e); return t.Campaign.evacuationRoundTripDays(t.buildCampaignWorld(true), e) + (t.campaign().config.evacLoadingDays ?? 1); });
     const trace = [];
-    trace.push(await phase('unescorted', 3 * trip));
+    // Four round trips unescorted (SHIP-DEPENDENT-STRATEGIC-SPEED): the freighters run this blockade a little
+    // better than even at their 0.8× (the speed term now reads the strategic speed), so three trips — about
+    // six runs — could all pass by chance and say nothing about the blockade. (Longer still, the Klingons draw
+    // the blockade down for their war before the escorted phases begin, and those phases measure nothing.)
+    trace.push(await phase('unescorted', 4 * trip));
     if (shots) {
       await step(() => { const t = testBM1; t.openGalaxyReports?.(); document.querySelector('[data-report-folder="personal"]')?.click(); });
       await shot('BR-run-result-reports.png');
@@ -461,7 +468,9 @@ const { startProbe } = require('./probe-harness.cjs');
     // the escorted one's are; the difference escorts make shows in the runs and in the blockade breaking.
     const share = (x) => x.passed / Math.max(1, x.runs.length);
     const scored = [e2, l].filter((x) => x.runs.length);
-    assert.ok((scored.length && scored.every((x) => share(x) > share(u))) || (e2.perDay + l.perDay) / 2 > u.perDay || (e2.blockade[0] === 'broken' && share(e2) >= share(u)), `escorts did not improve the runs: ${JSON.stringify(a.trace)}`);
+    // (A phase with no runs because the blockade had already broken is a clear road: it scores as all through.)
+    const shareB = (x) => (x.runs.length ? share(x) : x.blockade[0] !== 'active' ? 1 : 0);
+    assert.ok((scored.length && scored.every((x) => share(x) > share(u))) || (e2.perDay + l.perDay) / 2 > u.perDay || (e2.blockade[0] === 'broken' && shareB(e2) >= share(u)), `escorts did not improve the runs: ${JSON.stringify(a.trace)}`);
     assert.ok(a.end.block[1] < 18 || a.end.block[0] !== 'active', `the blockade lost nothing: ${a.end.block}`);
     assert.ok((e2.perDay + l.perDay) / 2 >= u.perDay, `deliveries fell: ${JSON.stringify(a.trace)}`);
     // Persistent vessels: every hauler is the same vid it started with, whatever happened to it.

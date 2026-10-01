@@ -23,7 +23,7 @@
 
 import * as D from './doctrine-runtime.mjs';
 import { seededUnit, applicableBlockadesAt, resolveBlockadeRun, shortestRoute, strategicAssignments, warAuthorityStamp, warAuthorityHolds, rescueStrandedCrew, hullIsDisabled, hullAwaitingCrew, localDefenseStrength, raidStrikeDay, standDownOperation, hullStrength,
-  startJourney, stepJourney, journeyById, registerJourneyKind, legDaysBetween, routeLegDaysFor, defendingHullsAt, encounterHullLookup, fellBackToday, settleAbandonedHandoff } from './campaign-strategy.mjs';
+  startJourney, stepJourney, journeyById, registerJourneyKind, legDaysBetween, routeLegDaysFor, defendingHullsAt, encounterHullLookup, fellBackToday, settleAbandonedHandoff, hullSpeed, hullsSpeed } from './campaign-strategy.mjs';
 import * as J from './strategic-journey.mjs';
 import * as SE from './strategic-encounter.mjs';
 import { classifyDamage } from './ship-fleet.mjs';
@@ -569,16 +569,18 @@ export function issueAssignment(book, world, spec, day, effects = []) {
   if (!itinerary) return { ok: false, reason: 'no route' };
   const id = nid(book, db, 'asg');
   const grace = (m) => (m === 'check_in' ? db.config.checkInGraceDays : db.config.arrivalGraceDays);
-  // Every hop takes its real length in days, as every strategic journey does (STRATEGIC-MOVEMENT-UNIFICATION).
+  // Every hop takes its real length in days, as every strategic journey does (STRATEGIC-MOVEMENT-UNIFICATION),
+  // at this vessel's own strategic speed (SHIP-DEPENDENT-STRATEGIC-SPEED): the days its journeys will fly.
+  const speed = hullSpeed(world, h);
   let t = startDay;
   const milestones = [];
   itinerary.forEach((stop, i) => {
-    if (i > 0) t += legDaysBetween(world, itinerary[i - 1].systemIndex, stop.systemIndex);
+    if (i > 0) t += legDaysBetween(world, itinerary[i - 1].systemIndex, stop.systemIndex, speed);
     if (stop.milestone) milestones.push({ id: `${id}:m${milestones.length + 1}`, kind: stop.milestone, stopIndex: i, systemIndex: stop.systemIndex, locationId: locationIdFor(world, stop.systemIndex), dueDay: t, grace: grace(stop.milestone), status: 'pending', metDay: null });
     t += stop.dwell;
   });
   const a = { id, kind, polity, hullId, vid: vidOf(h), doctrineRole, objectiveId, itinerary, pos: 0, dwellLeft: itinerary[0].dwell, nextDay: startDay + 1 + itinerary[0].dwell, departDay: startDay + itinerary[0].dwell, journeyId: null,
-    milestones, status: 'active', startDay: day, endDay: null, endReason: null,
+    milestones, status: 'active', startDay: day, endDay: null, endReason: null, speed,
     origin: locationIdFor(world, itinerary[0].systemIndex), destination: locationIdFor(world, itinerary.at(-1).systemIndex),
     // What the owner knows of where its vessel is: the last stop it reported from. Not the truth.
     lastReport: { systemIndex: h.systemIndex, locationId: locationIdFor(world, h.systemIndex), day },
@@ -639,8 +641,9 @@ export function vesselEta(book, world, h, target, polity, day) {
   if (tr && tr.status === 'underway' && ['doctrine', 'release'].includes(tr.kind) && Number(tr.legDepartDay) === Number(day) && !tr.waiting) from = { system: Number(tr.from), day: Number(day) };
   const route = routeBetween(world, from.system, Number(target), polity);
   if (!route) return null;
-  const travel = routeLegDaysFor(world, route).reduce((n, d) => n + d, 0);
-  return { route, from: from.system, arrive: from.day + travel, days: from.day + travel - Number(day), hops: route.length - 1 };
+  const speed = hullSpeed(world, h);
+  const travel = routeLegDaysFor(world, route, speed).reduce((n, d) => n + d, 0);
+  return { route, from: from.system, arrive: from.day + travel, days: from.day + travel - Number(day), hops: route.length - 1, speed };
 }
 // An objective's own budget: travel + time on station + bounded slack, never shorter than its old floor
 // (a nearby job keeps the budget it always had).
@@ -721,13 +724,20 @@ function stepAssignment(book, world, db, a, day, effects) {
   const systems = a.itinerary.slice(a.pos, j + 1).map((x) => Number(x.systemIndex));
   // Escorts that have joined this charge sail with it, and run what it runs.
   const escorts = joinedEscortsOf(book, db, a).filter((x) => Number(x.h.systemIndex) === Number(h.systemIndex) && !x.h.transit);
+  // The group flies at its slowest (an escort that cannot keep up slows its charge); if that is not the
+  // speed the owner's expectations were made at, they are re-made now, for the stops still ahead.
+  const groupSpeed = hullsSpeed(world, [h, ...escorts.map((x) => x.h)]);
   // A job under a formal war (a raid) carries that war's stamp, re-checked at every system it reaches.
   const obj = a.objectiveId ? db.objectives.find((x) => x.id === a.objectiveId) : null;
   const spec = { kind: 'doctrine', ref: a.id, sponsor: a.polity, destination: systems.at(-1), purpose: a.kind, war: obj?.authority?.stamp || null, authority: { kind: 'doctrine', ref: a.objectiveId || a.id, assignment: a.id },
-    meta: { assignmentId: a.id, startPos: a.pos, segmentEnd: j }, plan: { path: systems.slice(1), legDays: routeLegDaysFor(world, systems) } };
+    meta: { assignmentId: a.id, startPos: a.pos, segmentEnd: j }, plan: { path: systems.slice(1), legDays: routeLegDaysFor(world, systems, groupSpeed) } };
   let r = startJourney(book, world, { ...spec, hulls: [h, ...escorts.map((x) => x.h)] }, leaveOn, effects);
   if (!r.ok && escorts.length) r = startJourney(book, world, { ...spec, hulls: [h] }, leaveOn, effects);
   if (!r.ok) return blocked();
+  // Re-made at the speed the journey actually flies (alone if its escorts could not start with it). An
+  // assignment issued before ship speed existed (no a.speed) was timed at 1.0.
+  const flown = r.journey.speed ?? groupSpeed;
+  if ((a.speed ?? 1) !== flown) retimeMilestones(world, a, leaveOn, flown);
   a.journeyId = r.journey.id;
   a.dwellLeft = 0;
   stepJourney(book, world, r.journey, day, effects);
@@ -764,6 +774,14 @@ registerJourneyKind('doctrine', {
     // the boundary, and its objective is stood down by its own check; it never flies on to strike.
     if (tr.war && !warAuthorityHolds(book, world, tr.war)) return { ok: false, reason: 'war authority ended' };
     return { ok: true };
+  },
+  // The journey was re-timed at a leg boundary (a slower member left it): the owner's expectations for the
+  // stops still ahead are re-made from this crossing, at the speed it now flies.
+  onRespeed(book, world, tr, cross) {
+    const a = assignmentOfJourney(book, tr);
+    if (!a || tr.meta?.replanned != null || tr.purpose === 'retreat' || tr.speed == null) return;
+    const idx = Math.min(a.itinerary.length - 1, (tr.meta?.startPos ?? a.pos) + tr.legIndex + 1);
+    retimeMilestones(world, a, cross.day, tr.speed, idx);
   },
   onCross(book, world, tr, cross, effects) {
     const db = doctrineBook(book);
@@ -838,10 +856,22 @@ function meetMilestone(book, world, db, a, h, m, day, effects) {
 }
 // A late check-in resolves the incident it caused: the owner has its ship back, and expects the rest of
 // its itinerary from now on (so a later loss is a new miss, not one already counted).
+// Re-make the owner's expectations for the stops still ahead at `speed`, setting out on `fromDay`.
+// `from`: the stop it sets out from (where it stands, or the system a journey just crossed).
+function retimeMilestones(world, a, fromDay, speed, from = a.pos) {
+  let t = Number(fromDay);
+  for (let i = from + 1; i < a.itinerary.length; i++) {
+    t += legDaysBetween(world, a.itinerary[i - 1].systemIndex, a.itinerary[i].systemIndex, speed) + (i - 1 === from ? 0 : (a.itinerary[i - 1].dwell || 0));
+    const m = a.milestones.find((x) => x.stopIndex === i && x.status === 'pending');
+    if (m && m.dueDay !== t) { m.dueDay = t; m.retimed = { speed, day: Number(fromDay) }; }
+  }
+  a.speed = speed;
+}
 function onMilestoneMet(book, world, db, a, m, day, effects) {
   let t = day;
+  const speed = a.speed ?? hullSpeed(world, liveHull(book, a.polity, a.hullId));
   for (let i = a.pos + 1; i < a.itinerary.length; i++) {
-    t += legDaysBetween(world, a.itinerary[i - 1].systemIndex, a.itinerary[i].systemIndex) + (a.itinerary[i - 1].dwell || 0);
+    t += legDaysBetween(world, a.itinerary[i - 1].systemIndex, a.itinerary[i].systemIndex, speed) + (a.itinerary[i - 1].dwell || 0);
     const later = a.milestones.find((x) => x.stopIndex === i && x.status === 'missed');
     if (later) { later.status = 'pending'; later.dueDay = t; later.rescheduled = day; }
   }
@@ -1185,7 +1215,9 @@ function generateRoutine(doctrine, book, world, db, day, effects) {
     const spare = spareHulls(book, world, db, polity, (h) => (world.shipStats(h.shipId)?.combat ?? 1) >= 0.5);
     const from = [...new Set(spare.map((h) => Number(h.systemIndex)))].filter((i) => world.systems[i]?.controller === polity);
     let frontier = [];
-    for (const i of from) for (const nb of world.neighbours(i)) if (world.systems[nb]?.controller !== polity) frontier.push({ from: i, to: Number(nb), days: legDaysBetween(world, i, nb) });
+    // In the days the patrol that would fly it takes (the spare hull at that origin; SHIP-DEPENDENT-STRATEGIC-SPEED).
+    const flierSpeed = (i) => hullSpeed(world, spare.find((h) => Number(h.systemIndex) === Number(i)));
+    for (const i of from) for (const nb of world.neighbours(i)) if (world.systems[nb]?.controller !== polity) frontier.push({ from: i, to: Number(nb), days: legDaysBetween(world, i, nb, flierSpeed(i)) });
     if (!frontier.length) continue;
     // Patrol legs a patrol can fly and come back from in a sensible time: within patrolMaxLegDays if any are,
     // otherwise the shortest there is (STRATEGIC-TIME-SCALE-CORRECTION).
@@ -1194,7 +1226,7 @@ function generateRoutine(doctrine, book, world, db, day, effects) {
     const hull = spare.find((h) => Number(h.systemIndex) === pick.from);
     if (!hull) continue;
     const r = issueAssignment(book, world, { polity, hullId: hull.id, kind: 'patrol', doctrineRole: 'patrol',
-      stops: [{ systemIndex: pick.to, dwell: patrolStationDays(world, c, pick.from, pick.to, c.patrolDwellDays), milestone: 'arrival' }, { systemIndex: pick.from, dwell: 0, milestone: 'check_in' }] }, day, effects);
+      stops: [{ systemIndex: pick.to, dwell: patrolStationDays(world, c, pick.from, pick.to, c.patrolDwellDays, hullSpeed(world, hull)), milestone: 'arrival' }, { systemIndex: pick.from, dwell: 0, milestone: 'check_in' }] }, day, effects);
     if (r.ok) p.doctrinePatrolDay = day;
   }
   for (const [polity, n] of Object.entries(c.explorers || {})) {
@@ -1208,10 +1240,10 @@ function generateRoutine(doctrine, book, world, db, day, effects) {
     const path = [Number(hull.systemIndex)];
     let spent = 0; // days out; the way home is as long again, so a survey goes out at most half its budget
     for (let i = 0; i < c.exploreHops; i++) {
-      const opts = world.neighbours(path.at(-1)).map(Number).filter((x) => !path.includes(x) && spent + legDaysBetween(world, path.at(-1), x) <= c.exploreMaxDays / 2).sort((a, b) => a - b);
+      const opts = world.neighbours(path.at(-1)).map(Number).filter((x) => !path.includes(x) && spent + legDaysBetween(world, path.at(-1), x, hullSpeed(world, hull)) <= c.exploreMaxDays / 2).sort((a, b) => a - b);
       if (!opts.length) break;
       path.push(opts[Math.floor(seededUnit(book.seed, 'doctrine-survey', polity, day, i) * opts.length)]);
-      spent += legDaysBetween(world, path.at(-2), path.at(-1));
+      spent += legDaysBetween(world, path.at(-2), path.at(-1), hullSpeed(world, hull));
     }
     if (path.length < 2) continue;
     const stops = path.slice(1).map((s, i) => ({ systemIndex: s, dwell: c.exploreDwellDays, milestone: i === path.length - 2 ? 'arrival' : null }));
@@ -1231,7 +1263,7 @@ function generateRoutine(doctrine, book, world, db, day, effects) {
     for (const s of world.systems) {
       if (s.index === Number(hull.systemIndex) || !s.controller || atWar(world, polity, s.controller)) continue;
       const r = routeBetween(world, hull.systemIndex, s.index, polity);
-      if (r && r.length - 1 >= 2 && r.length - 1 <= c.tradeHops && routeLegDaysFor(world, r).reduce((n, d) => n + d, 0) <= c.tradeMaxDays) ports.push(s.index);
+      if (r && r.length - 1 >= 2 && r.length - 1 <= c.tradeHops && routeLegDaysFor(world, r, hullSpeed(world, hull)).reduce((n, d) => n + d, 0) <= c.tradeMaxDays) ports.push(s.index);
     }
     if (!ports.length) continue;
     ports.sort((x, y) => x - y);
@@ -1381,7 +1413,7 @@ export function issueDelivery(book, world, polity, hullId, destination, day, eff
   if (!route) return { ok: false, reason: 'no route' };
   const cargo = opts.cargo || { knowledge: 'verified', manifest: [{ cargoId: 'trade-goods', quantity: Math.max(1, Math.round(Number(world.shipStats(h.shipId)?.cargo) || 100)) }] };
   const c = newContract(book, db, { kind: 'delivery', holder: polity, origin: Number(h.systemIndex), destination: Number(destination), originLocationId: locationIdFor(world, h.systemIndex), destinationLocationId: locationIdFor(world, destination),
-    dueDay: day + 1 + routeLegDaysFor(world, route).reduce((n, d) => n + d, 0) + (opts.slack ?? db.config.deliverySlackDays), cargo: cargo.manifest }, day);
+    dueDay: day + 1 + routeLegDaysFor(world, route, hullSpeed(world, h)).reduce((n, d) => n + d, 0) + (opts.slack ?? db.config.deliverySlackDays), cargo: cargo.manifest }, day);
   const r = issueAssignment(book, world, { polity, hullId, kind: 'delivery', doctrineRole: 'civilian', contractId: c.id, cargo, loadDays: 1,
     stops: [{ systemIndex: destination, dwell: 1, milestone: 'arrival' }, { systemIndex: h.systemIndex, dwell: 0, milestone: 'check_in' }] }, day, effects);
   if (!r.ok) { delete db.contracts[c.id]; return r; }
@@ -1390,17 +1422,22 @@ export function issueDelivery(book, world, polity, hullId, destination, day, eff
 }
 // A project is due when its loads can really have been carried: every round trip (a day loading, a day
 // unloading) plus a margin, never sooner than the old budget.
-function projectDaysFor(world, db, polity, depot, site, deliveries) {
+function projectDaysFor(world, db, polity, depot, site, deliveries, speed = null) {
   const r = routeBetween(world, depot, site, polity);
-  const one = r ? routeLegDaysFor(world, r).reduce((n, d) => n + d, 0) : 0;
+  const one = r ? routeLegDaysFor(world, r, speed).reduce((n, d) => n + d, 0) : 0;
   return Math.max(db.config.projectDays, deliveries * (2 * one + 2) + db.config.contractGraceDays);
 }
 export function startProject(book, world, polity, depot, site, day, effects = [], opts = {}) {
   const db = doctrineBook(book);
   const c = newContract(book, db, { kind: 'construction', holder: polity, origin: Number(depot), destination: Number(site), originLocationId: locationIdFor(world, depot), destinationLocationId: locationIdFor(world, site),
-    deliveriesNeeded: opts.deliveries ?? db.config.projectDeliveries, dueDay: day + (opts.days ?? projectDaysFor(world, db, polity, depot, site, opts.deliveries ?? db.config.projectDeliveries)), cargo: [{ cargoId: 'construction-materials', quantity: null }] }, day);
+    deliveriesNeeded: opts.deliveries ?? db.config.projectDeliveries, dueDay: day + (opts.days ?? projectDaysFor(world, db, polity, depot, site, opts.deliveries ?? db.config.projectDeliveries, projectCarrierSpeed(book, world, db, polity, depot, opts.hullId))), cargo: [{ cargoId: 'construction-materials', quantity: null }] }, day);
   const t = issueTender(book, world, db, c, day, effects, opts.hullId);
   return { ok: true, contract: c, tender: t };
+}
+// The speed the project's loads will be carried at: the hull its first tender would take (the same pick).
+function projectCarrierSpeed(book, world, db, polity, depot, hullId = null) {
+  const pick = hullId ? liveHull(book, polity, hullId) : freeHulls(book, db, polity).filter((h) => Number(h.systemIndex) === Number(depot)).sort((x, y) => (world.shipStats(x.shipId)?.combat ?? 1) - (world.shipStats(y.shipId)?.combat ?? 1) || String(x.id).localeCompare(String(y.id)))[0];
+  return pick ? hullSpeed(world, pick) : null;
 }
 // The next tender of a project: an existing free hull at the depot carries the next load.
 function issueTender(book, world, db, c, day, effects, hullId = null) {
@@ -1600,8 +1637,8 @@ export function recordSurrender(book, world, incidentId, day, { acceptedBy, effe
 // Time on station for a patrol (STRATEGIC-TIME-SCALE-CORRECTION): a patrol exists to be somewhere, so a
 // leg of weeks is worth a stay in proportion — patrolStationShare of the leg out, never less than the
 // configured dwell. (At one hop a day, a three-day stay was most of a patrol; at twelve-day legs it was 11%.)
-function patrolStationDays(world, c, from, to, floor) {
-  return Math.max(floor, Math.ceil(legDaysBetween(world, from, to) * (c.patrolStationShare ?? 0.5)));
+function patrolStationDays(world, c, from, to, floor, speed = null) {
+  return Math.max(floor, Math.ceil(legDaysBetween(world, from, to, speed) * (c.patrolStationShare ?? 0.5)));
 }
 function patrolArea(world, polity, anchor, maxLegDays = Infinity) {
   const open = world.neighbours(Number(anchor)).map(Number).filter((n) => { const c = world.systems[n]?.controller; return !c || c === polity || !atWar(world, polity, c); });
@@ -1659,7 +1696,7 @@ export function startAreaPatrol(book, world, polity, hullId, anchor, day, effect
 function issuePatrolCycle(book, world, db, pat, day, effects) {
   const out = pat.area.filter((i) => i !== pat.anchor);
   const stops = [];
-  if (out.length) { const nb = out[pat.next % out.length]; pat.next++; stops.push({ systemIndex: nb, dwell: patrolStationDays(world, db.config, pat.anchor, nb, db.config.patrolAreaDwellDays), milestone: 'arrival' }); }
+  if (out.length) { const nb = out[pat.next % out.length]; pat.next++; stops.push({ systemIndex: nb, dwell: patrolStationDays(world, db.config, pat.anchor, nb, db.config.patrolAreaDwellDays, hullSpeed(world, liveHull(book, pat.polity, pat.hullId))), milestone: 'arrival' }); }
   stops.push({ systemIndex: pat.anchor, dwell: db.config.patrolAreaDwellDays, milestone: 'check_in' });
   const r = issueAssignment(book, world, { polity: pat.polity, hullId: pat.hullId, kind: 'area_patrol', doctrineRole: 'patrol', patrolId: pat.id, stops }, day, effects);
   if (r.ok) { r.assignment.patrolId = pat.id; pat.cycles++; pat.assignmentId = r.assignment.id; }
@@ -1928,7 +1965,7 @@ function rerouteCapacity(book, world, db, observerId, k, day) {
   const goal = deliveredYet ? c.origin : c.destination;
   const path = routeAvoiding(world, pt.system, goal, polity, avoid);
   if (!path) return { ...out, reason: avoid.has(goal) ? `its ${deliveredYet ? 'home port' : 'destination'} is inside the trouble area` : 'no route around the trouble area' };
-  const arrive = pt.day + routeLegDaysFor(world, path).reduce((n, d) => n + d, 0) + (pt.inFlight ? 0 : Math.max(0, departDayOf(a) - day));
+  const arrive = pt.day + routeLegDaysFor(world, path, a.speed ?? hullSpeed(world, h)).reduce((n, d) => n + d, 0) + (pt.inFlight ? 0 : Math.max(0, departDayOf(a) - day));
   if (!deliveredYet && arrive > c.dueDay + db.config.contractGraceDays) return { ...out, reason: `the way round arrives day ${arrive}, after the contract is due (day ${c.dueDay})` };
   return { ok: true, response: 'reroute', hullId: hid, vid: vidOf(h), route: path, avoid: [...avoid], goal, deliveredYet, reason: `${path.length - 1} jumps avoiding ${[...avoid].join(',')}` };
 }
@@ -1952,7 +1989,7 @@ function applyReroute(book, world, db, o, cap, day, effects) {
   if (!pt.inFlight) { a.departDay = Math.max(day, departDayOf(a)); a.nextDay = a.departDay + 1; }
   let t = pt.inFlight ? pt.day : a.departDay;
   legs.forEach((stop, i) => {
-    if (i > 0) t += legDaysBetween(world, legs[i - 1].systemIndex, stop.systemIndex);
+    if (i > 0) t += legDaysBetween(world, legs[i - 1].systemIndex, stop.systemIndex, a.speed ?? hullSpeed(world, h));
     if (stop.milestone) a.milestones.push({ id: `${a.id}:m${a.milestones.length + 1}`, kind: stop.milestone, stopIndex: i, systemIndex: stop.systemIndex, locationId: locationIdFor(world, stop.systemIndex), dueDay: t, grace: stop.milestone === 'check_in' ? db.config.checkInGraceDays : db.config.arrivalGraceDays, status: 'pending', metDay: null, rerouted: day });
     t += stop.dwell;
   });
@@ -2008,15 +2045,21 @@ function escortCapacity(book, world, db, observerId, k, day) {
   // Both are timed in real days (STRATEGIC-TIME-SCALE-CORRECTION): the day the charge reaches each system
   // on its way (a system it is already flying away from is passed), against the escort's actual ETA.
   const chargeAt = [];
+  // The charge's own pace (SHIP-DEPENDENT-STRATEGIC-SPEED): its journey's, if it is flying one.
+  const chargeTr = chargeHull.transit ? journeyById(book, chargeHull.transit.journeyId) : null;
+  const chargeSpeed = chargeTr?.speed ?? ch.assignment.speed ?? hullSpeed(world, chargeHull);
   { let t = Number(day); const tr = chargeHull.transit;
     for (let i = 0; i < ahead.length; i++) {
       if (i === 0) { chargeAt.push(tr ? -Infinity : t); continue; }
       if (i === 1 && tr && Number(tr.to) === ahead[1]) t = Math.max(t, Number(tr.arrivalDay));
-      else t += legDaysBetween(world, ahead[i - 1], ahead[i]);
+      else t += legDaysBetween(world, ahead[i - 1], ahead[i], chargeSpeed);
       chargeAt.push(t);
     } }
   let best = null;
+  let tooSlow = 0;
   for (const h of candidates) {
+    // An escort slower than its charge would slow it past the days its owner (and its contract) expect.
+    if (hullSpeed(world, h) < chargeSpeed) { tooSlow++; continue; }
     for (let i = 0; i < ahead.length; i++) {
       const eta = vesselEta(book, world, h, ahead[i], polity, day);
       if (!eta || eta.days > c.responseMaxTravelDays) continue;
@@ -2026,7 +2069,7 @@ function escortCapacity(book, world, db, observerId, k, day) {
       break;
     }
   }
-  if (!best) return { ...out, reason: 'no spare vessel can meet the charge before it arrives' };
+  if (!best) return { ...out, reason: tooSlow === candidates.length ? `no spare vessel can keep up with the charge (${chargeSpeed}×)` : 'no spare vessel can meet the charge before it arrives' };
   return { ok: true, response: 'protect', hullId: best.h.id, vid: vidOf(best.h), route: best.route, hops: best.hops, meet: best.meet, charge: ch, etaDays: best.days, arriveDay: best.arrive, reason: `${best.h.id} meets ${ch.assignment.hullId} at ${best.meet} (${best.hops} jumps, day ${best.arrive})` };
 }
 function startEscort(book, world, db, o, cap, day, effects) {
@@ -2298,7 +2341,8 @@ function remainingArrivalDay(book, world, a, h, day) {
   const sys = a.itinerary.map((x) => Number(x.systemIndex));
   let at = a.pos, t = Number(day);
   if (h?.transit) { const k = sys.indexOf(Number(h.transit.to), a.pos); if (k >= 0) { at = k; t = Math.max(t, Number(h.transit.arrivalDay)); } }
-  for (let i = at; i < sys.length - 1; i++) t += legDaysBetween(world, sys[i], sys[i + 1]);
+  const speed = a.speed ?? hullSpeed(world, h);
+  for (let i = at; i < sys.length - 1; i++) t += legDaysBetween(world, sys[i], sys[i + 1], speed);
   return t;
 }
 function objectiveFacts(book, world, db, o, day) {
@@ -2883,7 +2927,7 @@ function leaveJurisdiction(book, world, db, a, h, S, day, why) {
   a.itinerary = legs; a.pos = 0; a.dwellLeft = 0;
   a.departDay = pt.day; a.nextDay = pt.day + 1;
   let t = pt.day;
-  legs.forEach((stop, i) => { if (i > 0) t += legDaysBetween(world, legs[i - 1].systemIndex, stop.systemIndex) + (legs[i - 1].dwell || 0); if (stop.milestone) a.milestones.push({ id: `${a.id}:m${a.milestones.length + 1}`, kind: stop.milestone, stopIndex: i, systemIndex: stop.systemIndex, locationId: locationIdFor(world, stop.systemIndex), dueDay: t, grace: db.config.checkInGraceDays, status: 'pending', metDay: null, rerouted: day }); });
+  legs.forEach((stop, i) => { if (i > 0) t += legDaysBetween(world, legs[i - 1].systemIndex, stop.systemIndex, a.speed ?? hullSpeed(world, h)) + (legs[i - 1].dwell || 0); if (stop.milestone) a.milestones.push({ id: `${a.id}:m${a.milestones.length + 1}`, kind: stop.milestone, stopIndex: i, systemIndex: stop.systemIndex, locationId: locationIdFor(world, stop.systemIndex), dueDay: t, grace: db.config.checkInGraceDays, status: 'pending', metDay: null, rerouted: day }); });
   a.leaveOrder = { systemIndex: Number(S), day, why };
   delete a.hold;
   return true;

@@ -3202,8 +3202,11 @@ const { startProbe } = require('./probe-harness.cjs');
       const from = Number(s.currentPlanet);
       const upkeep = t.upkeepPerDay(f.shipId);
       // What the calendar will charge for a route, and what a plan reckoning from the distance would.
-      const flown = (route) => t.routeLegDays(route).reduce((n, d) => n + d, 0);
-      const reckoned = (route) => Math.max(1, t.Fleet.travelDays(route.distance));
+      // Both at her own strategic speed (SHIP-DEPENDENT-STRATEGIC-SPEED; the chart's 1.0 on a build without it):
+      // the legs one by one, against the whole distance reckoned at once.
+      const sp = t.fleetShipSpeed ? t.fleetShipSpeed(f) : null;
+      const flown = (route) => t.routeLegDays(route, sp).reduce((n, d) => n + d, 0);
+      const reckoned = (route) => (sp == null ? Math.max(1, t.Fleet.travelDays(route.distance)) : t.Speed.adjustLegDays(Math.max(1, t.Fleet.travelDays(route.distance)), sp));
       const worlds = [];
       for (let i = 0; i < s.planets.length; i++) {
         if (i === from || !t.worldTrades(i) || t.serviceRefusal(t.getSystemFaction(i))) continue;
@@ -3853,7 +3856,8 @@ const { startProbe } = require('./probe-harness.cjs');
       s.worldJobs = {};
       for (const k of (route.systems || []).map(Number)) if (k !== at && s.conditionLog) delete s.conditionLog[k];
       const path = (route.systems || []).map(Number).slice(1);
-      const legDays = t.routeLegDays(route);
+      // Her legs at her own strategic speed (SHIP-DEPENDENT-STRATEGIC-SPEED; the chart's days on a build without it).
+      const legDays = t.routeLegDays(route, t.fleetShipSpeed ? t.fleetShipSpeed(f) : null);
       return { f, trade, at, home, path, legDays, days: legDays.reduce((n, d) => n + d, 0) };
     };
   });
@@ -3954,7 +3958,8 @@ const { startProbe } = require('./probe-harness.cjs');
         if (!key || key === 'neutral' || key === s.playerFaction) continue;
         const rt = t.getPlottedRoute(from, i);
         if (!rt || (rt.systems || []).length < 3) continue;
-        const legs = t.routeLegDays(rt);
+        // Her legs at her own strategic speed (SHIP-DEPENDENT-STRATEGIC-SPEED; the chart's days on a build without it).
+        const legs = t.routeLegDays(rt, t.fleetShipSpeed ? t.fleetShipSpeed(f) : null);
         worlds.push({ i, key, path: rt.systems.map(Number).slice(1), legs, flown: legs.reduce((n, d) => n + d, 0), reckoned: Math.max(1, t.Fleet.travelDays(rt.distance)) });
       }
       worlds.sort((a, b) => (b.flown - b.reckoned) - (a.flown - a.reckoned));

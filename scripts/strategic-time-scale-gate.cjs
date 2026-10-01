@@ -47,7 +47,8 @@ const { startProbe } = require('./probe-harness.cjs');
     window.__authored = (fn) => t.runCampaignAuthored(fn);
     window.__lose = (asgId, mode = 'destroyed') => t.DoctrineCampaign.loseAssignmentHullUnwitnessed(t.campaign(), window.__W(), asgId, t.state.day, mode, { silent: true });
     // Days of a route as a journey flies it (the chart's legs).
-    window.__days = (from, to, polity) => { const p = t.Campaign.plotJourney(window.__W(), Number(from), Number(to), polity); return p ? { hops: p.path.length, days: p.legDays.reduce((n, d) => n + d, 0), legs: p.legDays, path: p.path } : null; };
+    // `speed`: the flying ship's strategic speed (SHIP-DEPENDENT-STRATEGIC-SPEED; ignored by a build without it).
+    window.__days = (from, to, polity, speed = null) => { const p = t.Campaign.plotJourney(window.__W(), Number(from), Number(to), polity, null, speed); return p ? { hops: p.path.length, days: p.legDays.reduce((n, d) => n + d, 0), legs: p.legDays, path: p.path } : null; };
     window.__name = (i) => t.state.planets[Number(i)]?.name;
   });
 
@@ -78,7 +79,10 @@ const { startProbe } = require('./probe-harness.cjs');
       const inc = Object.values(window.__D().incidents).find((i) => i.polity === 'romulan');
       const ev0 = inc ? window.__D().lastEval[`command:romulan|${inc.id}`] : null;
       if (!o) return { fail: 'no investigation', target: window.__name(T), route: cand[0].d, lostDay, detect, eval: ev0 && { proposal: ev0.proposal, notActing: ev0.notActing, capacity: ev0.capacity } };
-      const snap = { target: window.__name(T), route: cand[0].d, lostDay, detect, created: o.createdDay, plan: o.plan, deadline: o.deadline.value };
+      // The route as the investigator itself flies it: at its own strategic speed (chart days on a build without ship speed).
+      const inv = o.assigned?.hullId != null ? t.campaign().polities.romulan.hulls.find((x) => x.id === o.assigned.hullId) : null;
+      const invSpeed = inv && t.Campaign.hullSpeed ? t.Campaign.hullSpeed(window.__W(), inv) : null;
+      const snap = { target: window.__name(T), route: invSpeed == null ? cand[0].d : window.__days(R, T, 'romulan', invSpeed), chartRoute: cand[0].d, invSpeed, lostDay, detect, created: o.createdDay, plan: o.plan, deadline: o.deadline.value };
       for (let k = 0; k < 120 && o.status === 'active'; k++) window.__adv(1);
       return { ...snap, status: o.status, arrived: o.arrivedDay, resolution: o.resolution, stats: { ...window.__D().stats } };
     });
@@ -207,7 +211,7 @@ const { startProbe } = require('./probe-harness.cjs');
   });
 
   // 5 ---------------------------------------------------------------------------------------------
-  await check('preservation', 'NO-INSTANT-MOVEMENT every journey under way in a 60-day default run flies its chart legs: no leg shorter than the chart, no arrival before its ETA', async () => {
+  await check('preservation', 'NO-INSTANT-MOVEMENT every journey under way in a 60-day default run flies its chart legs (at its ships\' strategic speed): no leg shorter than that, no arrival before its ETA', async () => {
     await fresh('ts-legs'); await setup();
     const r = await ev(() => {
       const t = testBM1, bad = [];
@@ -218,8 +222,11 @@ const { startProbe } = require('./probe-harness.cjs');
         for (const j of t.campaign().journeys || []) {
           if (seen[j.id]) continue; seen[j.id] = true;
           const sys = [j.plotFrom ?? j.origin, ...j.path];
-          const chart = sys.slice(1).map((x, i) => w.legDays(Number(sys[i]), Number(x)));
-          if (j.legDays.some((d, i) => d < chart[i])) bad.push({ id: j.id, legs: j.legDays, chart });
+          // Its chart legs at the speed it was flying each one (SHIP-DEPENDENT-STRATEGIC-SPEED: a fast ship's
+          // leg is legitimately shorter than the chart's; a journey recorded without a speed flies the chart).
+          const speedAt = (i) => { let sp = null; for (const x of j.speedHistory || []) if (x.fromLeg <= i) sp = x.speed; return sp ?? j.speed ?? null; };
+          const chart = sys.slice(1).map((x, i) => (speedAt(i) == null ? w.legDays(Number(sys[i]), Number(x)) : t.Campaign.legDaysBetween(w, Number(sys[i]), Number(x), speedAt(i))));
+          if (j.legDays.some((d, i) => d < chart[i])) bad.push({ id: j.id, legs: j.legDays, chart, speed: j.speed });
         }
       }
       return { journeys: Object.keys(seen).length, bad: bad.slice(0, 5) };

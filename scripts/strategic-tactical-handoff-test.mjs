@@ -40,12 +40,12 @@ const need = () => { if (!SE || typeof C.blockadeContact !== 'function') throw n
 const LEGS = { '8:1': 1, '1:0': 3, '3:2': 2, '2:1': 1, '1:4': 2, '2:5': 2, '5:6': 1, '6:7': 1, '0:1': 3, '1:8': 1 };
 const legDays = (a, b) => LEGS[`${a}:${b}`] ?? LEGS[`${b}:${a}`] ?? 1;
 const IDX = { Earth: 0, Vega: 1, Border: 2, Qonos: 3, Romulus: 4, Cardassia: 5, Bajora: 6, Dominica: 7, Minor: 8 };
-const SHIPS = { 74: { price: 70000, mass: 6, combatHull: 600, faction: 'terran', cargo: 60, speed: 25, cloak: false, combat: 0 } };
+const SHIPS = { 74: { price: 70000, mass: 6, combatHull: 600, faction: 'terran', cargo: 60, strategicSpeed: 0.8, cloak: false, combat: 0 } };
 function campaignWorld(seed, opts = {}) {
   const { world, relations } = makeWorld(opts);
   world.legDays = legDays;
   const base = world.shipStats;
-  world.shipStats = (id) => SHIPS[id] || (base(id) ? { cargo: 100, speed: 45, combat: 1, ...base(id) } : null);
+  world.shipStats = (id) => SHIPS[id] || (base(id) ? { cargo: 100, strategicSpeed: 1.0, combat: 1, ...base(id) } : null);
   const book = C.createCampaignBook(seed, 1);
   C.initializeCampaign(book, world);
   book.config.aiStrategicOps = false;

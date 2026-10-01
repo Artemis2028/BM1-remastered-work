@@ -214,8 +214,11 @@ const { startProbe } = require('./probe-harness.cjs');
       const P = window.__Q();
       const ids = window.__freighters('fr', P, 2);
       const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ids, { target: 5000000 }).record;
+      if (blockade) t.campaign().config.blockadeMaxDays = 400; // it must outlast the window it is judged over
       const id = blockade ? window.__aiBlockade('klingon', P, 28) : null;
-      const moved = window.__window(e, 3 * window.__trip(e));
+      // Six round trips (SHIP-DEPENDENT-STRATEGIC-SPEED: the convoy now flies at its Tarellian freighters' 0.8×, so its
+      // runs fall on other days and other draws; three trips — ten runs — left the verdict to a coin's edge).
+      const moved = window.__window(e, 6 * window.__trip(e));
       const b = id ? window.__block(id) : null;
       window.__adv(0);
       const route = t.evacRouteAssessment(e);
@@ -360,7 +363,10 @@ const { startProbe } = require('./probe-harness.cjs');
       t.changeDiplomacy('terran', 'klingon', 'ceasefire');
       const empire = t.playerRelation('klingon').status;
       const n0 = t.campaign().stats.interceptions || 0;
-      window.__adv(7);
+      // Until the convoy's next delivery after the ceasefire (at its own speed — a fixed seven days assumed
+      // the chart's 1.0×; SHIP-DEPENDENT-STRATEGIC-SPEED), bounded by a round trip.
+      const cfDay = t.state.day;
+      for (let k = 0; k < window.__trip(e) + 2 && !(e.lastDelivery && e.lastDelivery.day > cfDay); k++) window.__adv(1);
       return { runsBefore, empire, status: e.status, factor: e.lastFactor, block: window.__block(id).status, newRuns: (t.campaign().stats.interceptions || 0) - n0, delivered: e.lastDelivery?.delivered, lift: e.transports.reduce((n, x) => n + x.lift, 0) };
     });
     assert.ok(r.runsBefore > 0, 'precondition: no run before the ceasefire');
@@ -517,22 +523,34 @@ const { startProbe } = require('./probe-harness.cjs');
     const t = testBM1;
     const P = window.__Q();
     for (const i of [P, 0]) t.markSystemVisited(i);
+    // The captain watches from off the convoy's route: a convoy ship in the loaded scene is rebuilt from the
+    // scene on a reload (an engine quirk outside this gate — see SHIP-DEPENDENT-STRATEGIC-SPEED §15), which
+    // would make the mid-way save compare two different scenes rather than two identical models.
+    { const away = t.getSystemIndexByName('Vulcan'); t.markSystemVisited(away); t.state.currentPlanet = away; t.state.myplanet = away + 1; t.applySystemState(away); }
     const ids = window.__freighters('fr', P, 4);
-    // Heavy escorts: six Sovereign-class command cruisers.
-    const esc = Array.from({ length: 6 }, (_, k) => window.__ship(`esc${k}`, P, 329, 2000));
     const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ids, { target: 4000000 }).record;
     const trace = [];
     const phase = (label, days) => {
-      const m0 = window.__evacById(e.id).moved, r0 = window.__runs(window.__evacById(e.id)).length;
+      // The phase's runs by day (a blockade keeps only its last thirty runs, so a count taken before the
+      // phase cannot index into the list after it).
+      const m0 = window.__evacById(e.id).moved, d0 = t.state.day;
       window.__adv(days);
-      const x = window.__evacById(e.id), runs = window.__runs(x).slice(r0).map((r) => r.outcome);
+      const x = window.__evacById(e.id), runs = window.__runs(x).filter((r) => r.day > d0).map((r) => r.outcome);
       trace.push([label, x.moved, x.moved - m0, x.status, days, runs, runs.filter((o) => t.Campaign.blockadeRunContinues(o)).length]);
     };
     const trip = window.__trip(e);
     phase('clear', 2 * trip);
+    // Eight round trips, the blockade kept on station for them: the convoy's run odds through it are a
+    // little under even (SHIP-DEPENDENT-STRATEGIC-SPEED moved them from 44% to 48% for these freighters), so
+    // four runs could all pass by chance — on either build — and say nothing.
+    t.campaign().config.blockadeMaxDays = 400;
     const id = window.__aiBlockade('klingon', P, 20);
-    phase('blockade', 4 * trip);
+    phase('blockade', 8 * trip);
     if (saveMid) { t.saveGame(3); t.startWithFaction('ferengi'); t.loadGame(3); }
+    // Heavy escorts: six Sovereign-class command cruisers, brought in now. (Built at the start, they sat at
+    // the origin through the blockade phase as its garrison and wore the blockade down before it had been
+    // run more than a few times — so that phase measured almost nothing.)
+    const esc = Array.from({ length: 6 }, (_, k) => window.__ship(`esc${k}`, P, 329, 2000));
     t.assignPlayerEscorts(e.id, esc);
     phase('escorted', 4 * trip);
     const book = t.campaign();

@@ -120,14 +120,20 @@ became of it). Travel stays ship-independent.
 Rows 21 (the captain's warp) and 23 (the pirate group's local follow) are unified; the rules are in
 STRATEGIC-TACTICAL-HANDOFF.md. The strategic interception → tactical combat handoff is done.
 
+## After SHIP-DEPENDENT-STRATEGIC-SPEED
+
+No row is reclassified. Each UNIFIED row now flies at the speed of the ships flying it: a group at its
+slowest member able to travel; wormhole-only edges keep fixed days. Each planner reads that same speed.
+The per-consumer classification is `docs/movement/STRATEGIC-SPEED-AUDIT.md`, and the rules are
+`SHIP-DEPENDENT-STRATEGIC-SPEED.md`. The "travel stays ship-independent" note above holds only up to
+f0e219b.
+
 ## Still deferred
 
 - **This audit:**
   - stranded recovery movement (row 24);
   - moving the trade record onto the journey record (row 2).
 - **The standing list:**
-  - **SHIP-DEPENDENT STRATEGIC SPEED** (its own future round). The requirements are in
-    STRATEGIC-TIME-SCALE-CORRECTION §10.
   - towing/salvage;
   - trader record-shape consolidation;
   - treaty expansion;
@@ -138,4 +144,5 @@ STRATEGIC-TACTICAL-HANDOFF.md. The strategic interception → tactical combat ha
   - Hirogen hunting;
   - Borg assimilation;
   - Gorn activation;
-  - Tactical Cube.
+  - Tactical Cube;
+  - damage-based strategic speed penalties (no reliable engine-condition state; SHIP-DEPENDENT-STRATEGIC-SPEED §4).

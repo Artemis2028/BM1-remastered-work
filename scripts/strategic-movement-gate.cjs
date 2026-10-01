@@ -45,8 +45,9 @@ const { startProbe } = require('./probe-harness.cjs');
     // same Fleet.travelDays over the plotted route's leg that a formation flies.
     window.__leg = (a, b) => { const w = t.buildCampaignWorld(true); if (typeof w.legDays === 'function') return w.legDays(Number(a), Number(b)); const r = t.getPlottedRoute(Number(a), Number(b)); return r ? t.routeLegDays(r).reduce((n, d) => n + d, 0) : 1; };
     // Fewest jumps over the model's adjacency (Campaign.plotJourney where there is one).
-    window.__plot = (w, from, to, polity) => {
-      if (t.Campaign.plotJourney) return t.Campaign.plotJourney(w, from, to, polity);
+    // `speed`: the ships' strategic speed (SHIP-DEPENDENT-STRATEGIC-SPEED); a build without it plots chart days.
+    window.__plot = (w, from, to, polity, speed = null) => {
+      if (t.Campaign.plotJourney) return t.Campaign.plotJourney(w, from, to, polity, null, speed);
       const prev = new Map([[from, null]]); const q = [from];
       while (q.length) { const c = q.shift(); if (c === to) break; for (const n of w.neighbours(c).map(Number)) if (!prev.has(n)) { prev.set(n, c); q.push(n); } }
       if (!prev.has(to)) return null;
@@ -77,8 +78,10 @@ const { startProbe } = require('./probe-harness.cjs');
         if (hs.length < 3 || w.systems[from]?.controller !== 'klingon') continue;
         for (const s of w.systems) {
           if (s.controller !== 'terran') continue;
-          const plan = window.__plot(w, from, s.index, 'klingon');
-          if (!plan || plan.path.length < 2 || plan.legDays.some((d) => d > maxLeg)) continue;
+          // Chosen on the chart's legs; timed in the days these three ships will fly (their slowest), as their journey will.
+          const chart = window.__plot(w, from, s.index, 'klingon');
+          if (!chart || chart.path.length < 2 || chart.legDays.some((d) => d > maxLeg)) continue;
+          const plan = t.Campaign.hullsSpeed ? window.__plot(w, from, s.index, 'klingon', t.Campaign.hullsSpeed(w, hs.slice(0, 3))) : chart;
           const days = plan.legDays.reduce((n, d) => n + d, 0);
           if (!best || days < best.days) best = { from, target: s.index, plan, days, hulls: hs.slice(0, 3).map((h) => h.id) };
         }
@@ -110,7 +113,9 @@ const { startProbe } = require('./probe-harness.cjs');
       const res = t.startPlayerEvacuation(P, E, ids, { target: 3000000 });
       if (!res.ok) return { fail: res.reason };
       const e = res.record;
-      const legs = e.route.slice(1).map((s, k) => window.__leg(e.route[k], s));
+      // Each leg its chart length at the convoy's strategic speed (its slowest hauler; chart days on a build before ship speed).
+      const w0 = t.buildCampaignWorld(true), sp = t.Campaign.evacuationSpeed ? t.Campaign.evacuationSpeed(w0, e) : null;
+      const legs = e.route.slice(1).map((s, k) => (sp == null ? window.__leg(e.route[k], s) : t.Campaign.legDaysBetween(w0, e.route[k], s, sp)));
       const trail = [];
       for (let k = 0; k < legs.reduce((n, d) => n + d, 0) + 4; k++) { window.__adv(1); const f = t.state.playerFleet.find((x) => x.id === ids[0]); trail.push([t.state.day, Number(f.systemIndex), e.moved]); }
       return { route: e.route, legs, trail, start: e.startDay, P, AC, E };
@@ -311,10 +316,11 @@ const { startProbe } = require('./probe-harness.cjs');
     });
     evidence.push({ check: 'DEBUG-JOURNEYS', ...r });
     await shotSection('SM-debug-shared-journeys.png', '[data-journey-section]');
-    assert.deepEqual(r.heads, ['Actor (vids)', 'Purpose', 'Origin', 'Current leg', 'Destination', 'Departure / arrival', 'Authority', 'Next blocker']);
+    // SHIP-DEPENDENT-STRATEGIC-SPEED added one column (the journey's speed and its legs, chart → flown).
+    assert.deepEqual(r.heads.filter((h) => !/^Speed/.test(h)), ['Actor (vids)', 'Purpose', 'Origin', 'Current leg', 'Destination', 'Departure / arrival', 'Authority', 'Next blocker']);
     assert.ok(r.n >= 2, `rows ${r.n}`);
-    assert.ok(r.rows.some((x) => /evacuation/.test(x[0]) && /Alpha Centauri/.test(x[7])), 'the evacuation row does not name the blockade ahead');
-    assert.ok(r.rows.some((x) => /operation/.test(x[0]) && /war/.test(x[6])), 'the war fleet row has no war authority');
+    assert.ok(r.rows.some((x) => /evacuation/.test(x[0]) && /Alpha Centauri/.test(x.at(-1))), 'the evacuation row does not name the blockade ahead'); // the last column (one was added before it)
+    assert.ok(r.rows.some((x) => /operation/.test(x[0]) && /war/.test(x.at(-2))), 'the war fleet row has no war authority'); // the authority column, before the last
   });
 
   // ------------------------------------------------------------------------------------------------
