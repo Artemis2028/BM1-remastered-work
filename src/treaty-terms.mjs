@@ -53,7 +53,9 @@ export function makeTerm(spec, id, day) {
       const restrict = Object.fromEntries(DMZ_RESTRICTIONS.map((k) => [k, s.restrict?.[k] !== false]));
       t = { ...base, parties: uniq([...parties, ...restricted]), systems, restricted, restrict,
         civilian: s.civilian === 'prohibited' ? 'prohibited' : 'allowed', recovery: s.recovery === 'prohibited' ? 'prohibited' : 'allowed',
-        graceDays: posInt(s.graceDays, 10), corridor: systems.length > 1, withdrawal: null };
+        graceDays: posInt(s.graceDays, 10), corridor: systems.length > 1, withdrawal: null,
+        // Whether a party's commander may knowingly order a ship through anyway (the crossing is then a breach).
+        defiance: s.defiance === 'forbidden' ? 'forbidden' : 'permitted' };
       break;
     }
     case 'transit': {

@@ -4877,3 +4877,11 @@ button:disabled {
 #cheats-debug table.doctrine-debug code { font-size: 11px; word-break: break-all; }
 #cheats-debug [data-doctrine-section] h4 { margin: 10px 0 2px; }
 #cheats-debug table.doctrine-debug td:first-child code { word-break: normal; white-space: nowrap; }
+
+/* TREATY-EXPANSION: the captain's course under a DMZ — the decision, nothing else. */
+#treaty-course-choice { box-sizing: border-box; width: min(560px, calc(100vw - 24px)); padding: 18px 20px; border: 2px solid #ffd18c; border-radius: 12px; background: #11131e; color: #f1edf7; font: 16px/1.5 system-ui, sans-serif; }
+#treaty-course-choice::backdrop { background: rgba(0, 0, 0, .6); }
+#treaty-course-choice .treaty-course-title { margin: 0 0 14px; font-size: 18px; }
+#treaty-course-choice .treaty-course-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#treaty-course-choice button { min-height: 40px; padding: 8px 14px; font: inherit; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+#treaty-course-choice button[data-treaty-course="violate"] { background: #7a1d1d; color: #fff; border: 1px solid #ff8a7a; }

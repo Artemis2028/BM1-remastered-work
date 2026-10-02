@@ -244,6 +244,19 @@ The captain's formations follow the same rules through `playerLawfulRoute`:
 - crossings go through the same `treatyCrossing`;
 - `treaty defy <formation>` sends one through in defiance.
 
+The captain's own course follows the same rules. This was a correction stacked on db11c10; the gate is
+`test:treaty:captain`.
+
+- His personal vessel is the same persistent record, classed by `captainTrafficClass`.
+- A course whose chart route crosses a DMZ that binds his empire offers **DMZ — Military transit prohibited.**
+  with ROUTE AROUND / CANCEL. VIOLATE TREATY appears only where every blocking DMZ permits defiance.
+- A destination inside the zone, with no lawful route, is refused.
+- Each crossing goes through the same `treatyCrossing`. A defiant course is one `dmz_entry` per course; a resumed
+  course is the same course. An inspection sees only his declared hold.
+- At every leg boundary the rest of the course is re-routed lawfully, or the course holds there.
+- Save and load keep the course's class, course id and lawful path.
+- The strategic↔tactical handoff (a blockade stop at a treaty-restricted system, then the resume) is unchanged.
+
 ## 12. Blockades
 
 - A DMZ that binds a power refuses its `startBlockade` there, and the AI planner never chooses such a target.
@@ -393,6 +406,9 @@ Towing limitations carried forward from d5b50b5:
 - no crew clock for the captain's own vessels.
 
 Treaty limitations this round:
+
+- The captain's own ship standing inside a DMZ is not a stationing breach; his fleets are.
+- A re-routed personal course is charged no extra antimatter; its ship-range check applies at departure.
 
 - Basing `staging` and `docking` are recorded but not yet read by any system.
 - There is no negotiation AI. Terms come only from settlement code, authored beats or debug.

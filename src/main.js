@@ -17162,7 +17162,7 @@ function getRouteCosts(route) {
   };
 }
 
-function jumpPlanet() {
+function jumpPlanet(opts = {}) {
   if (!canFleetDepart()) return;
   if (state.gameOver || !state.gameStarted) return;
   if (state.warp.active) return;
@@ -17170,12 +17170,19 @@ function jumpPlanet() {
     setLog('Open the star chart first.');
     return;
   }
-  const plan = getPlottedRoute(state.currentPlanet, state.selectedPlanet);
+  let plan = getPlottedRoute(state.currentPlanet, state.selectedPlanet);
   if (!plan || !plan.legs.length) {
     const from = state.planets[state.currentPlanet]?.name || 'current system';
     const to = state.planets[state.selectedPlanet]?.name || 'that system';
     setLog(`No plotted route from ${from} to ${to}.`);
     return;
+  }
+  // TREATY-EXPANSION: the captain's own course obeys the treaties that bind his empire, as his formations do.
+  const treaty = captainTreatyCourse(state.currentPlanet, state.selectedPlanet, plan);
+  if (treaty.status !== 'clear') {
+    if (opts.treaty === 'around' && treaty.lawful) plan = treaty.lawful;
+    else if (opts.treaty === 'violate' && treaty.defiable) { /* the chart's route, flown in defiance */ }
+    else { openTreatyCourseChoice(treaty); return; }
   }
   const rangeStatus = getPlottedRouteStatus(plan);
   const jumpAntiMatterCost = plan.antimatter;
@@ -17193,7 +17200,61 @@ function jumpPlanet() {
   }
   state.antimatter -= jumpAntiMatterCost;
   syncFuelToAntimatter();
-  beginWarpTravel(state.selectedPlanet, plan);
+  closeTreatyCourseChoice();
+  beginWarpTravel(state.selectedPlanet, plan, { treatyDefy: treaty.status !== 'clear' && opts.treaty === 'violate' });
+}
+// ---- the captain's own course under treaty (TREATY-EXPANSION, captain's warp) ----
+// His traffic class: a combat-capable ship, or any course with escorts, is military; an unescorted freighter or
+// cargo shuttle is civilian.
+function captainTrafficClass() {
+  const cat = Speed.speedCategory(getShipStats(state.playership));
+  if (getPlayerEscortFleetShips().some((f) => !f.destroyed)) return 'military';
+  return ['freighter', 'cargoShuttle'].includes(cat) && shipClassCombat(state.playership) <= 0.3 ? 'civilian' : 'military';
+}
+// What the treaties that bind his empire say of a course: clear, re-routable (a lawful route exists), or refused.
+function captainTreatyCourse(from, to, chart = getPlottedRoute(from, to)) {
+  const cls = captainTrafficClass();
+  const book = campaignBook();
+  const barred = playerTreatyBarred(cls);
+  if (!barred.size || !chart) return { status: 'clear', cls };
+  if (Campaign.treatyRouteBlocked(book, from, chart.systems.slice(1).map(Number), PLAYER_SIDE, cls, state.day) == null) return { status: 'clear', cls };
+  const lawful = barred.has(Number(to)) ? null : playerLawfulRoute(from, to, cls);
+  const blocking = Campaign.activeTreatyTerms(book, 'dmz', state.day).filter((t) => Treaty.dmzRestricts(t, PLAYER_SIDE, cls) && chart.systems.some((i) => t.systems.includes(Number(i)) && barred.has(Number(i))));
+  return { status: lawful ? 'reroute' : 'refused', cls, chart, lawful, from: Number(from), to: Number(to), defiable: blocking.length > 0 && blocking.every((t) => t.defiance !== 'forbidden') };
+}
+function closeTreatyCourseChoice() { const d = document.getElementById('treaty-course-choice'); if (d?.open) d.close(); state.treatyCourseChoice = null; }
+function openTreatyCourseChoice(treaty) {
+  state.treatyCourseChoice = { status: treaty.status, from: treaty.from, to: treaty.to, defiable: treaty.defiable };
+  let d = document.getElementById('treaty-course-choice');
+  if (!d) {
+    d = document.createElement('dialog'); d.id = 'treaty-course-choice'; d.className = 'treaty-course-choice';
+    d.addEventListener('click', (e) => { const b = e.target.closest('[data-treaty-course]'); if (!b) return; const v = b.dataset.treatyCourse; if (v === 'cancel') { closeTreatyCourseChoice(); setLog('Course cancelled.'); } else jumpPlanet({ treaty: v }); });
+    document.body.appendChild(d);
+  }
+  if (treaty.status === 'refused') setLog(`Course refused: DMZ — Military transit prohibited (${state.planets[treaty.to]?.name || '?'}).`);
+  d.innerHTML = `<p class="treaty-course-title" data-treaty-course-status="${escapeHtml(treaty.status)}"><b>DMZ — Military transit prohibited.</b></p><div class="treaty-course-actions">${treaty.status === 'reroute' ? '<button data-treaty-course="around">Route around</button>' : ''}<button data-treaty-course="cancel">Cancel</button>${treaty.defiable ? '<button data-treaty-course="violate">Violate treaty</button>' : ''}</div>`;
+  if (!d.open) { try { d.showModal(); } catch { d.show(); } }
+}
+// A crossing on his course under treaty: the shared crossing engine (a DMZ entry in defiance, an inspection regime).
+function captainTreatyCrossing(at, w, i) {
+  const book = campaignBook();
+  if (!book.treatyTerms?.length || w.kind === 'retreat') return null;
+  syncPlayerPolity(book);
+  const world = buildCampaignWorld(true);
+  const me = ensurePersonalIdentity();
+  const escorts = getPlayerEscortFleetShips().filter((f) => !f.destroyed);
+  const cargo = (state.cargoArray || []).filter((pod) => pod && Number(pod.tons) > 0).map((pod) => ({ cargoId: pod.item, quantity: Number(pod.tons), concealed: Boolean(pod.concealed) }));
+  const effects = [];
+  const r = Campaign.treatyCrossing(book, world, { sponsor: PLAYER_SIDE, cls: w.trafficClass || captainTrafficClass(), at: Number(at), day: state.day, key: `captain:${w.courseId || w.journeyId}`,
+    vids: [me.vid, ...escorts.map((f) => ensureFleetVesselIdentity(f).vid)], defy: Boolean(w.treatyDefy), response: w.treatyDefy ? 'refuse' : null,
+    inspectionResponse: state.captainInspectionPolicy === 'refuse' ? 'refuse' : 'comply', cargo,
+    hulls: [{ vid: me.vid, shipId: Number(state.playership) }], categories: [Speed.speedCategory(getShipStats(state.playership))].filter(Boolean), canReceive: !vesselDisabled(state) }, effects);
+  if (effects.length) applyCampaignEffects(effects, state.day);
+  campaignWorldCache = null;
+  const where = state.planets[at]?.name || `system ${at}`;
+  for (const x of r.incidents) if (x.kind === 'dmz_entry') setLog(`${where}: DMZ entered in violation of the treaty${x.evidence.length ? ' — breach recorded' : ''}.`);
+  for (const x of r.inspections) setLog(`${where}: inspection ${x.state}${x.state === 'refused' ? ' — passage denied' : ''}.`);
+  return r;
 }
 
 function beginWarpTravel(targetIndex, plan, opts = {}) {
@@ -17229,6 +17290,11 @@ function beginWarpTravel(targetIndex, plan, opts = {}) {
     legsDone: 0,
     crossings: [],
     kind: opts.retreat ? 'retreat' : opts.resume ? 'resume' : 'course',
+    // Treaty state of the course (TREATY-EXPANSION): its traffic class, whether it is flown in defiance, and the
+    // course it belongs to (a resumed course is the same course: its crossings are not filed twice).
+    trafficClass: captainTrafficClass(),
+    ...(opts.treatyDefy ? { treatyDefy: true } : {}),
+    courseId: opts.courseId || null,
     travelDays: routeLegDays(plan, captainCourseSpeed()).reduce((n, d) => n + d, 0) || Fleet.travelDays(plan?.distance ?? plan?.range ?? (plan?.legs || []).reduce((n,l) => n + getRouteWarpDistance(l),0)),
     journeyId: Fleet.nextId(fleetBook(), 'journey'),
     startedAt: gameNow(),
@@ -17237,6 +17303,7 @@ function beginWarpTravel(targetIndex, plan, opts = {}) {
       ? `Warp drive engaged for ${target?.name || 'target system'} over ${plan.legs.length} route legs...`
       : `Warp drive engaged for ${target?.name || 'target system'}...`,
   };
+  state.warp.courseId ||= state.warp.journeyId;
   playGameSound('warpEnter', { cooldownKey: 'warp:enter' });
   setLog(state.warp.message);
   updateStats();
@@ -28185,20 +28252,51 @@ function advanceCaptainWarpLegs() {
     const at = Number(w.path[i]);
     const last = i === w.path.length - 1;
     w.crossings.push({ system: at, day: state.day, leg: i });
+    // Treaty terms met here first (a DMZ entered in defiance, an inspection): passage denied ends the course here.
+    const tre = captainTreatyCrossing(at, w, i);
+    if (tre?.turnedBack) {
+      w.stop = { type: 'treaty', system: at, leg: i };
+      if (!last) { w.finalTo ??= w.to; w.to = at; }
+      w.message = `Passage denied at ${state.planets[at]?.name}.`;
+      break;
+    }
     const stop = captainCrossingCheck(at, { journeyId: w.journeyId, leg: i, last });
     if (stop) {
       w.stop = { ...stop, system: at, leg: i };
       const previous = i > 0 ? Number(w.path[i - 1]) : Number(w.from);
       // At the destination itself there is no rest of the course, but forced back he still falls back.
-      if (last) state.warpResume = { destination: at, from: at, previous, path: [], legDays: [], legs: [], systems: [at], encounterId: stop.encounterId || null, stopType: stop.type, opId: stop.opId || null, day: state.day, journeyId: w.journeyId, paid: true, ready: false, final: true };
+      if (last) state.warpResume = { destination: at, from: at, previous, path: [], legDays: [], legs: [], systems: [at], encounterId: stop.encounterId || null, stopType: stop.type, opId: stop.opId || null, day: state.day, journeyId: w.journeyId, paid: true, ready: false, final: true, courseId: w.courseId || w.journeyId, ...(w.treatyDefy ? { treatyDefy: true } : {}) };
       if (!last) {
         state.warpResume = { destination: Number(w.finalTo ?? w.to), from: at, previous, path: w.path.slice(i + 1).map(Number), legDays: w.legDays.slice(i + 1), legs: (w.route?.legs || []).slice(i + 1),
-          systems: [at, ...w.path.slice(i + 1).map(Number)], encounterId: stop.encounterId || null, stopType: stop.type, opId: stop.opId || null, day: state.day, journeyId: w.journeyId, paid: true, ready: stop.type === 'operation' ? false : false };
+          systems: [at, ...w.path.slice(i + 1).map(Number)], encounterId: stop.encounterId || null, stopType: stop.type, opId: stop.opId || null, day: state.day, journeyId: w.journeyId, paid: true, ready: stop.type === 'operation' ? false : false,
+          courseId: w.courseId || w.journeyId, ...(w.treatyDefy ? { treatyDefy: true } : {}) };
         w.finalTo ??= w.to;
         w.to = at;
         w.message = `Dropped out of warp at ${state.planets[at]?.name}.`;
       }
       break;
+    }
+    // A leg boundary: the rest of the course is re-checked against the treaties in force today. One that began
+    // or ended while the leg was flown is met here: the rest is re-routed lawfully, or the course ends here.
+    if (!last && !w.treatyDefy && w.kind !== 'retreat' && campaignBook().treatyTerms?.length) {
+      const cls = w.trafficClass || 'military';
+      if (Campaign.treatyRouteBlocked(campaignBook(), at, w.path.slice(i + 1).map(Number), PLAYER_SIDE, cls, state.day) != null) {
+        const dest = Number(w.finalTo ?? w.to);
+        const lawful = playerLawfulRoute(at, dest, cls);
+        if (lawful && lawful.legs.length) {
+          w.path = [...w.path.slice(0, i + 1), ...lawful.systems.slice(1).map(Number)];
+          w.legDays = [...w.legDays.slice(0, i + 1), ...routeLegDays(lawful, w.speed ?? captainCourseSpeed())];
+          w.travelDays = w.legDays.reduce((n, d) => n + d, 0);
+          if (w.route) w.route = { ...w.route, legs: [...(w.route.legs || []).slice(0, i + 1), ...lawful.legs], systems: [Number(w.from), ...w.path] };
+          (w.treatyReplots ||= []).push({ day: state.day, at, via: lawful.systems.slice(1).map(Number) });
+          setLog(`${state.planets[at]?.name}: DMZ — Military transit prohibited ahead. Course re-routed.`);
+        } else {
+          w.stop = { type: 'treaty', system: at, leg: i };
+          w.finalTo ??= w.to; w.to = at;
+          w.message = `Holding at ${state.planets[at]?.name}: DMZ — Military transit prohibited.`;
+          break;
+        }
+      }
     }
   }
   w.legsSettled = true;
@@ -28212,8 +28310,14 @@ function resumeCaptainCourse() {
   const live = r.encounterId ? Encounter.encounterById(book, r.encounterId) : null;
   if (live && Encounter.isLive(live)) { setLog('Not while the engagement lasts.'); return false; }
   if (r.stopType === 'operation') { const op = (book.operations || []).find((o) => o.id === r.opId); if (op && op.status === 'engaged' && op.resolvedBy === 'local') { setLog('Not while the battle lasts.'); return false; } }
-  const plan = { from: r.from, to: r.destination, legs: r.legs, systems: r.systems, distance: (r.legs || []).reduce((n, l) => n + getRouteWarpDistance(l), 0), antimatter: 0 };
-  const ok = beginWarpTravel(r.destination, plan, { resume: true, free: true });
+  let plan = { from: r.from, to: r.destination, legs: r.legs, systems: r.systems, distance: (r.legs || []).reduce((n, l) => n + getRouteWarpDistance(l), 0), antimatter: 0 };
+  // The rest of the course under the treaties in force now (one may have begun or ended while he was stopped).
+  if (!r.treatyDefy && campaignBook().treatyTerms?.length && Campaign.treatyRouteBlocked(campaignBook(), r.from, (r.systems || []).slice(1).map(Number), PLAYER_SIDE, captainTrafficClass(), state.day) != null) {
+    const lawful = playerLawfulRoute(r.from, r.destination, captainTrafficClass());
+    if (!lawful || !lawful.legs.length) { setLog('DMZ — Military transit prohibited.'); return false; }
+    plan = { ...lawful, antimatter: 0 };
+  }
+  const ok = beginWarpTravel(r.destination, plan, { resume: true, free: true, courseId: r.courseId || null, treatyDefy: Boolean(r.treatyDefy) });
   if (!ok) return false; // could not depart (boarding, disabled): the course stays to resume later
   state.warpResume = null;
   Encounter.bumpEncounterStat(book, 'journeysResumed'); // the captain's own course, resumed once
