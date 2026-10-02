@@ -4,7 +4,8 @@
 // below are REAL catalogue classes, carrying the rating bm-ships/ships.json gives them. Checks are tagged:
 //   [baseline-defect] reproduces 7d3ce43 (category speeds, legs rounded to nearest; fails on its own assertion there);
 //   [new-feature]     behaviour this round adds;
-//   [preservation]    behaviour that must be unchanged.
+//   [preservation]    behaviour that must be unchanged (passes on both).
+// Tests 3 and 22/23 read the catalogue's classes, so on 7d3ce43 (category speeds) they fail on their own assertion.
 // BM1_RATING_ROOT points the suite at another tree (the baseline reproduction runs it against 7d3ce43).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -35,6 +36,9 @@ const test = (tag, name, fn) => {
 };
 const sum = (a) => a.reduce((n, d) => n + d, 0);
 const ceilDays = (base, m) => Math.max(1, Math.ceil(base / m - 1e-9));
+// The approved rating → multiplier table, as the brief gives it (the runtime's must equal it: test 0).
+const MULT = Object.freeze({ 1: 0.70, 1.5: 0.74, 2: 0.78, 2.5: 0.82, 3: 0.85, 3.5: 0.89, 4: 0.92, 4.5: 0.96, 5: 1.00, 5.5: 1.04, 6: 1.08, 6.5: 1.12, 7: 1.16, 7.5: 1.20, 8: 1.24, 8.5: 1.28, 9: 1.32, 9.5: 1.36, 10: 1.40 });
+const mult = (r) => MULT[r];
 
 // ---- real catalogue classes with their approved ratings ----
 const byName = (n) => { const s = CATALOGUE.find((x) => x.name === n); assert.ok(s, `no class ${n}`); return s; };
@@ -52,8 +56,8 @@ const CLS = {
 const SHIPS = {};
 for (const s of Object.values(CLS)) SHIPS[s.id] = { price: 90000, mass: Number(s.mass) || 4, combatHull: 900, faction: s.faction, cargo: 500, combat: 1, strategicSpeedRating: s.strategicSpeedRating, strategicSpeed: s.strategicSpeed };
 // Two Klingon war classes of identical fighting value, rated 8.5 and 3 (synthetic ids; the ratings are table values).
-SHIPS[901] = { price: 110000, mass: 6, combatHull: 950, faction: 'klingon', cargo: 0, combat: 1, strategicSpeedRating: 8.5, strategicSpeed: SPD.ratingMultiplier(8.5) };
-SHIPS[902] = { price: 110000, mass: 6, combatHull: 950, faction: 'klingon', cargo: 0, combat: 1, strategicSpeedRating: 3, strategicSpeed: SPD.ratingMultiplier(3) };
+SHIPS[901] = { price: 110000, mass: 6, combatHull: 950, faction: 'klingon', cargo: 0, combat: 1, strategicSpeedRating: 8.5, strategicSpeed: mult(8.5) };
+SHIPS[902] = { price: 110000, mass: 6, combatHull: 950, faction: 'klingon', cargo: 0, combat: 1, strategicSpeedRating: 3, strategicSpeed: mult(3) };
 
 // Earth(0) ─ Vega(1) ─ Border(2) ─ Qonos(3);  Vega ─ Romulus(4);  Border ─ Cardassia(5) ─ Bajora(6) ⇄ Dominica(7);  Vega ─ Minor(8).
 const LEGS = { '0:1': 12, '1:2': 10, '2:3': 8, '1:4': 12, '2:5': 9, '5:6': 7, '6:7': 3, '1:8': 11 };
@@ -89,15 +93,15 @@ const go = (env, polity, hulls, destination, day = 1) => C.startJourney(env.book
 // ===================================================================================================
 test('baseline-defect', '0. every catalogue class carries its approved rating, multiplier, confidence and basis; the anchors are the rater\'s (Intrepid/Prometheus/Constitution III/Inquiry 10, Sovereign 9.5, Galaxy/Defiant/Vor\'cha 8.5, D\'deridex/Marauder 7.5, Galor 6.5, Nova 6, Danube 3, NX 2, Solar Sailor 1)', () => {
   const anchors = { 'Intrepid Explorer': 10, 'Prometheus Tactical Cruiser': 10, 'Constitution III Class': 10, 'Inquiry Class': 10, 'Sovereign Class': 9.5, 'Sovereign Command Cruiser': 9.5, 'Galaxy Class': 8.5, 'Galaxy Command Variant': 8.5, 'Defiant Escort': 8.5, "Vor'cha Attack Cruiser": 8.5, "D'deridex Warbird": 7.5, 'Ferengi Marauder Refit': 7.5, 'Galor Cruiser': 6.5, 'Nova Surveyor': 6, 'Danube Utility Runabout': 3, 'NX Class': 2, 'Bajoran Solar Sailor': 1 };
-  for (const [n, r] of Object.entries(anchors)) { const s = byName(n); assert.equal(s.strategicSpeedRating, r, n); assert.equal(s.strategicSpeed, SPD.ratingMultiplier(r), n); assert.equal(s.strategicSpeedBasis, 'rater:table', n); }
+  for (const [n, r] of Object.entries(anchors)) { const s = byName(n); assert.equal(s.strategicSpeedRating, r, n); assert.equal(s.strategicSpeed, mult(r), n); assert.equal(s.strategicSpeedBasis, 'rater:table', n); }
   for (const s of CATALOGUE) {
     assert.ok(s.strategicSpeedRating >= 1 && s.strategicSpeedRating <= 10 && (s.strategicSpeedRating * 2) % 1 === 0, `${s.name} rating ${s.strategicSpeedRating}`);
-    assert.equal(s.strategicSpeed, SPD.RATING_MULTIPLIER[s.strategicSpeedRating], s.name);
+    assert.equal(s.strategicSpeed, MULT[s.strategicSpeedRating], s.name);
     assert.ok(['high', 'medium', 'low'].includes(s.strategicSpeedConfidence), s.name);
     assert.ok(/^rater:(table|fallback)/.test(s.strategicSpeedBasis), s.name);
     assert.ok(typeof s.strategicSpeedNote === 'string' && s.strategicSpeedNote.length > 0, s.name);
   }
-  assert.deepEqual(Object.entries(SPD.RATING_MULTIPLIER).map(([k, v]) => [Number(k), v]).filter(([k]) => Number.isInteger(k)), [[1, 0.7], [2, 0.78], [3, 0.85], [4, 0.92], [5, 1], [6, 1.08], [7, 1.16], [8, 1.24], [9, 1.32], [10, 1.4]]);
+  assert.deepEqual({ ...(SPD.RATING_MULTIPLIER || {}) }, { ...MULT }, 'the runtime multiplier table is not the approved one');
   log.counts = CATALOGUE.reduce((m, s) => { const k = `${s.strategicSpeedBasis}/${s.strategicSpeedConfidence}`; m[k] = (m[k] || 0) + 1; return m; }, {});
 });
 
@@ -118,7 +122,7 @@ test('new-feature', '2. a 1/10 ship (the Bajoran Solar Sailor) is slower than th
   const fa = go(env, 'terran', [a], IDX.Border).journey, fb = go(env, 'terran', [b], IDX.Border).journey;
   assert.deepEqual(fa.legDays, [16, 15]); assert.ok(fa.etaDay > fb.etaDay);
 });
-test('preservation', '3. a 5/10 ship reproduces the chart\'s baseline timing exactly (the same days a ship-independent journey took), and so does a class with no rating', () => {
+test('baseline-defect', '3. a 5/10 ship reproduces the chart\'s baseline timing exactly (the same days a ship-independent journey took), and so does a class with no rating', () => {
   const env = campaignWorld('SR-3');
   const [a] = make(env, 'terran', CLS.peregrin, IDX.Earth);
   const chart = C.plotJourney(env.world, IDX.Earth, IDX.Qonos, 'terran');
@@ -127,9 +131,9 @@ test('preservation', '3. a 5/10 ship reproduces the chart\'s baseline timing exa
   assert.equal(SPD.classSpeed({}), 1); assert.equal(SPD.classRating({}), 5);
 });
 test('new-feature', '4. the planning ETA is exactly the actual arrival, for every rating on the table (the planner and the journey read one function)', () => {
-  for (const r of Object.keys(SPD.RATING_MULTIPLIER).map(Number)) {
+  for (const r of Object.keys(MULT).map(Number)) {
     const env = campaignWorld(`SR-4-${r}`);
-    SHIPS[990] = { ...SHIPS[CLS.peregrin.id], strategicSpeedRating: r, strategicSpeed: SPD.ratingMultiplier(r) };
+    SHIPS[990] = { ...SHIPS[CLS.peregrin.id], strategicSpeedRating: r, strategicSpeed: mult(r) };
     const [h] = make(env, 'terran', 990, IDX.Minor);
     const planned = C.plannedJourneyDays(env.world, IDX.Minor, IDX.Qonos, 'terran', C.hullSpeed(env.world, h));
     const tr = go(env, 'terran', [h], IDX.Qonos).journey;
@@ -190,7 +194,7 @@ test('new-feature', '21. save/load mid-leg keeps the adjusted arrival exactly', 
   run(env.book, env.world, 9, 40); run(b2, env.world, 9, 40);
   assert.equal(t2.arrivedDay, tr.arrivedDay); assert.equal(tr.arrivedDay, 1 + ceilDays(11, 0.85) + ceilDays(10, 0.85));
 });
-test('preservation', '22/23. a disabled, surrendered or crew-awaiting hull never sets a pace, and every vid is unchanged by the rated movement', () => {
+test('new-feature', '22/23. a disabled, surrendered or crew-awaiting hull never sets a pace, and every vid is unchanged by the rated movement', () => {
   const env = campaignWorld('SR-22');
   const [fast] = make(env, 'terran', CLS.intrepid, IDX.Vega), [slow] = make(env, 'terran', CLS.sailor, IDX.Vega);
   const vids = [vidOf(fast), vidOf(slow)];
@@ -203,7 +207,7 @@ test('preservation', '22/23. a disabled, surrendered or crew-awaiting hull never
 });
 test('preservation', '24. a wormhole transit keeps its fixed days for every rating, 1 to 10', () => {
   const env = campaignWorld('SR-24');
-  for (const r of [1, 3, 5, 8.5, 10]) assert.equal(C.legDaysBetween(env.world, IDX.Bajora, IDX.Dominica, SPD.ratingMultiplier(r)), 3);
+  for (const r of [1, 3, 5, 8.5, 10]) assert.equal(C.legDaysBetween(env.world, IDX.Bajora, IDX.Dominica, mult(r)), 3);
   assert.equal(SPD.adjustLegDays(1, 1.4), 1);
 });
 
@@ -402,12 +406,12 @@ test('new-feature', 'RATER-EXACT every class carries exactly what the approved r
   const src = fs.readFileSync(html, 'utf8');
   // The rater's own recommendation code, run as the rater runs it (not the assignment script's copy of the logic).
   const R = vm.runInNewContext(`${src.slice(src.indexOf('const multiplierByRating'), src.indexOf('let ships=[]'))}\n;({ multiplierByRating, OV, recommendation });`, {});
-  for (const [k, v] of Object.entries(R.multiplierByRating)) assert.equal(SPD.RATING_MULTIPLIER[k], v, `multiplier for ${k}`);
+  for (const [k, v] of Object.entries(R.multiplierByRating)) { assert.equal(MULT[k], v, `brief's multiplier for ${k}`); assert.equal(SPD.RATING_MULTIPLIER?.[k], v, `runtime multiplier for ${k}`); }
   const off = [];
   for (const s of CATALOGUE) {
     const rec = R.recommendation(s);
     const basis = Object.prototype.hasOwnProperty.call(R.OV, s.name) ? 'rater:table' : s.rosterState === 'retired' ? 'rater:fallback (retired)' : 'rater:fallback';
-    if (Number(rec.score) !== s.strategicSpeedRating || rec.confidence !== s.strategicSpeedConfidence || basis !== s.strategicSpeedBasis || rec.basis !== s.strategicSpeedNote || SPD.ratingMultiplier(rec.score) !== s.strategicSpeed) off.push(`${s.id} ${s.name}: rater ${rec.score}/${rec.confidence}/${basis}, catalogue ${s.strategicSpeedRating}/${s.strategicSpeedConfidence}/${s.strategicSpeedBasis}`);
+    if (Number(rec.score) !== s.strategicSpeedRating || rec.confidence !== s.strategicSpeedConfidence || basis !== s.strategicSpeedBasis || rec.basis !== s.strategicSpeedNote || mult(rec.score) !== s.strategicSpeed) off.push(`${s.id} ${s.name}: rater ${rec.score}/${rec.confidence}/${basis}, catalogue ${s.strategicSpeedRating}/${s.strategicSpeedConfidence}/${s.strategicSpeedBasis}`);
   }
   assert.deepEqual(off, [], off.slice(0, 5).join('; '));
   assert.ok(fs.existsSync(A), 'no assignment script');

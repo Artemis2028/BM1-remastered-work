@@ -292,6 +292,16 @@ Regression → check:
 | 24 | wormhole correct | pure 24; gate WORMHOLE-FIXED |
 | 25 | no planner uses the old ETA | pure 25 (static), pure 4, the long run |
 
+**Results** (clean worktree of the candidate): the full normal suite, **89/89 exit 0** (the build plus 88 scripts,
+logs in the package); `test:speed:ratings` 23/23 (baseline-defect 7, new-feature 14, preservation 2);
+`test:speed:ratings:ingame` 5/5; `test:speed` 25/25; `test:speed:ingame` 8/8.
+
+**Baseline reproduction (7d3ce43).** `test:speed:ratings` scores 4/22 there (DOC-TABLE-EXACT is not built
+without the generator): every baseline-defect check fails on its own assertion, e.g. "Intrepid Explorer" has no
+rating, the 10/10 route flies the category's days. `test:speed:ratings:ingame` scores 0/5, e.g. "the Intrepid
+trader flies 9,11,9; the chart 10,12,10 at 1.40× is 8,9,8", "class 4 (Nebula Class) flies 1, rated 1.24".
+`test:speed:ingame` scores 1/8 (only WORMHOLE-FIXED, which holds on both).
+
 Changed, with no behaviour weakened:
 
 - `test:speed` (the previous round's suite, `ship-strategic-speed-test.mjs`): its fixture keeps synthetic
@@ -326,7 +336,9 @@ Changed, with no behaviour weakened:
   - `ratingMultiplier` holds a rating to 1–10 (0, 11 or 10.5 no longer fall silently to 1.00×);
   - the evacuation's "too far … at the convoy's …" refusal uses the rating label;
   - pure 7/8 now loses the slow hull mid-leg (it was a pass-through before), pure 18's name says what it checks,
-    the doc-table check cannot silently vanish, and RATER-EXACT was added.
+    the doc-table check cannot silently vanish, and RATER-EXACT was added;
+  - the suite carries the approved multiplier table itself (test 0 checks the runtime's equals it), so it runs
+    against 7d3ce43 and fails there on assertions, not on a missing export.
 - `probe-harness` exports `fleetGroupLimiter`, `formationSpeedText`, `formationEtaText`, `mapCourseEtaText`,
   `journeyParticipantSpeeds`.
 
