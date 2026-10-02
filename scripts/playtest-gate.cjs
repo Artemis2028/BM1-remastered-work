@@ -3213,13 +3213,16 @@ const { startProbe } = require('./probe-harness.cjs');
         if (!t.fleetTradeDeliverable(f, trade, from, i)) continue;
         const route = t.getPlottedRoute(from, i);
         if (!route || !(route.legs || []).length) continue;
-        worlds.push({ i, name: s.planets[i]?.name, legs: route.legs.length, flown: flown(route), reckoned: reckoned(route) });
+        worlds.push({ i, name: s.planets[i]?.name, legs: route.legs.length, flown: flown(route), reckoned: reckoned(route), via: (route.systems || []).map(Number) });
       }
       // A: a world whose route flies in exactly the days a distance reckoning gives it.
       // B: a world whose route really takes at least two days longer than a distance reckoning says.
-      const exact = worlds.filter((w) => w.flown === w.reckoned).sort((a, b) => a.flown - b.flown);
+      // A is not on B's way (nor B on A's): a stop on the way would let one circuit carry both, a fair plan
+      // that says nothing about how either route is reckoned.
       const longer = worlds.filter((w) => w.flown >= w.reckoned + 2).sort((a, b) => (b.flown - b.reckoned) - (a.flown - a.reckoned));
-      const A = exact[0], B = longer[0];
+      const B = longer[0];
+      const exact = worlds.filter((w) => w.flown === w.reckoned && (!B || (!B.via.includes(w.i) && !w.via.includes(B.i)))).sort((a, b) => a.flown - b.flown);
+      const A = exact[0];
       if (!A || !B) return { reckons: true, found: false, exact: exact.length, longer: longer.length };
       // Priced so that B looks better per day by the reckoning and worse by the days actually flown.
       const rateA = 40; // latinum a day, net of upkeep
@@ -3238,7 +3241,7 @@ const { startProbe } = require('./probe-harness.cjs');
       return { reckons: true, found: true, planned: true, A, B, payA, payB, upkeep,
         byReckoning: { A: (payA - upkeep * A.flown) / A.flown, B: (payB - upkeep * B.reckoned) / B.reckoned },
         byFlight: { A: (payA - upkeep * A.flown) / A.flown, B: (payB - upkeep * B.flown) / B.flown },
-        stops: plan.plan.stops.map(Number), days, expected: plan.plan.expected, rate: days > 0 ? plan.plan.expected / days : 0 };
+        stops: plan.plan.stops.map(Number), legDays: plan.plan.legDays, path: plan.plan.path, days, expected: plan.plan.expected, rate: days > 0 ? plan.plan.expected / days : 0 };
     });
     assert.ok(r.reckons, `${r.reason}`);
     assert.ok(r.found, `precondition: no pair of worlds on this map separates the two reckonings (${r.exact} exact, ${r.longer} longer)`);
@@ -3246,7 +3249,7 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.ok(r.byReckoning.B > r.byReckoning.A && r.byFlight.B < r.byFlight.A,
       `precondition: the prices do not separate the two reckonings: ${JSON.stringify({ byReckoning: r.byReckoning, byFlight: r.byFlight })}`);
     assert.ok(r.stops.includes(r.A.i) && !r.stops.includes(r.B.i),
-      `the trader was sent to ${JSON.stringify(r.stops)}: ${r.B.name} is ${r.B.legs} hops and really takes ${r.B.flown} days, not the ${r.B.reckoned} a distance reckoning gives it, and at ${Math.round(r.byFlight.B)} latinum a day it is worse than ${r.A.name} at ${Math.round(r.byFlight.A)} — the planner is reckoning days from distance, not from the legs she will fly`);
+      `the trader was sent to ${JSON.stringify(r.stops)}: ${r.B.name} is ${r.B.legs} hops and really takes ${r.B.flown} days, not the ${r.B.reckoned} a distance reckoning gives it, and at ${Math.round(r.byFlight.B)} latinum a day it is worse than ${r.A.name} at ${Math.round(r.byFlight.A)} — the planner is reckoning days from distance, not from the legs she will fly (plan: ${JSON.stringify({ stops: r.stops, days: r.days, rate: r.rate, legDays: r.legDays, A: r.A, B: r.B, byFlight: r.byFlight })})`);
     assert.ok(Math.abs(r.rate - r.byFlight.A) < 1e-6,
       `the plan expects ${Math.round(r.rate)} latinum a day over ${r.days} days; ${r.A.name} really pays ${Math.round(r.byFlight.A)} a day over ${r.A.flown}`);
   });

@@ -524,33 +524,45 @@ const { startProbe } = require('./probe-harness.cjs');
     const P = window.__Q();
     for (const i of [P, 0]) t.markSystemVisited(i);
     // The captain watches from off the convoy's route: a convoy ship in the loaded scene is rebuilt from the
-    // scene on a reload (an engine quirk outside this gate — see SHIP-DEPENDENT-STRATEGIC-SPEED §15), which
+    // scene on a reload (an engine quirk outside this gate, found in the first SHIP-DEPENDENT-STRATEGIC-SPEED round: a damaged convoy vessel shared with the captain's scene resets to its class hull on reload), which
     // would make the mid-way save compare two different scenes rather than two identical models.
     { const away = t.getSystemIndexByName('Vulcan'); t.markSystemVisited(away); t.state.currentPlanet = away; t.state.myplanet = away + 1; t.applySystemState(away); }
     const ids = window.__freighters('fr', P, 4);
     const e = t.startPlayerEvacuation(P, t.getSystemIndexByName('Earth'), ids, { target: 4000000 }).record;
     const trace = [];
-    const phase = (label, days) => {
+    const phase = (label, days, untilRuns = null) => {
       // The phase's runs by day (a blockade keeps only its last thirty runs, so a count taken before the
       // phase cannot index into the list after it).
       const m0 = window.__evacById(e.id).moved, d0 = t.state.day;
-      window.__adv(days);
+      // untilRuns: stop once the convoy has run the blockade that many times and is home loading (where escorts
+      // join it: an escort assigned while it is away waits at the origin, and a convoy turned back on its way
+      // in never reaches them).
+      const home = () => { const cv = window.__evacById(e.id).convoy; return cv && cv.phase === 'loading' && cv.pos === 0 && t.state.day < cv.nextDay; };
+      if (untilRuns == null) window.__adv(days);
+      else for (let i = 0; i < days && !(window.__runs(window.__evacById(e.id)).filter((r) => r.day > d0).length >= untilRuns && home()); i++) window.__adv(1);
       const x = window.__evacById(e.id), runs = window.__runs(x).filter((r) => r.day > d0).map((r) => r.outcome);
       trace.push([label, x.moved, x.moved - m0, x.status, days, runs, runs.filter((o) => t.Campaign.blockadeRunContinues(o)).length]);
     };
     const trip = window.__trip(e);
     phase('clear', 2 * trip);
-    // Eight round trips, the blockade kept on station for them: the convoy's run odds through it are a
-    // little under even (SHIP-DEPENDENT-STRATEGIC-SPEED moved them from 44% to 48% for these freighters), so
-    // four runs could all pass by chance — on either build — and say nothing.
+    // The blockade kept on station until the convoy has run it at least five times and is home (at most eight
+    // round trips): its run odds are near even, so four runs could all pass by chance and say nothing. Counted
+    // in runs, not trips: a convoy turned back is damaged each time and nothing repairs it on the way, so a
+    // fixed number of trips measured how long the freighters' hulls lasted, not what the blockade does — the
+    // rated round's Tarellian freighters (7/10) were turned back six times in nine runs and worn out before
+    // the escort phase. [SHIP-DEPENDENT-STRATEGIC-SPEED, rated]
     t.campaign().config.blockadeMaxDays = 400;
     const id = window.__aiBlockade('klingon', P, 20);
-    phase('blockade', 8 * trip);
+    phase('blockade', 8 * trip, 5);
     if (saveMid) { t.saveGame(3); t.startWithFaction('ferengi'); t.loadGame(3); }
-    // Heavy escorts: six Sovereign-class command cruisers, brought in now. (Built at the start, they sat at
+    // Heavy escorts: nine Sovereign-class command cruisers, brought in now. (Built at the start, they sat at
     // the origin through the blockade phase as its garrison and wore the blockade down before it had been
-    // run more than a few times — so that phase measured almost nothing.)
-    const esc = Array.from({ length: 6 }, (_, k) => window.__ship(`esc${k}`, P, 329, 2000));
+    // run more than a few times — so that phase measured almost nothing.) Nine, not six: six stood at 0.54 of
+    // the blockade's strength, under the 0.75 at which escorts screen the convoy (interceptCoverRatio), so
+    // their phase was the same dice as the unescorted one — 7d3ce43 passed 6 of 7 on the draw; the rated
+    // build's draw turned the convoy back 3 times in 3 and wore its freighters out. At nine (0.81) the
+    // escorts fight the convoy through, which is what this phase is meant to show.
+    const esc = Array.from({ length: 9 }, (_, k) => window.__ship(`esc${k}`, P, 329, 2000));
     t.assignPlayerEscorts(e.id, esc);
     phase('escorted', 4 * trip);
     const book = t.campaign();
@@ -558,7 +570,7 @@ const { startProbe } = require('./probe-harness.cjs');
     for (const h of book.polities.klingon.hulls) if (b.hulls.some((x) => x.hullId === h.id)) { h.status = 'lost'; h.hull = 0; }
     phase('broken', 3 * trip);
     const x = window.__evacById(e.id);
-    return { trace, status: x.status, moved: x.moved, target: x.target, block: window.__block(id).status, runs: window.__runs(x).map((r) => r.outcome) };
+    return { trace, status: x.status, endDay: x.endDay ?? null, endReason: x.endReason ?? null, moved: x.moved, target: x.target, block: window.__block(id).status, runs: window.__runs(x).map((r) => r.outcome) };
   }, saveMid);
   await check('new-feature', 'EVAC-BLOCKADE-INTEGRATION evacuation progresses, a blockade cuts it, escorts and losses break the blockade, it recovers and completes; saving mid-way changes nothing', async () => {
     await fresh('eb-integration');
@@ -579,7 +591,7 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.ok(share('blockade') < 1, `the blockade let every run through: ${JSON.stringify(a.trace)}`);
     assert.ok(share('escorted') >= share('blockade'), `escorts did not help the runs: ${JSON.stringify(a.trace)}`);
     assert.equal(ph('broken')[5].length, 0, `runs after the blockade was broken: ${JSON.stringify(a.trace)}`);
-    assert.ok(ph('broken')[2] > 0, 'deliveries did not continue once the blockade was gone');
+    assert.ok(ph('broken')[2] > 0, `deliveries did not continue once the blockade was gone: ${JSON.stringify({ trace: a.trace, status: a.status, endDay: a.endDay, endReason: a.endReason, moved: a.moved, target: a.target })}`);
     console.log('   evac-blockade integration (label, moved, gained, status, days, runs, passed):', JSON.stringify(a.trace));
     assert.equal(a.block, 'broken');
     assert.ok(['completed', 'active'].includes(a.status));

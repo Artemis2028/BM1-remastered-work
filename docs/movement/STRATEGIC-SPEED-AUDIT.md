@@ -1,11 +1,17 @@
 # Strategic speed audit (SHIP-DEPENDENT-STRATEGIC-SPEED)
 
-Stacked on f0e219b. The rules are in `SHIP-DEPENDENT-STRATEGIC-SPEED.md`. This audit lists every path that
+**Rated round (on 7d3ce43).** Every class now carries the BM1 Strategic Speed Rater's 1–10 rating
+(`strategicSpeedRating` in `bm-ships/ships.json`, with its confidence and provenance), mapped once through
+`RATING_MULTIPLIER`; legs are `max(1, ceil(base / multiplier))`. The categories below are gone as a source of
+speed. Every row keeps its classification: the consumers read the class speed through the same functions, so the
+rated value reached all of them without a consumer change, except the UI rows marked *(rated round)*.
+
+The first version of this audit was stacked on f0e219b. The rules are in `SHIP-DEPENDENT-STRATEGIC-SPEED.md`. This audit lists every path that
 moves a ship strategically, or plans by how long that move takes, and says which speed it uses.
 
 **Classifications**
 
-- **NEW MODEL**: the days are `max(1, round(base / speed))` per leg. The speed is that of the ships actually
+- **NEW MODEL**: the days are `max(1, ceil(base / speed))` per leg (`round` before the rated round). The speed is that of the ships actually
   flying, or of the slowest one able to travel. The planner and the journey call the same functions on the
   same hulls, so a planned ETA is the day the journey arrives.
 - **FIXED-TIME**: the days do not depend on any ship, either by rule (a wormhole) or because the number is
@@ -24,7 +30,7 @@ speed, its ETA would disagree with the arrival day. The gates and the long run c
 
 | # | consumer | class | how it reads speed |
 |---|---|---|---|
-| 1 | **player formations** | NEW MODEL | `fleetGroupSpeed(members)`: the slowest able member (disabled, destroyed and detached members are excluded). `beginFormationTravel` stores `legBase`, `speed` and `speedHistory`. At each leg boundary, after detaching members who left, the next legs are re-timed. The fleet manager line shows "strategic speed X×". Gate: FAST-VS-SLOW-ETA, CONVOY-SLOWEST-MEMBER. |
+| 1 | **player formations** | NEW MODEL | `fleetGroupSpeed(members)`: the slowest able member (disabled, destroyed and detached members are excluded). `beginFormationTravel` stores `legBase`, `speed` and `speedHistory`. At each leg boundary, after detaching members who left, the next legs are re-timed. The fleet manager shows the formation's "Strategic speed: R/10 · X× (limited by …)" and its ETA *(rated round)*. Gate: FAST-VS-SLOW-ETA, CONVOY-SLOWEST-MEMBER, SLOWEST-FORMATION-UI. |
 | 2 | **evacuation convoys** | NEW MODEL | `evacuationSpeed(world, e)`: the slowest transport or non-joining escort. A fast escort can only slow a convoy, never speed it. The convoy's journey, `evacuationPlan`, `evacuationRoundTripDays`, `validateEvacuationDestination` (the refuge's days and the "too far … at the convoy's X×" refusal), `evacuationDestinations` and the AI's choice (`plan.convoySpeed`) all use it. The captain's ops form reads the picked ships (or every free one). Pure 14, 15, 14b, CONVOY-SLOWEST-MEMBER; gate EVAC-CONVOY. |
 | 3 | **doctrine patrol** (patrol, area patrol, exploration) | NEW MODEL, plus one FIXED-TIME geography metric | The assignment's milestones are issued at `hullSpeed(h)` and stored in `a.speed`. The frontier choice uses the flier's speed. The time on station (`patrolStationDays`) is in proportion to the leg the ship flies, both for routine patrols and for area-patrol cycles. If a journey is re-timed at a boundary, the owner's milestones are re-made from that crossing (`onRespeed`). A job issued before this round (no `a.speed`) is treated as timed at 1.0 and re-timed when it sets out (pure 27, 28). FIXED-TIME: `patrolArea`/`compact` choose an area by chart days, because that describes the area, not a flight. |
 | 4 | **doctrine defence** | NEW MODEL | `responseCapacity` → `vesselEta` at the hull's speed (the 20-day defence reach is by that ETA, and the deadline runs from the arrival). |
@@ -38,8 +44,8 @@ speed, its ETA would disagree with the arrival day. The gates and the long run c
 | 12 | **blockade deployment / reinforcement** | NEW MODEL (journey), with the dash input reconciled | The force taking station and each reinforcement fly as `blockade` journeys at their slowest hull's speed. A run's dash term reads the same strategic speed (§ blockade mapping in the rules doc). The crossing day is the convoy's speed-adjusted day (pure 20), and a run never re-times the journey (pure 21). |
 | 13 | **Dominion movement** (corridor, reinforcement convoys, withdrawal) | NEW MODEL | Each is an `expedition`/`withdrawal` journey at its hulls' speed. Escalation targets are ordered by `forceEtaDays`. A reinforcement counts toward the expedition only on its speed-adjusted arrival (pure 19). |
 | 14 | **repair / yard runs** | NEW MODEL | The yard choice is `plannedJourneyDays(…, hullSpeed(h))`, and the run is a `repair` journey at that hull's speed. |
-| 15 | **captain's route** | NEW MODEL | `captainCourseSpeed()` is the slowest of his own ship and his operational escorts. `beginWarpTravel` sets `legDays`/`travelDays` at it. The route map shows "N travel days at X×". `captainCourseLine` recomputes the remaining days at the current speed. A wormhole transit is its own fixed passage. Gate CAPTAIN-COURSE. |
-| 16 | **trader traffic** (the captain's fleet trading) | NEW MODEL | `fleetTradeRouteDays(route, shipStrategicSpeed(f.shipId))` is used for the leg schedule, circuit insertion (`legDaysBetween` memo in `planFleetTradeCircuit`), reposition and passage. |
+| 15 | **captain's route** | NEW MODEL | `captainCourseSpeed()` is the slowest of his own ship and his operational escorts. `beginWarpTravel` sets `legDays`/`travelDays` at it. The star chart's rail shows the plotted course's ETA, "A → B: N days" (`mapCourseEtaText`, *rated round*; the old canvas legend that carried it was no longer drawn). Changing his ship changes his next course. `captainCourseLine` recomputes the remaining days at the current speed. A wormhole transit is its own fixed passage. Gate CAPTAIN-COURSE, CAPTAIN-SHIP-SPEED, HANDOFF-ADJUSTED-DAY. |
+| 16 | **trader traffic** (the captain's fleet trading) | NEW MODEL | `fleetTradeRouteDays(route, shipStrategicSpeed(f.shipId))` is used for the leg schedule, circuit insertion (`legDaysBetween` memo in `planFleetTradeCircuit`), reposition and passage. Gate TRADER-ETA. |
 | 17 | **player escorts with the captain** | NEW MODEL | Covered by row 15: they fly with him and slow him if they are slower. |
 | 18 | **wormhole-only edges** | FIXED-TIME | `world.legFixed(a, b)` (`wormholeOnlyEdge`). The edge keeps its fixed days for every ship and is never shortened or lengthened by speed (pure 10; gate WORMHOLE-FIXED). |
 | 19 | **pre-round journeys in a save** (no `legBase`) | FIXED-TIME (save migration) | They keep their stored legs, `respeedJourney` leaves them alone, and they finish at the chart's days. Every new journey and replot carries `legBase`. |
@@ -65,9 +71,10 @@ speed, its ETA would disagree with the arrival day. The gates and the long run c
 Every UNIFIED row of STRATEGIC-MOVEMENT-AUDIT is now NEW MODEL, except the FIXED-TIME rows listed above.
 The deferred items are unchanged except that **damage-based speed penalties** is added to the list.
 
-## Carry-forward (from TOWING-SALVAGE-RECOVERY §21)
+## Carry-forward
 
-The category speeds here are a first implementation, not the final model: **individual / class-specific
-strategic speed refinement** is carried forward. The lookup it needs is explicit class speed → class or
-family fallback → role or category default → 1.0. A Sovereign-class, for instance, should be faster than
-many smaller ships. Damage and engine-condition penalties stay on that same future list.
+The **individual / class-specific strategic speed refinement** carried forward from TOWING-SALVAGE-RECOVERY §21
+is done in the rated round: explicit per-class ratings from the rater, its fallback for unnamed hulls, 1.0 for a
+class with neither. Still deferred: **engine-condition speed degradation** (row 24), and a playtest pass over the
+low-confidence ratings (SHIP-DEPENDENT-STRATEGIC-SPEED Appendix A). The round's carry-forward list is in
+SHIP-DEPENDENT-STRATEGIC-SPEED §13.

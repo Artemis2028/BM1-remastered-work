@@ -4,8 +4,11 @@
 // slowest member and speeding up once the slow ship leaves it (save/load between the legs), the captain's
 // own course at his slowest escort, an evacuation convoy at its slowest transport, a doctrine rescue a fast
 // relief ship can make and a slow one cannot, and the AI's war planning at its force's speed.
+// Rated round: every expected speed is the class's approved rating as bm-ships/ships.json carries it (read by the
+// gate itself), and every leg is max(1, ceil(chart / multiplier)). The Kingston (5/10, now the chart's own pace)
+// is replaced as the slow ship by the Danube Utility Runabout (3/10 · 0.85×).
 // Categories:
-//   baseline-defect  f0e219b flies every ship at the chart's one speed (fails on its own assertion)
+//   baseline-defect  7d3ce43 flies category speeds with legs rounded to nearest (fails on its own assertion)
 //   new-feature      needs this round's speed field, labels or records
 //   preservation     must hold on both (none here: the existing gates are the preservation)
 const assert = require('node:assert/strict');
@@ -46,13 +49,16 @@ const { startProbe } = require('./probe-harness.cjs');
   // The catalogue's speeds, read here (not from the build under test), so a baseline's expectations are the
   // ones this round defines; every expected day count below is computed in the gate from the chart's own
   // legs: max(1, round(chart / speed)).
-  const SPEEDS = Object.fromEntries(JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'bm-ships', 'ships.json'), 'utf8')).ships.map((x) => [x.id, x.strategicSpeed ?? 1]));
+  const CAT = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'bm-ships', 'ships.json'), 'utf8')).ships;
+  const SPEEDS = Object.fromEntries(CAT.map((x) => [x.id, x.strategicSpeed ?? 1]));
+  const LABEL = Object.fromEntries(CAT.map((x) => [x.id, `${Number(x.strategicSpeedRating).toFixed(1)}/10 · ${Number(x.strategicSpeed).toFixed(2)}×`]));
+  const re = (s) => new RegExp(s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   // The classes used throughout, from the real catalogue.
-  const SABER = 307, KINGSTON = 9; // Saber Planetary Defender (escort, 1.2×) · Kingston Class long-haul freighter (0.8×)
+  const SABER = 307, KINGSTON = 308; // Saber Planetary Defender (7.5/10 · 1.20×) · Danube Utility Runabout (3/10 · 0.85×), the slow ship
   const setup = () => page.evaluate((SPEEDS) => {
     const t = testBM1;
     window.__SP = SPEEDS;
-    window.__at = (base, speed) => base.map((b) => Math.max(1, Math.round(b / speed)));
+    window.__at = (base, speed) => base.map((b) => Math.max(1, Math.ceil(b / speed - 1e-9)));
     window.__adv = (n) => { for (let i = 0; i < n; i++) t.advanceFleetCalendar(1, t.Fleet.nextId(t.fleetBook(), 'journey')); };
     window.__idx = (name) => t.getSystemIndexByName(name);
     window.__ship = (id, at, shipId, hull = 1200, assignment = 'defense') => {
@@ -85,20 +91,20 @@ const { startProbe } = require('./probe-harness.cjs');
       s.planetMenuOpen = true; s.dockMenuTab = 'market'; t.renderPlanetMenu();
       document.querySelector('.market-section .shipyard')?.scrollIntoView({ block: 'start' });
       const cards = [...document.querySelectorAll('.market-section .shipyard article, .market-section .shipyard .ship-card')].map((c) => c.textContent.replace(/\s+/g, ' ').slice(0, 160));
-      const speeds = Object.fromEntries([2, 4, 9, 11, 35, 307, 49, 212].map((id) => [id, t.shipStrategicSpeed ? t.shipStrategicSpeed(id) : null]));
+      const speeds = Object.fromEntries([2, 4, 9, 11, 35, 307, 308, 49, 212].map((id) => [id, t.shipStrategicSpeed ? t.shipStrategicSpeed(id) : null]));
       const card = (re) => cards.find((c) => re.test(c)) || '';
-      return { saber: card(/Saber Planetary Defender/), kingston: card(/Kingston Class/), cards: cards.slice(0, 12), speeds, html: document.querySelector('.market-section .shipyard')?.innerHTML.includes('Strategic speed') };
+      return { saber: card(/Saber Planetary Defender/), kingston: card(/Danube Utility Runabout/), cards: cards.slice(0, 12), speeds, html: document.querySelector('.market-section .shipyard')?.innerHTML.includes('Strategic speed') };
     });
     evidence.push({ check: 'SHIPYARD', ...r });
     await page.screenshot({ path: path.join(out, 'SPEED-shipyard-class-speeds.png') });
     await ev(() => { const s = testBM1.state; s.planetMenuOpen = false; testBM1.renderPlanetMenu(); });
     assert.ok(r.html, 'the shipyard shows no strategic speed');
-    assert.equal(r.speeds[307], 1.2); assert.equal(r.speeds[9], 0.8); assert.equal(r.speeds[35], 0.9);
-    assert.match(r.saber, /1\.2×/, r.saber); assert.match(r.kingston, /0\.8×/, r.kingston);
+    for (const id of [307, 308, 35, 9, 2]) assert.equal(r.speeds[id], SPEEDS[id], `class ${id}`);
+    assert.match(r.saber, re(LABEL[SABER]), r.saber); if (r.kingston) assert.match(r.kingston, re(LABEL[KINGSTON]), r.kingston);
   });
 
   // 2 ---------------------------------------------------------------------------------------------
-  await check('baseline-defect', 'FAST-VS-SLOW-ETA the same route, Earth → Vulcan: a Saber formation (1.2×) and a Kingston freighter (0.8×) dispatched the same day; each leg and the arrival are the ships\' own, and each arrives on exactly the day its plan said', async () => {
+  await check('baseline-defect', 'FAST-VS-SLOW-ETA the same route, Earth → Vulcan: a Saber formation (7.5/10 · 1.20×) and a Danube runabout (3/10 · 0.85×) dispatched the same day; each leg and the arrival are the ships\' own, and each arrives on exactly the day its plan said', async () => {
     await fresh('sp-fastslow');
     await setup();
     const r = await ev((C) => {
@@ -116,7 +122,7 @@ const { startProbe } = require('./probe-harness.cjs');
       const lineF = document.querySelector(`[data-formation-travel="${fast}"]`)?.textContent || '';
       const lineS = document.querySelector(`[data-formation-travel="${slow}"]`)?.textContent || '';
       window.__fastG = fast; window.__slowG = slow;
-      return { okF, okS, day0, systems: route.systems, chart: window.__days(route, 1), pf, ps, lineF, lineS, expectF: window.__days(route, 1.2), expectS: window.__days(route, 0.8) };
+      return { okF, okS, day0, systems: route.systems, chart: window.__days(route, 1), pf, ps, lineF, lineS, expectF: window.__days(route, window.__SP[C.SABER]), expectS: window.__days(route, window.__SP[C.KINGSTON]) };
     }, { SABER, KINGSTON });
     await ev(() => { const t = testBM1; t.renderFleetManager(true); document.querySelector(`[data-formation-travel="${window.__fastG}"]`)?.scrollIntoView({ block: 'center' }); });
     await page.screenshot({ path: path.join(out, 'SPEED-fast-vs-slow-dispatched-fleet.png') });
@@ -133,16 +139,16 @@ const { startProbe } = require('./probe-harness.cjs');
     });
     evidence.push({ check: 'FAST-VS-SLOW-ETA', ...r, arrived: arr });
     assert.ok(r.okF && r.okS, 'dispatch refused');
-    assert.deepEqual(r.pf.legDays, r.expectF, `the Saber formation flies ${r.pf.legDays}; the chart ${r.chart} at 1.2× is ${r.expectF}`);
-    assert.deepEqual(r.ps.legDays, r.expectS, `the freighter flies ${r.ps.legDays}; the chart ${r.chart} at 0.8× is ${r.expectS}`);
+    assert.deepEqual(r.pf.legDays, r.expectF, `the Saber formation flies ${r.pf.legDays}; the chart ${r.chart} at 1.20× is ${r.expectF}`);
+    assert.deepEqual(r.ps.legDays, r.expectS, `the freighter flies ${r.ps.legDays}; the chart ${r.chart} at 0.85× is ${r.expectS}`);
     assert.ok(arr.fast < arr.slow, `the fast formation arrived day ${arr.fast}, the slow one day ${arr.slow}`);
     assert.equal(arr.fast, r.pf.eta, 'the fast formation did not arrive on its planned day');
     assert.equal(arr.slow, r.ps.eta, 'the slow formation did not arrive on its planned day');
-    assert.match(r.lineF, /strategic speed 1\.2×/); assert.match(r.lineS, /strategic speed 0\.8×/);
+    assert.match(r.lineF, re(`strategic speed ${LABEL[SABER]}`)); assert.match(r.lineS, re(`strategic speed ${LABEL[KINGSTON]}`));
   });
 
   // 3 ---------------------------------------------------------------------------------------------
-  await check('baseline-defect', 'CONVOY-SLOWEST-MEMBER two Sabers escorting a Kingston freighter fly at the freighter\'s 0.8×; the freighter taken out of the formation during the first leg, the next leg flies at 1.2×; save/load between the legs changes nothing', async () => {
+  await check('baseline-defect', 'CONVOY-SLOWEST-MEMBER two Sabers escorting a Danube runabout fly at the runabout\'s 0.85×; the runabout taken out of the formation during the first leg, the next leg flies at 1.20×; save/load between the legs changes nothing', async () => {
     await fresh('sp-convoy');
     await setup();
     const r = await ev((C) => {
@@ -154,7 +160,7 @@ const { startProbe } = require('./probe-harness.cjs');
       t.dispatchFleetFormation(gid);
       window.__convoyG = gid;
       const tr = window.__g(gid).travel;
-      return { systems: route.systems, legDays0: tr.legDays.slice(), slow: window.__days(route, 0.8), fast: window.__days(route, 1.2), speed: tr.speed ?? null, start: tr.startDay, firstEnd: tr.startDay + tr.legDays[0] };
+      return { systems: route.systems, legDays0: tr.legDays.slice(), slow: window.__days(route, window.__SP[C.KINGSTON]), fast: window.__days(route, window.__SP[C.SABER]), speed: tr.speed ?? null, start: tr.startDay, firstEnd: tr.startDay + tr.legDays[0] };
     }, { SABER, KINGSTON });
     await ev(() => { const t = testBM1; t.renderFleetManager(true); document.querySelector(`[data-formation-travel="${window.__convoyG}"]`)?.scrollIntoView({ block: 'center' }); });
     await page.screenshot({ path: path.join(out, 'SPEED-convoy-slowest-member-fleet.png') });
@@ -179,11 +185,11 @@ const { startProbe } = require('./probe-harness.cjs');
     });
     await shotFleet('SPEED-convoy-after-detach-fleet.png', '[data-formation-travel]');
     evidence.push({ check: 'CONVOY-SLOWEST-MEMBER', ...r, ...r2 });
-    assert.deepEqual(r.legDays0, r.slow, `the convoy flies ${r.legDays0}; at its freighter's 0.8× it is ${r.slow}`);
+    assert.deepEqual(r.legDays0, r.slow, `the convoy flies ${r.legDays0}; at its runabout's 0.85× it is ${r.slow}`);
     assert.equal(r.firstEnd, r2.arrivalLeg0, 'the leg in flight was re-timed');
     assert.equal(r2.atBoundary.legIndex, 1);
     assert.deepEqual(r2.atBoundary.detached.map((x) => x[0]), ['Convoy-2']);
-    assert.deepEqual(r2.atBoundary.legDays.slice(1), r.fast.slice(1), `after the freighter left, the remaining legs fly ${r2.atBoundary.legDays.slice(1)}, at the Sabers' 1.2× they are ${r.fast.slice(1)}`);
+    assert.deepEqual(r2.atBoundary.legDays.slice(1), r.fast.slice(1), `after the freighter left, the remaining legs fly ${r2.atBoundary.legDays.slice(1)}, at the Sabers' 1.20× they are ${r.fast.slice(1)}`);
     assert.deepEqual(r2.afterLoad, { legIndex: r2.atBoundary.legIndex, legDays: r2.atBoundary.legDays, speed: r2.atBoundary.speed, legArrivalDay: r2.atBoundary.legArrivalDay, etaDay: r2.atBoundary.etaDay }, 'save/load changed the journey');
     assert.equal(r2.arrived, r.firstEnd + r.fast.slice(1).reduce((n, d) => n + d, 0), 'the convoy did not arrive when its re-timed legs said');
   });
@@ -216,13 +222,13 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.ok(!solo.fail && !esc.fail, solo.fail || esc.fail);
     assert.equal(solo.at, solo.D); assert.equal(esc.at, esc.D);
     assert.equal(solo.days, solo.expect, `alone the course took ${solo.days} days; the chart ${solo.chart} at his ship's ${solo.speed}× is ${solo.expect}`);
-    assert.equal(esc.days, esc.expect, `escorted the course took ${esc.days} days; at the Kingston's ${esc.speed}× it is ${esc.expect}`);
-    assert.ok(esc.days > solo.days, `escorted by a 0.8× freighter the course took ${esc.days} days, alone ${solo.days}`);
+    assert.equal(esc.days, esc.expect, `escorted the course took ${esc.days} days; at the Danube's ${esc.speed}× it is ${esc.expect}`);
+    assert.ok(esc.days > solo.days, `escorted by a 0.85× runabout the course took ${esc.days} days, alone ${solo.days}`);
     assert.equal(solo.reported, solo.own, 'the course speed the game reports alone'); assert.equal(esc.reported, esc.speed, 'the course speed the game reports escorted');
   });
 
   // 5 ---------------------------------------------------------------------------------------------
-  await check('baseline-defect', 'EVAC-CONVOY an evacuation\'s convoy of Kingston freighters escorted by Sabers flies at the freighters\' 0.8×: its journey, the round trip it plans with and the debug all read the same days', async () => {
+  await check('baseline-defect', 'EVAC-CONVOY an evacuation\'s convoy of Danube runabouts escorted by Sabers flies at the runabouts\' 0.85×: its journey, the round trip it plans with and the debug all read the same days', async () => {
     await fresh('sp-evac');
     await setup();
     const r = await ev((C) => {
@@ -236,7 +242,7 @@ const { startProbe } = require('./probe-harness.cjs');
       const w = t.buildCampaignWorld(true);
       window.__adv(2);
       const tr = t.Campaign.journeyById(t.campaign(), e.convoy?.journeyId);
-      // The chart's legs of the route it flies (speed 1.0 on every build), at the freighters' 0.8×.
+      // The chart's legs of the route it flies (speed 1.0 on every build), at the runabouts' 0.85×.
       const chart = tr ? [tr.from, ...tr.path].slice(0, -1).map((a, i) => w.legDays(a, tr.path[i])) : null;
       return { origin: P, dest, legDays: tr?.legDays || null, speed: tr?.speed ?? null, planSpeed: t.Campaign.evacuationSpeed ? t.Campaign.evacuationSpeed(w, e) : null, roundTrip: t.Campaign.evacuationRoundTripDays(w, e),
         expect: chart ? window.__at(chart, window.__SP[C.KINGSTON]) : null, chart };
@@ -245,17 +251,17 @@ const { startProbe } = require('./probe-harness.cjs');
     const dbg = await ev(() => { testBM1.openDebugMenu(); const x = document.querySelector('[data-evac-speed]')?.textContent || ''; document.getElementById('cheats-debug').close(); testBM1.closeGalaxyReports?.(); return x; });
     evidence.push({ check: 'EVAC-CONVOY', ...r, debug: dbg });
     assert.ok(!r.fail, r.fail);
-    assert.deepEqual(r.legDays, r.expect, `the convoy flies ${r.legDays}; the chart ${r.chart} at 0.8× is ${r.expect}`);
+    assert.deepEqual(r.legDays, r.expect, `the convoy flies ${r.legDays}; the chart ${r.chart} at 0.85× is ${r.expect}`);
     assert.equal(r.roundTrip, 2 * r.expect.reduce((n, d) => n + d, 0), 'the round trip it plans with is not what it flies');
-    assert.equal(r.planSpeed, 0.8);
-    assert.match(dbg, /convoy 0\.8×/);
+    assert.equal(r.planSpeed, SPEEDS[KINGSTON]);
+    assert.match(dbg, re(`convoy ${LABEL[KINGSTON]}`));
   });
 
   // 6 ---------------------------------------------------------------------------------------------
   // A Vulcan patrol ship disabled with its crew aboard; its command hears the call and tells a relief
   // ship standing at Vulcan (a Vulcan relief ship rescues live). The survivors' window (what anyone told of
   // it assumes) is set between the fast light cruiser's ETA and the slow explorer's — the same window, the same origin, only the ship differs.
-  await check('new-feature', 'RESCUE-FEASIBILITY the same distress and the same window: a Vulcan Light Cruiser (1.2×) is sent and arrives on its planned day; a Vulcan Explorer (0.9×) is refused as unable to reach the survivors in time', async () => {
+  await check('new-feature', 'RESCUE-FEASIBILITY the same distress and the same window: a Vulcan Light Cruiser (7.5/10 · 1.20×) is sent and arrives on its planned day; a Vulcan Warpship (4/10 · 0.92×) is refused as unable to reach the survivors in time', async () => {
     const runOnce = async (tag, cls) => {
       await fresh(tag);
       await setup();
@@ -281,7 +287,7 @@ const { startProbe } = require('./probe-harness.cjs');
           if (p && p.path.length >= 2 && d >= 12 && d <= 24) { site = sys.index; break; }
         }
         if (site == null) return { fail: 'no site' };
-        const fastEta = C.journeyDays(w, home, site, 'vulcan', 1.2), slowEta = C.journeyDays(w, home, site, 'vulcan', 0.9);
+        const fastEta = C.journeyDays(w, home, site, 'vulcan', window.__SP[237]), slowEta = C.journeyDays(w, home, site, 'vulcan', window.__SP[25]);
         db.config = { ...db.config, reliefShips: { vulcan: 1 } };
         DC.designate(book, 'vulcan', relief.id, 'relief');
         const p = DC.issuePatrol(book, w, 'vulcan', victim.id, site, s.day, []);
@@ -313,11 +319,11 @@ const { startProbe } = require('./probe-harness.cjs');
     };
     const fast = await runOnce('sp-rescue-fast', 237);
     await shotSection('SPEED-rescue-fast-light-cruiser-doctrine.png', '[data-doctrine-section]');
-    const slow = await runOnce('sp-rescue-slow', 26);
+    const slow = await runOnce('sp-rescue-slow', 25);
     await shotSection('SPEED-rescue-slow-explorer-doctrine.png', '[data-doctrine-section]');
     evidence.push({ check: 'RESCUE-FEASIBILITY', fast, slow });
     assert.ok(!fast.fail && !slow.fail, fast.fail || slow.fail);
-    assert.equal(fast.speed, 1.2); assert.equal(slow.speed, 0.9);
+    assert.equal(fast.speed, SPEEDS[237]); assert.equal(slow.speed, SPEEDS[25]);
     assert.ok(fast.objective && fast.objective.response === 'rescue', `the light cruiser was not sent: ${JSON.stringify(fast.eval)}`);
     assert.equal(fast.objective.plan.etaDays, fast.fastEta, 'the light cruiser was planned on another ETA than its own');
     assert.equal(fast.objective.arrivedDay, fast.objective.plan.arriveDay, `arrived day ${fast.objective.arrivedDay}, planned ${fast.objective.plan.arriveDay}`);
@@ -329,7 +335,7 @@ const { startProbe } = require('./probe-harness.cjs');
   });
 
   // 7 ---------------------------------------------------------------------------------------------
-  await check('baseline-defect', 'ETA-AWARE-WAR-SPEED the Klingon planner scores the same targets for a force of B\'rel scouts (1.3×) and one of Neg\'Var warships (0.85×): each target\'s ETA is that force\'s own, and an operation launched flies and engages on its planned day', async () => {
+  await check('baseline-defect', 'ETA-AWARE-WAR-SPEED the Klingon planner scores the same targets for a force of Vor\'cha attack cruisers (8.5/10 · 1.28×) and one of Klingon cargo ships (5/10 · 1.00×): each target\'s ETA is that force\'s own, and an operation launched flies and engages on its planned day', async () => {
     const plan = async (tag, cls, file) => {
       await fresh(tag);
       await setup();
@@ -368,15 +374,16 @@ const { startProbe } = require('./probe-harness.cjs');
       });
       return { ...planned, engaged };
     };
-    const fast = await plan('sp-war-fast', 330, 'SPEED-war-planning-fast-brel.png');
-    const slow = await plan('sp-war-slow', 42, 'SPEED-war-planning-slow-negvar.png');
+    const fast = await plan('sp-war-fast', 334, 'SPEED-war-planning-fast-vorcha.png');
+    const slow = await plan('sp-war-slow', 239, 'SPEED-war-planning-slow-cargo.png');
     evidence.push({ check: 'ETA-AWARE-WAR-SPEED', fast, slow });
     // Every group of a launched force flies the chart's legs at its slowest ship's catalogue speed.
     for (const e of [fast.engaged, slow.engaged].filter(Boolean)) for (const j of e.journeys) assert.deepEqual(j.legDays, j.expect, `a group flies ${j.legDays}; the chart ${j.chart} at ${j.slowest}× is ${j.expect}`);
     const both = fast.considered.filter((x) => x.etaDays != null).map((x) => [x, slow.considered.find((y) => y.index === x.index)]).filter(([, y]) => y && y.etaDays != null);
     assert.ok(both.length > 0, 'no common target was scored');
-    for (const [x, y] of both) assert.ok(x.etaDays < y.etaDays, `target ${x.index}: the scouts' ETA ${x.etaDays}, the warships' ${y.etaDays}`);
-    assert.equal(fast.speed, 1.3); assert.equal(slow.speed, 0.85);
+    for (const [x, y] of both) assert.ok(x.etaDays <= y.etaDays, `target ${x.index}: the Vor'cha force's ETA ${x.etaDays}, the cargo ships' ${y.etaDays}`);
+    assert.ok(both.some(([x, y]) => x.etaDays < y.etaDays), 'no target is nearer for the faster force');
+    assert.equal(fast.speed, SPEEDS[334]); assert.equal(slow.speed, SPEEDS[239]);
     for (const e of [fast.engaged, slow.engaged].filter(Boolean)) {
       for (const j of e.journeys) assert.equal(j.speed, e.speed, `a group of the force flies at ${j.speed}, the plan at ${e.speed}`);
       assert.equal(e.lastEta, e.planned, `the force's last group arrives day ${e.lastEta}, planned ${e.planned}: ${JSON.stringify(e.journeys)}`);

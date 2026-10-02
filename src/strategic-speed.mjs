@@ -1,18 +1,42 @@
 // Ship-dependent strategic speed (SHIP-DEPENDENT-STRATEGIC-SPEED). One model, read by every journey and
 // every planner: a leg's chart length (its base days, the same for every ship) divided by the strategic
-// speed of whoever is actually flying it, rounded to whole campaign days, never below one day. A fixed
-// traversal (a wormhole) keeps its fixed days whatever the ship.
+// speed multiplier of whoever is actually flying it, rounded UP to whole campaign days, never below one day.
+// A fixed traversal (a wormhole) keeps its fixed days whatever the ship.
 //
-//   legDays = fixed ? fixedDays : max(1, round(baseDays / speed))
+//   legDays = fixed ? fixedDays : max(1, ceil(baseDays / multiplier))
 //
-// A ship's strategic speed is the explicit `strategicSpeed` of its class (bm-ships/ships.json), clamped to
-// [SPEED_MIN, SPEED_MAX]; a class without one (a legacy record, a save from before this round, an unknown
-// id) flies at SPEED_DEFAULT = 1.0, which is exactly the old ship-independent timing. A group flies at its
-// slowest member able to travel; a member that cannot travel (disabled, surrendered, awaiting crew) is not
-// a member of the moving group at all and contributes nothing.
+// A class's strategic speed is a 1–10 rating of its sustained strategic cruise (not tactical impulse, not a
+// warp factor, not size), from the approved BM1 Strategic Speed Rater, stored on the class in
+// bm-ships/ships.json as `strategicSpeedRating` with its multiplier `strategicSpeed` (RATING_MULTIPLIER below),
+// its confidence and its basis (scripts/assign-strategic-speed.mjs). A class without one (a legacy record, an
+// unknown id) flies at SPEED_DEFAULT = 1.0 — a 5/10 — which is exactly the old ship-independent timing. A
+// group flies at its slowest member able to travel; a member that cannot travel (disabled, surrendered,
+// awaiting crew) is not a member of the moving group at all and contributes nothing.
 //
 // Nothing here reads a world, a book or the engine.
 
+// The rater's rating → multiplier table (initial gameplay scaling; the assign script refuses to run if the
+// rater's own table differs from this one).
+export const RATING_MULTIPLIER = Object.freeze({
+  1: 0.70, 1.5: 0.74, 2: 0.78, 2.5: 0.82, 3: 0.85, 3.5: 0.89, 4: 0.92, 4.5: 0.96,
+  5: 1.00, 5.5: 1.04, 6: 1.08, 6.5: 1.12, 7: 1.16, 7.5: 1.20, 8: 1.24, 8.5: 1.28,
+  9: 1.32, 9.5: 1.36, 10: 1.40,
+});
+// A rating → its multiplier: rounded to the nearest half step and held to 1–10; a non-number → 1.0 (5/10).
+export function ratingMultiplier(rating) {
+  const n = Number(rating);
+  if (rating == null || rating === '' || !Number.isFinite(n)) return 1;
+  const r = Math.min(10, Math.max(1, Math.round(n * 2) / 2));
+  return RATING_MULTIPLIER[r] ?? 1;
+}
+// A multiplier → the rating it stands for (the nearest in the table), for display only.
+export function multiplierRating(mult) {
+  const m = Number(mult);
+  if (!Number.isFinite(m)) return 5;
+  let best = 5, d = Infinity;
+  for (const [r, v] of Object.entries(RATING_MULTIPLIER)) { const e = Math.abs(v - m); if (e < d - 1e-9) { d = e; best = Number(r); } }
+  return best;
+}
 export const SPEED_DEFAULT = 1.0;
 export const SPEED_MIN = 0.6;       // a class's authored speed: never below this
 export const SPEED_MAX = 1.5;
@@ -27,10 +51,17 @@ export function clampSpeed(v) {
   if (!Number.isFinite(n) || n <= 0) return SPEED_DEFAULT;
   return Math.min(SPEED_MAX, Math.max(JOURNEY_SPEED_MIN, Math.round(n * 100) / 100));
 }
-// The class's strategic speed from its stats record (a catalogue entry, or a world.shipStats() result).
+// The class's strategic speed multiplier from its stats record (a catalogue entry, or a world.shipStats()
+// result): the multiplier of its rating; a record carrying only a multiplier keeps it.
 export function classSpeed(stats) {
   if (!stats) return SPEED_DEFAULT;
+  if (stats.strategicSpeedRating != null) return Math.max(SPEED_MIN, clampSpeed(ratingMultiplier(stats.strategicSpeedRating)));
   return stats.strategicSpeed == null ? SPEED_DEFAULT : Math.max(SPEED_MIN, clampSpeed(stats.strategicSpeed));
+}
+// The class's rating (1–10): its own, else the rating its multiplier stands for, else 5.
+export function classRating(stats) {
+  if (stats?.strategicSpeedRating != null) return Math.round(Number(stats.strategicSpeedRating) * 2) / 2;
+  return stats?.strategicSpeed != null ? multiplierRating(stats.strategicSpeed) : 5;
 }
 // A tow: the towing group (its slowest able member, escorts included — they cannot hurry it) and the towed
 // frame, the slower of the two, times the tow penalty; bounded [JOURNEY_SPEED_MIN, TOW_SPEED_MAX].
@@ -51,33 +82,28 @@ export function adjustLegDays(baseDays, speed = SPEED_DEFAULT, fixed = false) {
   const base = Math.max(1, Math.round(Number(baseDays) || 1));
   if (fixed) return base;
   const s = speed == null ? SPEED_DEFAULT : clampSpeed(speed);
-  return Math.max(1, Math.round(base / s));
+  // Rounded up (a part-day is a day), with a hair of tolerance so an exact quotient is not pushed a day over.
+  return Math.max(1, Math.ceil(base / s - 1e-9));
 }
 // A whole route's legs. legBase: [{ days, fixed }].
 export function legDaysAt(legBase, speed) {
   return (legBase || []).map((l) => adjustLegDays(l.days, speed, Boolean(l.fixed)));
 }
-// Player-facing: "1.2×".
+// Player-facing: "1.28×".
 export function speedLabel(speed) {
   const s = speed == null ? SPEED_DEFAULT : clampSpeed(speed);
-  return `${s.toFixed(s * 10 === Math.round(s * 10) ? 1 : 2)}×`;
+  return `${s.toFixed(2)}×`;
+}
+// Player-facing: "8.5/10 · 1.28×" (a multiplier off the table, such as a tow's, shows only as "0.84×").
+export function ratingLabel(speed) {
+  const s = speed == null ? SPEED_DEFAULT : clampSpeed(speed);
+  const r = multiplierRating(s);
+  return Math.abs(RATING_MULTIPLIER[r] - s) < 1e-9 ? `${r.toFixed(1)}/10 · ${s.toFixed(2)}×` : `${s.toFixed(2)}×`;
 }
 
-// ---- the authored class table (how bm-ships/ships.json's values were assigned; scripts/assign-strategic-speed.mjs) ----
-// Conservative and bounded (0.8–1.3): meaningful differences, no extremes. The category comes from the
-// class's own authored data — its shipClass and its role — never from tactical speed, mass or power.
-export const CATEGORY_SPEED = Object.freeze({
-  scout: 1.3,        // couriers, scouts, fighters, fast runabouts
-  shuttle: 1.15,     // ordinary shuttles and small utility craft
-  cargoShuttle: 1.0, // cargo shuttles, passenger shuttles, sail transports
-  escort: 1.2,       // light escorts, frigates, raiders
-  lightCruiser: 1.1,
-  fastCruiser: 1.2,  // classes authored as fast ("fast", "strike", "quantum-drive", Bird of Prey)
-  cruiser: 1.0,
-  freighter: 0.8,    // freighters, haulers, transports, tugs, logistics and cargo frames: the slowest at warp
-  capital: 0.9,
-  battleship: 0.85,  // battleships and supercapitals: heavy, but built to keep station with a fleet
-});
+// ---- the hull category (a class's broad kind, from its authored shipClass and role) ----
+// No longer a source of speed (the rater's per-hull ratings are): it is still what other rules read — the
+// recovery capacity a class is assigned, an inspection regime's hull categories, the captain's traffic class.
 const has = (role, ...words) => words.some((w) => role.includes(w));
 export function speedCategory(ship) {
   const cls = String(ship?.shipClass || '');
@@ -100,4 +126,3 @@ export function speedCategory(ship) {
   if (cls === 'lightCruiser') return 'lightCruiser';
   return 'cruiser';
 }
-export function authoredSpeed(ship) { return CATEGORY_SPEED[speedCategory(ship)] ?? SPEED_DEFAULT; }

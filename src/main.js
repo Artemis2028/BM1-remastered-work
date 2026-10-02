@@ -10450,8 +10450,8 @@ function applyFollowerBoundEngine(e, day) {
   setLog(`${formatFaction(e.follower)} is now under ${formatFaction(e.government)} command.`);
 }
 // ---- blockade running: what a ship is, as the interception engine reads it (BLOCKADE-RUNNING-RULES) ----
-// Dash speed: the class's own top speed. Strategic travel days do not vary by class, so this is the
-// speed a runner makes through a blockaded system, not how long its journey takes.
+// Dash speed: the class's own tactical top speed — the speed a runner makes through a blockaded system. Its strategic
+// journey days are the class's rated strategic speed (shipStrategicSpeed), not this.
 function shipRunSpeed(shipId) { return Math.max(1, finiteNumber(getShipStats(shipId)?.topSpeed, 45)); }
 // A class's strategic (warp) speed, the one value every journey, planner, blockade run and screen reads
 // (SHIP-DEPENDENT-STRATEGIC-SPEED). Tactical top speed is the scene's, not this.
@@ -11344,8 +11344,11 @@ function renderJourneyDebug() {
   const st = book.stats?.journeys || {};
   const head = `<p class="meta" data-journey-stats>Under way: ${list.length} (${formations.length} formations) · started ${st.started || 0} · crossings ${st.crossings || 0} · duplicate crossings prevented ${st.duplicateCrossingsPrevented || 0} · arrived ${st.arrived || 0} · halted ${st.halted || 0} · forced back ${st.forcedBack || 0} · stale orders cancelled ${st.staleCancelled || 0} · mean leg ${st.legs ? (st.legDays / st.legs).toFixed(2) : '—'} days · blockade runs ${escapeHtml(Object.entries(st.blockadeRuns || {}).map(([k, n]) => `${k} ${n}`).join(', ') || '0')}</p>`;
   // The last movements to end, with why: an arrival, a turn back, an order that lapsed at a boundary.
-  const ended = (book.journeys || []).filter((j) => j.status !== 'underway').slice(-10).reverse();
-  const endedTable = ended.length ? `<h4>Recently ended</h4><table class="doctrine-debug" data-journey-ended><thead><tr><th>Actor</th><th>Purpose</th><th>Route flown</th><th>Ended</th><th>Why</th></tr></thead><tbody>${ended.map((j) => `<tr data-journey-ended-row="${escapeHtml(j.id)}"><td>${escapeHtml(formatFaction(campaignFactionKeyFor(j.sponsor)))} ${escapeHtml(j.kind)} <code>${escapeHtml(String(j.ref ?? '').split(':').slice(-2).join(':'))}</code></td><td>${escapeHtml(j.purpose)}</td><td>${nm(j.plotFrom)}${j.crossed.filter((c) => c.seq === j.seq).map((c) => ` → ${nm(c.system)}`).join('')}${j.status === 'arrived' ? '' : ` (for ${nm(j.destination)})`}</td><td>day ${j.endDay} at ${nm(j.from)}</td><td>${escapeHtml(j.status)}${j.endReason && j.endReason !== j.status ? `: ${escapeHtml(j.endReason)}` : ''}${j.staleAt ? ` · <b>stale: ${escapeHtml(j.staleAt.reason)} (day ${j.staleAt.day})</b>` : ''}</td></tr>`).join('')}</tbody></table>` : '';
+  // The captain's formations' last travels are listed with the model journeys (a formation's record is its own).
+  const endedFormations = (fleetBook().formations || []).map((g) => g.travel).filter((j) => j && j.status && j.status !== 'underway');
+  const ended = [...(book.journeys || []).filter((j) => j.status !== 'underway').slice(-10), ...endedFormations]
+    .sort((a, b) => (Number(b.endDay) || 0) - (Number(a.endDay) || 0)).slice(0, 10);
+  const endedTable = ended.length ? `<h4>Recently ended</h4><table class="doctrine-debug" data-journey-ended><thead><tr><th>Actor</th><th>Purpose</th><th>Route flown</th><th>Ended</th><th>Why</th><th>Planned ETA vs arrival</th></tr></thead><tbody>${ended.map((j) => `<tr data-journey-ended-row="${escapeHtml(j.id)}"><td>${escapeHtml(formatFaction(campaignFactionKeyFor(j.sponsor)))} ${escapeHtml(j.kind)} <code>${escapeHtml(String(j.ref ?? '').split(':').slice(-2).join(':'))}</code></td><td>${escapeHtml(j.purpose)}</td><td>${nm(j.plotFrom)}${j.crossed.filter((c) => c.seq === j.seq).map((c) => ` → ${nm(c.system)}`).join('')}${j.status === 'arrived' ? '' : ` (for ${nm(j.destination)})`}</td><td>day ${j.endDay} at ${nm(j.from)}</td><td>${escapeHtml(j.status)}${j.endReason && j.endReason !== j.status ? `: ${escapeHtml(j.endReason)}` : ''}${j.staleAt ? ` · <b>stale: ${escapeHtml(j.staleAt.reason)} (day ${j.staleAt.day})</b>` : ''}</td><td data-journey-planned-actual>${j.plannedEtaDay != null ? `planned day ${j.plannedEtaDay}${j.arrivedDay != null ? ` · arrived day ${j.arrivedDay}${j.arrivedDay === j.plannedEtaDay ? ' (as planned)' : ''}` : ''}` : '—'}${j.speed != null ? ` · ${Speed.ratingLabel(j.speed)}` : ''}</td></tr>`).join('')}</tbody></table>` : '';
   if (!list.length) return `${head}<p class="meta">No strategic movement under way.</p>${endedTable}`;
   const auth = (tr) => {
     const a = tr.authority ? `${escapeHtml(tr.authority.kind)} <code>${escapeHtml(String(tr.authority.ref ?? '').split(':').slice(-2).join(':'))}</code>` : '—';
@@ -11363,8 +11366,27 @@ function journeySpeedCell(tr) {
   if (tr.speed == null) return '<span class="meta">1.0× (recorded before ship speed)</span>';
   // (A journey cut short keeps its full legBase; only the legs it still has are shown.)
   const legs = (tr.legBase || []).slice(0, (tr.legDays || []).length).map((l, i) => `${l.days}${l.fixed ? 'f' : ''}→${tr.legDays[i]}`).join(' · ');
-  const changes = (tr.speedHistory || []).slice(1).map((x) => `from leg ${x.fromLeg + 1}: ${Speed.speedLabel(x.speed)}`).join('; ');
-  return `${Speed.speedLabel(tr.speed)}<div class="meta">${escapeHtml(legs)}${changes ? `<br>${escapeHtml(changes)}` : ''}</div>`;
+  const changes = (tr.speedHistory || []).slice(1).map((x) => `from leg ${x.fromLeg + 1}: ${Speed.ratingLabel(x.speed)}`).join('; ');
+  // Each participant's rating, and the one that sets the pace (towed hulks are carried, not rated).
+  const parts = journeyParticipantSpeeds(tr);
+  // The pace is set by the slowest member able to travel (a disabled, surrendered or crewless one is carried
+  // along, not flying); a tow flies at the tow's own pace. Named only when it is slower than someone.
+  const able = parts.filter((p) => !p.towed && p.able);
+  const limiter = tr.tow?.targets?.length ? { label: 'the tow' } : able.slice().sort((a, b) => a.speed - b.speed)[0];
+  const showLimiter = limiter && (limiter.label === 'the tow' || able.some((p) => p.speed > limiter.speed));
+  const planned = tr.plannedEtaDay != null ? `planned day ${tr.plannedEtaDay}${tr.arrivedDay != null ? ` · arrived day ${tr.arrivedDay}` : ` · now due day ${tr.etaDay}`}` : '';
+  return `<b data-journey-effective>${Speed.ratingLabel(tr.speed)}</b>${showLimiter ? ` <span class="meta" data-journey-limiter>limited by ${escapeHtml(limiter.label)}</span>` : ''}
+    <div class="meta" data-journey-participants>${parts.map((p) => `${escapeHtml(p.label)} ${p.towed ? 'in tow' : `${Speed.ratingLabel(p.speed)}${p.able ? '' : ' (not travelling)'}`}`).join('; ')}</div>
+    <div class="meta" data-journey-legs>base → flown: ${escapeHtml(legs)}${changes ? `<br>${escapeHtml(changes)}` : ''}${planned ? `<br>${escapeHtml(planned)}` : ''}</div>`;
+}
+function journeyParticipantSpeeds(tr) {
+  const book = campaignBook();
+  const towed = new Set((tr.tow?.targets || []).map(String));
+  return (tr.members || []).map((id) => {
+    if (tr.kind === 'formation') { const f = state.playerFleet.find((x) => x.id === id); return { label: f?.name || id, speed: fleetShipSpeed(f), towed: false, able: fleetShipCanTravel(f) }; }
+    const h = (book.polities?.[tr.sponsor]?.hulls || []).find((x) => String(x.id) === String(id));
+    return { label: `${tr.vids?.[id] || id} (${getShipStats(h?.shipId)?.name || h?.shipId || '?'})`, speed: h ? shipStrategicSpeed(h.shipId) : Speed.SPEED_DEFAULT, towed: towed.has(String(id)), able: Campaign.hullCanTravel(h) };
+  });
 }
 // STRATEGIC-TIME-SCALE-CORRECTION: what each planner saw, in real days. Every figure is the route the
 // journey itself flies, at the speed of the ships flying it (SHIP-DEPENDENT-STRATEGIC-SPEED) — there is no
@@ -11380,13 +11402,13 @@ function renderPlanningDebug() {
   // AI war planning: the last plan of each power, every target it weighed.
   const plans = Object.entries(book.polities).filter(([, p]) => p.lastPlan).map(([id, p]) => {
     const rows = (p.lastPlan.considered || []).map((r) => `<tr data-plan-row="${escapeHtml(id)}:${r.index}"${r.index === p.lastPlan.chosen ? ' class="chosen"' : ''}><td>${nm(r.index)}</td><td>${r.hops ?? '—'}</td><td>${r.etaDays ?? '—'}</td><td>${r.defenseNow ?? '—'}</td><td>${r.incomingDefense ?? '—'}</td><td>${r.defenseAtEta ?? '—'}</td><td>${r.score ?? '—'}</td><td>${r.index === p.lastPlan.chosen ? '<b>chosen</b>' : escapeHtml(r.skip || '')}</td></tr>`).join('');
-    return `<h4>${fac(id)} — day ${p.lastPlan.day}, strength ${p.lastPlan.strength}${p.lastPlan.speed != null ? ` · force speed ${Speed.speedLabel(p.lastPlan.speed)} (its slowest ship)` : ''}${p.lastPlan.chosen == null ? ' · no target' : ` · target ${nm(p.lastPlan.chosen)}`}</h4><table class="doctrine-debug" data-plan-table="${escapeHtml(id)}"><thead><tr><th>Target</th><th>Jumps</th><th>ETA (days)</th><th>Defence now</th><th>Incoming defence</th><th>Defence on arrival</th><th>Score</th><th>Decision</th></tr></thead><tbody>${rows}</tbody></table>`;
+    return `<h4>${fac(id)} — day ${p.lastPlan.day}, strength ${p.lastPlan.strength}${p.lastPlan.speed != null ? ` · force speed ${Speed.ratingLabel(p.lastPlan.speed)} (its slowest ship)` : ''}${p.lastPlan.chosen == null ? ' · no target' : ` · target ${nm(p.lastPlan.chosen)}`}</h4><table class="doctrine-debug" data-plan-table="${escapeHtml(id)}"><thead><tr><th>Target</th><th>Jumps</th><th>ETA (days)</th><th>Defence now</th><th>Incoming defence</th><th>Defence on arrival</th><th>Score</th><th>Decision</th></tr></thead><tbody>${rows}</tbody></table>`;
   }).join('');
   // Operations under way: plan against what the force will meet, front accounting at the target.
   const ops = (book.operations || []).filter((o) => o.status !== 'resolved');
   const opRows = ops.map((o) => {
     const f = Campaign.forceAccount(book, world, o.targetSystem, o.arriveDay ?? Infinity, o.faction);
-    return `<tr data-op-plan="${escapeHtml(o.id)}"><td>${fac(o.faction)} ${escapeHtml(o.kind)}</td><td>${nm(o.targetSystem)}</td><td>day ${o.createdDay}</td><td>${o.plan ? `${o.plan.etaDays} days → day ${o.plan.arriveDay}${o.plan.speed != null ? ` <span class="meta" data-op-speed>at ${Speed.speedLabel(o.plan.speed)}</span>` : ''}` : `day ${o.arriveDay ?? '—'}`}</td><td>${o.engagedDay != null ? `day ${o.engagedDay}` : escapeHtml(o.status)}</td><td>${f.standing}</td><td>${f.incoming.map((x) => `${fac(x.sponsor)} ${x.kind} ${x.strength} (day ${x.eta})`).join(', ') || '—'}</td><td>${f.later.map((x) => `${fac(x.sponsor)} ${x.strength} (day ${x.eta})`).join(', ') || '—'}</td></tr>`;
+    return `<tr data-op-plan="${escapeHtml(o.id)}"><td>${fac(o.faction)} ${escapeHtml(o.kind)}</td><td>${nm(o.targetSystem)}</td><td>day ${o.createdDay}</td><td>${o.plan ? `${o.plan.etaDays} days → day ${o.plan.arriveDay}${o.plan.speed != null ? ` <span class="meta" data-op-speed>at ${Speed.ratingLabel(o.plan.speed)}</span>` : ''}` : `day ${o.arriveDay ?? '—'}`}</td><td>${o.engagedDay != null ? `day ${o.engagedDay}` : escapeHtml(o.status)}</td><td>${f.standing}</td><td>${f.incoming.map((x) => `${fac(x.sponsor)} ${x.kind} ${x.strength} (day ${x.eta})`).join(', ') || '—'}</td><td>${f.later.map((x) => `${fac(x.sponsor)} ${x.strength} (day ${x.eta})`).join(', ') || '—'}</td></tr>`;
   }).join('');
   const opTable = opRows ? `<h4>Operations under way</h4><table class="doctrine-debug" data-op-plan-table><thead><tr><th>Force</th><th>Target</th><th>Launched</th><th>Planned ETA</th><th>Engaged</th><th>Standing there</th><th>Incoming first</th><th>Arriving after</th></tr></thead><tbody>${opRows}</tbody></table>` : '<p class="meta">No operations under way.</p>';
   // Forces: standing, committed (on an order, not moving), in transit.
@@ -11395,7 +11417,7 @@ function renderPlanningDebug() {
   const forceTable = `<h4>Forces</h4><table class="doctrine-debug" data-force-table><thead><tr><th>Power</th><th>Standing</th><th>Committed (not moving)</th><th>In transit</th></tr></thead><tbody>${Object.entries(forces).map(([id, r]) => `<tr data-force-row="${escapeHtml(id)}"><td>${fac(id)}</td><td>${r.standing}</td><td>${r.committed}</td><td>${r.transit}</td></tr>`).join('')}</tbody></table>`;
   // Evacuations: the refuge chosen and why, the cadence it can keep.
   const evs = (book.evacuations || []).filter((e) => e.status === 'active' || day - (e.endDay ?? day) <= 60).slice(-8);
-  const evRows = evs.map((e) => `<tr data-evac-plan="${escapeHtml(e.id)}"><td>${fac(e.sponsor)}</td><td>${nm(e.origin)} → ${nm(e.destination)}<div class="meta" data-evac-speed>convoy ${Speed.speedLabel(Campaign.evacuationSpeed(world, e))} (slowest of ${e.transports.length} transport${e.transports.length === 1 ? '' : 's'}${e.escorts.length ? ` + ${e.escorts.length} escort${e.escorts.length === 1 ? '' : 's'}` : ''})</div></td><td>${e.plan ? `${e.plan.destinationDays} days each way · cycle ${e.plan.cycleDays} · ${e.plan.tripsBeforeThreat} trip${e.plan.tripsBeforeThreat === 1 ? '' : 's'} before day ${e.plan.threatArrivesDay ?? '—'}` : `${Campaign.evacuationRoundTripDays(world, e) / 2} days each way (player)`}</td><td>${e.plan ? escapeHtml(e.plan.alternatives.map((a) => `${state.planets[a.index]?.name || a.index} ${a.days}d${a.danger ? ' exposed' : ''}`).join(', ') || '—') : '—'}</td><td>${e.moved}/${e.target}</td><td>${escapeHtml(e.status)}${e.convoy ? ` · trip ${e.convoy.trip} ${escapeHtml(e.convoy.phase)}` : ''}</td></tr>`).join('');
+  const evRows = evs.map((e) => `<tr data-evac-plan="${escapeHtml(e.id)}"><td>${fac(e.sponsor)}</td><td>${nm(e.origin)} → ${nm(e.destination)}<div class="meta" data-evac-speed>convoy ${Speed.ratingLabel(Campaign.evacuationSpeed(world, e))} (slowest of ${e.transports.length} transport${e.transports.length === 1 ? '' : 's'}${e.escorts.length ? ` + ${e.escorts.length} escort${e.escorts.length === 1 ? '' : 's'}` : ''})</div></td><td>${e.plan ? `${e.plan.destinationDays} days each way · cycle ${e.plan.cycleDays} · ${e.plan.tripsBeforeThreat} trip${e.plan.tripsBeforeThreat === 1 ? '' : 's'} before day ${e.plan.threatArrivesDay ?? '—'}` : `${Campaign.evacuationRoundTripDays(world, e) / 2} days each way (player)`}</td><td>${e.plan ? escapeHtml(e.plan.alternatives.map((a) => `${state.planets[a.index]?.name || a.index} ${a.days}d${a.danger ? ' exposed' : ''}`).join(', ') || '—') : '—'}</td><td>${e.moved}/${e.target}</td><td>${escapeHtml(e.status)}${e.convoy ? ` · trip ${e.convoy.trip} ${escapeHtml(e.convoy.phase)}` : ''}</td></tr>`).join('');
   const evTable = evRows ? `<h4>Evacuations</h4><table class="doctrine-debug" data-evac-plan-table><thead><tr><th>Sponsor</th><th>Route</th><th>Plan</th><th>Other refuges</th><th>Moved</th><th>Status</th></tr></thead><tbody>${evRows}</tbody></table>` : '<p class="meta">No evacuations.</p>';
   // Doctrine objectives: the deadline and what it was built from.
   const db = DoctrineCampaign.doctrineBook(book);
@@ -14431,7 +14453,7 @@ function renderPlanetMenu() {
         ${iconStat('speed', Math.round(finiteNumber(ship.topSpeed, 0)), 'Speed')}
         ${iconStat('hull', Math.round(finiteNumber(ship.hull, 0)), 'Hull')}
         ${iconStat('range', getShipWarpRange(id), 'Warp range')}
-        ${iconStat('speed', Speed.speedLabel(shipStrategicSpeed(id)), 'Strategic speed')}
+        ${iconStat('speed', Speed.ratingLabel(shipStrategicSpeed(id)), 'Strategic speed')}
       </div>
       ${stockLine}
       <div class="ship-actions">
@@ -22830,7 +22852,7 @@ function drawMapLegend() {
   drawFittedMapText(`${cost}    First click plots | Second click warps`, boxX + 14, boxY + 75, boxW - 28);
   const days=plan?.legs?.length?fleetTradeRouteDays(plan,captainCourseSpeed()):0; // what the course is charged: its legs, day by day, at his speed, as flown
   const daily=state.playerFleet.filter(f=>!f.destroyed).reduce((sum,f)=>sum+upkeepPerDay(f.shipId),0);
-  drawFittedMapText(`${days} travel days at ${Speed.speedLabel(captainCourseSpeed())} | Current fleet upkeep ${daily*days} L (deliveries add upkeep on following days)`,boxX+14,boxY+95,boxW-28);
+  drawFittedMapText(`${plan?.legs?.length ? `${state.planets[state.currentPlanet]?.name || '?'} → ${state.planets[plan.to ?? state.selectedPlanet]?.name || '?'}: ${days} days` : 'No course plotted'} | Current fleet upkeep ${daily*days} L (deliveries add upkeep on following days)`,boxX+14,boxY+95,boxW-28);
   ctx.restore();
 }
 
@@ -25059,13 +25081,29 @@ function mapRailsMarkup() {
   }).join('')}${(layers.lanes || layers.security) && unknown ? `<p class="map-rail-unknown" data-map-line>${unknown} unreported system${unknown === 1 ? '' : 's'}</p>` : ''}</section>`;
   const lines = (layers.lanes || layers.security) ? conditionsReadout(state.selectedPlanet) : [];
   let selected = '';
+  // The plotted course's ETA at the captain's own pace (his ship and any escort warping with him): what the
+  // calendar charges when he flies it. "Orion → Earth: 18 days".
+  const eta = mapCourseEtaText();
+  const etaLine = eta ? `<p class="map-rail-eta" data-map-line data-map-eta>${escapeHtml(eta)}</p>` : '';
   if (lines.length) {
     const [head, ...rest] = lines;
     const split = String(head).split(' — ');
     const readings = split.length > 1 ? split.slice(1).join(' — ').split(' · ') : [];
     selected = `<section class="map-rail-section"><h3 data-map-line>Selected system</h3><p class="map-rail-title" data-map-line>${escapeHtml(split[0])}</p><dl class="map-rail-readings">${readings.map((r) => { const [k, ...v] = r.split(': '); return `<div data-map-line>${escapeHtml(k)}: ${escapeHtml(v.join(': '))}</div>`; }).join('')}</dl>${rest.map((line, n) => `<p class="${n === 0 ? 'map-rail-source' : 'map-rail-note'}" data-map-line>${escapeHtml(line)}</p>`).join('')}</section>`;
   }
+  if (etaLine) selected = selected ? selected.replace('</h3>', `</h3>${etaLine}`) : `<section class="map-rail-section"><h3 data-map-line>Course</h3>${etaLine}</section>`;
   return { key, selected };
+}
+function mapCourseEtaText() {
+  const from = state.currentPlanet, to = state.selectedPlanet;
+  if (to == null || Number(to) === Number(from) || !state.planets[to]) return '';
+  const plan = getPlottedRoute(from, to);
+  if (!plan?.legs?.length) return '';
+  const speed = captainCourseSpeed();
+  // A course a treaty in force bars: the days of the lawful route he would be offered instead.
+  const treaty = captainTreatyCourse(from, to, plan);
+  const around = treaty.status === 'reroute' ? ` · around the DMZ: ${fleetTradeRouteDays(treaty.lawful, speed)} days` : treaty.status === 'refused' ? ' · DMZ: no lawful route' : '';
+  return `${state.planets[from]?.name || '?'} → ${state.planets[to]?.name || '?'}: ${fleetTradeRouteDays(plan, speed)} days${around}`;
 }
 function renderMapRails() {
   const layout = getStarChartLayout();
@@ -28310,18 +28348,23 @@ function resumeCaptainCourse() {
   const live = r.encounterId ? Encounter.encounterById(book, r.encounterId) : null;
   if (live && Encounter.isLive(live)) { setLog('Not while the engagement lasts.'); return false; }
   if (r.stopType === 'operation') { const op = (book.operations || []).find((o) => o.id === r.opId); if (op && op.status === 'engaged' && op.resolvedBy === 'local') { setLog('Not while the battle lasts.'); return false; } }
-  let plan = { from: r.from, to: r.destination, legs: r.legs, systems: r.systems, distance: (r.legs || []).reduce((n, l) => n + getRouteWarpDistance(l), 0), antimatter: 0 };
-  // The rest of the course under the treaties in force now (one may have begun or ended while he was stopped).
-  if (!r.treatyDefy && campaignBook().treatyTerms?.length && Campaign.treatyRouteBlocked(campaignBook(), r.from, (r.systems || []).slice(1).map(Number), PLAYER_SIDE, captainTrafficClass(), state.day) != null) {
-    const lawful = playerLawfulRoute(r.from, r.destination, captainTrafficClass());
-    if (!lawful || !lawful.legs.length) { setLog('DMZ — Military transit prohibited.'); return false; }
-    plan = { ...lawful, antimatter: 0 };
-  }
+  const plan = captainResumePlan(r);
+  if (!plan) { setLog('DMZ — Military transit prohibited.'); return false; }
   const ok = beginWarpTravel(r.destination, plan, { resume: true, free: true, courseId: r.courseId || null, treatyDefy: Boolean(r.treatyDefy) });
   if (!ok) return false; // could not depart (boarding, disabled): the course stays to resume later
   state.warpResume = null;
   Encounter.bumpEncounterStat(book, 'journeysResumed'); // the captain's own course, resumed once
   return true;
+}
+// The rest of an interrupted course as it would be flown now: the remaining legs, or — when a treaty in force
+// now bars them (one may have begun or ended while he was stopped) — the lawful route; null when there is none.
+function captainResumePlan(r) {
+  const plan = { from: r.from, to: r.destination, legs: r.legs, systems: r.systems, distance: (r.legs || []).reduce((n, l) => n + getRouteWarpDistance(l), 0), antimatter: 0 };
+  if (!r.treatyDefy && campaignBook().treatyTerms?.length && Campaign.treatyRouteBlocked(campaignBook(), r.from, (r.systems || []).slice(1).map(Number), PLAYER_SIDE, captainTrafficClass(), state.day) != null) {
+    const lawful = playerLawfulRoute(r.from, r.destination, captainTrafficClass());
+    return lawful && lawful.legs.length ? { ...lawful, antimatter: 0 } : null;
+  }
+  return plan;
 }
 function captainCourseLine() {
   const r = state.warpResume;
@@ -28329,7 +28372,8 @@ function captainCourseLine() {
   // The rest of the course at the speed he would fly it now (an escort lost in the engagement no longer
   // holds him back): the same days resumeCaptainCourse will charge.
   const speed = captainCourseSpeed();
-  const days = (r.legs || []).length ? routeLegDays({ legs: r.legs }, speed).reduce((n, d) => n + d, 0) : (r.legDays || []).reduce((n, d) => n + d, 0);
+  const plan = (r.legs || []).length ? captainResumePlan(r) : null;
+  const days = plan ? routeLegDays(plan, speed).reduce((n, d) => n + d, 0) : (r.legDays || []).reduce((n, d) => n + d, 0);
   return { destination: r.destination, from: r.from, days, speed, eta: state.day + days, ready: Boolean(r.ready) || (r.stopType === 'operation' && !(campaignBook().operations || []).some((o) => o.id === r.opId && o.status === 'engaged' && o.resolvedBy === 'local')), stopType: r.stopType, path: r.path };
 }
 // ---- the pirates of these waters and the captain (Phase 4's demand, tied to the strategic group) ----
@@ -28765,7 +28809,7 @@ function campaignOperationDetail({ op, known }) {
 // ---- Empire & campaign → Operations: evacuations and blockades ----
 const opsForm = { origin: null, destination: null, target: null, purpose: 'isolate_world', picked: new Set(), openDetails: new Set(), picker: null, message: '' };
 function opsPct(x) { return `${Math.round(x * 100)}%`; }
-function opsShipLabel(f, extra = '') { return `${escapeHtml(f.name || getShipStats(f.shipId).name)} · ${Speed.speedLabel(fleetShipSpeed(f))}${extra}`; }
+function opsShipLabel(f, extra = '') { return `${escapeHtml(f.name || getShipStats(f.shipId).name)} · ${Speed.ratingLabel(fleetShipSpeed(f))}${extra}`; }
 function renderOpsShipPicker(ships, role) {
   if (!ships.length) return '<p class="meta">No free vessels there.</p>';
   return `<ul class="ops-picker">${ships.map((f) => `<li><label><input type="checkbox" data-ops-pick="${escapeHtml(String(f.id))}" ${opsForm.picked.has(String(f.id)) ? 'checked' : ''}> ${opsShipLabel(f, role === 'transport' ? ` · ${evacLiftOfFleetShip(f).toLocaleString()} per trip` : '')}</label></li>`).join('')}</ul>`;
@@ -28872,7 +28916,7 @@ function renderStrategicOperations(book, world) {
   if (!dests.some((d) => d.index === opsForm.destination)) opsForm.destination = dests[0]?.index ?? null;
   const evacForm = mine.length ? `<label>From <select data-ops-origin>${mine.map((s) => `<option value="${s.index}" ${s.index === opsForm.origin ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')}</select></label>
     <label>To <select data-ops-destination>${dests.map((d) => `<option value="${d.index}" ${d.index === opsForm.destination ? 'selected' : ''}>${escapeHtml(d.name)} · ${d.days} day${d.days === 1 ? '' : 's'} each way${d.frontline ? ' · front line' : ''}${d.crowded ? ' · small settlement' : ''}</option>`).join('') || '<option value="">No valid destination</option>'}</select></label>
-    <p class="meta" data-ops-convoy-speed>Convoy strategic speed: ${Speed.speedLabel(convoySpeed)} (its slowest ${picked.length ? 'picked' : 'free'} ship)</p>
+    <p class="meta" data-ops-convoy-speed>Convoy strategic speed: ${Speed.ratingLabel(convoySpeed)} (its slowest ${picked.length ? 'picked' : 'free'} ship)</p>
     ${renderOpsShipPicker(freeFleetShipsAt(opsForm.origin), 'transport')}<button data-ops-start-evac>Start evacuation</button>` : '<p class="meta">You hold no inhabited world.</p>';
   const enemies = world.systems.filter((s) => s.controller && s.controller !== PLAYER_SIDE && isChartSystemVisible(s.index) && campaignPartyRelation(PLAYER_SIDE, s.controller) === 'war'
     && freeFleetShipsAt([s.index, ...(world.neighbours(s.index) || [])]).length);
@@ -29980,7 +30024,7 @@ function renderFleetManager(open = false) {
       f.intent || '',
     )}</select></label>
     <p class="fleet-identity" data-fleet-identity="${escapeHtml(ensureFleetVesselIdentity(f).vid)}">${escapeHtml(vesselIdentityLine(f.identity))}</p>
-    <p class="fleet-speed" data-fleet-speed="${escapeHtml(f.id)}">Strategic speed: ${Speed.speedLabel(fleetShipSpeed(f))}${group ? ` · ${escapeHtml(group.name)} flies at ${Speed.speedLabel(fleetGroupSpeed(state.playerFleet.filter((x) => group.members.includes(x.id) && !x.destroyed)))} (its slowest)` : ''}</p>
+    <p class="fleet-speed" data-fleet-speed="${escapeHtml(f.id)}">Strategic speed: ${Speed.ratingLabel(fleetShipSpeed(f))}${group ? ` · ${escapeHtml(group.name)}: ${escapeHtml(formationSpeedText(state.playerFleet.filter((x) => group.members.includes(x.id) && !x.destroyed)))}` : ''}</p>
     ${tradeBlock}
     ${n ? btn('transfer', 'Take command', f.id) + btn('repair', 'Repair hull', f.id) + btn('sell', 'Sell ship', f.id) + slots : 'Remote vessel'}
     ${
@@ -30037,7 +30081,7 @@ function renderFleetManager(open = false) {
     <select data-fleet-destination="${escapeHtml(g.id)}">${options(
       state.planets.map((p, i) => [i, chartSystemLabel(i)]).filter(([i])=>isChartSystemVisible(i)),
       g.destination ?? state.currentPlanet,
-    )}</select>${btn('dispatch', formationTravel(g) ? 'Redirect to system' : 'Dispatch to system', g.id)}${btn('dispatch-attack', 'Dispatch to attack', g.id)}<select data-fleet-blockade-policy="${escapeHtml(g.id)}" aria-label="At blockades">${options([['run', 'At blockades: run'], ['wait', 'At blockades: wait'], ['reroute', 'At blockades: reroute']], g.blockadePolicy || 'run')}</select>${formationTravel(g) ? btn('dispatch-cancel', 'Stop at next system', g.id) : ''}${btn('trade-start-group', 'Trade with formation', g.id)}${btn('trade-stop-group', 'Stop formation trading', g.id)}${g.travel ? `<p class="formation-travel" data-formation-travel="${escapeHtml(g.id)}" data-travel-status="${escapeHtml(g.travel.status)}">${escapeHtml(formationTravelLine(g))}</p>` : ''}${g.treatyNote && !formationTravel(g) ? `<p class="formation-treaty" data-formation-treaty="${escapeHtml(g.id)}">${escapeHtml(g.treatyNote)}</p>` : ''}${formationTravel(g) && formationTreatyNotes(g.travel).length ? `<p class="formation-treaty" data-formation-treaty="${escapeHtml(g.id)}">${escapeHtml(formationTreatyNotes(g.travel).join(' · '))}</p>` : ''}</div>`,
+    )}</select>${btn('dispatch', formationTravel(g) ? 'Redirect to system' : 'Dispatch to system', g.id)}${btn('dispatch-attack', 'Dispatch to attack', g.id)}<select data-fleet-blockade-policy="${escapeHtml(g.id)}" aria-label="At blockades">${options([['run', 'At blockades: run'], ['wait', 'At blockades: wait'], ['reroute', 'At blockades: reroute']], g.blockadePolicy || 'run')}</select>${formationTravel(g) ? btn('dispatch-cancel', 'Stop at next system', g.id) : ''}${btn('trade-start-group', 'Trade with formation', g.id)}${btn('trade-stop-group', 'Stop formation trading', g.id)}<p class="formation-speed" data-formation-speed="${escapeHtml(g.id)}">Strategic speed: ${escapeHtml(formationSpeedText(state.playerFleet.filter((x) => g.members.includes(x.id) && !x.destroyed)))}${((eta) => (eta ? ` · ${escapeHtml(eta)}` : ''))(formationEtaText(g))}</p>${g.travel ? `<p class="formation-travel" data-formation-travel="${escapeHtml(g.id)}" data-travel-status="${escapeHtml(g.travel.status)}">${escapeHtml(formationTravelLine(g))}</p>` : ''}${g.treatyNote && !formationTravel(g) ? `<p class="formation-treaty" data-formation-treaty="${escapeHtml(g.id)}">${escapeHtml(g.treatyNote)}</p>` : ''}${formationTravel(g) && formationTreatyNotes(g.travel).length ? `<p class="formation-treaty" data-formation-treaty="${escapeHtml(g.id)}">${escapeHtml(formationTreatyNotes(g.travel).join(' · '))}</p>` : ''}</div>`,
     )
     .join('');
   const ships = hasServiceChannel() ? getShipyardStock() : [];
@@ -30463,6 +30507,7 @@ function beginFormationTravel(g, members, from, destination, purpose, war, day, 
   g.destination = dest;
   if (!tr.path.length) { arriveFormation(g, tr, origin, Number(day)); return tr; }
   if (opts.skipGate) scheduleFormationLeg(g, tr); else departFormationLeg(g, tr, Number(day));
+  if (!tr.waiting) tr.plannedEtaDay = tr.etaDay; // what the dispatch promised (debug: planned vs actual arrival)
   return tr;
 }
 function dispatchFleetFormation(id, { fromRelay = false, purpose = null, defy = false } = {}) {
@@ -30676,6 +30721,8 @@ function departFormationLeg(g, tr, day) {
   if (tr.waiting) { delete tr.waiting; tr.note = ''; }
   tr.legDepartDay = Number(day);
   scheduleFormationLeg(g, tr);
+  // A formation held at a blockade when it was dispatched: its plan is made when it first sets out.
+  if (tr.plannedEtaDay == null) tr.plannedEtaDay = tr.etaDay;
   return true;
 }
 // ---- treaty terms and the captain's formations (TREATY-EXPANSION) ----
@@ -30935,7 +30982,7 @@ function formationTravelLine(g) {
   }
   if (tr.status === 'underway') {
     const pos = formationTravelPosition(tr);
-    const head = `${tr.purpose === 'attack' ? 'Attack on' : 'En route to'} ${name(tr.destination)} · leg ${tr.legIndex + 1}/${tr.path.length} ${name(tr.from)} → ${name(tr.path[tr.legIndex])} ${pos.standing ? `departed day ${tr.legDepartDay}` : 'in warp'}, arrives day ${tr.legArrivalDay} · destination day ${tr.etaDay}${tr.speed != null ? ` · strategic speed ${Speed.speedLabel(tr.speed)}` : ''}`;
+    const head = `${tr.purpose === 'attack' ? 'Attack on' : 'En route to'} ${name(tr.destination)} · leg ${tr.legIndex + 1}/${tr.path.length} ${name(tr.from)} → ${name(tr.path[tr.legIndex])} ${pos.standing ? `departed day ${tr.legDepartDay}` : 'in warp'}, arrives day ${tr.legArrivalDay} · destination day ${tr.etaDay}${tr.speed != null ? ` · strategic speed ${Speed.ratingLabel(tr.speed)}` : ''}`;
     return `${head}${crossed.length ? ` · crossed ${crossed.join(', ')}` : ''}${tr.note ? ` · ${tr.note}` : ''}`;
   }
   if (tr.status === 'arrived' && tr.retreatFrom != null) return `Turned back at ${name(tr.retreatFrom)} by ${tr.retreatBy || 'the blockade'} · holding at ${name(tr.destination)} since day ${tr.arrivedDay}`;
@@ -31165,14 +31212,40 @@ function routeLegDays(route, speed = null) {
 // A group of the captain's ships flies at its slowest able member; a disabled or crewless one is not
 // flying with it. Empty: 1.0.
 function fleetShipSpeed(f) { return shipStrategicSpeed(f?.shipId); }
+// The member that sets a formation's pace: the slowest able to travel (null for an empty formation).
+function fleetGroupLimiter(members) {
+  const able = (members || []).filter(fleetShipCanTravel);
+  return (able.length ? able : (members || []).filter(Boolean)).slice().sort((a, b) => fleetShipSpeed(a) - fleetShipSpeed(b) || String(a.id).localeCompare(String(b.id)))[0] || null;
+}
+// "5.0/10 · 1.00× (limited by USS Example)" — the limiter named only when the formation has more than one ship.
+function formationSpeedText(members) {
+  const list = (members || []).filter(Boolean);
+  const speed = fleetGroupSpeed(list);
+  // The limiter is named only when it is slower than another ship able to travel with it.
+  const lim0 = list.length > 1 ? fleetGroupLimiter(list) : null;
+  const lim = lim0 && list.some((f) => fleetShipCanTravel(f) && fleetShipSpeed(f) > fleetShipSpeed(lim0)) ? lim0 : null;
+  return `${Speed.ratingLabel(speed)}${lim ? ` (limited by ${lim.name || getShipStats(lim.shipId)?.name || lim.id})` : ''}`;
+}
+// "Orion → Earth: 18 days" for a formation's chosen destination, at its own pace, by the route it would fly.
+function formationEtaText(g) {
+  const members = state.playerFleet.filter((x) => g.members.includes(x.id) && !x.destroyed);
+  if (!members.length || g.destination == null || formationTravel(g)) return '';
+  const at = [...new Set(members.map((f) => fleetShipSystem(f)))];
+  if (at.length !== 1 || Number(at[0]) === Number(g.destination)) return '';
+  const route = playerLawfulRoute(Number(at[0]), Number(g.destination), formationTrafficClass('move'));
+  if (!route) return '';
+  return `${state.planets[at[0]]?.name || '?'} → ${state.planets[g.destination]?.name || '?'}: ${routeLegDays(route, fleetGroupSpeed(members)).reduce((n, d) => n + d, 0)} days`;
+}
+// A ship of the captain's able to travel: not destroyed, not disabled (in the scene or on its record).
+function fleetShipCanTravel(f) { return Boolean(f) && !f.destroyed && fleetLocalActor(f.id)?.condition !== 'disabled' && f.vessel?.condition !== 'disabled'; }
 function fleetGroupSpeed(members) {
-  const able = (members || []).filter((f) => f && !f.destroyed && fleetLocalActor(f.id)?.condition !== 'disabled' && f.vessel?.condition !== 'disabled');
+  const able = (members || []).filter(fleetShipCanTravel);
   return Speed.groupSpeed((able.length ? able : (members || []).filter(Boolean)).map(fleetShipSpeed)) ?? Speed.SPEED_DEFAULT;
 }
 // The captain's own course: his ship, and every escort that warps with him (the slowest sets the pace).
 function captainCourseSpeed() {
   const escorts = (typeof getPlayerEscortFleetShips === 'function' ? getPlayerEscortFleetShips() : []) || [];
-  return Speed.groupSpeed([shipStrategicSpeed(state.playership), ...escorts.filter((f) => f && !f.destroyed && f.vessel?.condition !== 'disabled').map(fleetShipSpeed)]) ?? Speed.SPEED_DEFAULT;
+  return Speed.groupSpeed([shipStrategicSpeed(state.playership), ...escorts.filter(fleetShipCanTravel).map(fleetShipSpeed)]) ?? Speed.SPEED_DEFAULT;
 }
 // The days a route actually takes to fly: the sum of its legs, each rounded up to whole campaign days,
 // which is what the calendar charges when she flies it. A plan that reckoned the same route from its

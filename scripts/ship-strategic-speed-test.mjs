@@ -1,4 +1,5 @@
-// Pure regressions for SHIP-DEPENDENT-STRATEGIC-SPEED (docs/movement/SHIP-DEPENDENT-STRATEGIC-SPEED.md): a
+// Pure regressions for SHIP-DEPENDENT-STRATEGIC-SPEED (docs/movement/SHIP-DEPENDENT-STRATEGIC-SPEED.md),
+// first round (78cd8fa; its day counts re-derived for the rounded-up legs of the rated round, 7d3ce43+): a
 // journey's days depend on the ships actually flying it, and every planner reads exactly those days. The
 // model side (journeys, formations as journeys, evacuation, war planning, defence accounting, the Dominion
 // expedition, blockade running, the tactical handoff, doctrine rescue) on the shared fixture galaxies; the
@@ -101,7 +102,7 @@ test('preservation', '2. the route is the same for fast and slow ships: the same
   const slow = C.plotJourney(env.world, IDX.Minor, IDX.Qonos, 'terran', null, 0.8), fast = C.plotJourney(env.world, IDX.Minor, IDX.Qonos, 'terran', null, 1.3), chart = C.plotJourney(env.world, IDX.Minor, IDX.Qonos, 'terran');
   assert.deepEqual(slow.systems, fast.systems); assert.deepEqual(slow.systems, chart.systems);
   assert.deepEqual(chart.legDays, [11, 10, 8]);
-  assert.deepEqual(fast.legDays, [8, 8, 6]); assert.deepEqual(slow.legDays, [14, 13, 10]);
+  assert.deepEqual(fast.legDays, [9, 8, 7]); assert.deepEqual(slow.legDays, [14, 13, 10]);
   assert.deepEqual(slow.legBase.map((l) => l.days), chart.legDays);
 });
 test('new-feature', '3. a group flies at its slowest member able to travel: a disabled, surrendered or crewless member is not travelling and does not slow it', () => {
@@ -184,7 +185,7 @@ test('preservation', '10. a wormhole transit keeps its fixed days whatever the s
   for (const s of [0.6, 0.8, 1, 1.3, 1.5]) assert.equal(C.legDaysBetween(env.world, IDX.Bajora, IDX.Dominica, s), 3, `at ${s}×`);
   assert.equal(SPD.adjustLegDays(1, 1.5), 1, 'a one-day leg became 0');
   const fast = C.plotJourney(env.world, IDX.Cardassia, IDX.Dominica, 'dominion', null, 1.3);
-  assert.deepEqual(fast.legDays, [5, 3]);
+  assert.deepEqual(fast.legDays, [6, 3]);
 });
 
 // ===================================================================================================
@@ -219,11 +220,11 @@ test('baseline-defect', '15. fast escorts do not shorten the evacuation cycle: t
 test('new-feature', '14b. a refuge too far for slow transports is refused at their speed, and accepted for faster ones: the destination choice follows the convoy that will actually fly', () => {
   need();
   const env = campaignWorld('SP-14b');
-  env.book.config.evacMaxOneWayDays = 25; // Minor → Earth: 23 chart days, 29 at 0.8×, 17 (8 + 9) at 1.3×
+  env.book.config.evacMaxOneWayDays = 25; // Minor → Earth: 23 chart days, 29 at 0.8×, 19 (9 + 10) at 1.3×
   const slow = C.validateEvacuationDestination(env.book, env.world, 'terran', IDX.Minor, IDX.Earth, null, 0.8);
   const fast = C.validateEvacuationDestination(env.book, env.world, 'terran', IDX.Minor, IDX.Earth, null, 1.3);
   assert.equal(slow.ok, false); assert.match(slow.reason, /too far: 29 days/);
-  assert.equal(fast.ok, true); assert.equal(fast.days, 17);
+  assert.equal(fast.ok, true); assert.equal(fast.days, 19);
   const r = C.startEvacuation(env.book, env.world, { sponsor: 'terran', origin: IDX.Minor, destination: IDX.Earth, transports: make(env, 'terran', 82, IDX.Minor).map((h) => h.id) }, 1, []);
   assert.equal(r.ok, false, 'slow freighters were sent to a refuge they cannot reach in the limit');
 });
@@ -279,9 +280,9 @@ test('baseline-defect', '16. an operation\'s ETA is its slowest ship\'s: a force
   const eta = C.forceEtaDays ? C.forceEtaDays(env.world, env.hs, IDX.Vega, 'klingon') : null;
   const op = C.launchOperation(env.book, env.world, 'klingon', env.hs, IDX.Vega, 1, 2, 'assault', []);
   const tr = C.journeyById(env.book, op.journeyIds[0]);
-  assert.deepEqual(tr.legDays, [9, 12], `the force flies ${tr.legDays}; at its heavy ship's 0.85× it is 9 + 12`);
-  if (eta != null) assert.equal(eta, 21);
-  assert.equal(op.arriveDay, 1 + 21);
+  assert.deepEqual(tr.legDays, [10, 12], `the force flies ${tr.legDays}; at its heavy ship's 0.85× it is 10 + 12`);
+  if (eta != null) assert.equal(eta, 22);
+  assert.equal(op.arriveDay, 1 + 22);
 });
 function planOnce(env) {
   const p = P(env.book, 'klingon');
@@ -295,14 +296,14 @@ test('baseline-defect', '17/ETA-AWARE-WAR-SPEED. two otherwise identical forces,
   const a = planOnce(fast), b = planOnce(slow);
   const row = (x) => (x.plan?.considered || []).find((r) => r.index === IDX.Vega);
   log.warSpeed = { fast: { chosen: a.plan?.chosen, vega: row(a), speed: a.plan?.speed }, slow: { chosen: b.plan?.chosen, vega: row(b), speed: b.plan?.speed } };
-  assert.equal(row(a)?.etaDays, 14, `fast ETA to Vega ${row(a)?.etaDays} (8 + 10 at 1.3× = 6 + 8)`);
-  assert.equal(row(b)?.etaDays, 21, `slow ETA to Vega ${row(b)?.etaDays} (8 + 10 at 0.85× = 9 + 12)`);
+  assert.equal(row(a)?.etaDays, 15, `fast ETA to Vega ${row(a)?.etaDays} (8 + 10 at 1.3× = 7 + 8)`);
+  assert.equal(row(b)?.etaDays, 22, `slow ETA to Vega ${row(b)?.etaDays} (8 + 10 at 0.85× = 10 + 12)`);
   assert.equal(a.plan.chosen, IDX.Vega, JSON.stringify(a.plan));
   assert.notEqual(b.plan.chosen, IDX.Vega, 'the slow force was scored with the fast one\'s ETA');
-  assert.match(row(b).skip || '', /21 days away/);
+  assert.match(row(b).skip || '', /22 days away/);
   // The fast force engages on the day it was planned to arrive, against the defence it was planned against.
   const op = a.op;
-  assert.equal(op.plan.arriveDay, 2 + 14);
+  assert.equal(op.plan.arriveDay, 2 + 15);
   const atPlan = op.plan.defenseAtEta;
   run(fast.book, fast.world, 3, op.plan.arriveDay);
   assert.equal(op.engagedDay, op.plan.arriveDay, `engaged day ${op.engagedDay}, planned ${op.plan.arriveDay}`);
@@ -314,7 +315,7 @@ test('baseline-defect', '18. incoming-defence accounting uses each ship\'s own a
   const [fast] = make(env, 'terran', 81, IDX.Earth), [slow] = make(env, 'terran', 82, IDX.Earth);
   const f = C.startJourney(env.book, env.world, { kind: 'return', ref: 'x', sponsor: 'terran', hulls: [fast], destination: IDX.Vega, purpose: 'return' }, 1, []).journey;
   const s = C.startJourney(env.book, env.world, { kind: 'return', ref: 'y', sponsor: 'terran', hulls: [slow], destination: IDX.Vega, purpose: 'return' }, 1, []).journey;
-  assert.equal(f.etaDay, 1 + 9); assert.equal(s.etaDay, 1 + 15);
+  assert.equal(f.etaDay, 1 + 10); assert.equal(s.etaDay, 1 + 15);
   const acc = C.forceAccount(env.book, env.world, IDX.Vega, 12, 'klingon');
   assert.deepEqual(acc.incoming.map((x) => x.journeyId), [f.id], JSON.stringify(acc));
   assert.deepEqual(acc.later.map((x) => x.journeyId), [s.id]);
@@ -331,13 +332,13 @@ test('new-feature', '19. a Dominion reinforcement counts toward the expedition o
   const [bs] = make(env, 'dominion', 86, IDX.Border);
   const r = C.startJourney(env.book, env.world, { kind: 'expedition', ref: 'dominion:convoy:1', sponsor: 'dominion', hulls: [bs], destination: IDX.Bajora, purpose: 'reinforce', authority: { kind: 'reinforcement', ref: 'dominion:convoy:1' } }, 1, []);
   assert.ok(r.ok, r.reason);
-  assert.deepEqual(r.journey.legDays, [11, 8], 'Border → Cardassia → Bajora (9 + 7) at 0.85×');
+  assert.deepEqual(r.journey.legDays, [11, 9], 'Border → Cardassia → Bajora (9 + 7) at 0.85×');
   const st = (day) => { run(env.book, env.world, day, day); return C.expeditionAssessment(env.book, env.world, 'dominion'); };
   const before = st(2);
   assert.ok(before.incomingStrength > 0 && before.strength === 0 || before.incomingStrength > 0, JSON.stringify(before));
-  for (let dd = 3; dd < 20; dd++) { const x = st(dd); if (dd < 20) assert.ok(x.incomingStrength > 0, `day ${dd}: no longer incoming before its arrival`); }
-  const landed = st(20);
-  assert.equal(r.journey.arrivedDay, 20);
+  for (let dd = 3; dd < 21; dd++) { const x = st(dd); assert.ok(x.incomingStrength > 0, `day ${dd}: no longer incoming before its arrival`); }
+  const landed = st(21);
+  assert.equal(r.journey.arrivedDay, 21);
   assert.equal(landed.incomingStrength, 0); assert.ok(landed.strength > 0);
 });
 
@@ -350,9 +351,9 @@ function blockadeAtVega(env, n = 6) {
   assert.ok(b.ok, b.reason);
   return b.record;
 }
-test('new-feature', '20. a blockade is met on the speed-adjusted crossing day: a slow convoy reaches the blockaded Vega on day 1 + 14, a fast one on day 1 + 8, each run recorded that day', () => {
+test('new-feature', '20. a blockade is met on the speed-adjusted crossing day: a slow convoy reaches the blockaded Vega on day 1 + 14, a fast one on day 1 + 9, each run recorded that day', () => {
   need();
-  for (const [cls, days] of [[82, 14], [81, 8]]) {
+  for (const [cls, days] of [[82, 14], [81, 9]]) {
     const env = campaignWorld(`SP-20-${cls}`);
     const b = blockadeAtVega(env);
     const [h] = make(env, 'terran', cls, IDX.Minor);
@@ -428,7 +429,7 @@ function rescueGalaxy(seed, reliefClass = null) {
   const vs = G.ready(env.book, 'vulcan', G.IDX.Vulcan);
   return { ...env, db, vs };
 }
-test('baseline-defect', '11/13. two relief ships at Vulcan, survivors at Aldnas with 15 days left: the fast one (1.3×: 4 + 9 = 13 days) can reach them and is accepted; the slow one (0.8×: 6 + 15 = 21) is refused as physically too late — same origin, same survivors, the ETA decides', () => {
+test('baseline-defect', '11/13. two relief ships at Vulcan, survivors at Aldnas with 15 days left: the fast one (1.3×: 4 + 10 = 14 days) can reach them and is accepted; the slow one (0.8×: 7 + 15 = 22) is refused as physically too late — same origin, same survivors, the ETA decides', () => {
   const env = rescueGalaxy('SP-11');
   const [a, b] = env.vs;
   a.shipId = 97; b.shipId = 98;
@@ -436,8 +437,8 @@ test('baseline-defect', '11/13. two relief ships at Vulcan, survivors at Aldnas 
   const fast = DC.responseCapacity(env.book, env.world, env.db, `hull:${a.id}`, 'rescue', target, 1, { incidentId: 'sp11' });
   const slow = DC.responseCapacity(env.book, env.world, env.db, `hull:${b.id}`, 'rescue', target, 1, { incidentId: 'sp11' });
   log.rescueCapacity = { fast: { ok: fast.ok, eta: fast.etaDays, reason: fast.reason }, slow: { ok: slow.ok, eta: slow.etaDays, reason: slow.reason } };
-  assert.equal(fast.ok, true, fast.reason); assert.equal(fast.etaDays, 13);
-  assert.equal(slow.ok, false); assert.equal(slow.failedByDistance, true); assert.equal(slow.etaDays, 21);
+  assert.equal(fast.ok, true, fast.reason); assert.equal(fast.etaDays, 14);
+  assert.equal(slow.ok, false); assert.equal(slow.failedByDistance, true); assert.equal(slow.etaDays, 22);
   assert.match(slow.reason, /cannot reach the survivors in time/);
 });
 test('new-feature', '12/FAST-VS-SLOW-RESCUE. the same distress, the same survivors\' endurance, a fast relief ship vs a slow one: the fast one is sent, gets there on its planned ETA (planned arrival = actual), and rescues them; the slow one is refused and nothing is faked', () => {
@@ -487,8 +488,8 @@ test('new-feature', '12/FAST-VS-SLOW-RESCUE. the same distress, the same survivo
   assert.equal(fast.dist.resolution?.status, 'survivors_rescued');
   assert.ok(!slow.o || slow.o.response !== 'rescue', `the slow relief ship was sent: ${JSON.stringify(slow.o?.plan)}`);
   assert.equal(slow.ev?.capacity?.ok, false, JSON.stringify(slow.ev?.capacity));
-  assert.match(slow.ev.capacity.reason, /cannot reach the survivors in time \(arrives day 48, 21 days; survivors last to day 46\)/);
-  assert.equal(fast.o.plan.etaDays, 13); assert.equal(fast.o.plan.survivorsUntil, 46);
+  assert.match(slow.ev.capacity.reason, /cannot reach the survivors in time \(arrives day 49, 22 days; survivors last to day 46\)/);
+  assert.equal(fast.o.plan.etaDays, 14); assert.equal(fast.o.plan.survivorsUntil, 46);
 });
 
 test('new-feature', '27. a doctrine job issued before ship speed (its expectations made at 1.0) is re-timed when it sets out at its slow hull\'s speed: no false "missed arrival"', () => {
@@ -503,14 +504,14 @@ test('new-feature', '27. a doctrine job issued before ship speed (its expectatio
   const m = a.milestones.find((x) => x.kind === 'arrival');
   const b2 = reload(env.book);
   const a2 = DC.doctrineBook(b2).assignments.find((x) => x.id === a.id);
-  delete a2.speed; const legacyDue = a2.milestones.find((x) => x.id === m.id).dueDay = m.dueDay - (6 + 15) + (5 + 12);
+  delete a2.speed; const legacyDue = a2.milestones.find((x) => x.id === m.id).dueDay = m.dueDay - (7 + 15) + (5 + 12);
   run(b2, env.world, 2, 40);
   const m2 = a2.milestones.find((x) => x.id === m.id);
   log.legacyAssignment = { legacyDue, dueDay: m2.dueDay, status: m2.status, retimed: m2.retimed || null, speed: a2.speed };
   assert.equal(a2.speed, 0.8);
   const flown = (b2.journeys || []).filter((j) => j.ref === a.id && j.destination === G.IDX.Aldnas).at(-1);
   assert.equal(m2.dueDay, flown.arrivedDay, `the arrival is expected day ${m2.dueDay}; it arrived day ${flown.arrivedDay}`);
-  assert.equal(flown.arrivedDay - flown.startDay, 6 + 15, 'not flown at the hull\'s 0.8× (5 + 12 chart days)');
+  assert.equal(flown.arrivedDay - flown.startDay, 7 + 15, 'not flown at the hull\'s 0.8× (5 + 12 chart days)');
   assert.equal(m2.retimed?.speed, 0.8, 'not re-timed at the hull\'s 0.8×');
   assert.notEqual(m2.status, 'missed', JSON.stringify(m2));
   assert.ok(!Object.values(DC.doctrineBook(b2).incidents).some((i) => i.eventType === 'overdue' && String(i.id).includes(a.id)), 'a false overdue incident');

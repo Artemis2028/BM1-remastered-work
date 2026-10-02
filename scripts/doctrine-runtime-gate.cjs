@@ -30,12 +30,15 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
   // The Cheats & Debug dialog scrolls; for a picture of the whole doctrine section it is laid out at its
   // full height and the viewport grown to fit, then restored.
   async function shotDoctrine(file, focus = null) {
-    await ev(() => { const d = document.getElementById('cheats-debug'); if (!d.open) testBM1.openDebugMenu(); d.style.maxHeight = 'none'; d.style.height = 'auto'; d.style.width = '1360px'; d.style.maxWidth = 'none'; d.style.overflow = 'visible'; d.style.position = 'absolute'; d.style.top = '0'; });
+    // Only the doctrine section is laid out: the sections above it (the strategic journeys' debug among them, a few
+    // lines per journey since SHIP-DEPENDENT-STRATEGIC-SPEED's rated debug fields) would otherwise push it past
+    // what the browser can capture in one picture.
+    await ev(() => { const d = document.getElementById('cheats-debug'); if (!d.open) testBM1.openDebugMenu(); for (const x of d.querySelectorAll('section')) if (!x.matches('[data-doctrine-section]')) x.style.display = 'none'; d.style.maxHeight = 'none'; d.style.height = 'auto'; d.style.width = '1360px'; d.style.maxWidth = 'none'; d.style.overflow = 'visible'; d.style.position = 'absolute'; d.style.top = '0'; });
     const h = await ev(() => Math.ceil(document.querySelector('[data-doctrine-section]').getBoundingClientRect().bottom + window.scrollY + 40));
     await page.setViewportSize({ width: 1400, height: Math.min(16000, Math.max(900, h)) });
     await page.locator('[data-doctrine-section]').screenshot({ path: path.join(out, file) });
     await page.setViewportSize({ width: 1400, height: 900 });
-    await ev(() => { const d = document.getElementById('cheats-debug'); d.removeAttribute('style'); d.close(); });
+    await ev(() => { const d = document.getElementById('cheats-debug'); for (const x of d.querySelectorAll('section')) x.style.display = ''; d.removeAttribute('style'); d.close(); });
   }
   await page.waitForFunction(() => !testBM1.doctrineStatus || testBM1.doctrineStatus().state !== 'loading', null, { timeout: 30000 }).catch(() => {});
 

@@ -110,10 +110,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Late-24c Starfleet combat hull; no firm canon warp figure found."
     },
     {
       "id": 2,
@@ -225,10 +228,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Older Starfleet cruiser; high-warp capable but a generation behind Galaxy-era drive efficiency."
     },
     {
       "id": 4,
@@ -338,10 +344,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Canon examples reach warp 9.3–9.6."
     },
     {
       "id": 9,
@@ -449,10 +458,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 4,
-      "recoveryCapacityBasis": "category:freighter"
+      "recoveryCapacityBasis": "category:freighter",
+      "strategicSpeedRating": 5,
+      "strategicSpeed": 1,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 10,
@@ -560,10 +572,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 10,
-      "recoveryCapacityBasis": "category:heavyTug"
+      "recoveryCapacityBasis": "category:heavyTug",
+      "strategicSpeedRating": 4,
+      "strategicSpeed": 0.92,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 11,
@@ -672,10 +687,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 15,
@@ -790,10 +808,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Ambassador-era frame; civilian refit lowers sustained strategic priority."
     },
     {
       "id": 22,
@@ -903,10 +924,13 @@
         "mode": "allowed",
         "resistance": "hardened"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Compact warship."
     },
     {
       "id": 24,
@@ -1014,10 +1038,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 3.5,
+      "strategicSpeed": 0.89,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 25,
@@ -1125,10 +1152,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cargoShuttle",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 4,
+      "strategicSpeed": 0.92,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Early Vulcan/Suurok-era ships are around warp 6.5–7; much slower than late-24c Starfleet."
     },
     {
       "id": 26,
@@ -1187,10 +1217,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital",
       "recoveryCapacity": 5,
-      "recoveryCapacityBasis": "category:capital"
+      "recoveryCapacityBasis": "category:capital",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback (retired)",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 29,
@@ -1298,10 +1331,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Scout/courier role favors high strategic speed."
     },
     {
       "id": 33,
@@ -1413,10 +1449,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Late-24c combat design; speed not firmly established on-screen."
     },
     {
       "id": 35,
@@ -1524,10 +1563,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital",
       "recoveryCapacity": 5,
-      "recoveryCapacityBasis": "category:capital"
+      "recoveryCapacityBasis": "category:capital",
+      "strategicSpeedRating": 8.5,
+      "strategicSpeed": 1.28,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Warp 9.6 for hours; 9.8 theoretically at extreme risk; cruise lower."
     },
     {
       "id": 38,
@@ -1635,10 +1677,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital",
       "recoveryCapacity": 5,
-      "recoveryCapacityBasis": "category:capital"
+      "recoveryCapacityBasis": "category:capital",
+      "strategicSpeedRating": 9.5,
+      "strategicSpeed": 1.36,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Sources vary (~9.7 to ~9.995); newer battlecruiser intended for high sustained strategic performance."
     },
     {
       "id": 42,
@@ -1746,10 +1791,13 @@
         "mode": "allowed",
         "resistance": "hardened"
       },
-      "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship",
       "recoveryCapacity": 6,
-      "recoveryCapacityBasis": "category:battleship"
+      "recoveryCapacityBasis": "category:battleship",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Negh'Var-line heavy battleship."
     },
     {
       "id": 47,
@@ -1861,10 +1909,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 8,
-      "recoveryCapacityBasis": "category:tug"
+      "recoveryCapacityBasis": "category:tug",
+      "strategicSpeedRating": 5,
+      "strategicSpeed": 1,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 48,
@@ -1974,10 +2025,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital",
       "recoveryCapacity": 5,
-      "recoveryCapacityBasis": "category:capital"
+      "recoveryCapacityBasis": "category:capital",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Technical references list about warp 9.6; heavy Dominion cruiser."
     },
     {
       "id": 49,
@@ -2087,10 +2141,13 @@
         "mode": "allowed",
         "resistance": "hardened"
       },
-      "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship",
       "recoveryCapacity": 6,
-      "recoveryCapacityBasis": "category:battleship"
+      "recoveryCapacityBasis": "category:battleship",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Huge dreadnought; prioritizes combat over cruise."
     },
     {
       "id": 50,
@@ -2198,10 +2255,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 4,
-      "recoveryCapacityBasis": "category:freighter"
+      "recoveryCapacityBasis": "category:freighter",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Exotic/organic transport; uncertain."
     },
     {
       "id": 51,
@@ -2311,10 +2371,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital",
       "recoveryCapacity": 5,
-      "recoveryCapacityBasis": "category:capital"
+      "recoveryCapacityBasis": "category:capital",
+      "strategicSpeedRating": 6,
+      "strategicSpeed": 1.08,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Liner prioritizes comfort/range over speed."
     },
     {
       "id": 53,
@@ -2426,10 +2489,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital",
       "recoveryCapacity": 5,
-      "recoveryCapacityBasis": "category:capital"
+      "recoveryCapacityBasis": "category:capital",
+      "strategicSpeedRating": 8.5,
+      "strategicSpeed": 1.28,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Advanced late-24c strike capital; Scimitar-like role cues."
     },
     {
       "id": 54,
@@ -2539,10 +2605,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "24c independent cruiser; inferred."
     },
     {
       "id": 55,
@@ -2654,10 +2723,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 9,
+      "strategicSpeed": 1.32,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Exotic combat bioship; intentionally high but uncertain."
     },
     {
       "id": 60,
@@ -2779,10 +2851,13 @@
         "reducedTo": 308,
         "rationale": "Authored civilian/commercial exception, approved on review: the hull's marketRole is civilian, its art note names a separate civilian megaship identity, and the previous balance review preserved its commercial role. Held at the heavy-cargo tier for a battleship-class hull (220 x 6) rather than the 10,000 it shipped with, which nothing authored explains."
       },
-      "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship",
       "recoveryCapacity": 6,
-      "recoveryCapacityBasis": "category:battleship"
+      "recoveryCapacityBasis": "category:battleship",
+      "strategicSpeedRating": 6,
+      "strategicSpeed": 1.08,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Independent supercapital; large hull."
     },
     {
       "id": 61,
@@ -2896,10 +2971,13 @@
         "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
         "previousCargoCapacity": 2500
       },
-      "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship",
       "recoveryCapacity": 6,
-      "recoveryCapacityBasis": "category:battleship"
+      "recoveryCapacityBasis": "category:battleship",
+      "strategicSpeedRating": 6,
+      "strategicSpeed": 1.08,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "BM supercapital; large command hull."
     },
     {
       "id": 62,
@@ -3013,10 +3091,13 @@
         "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
         "previousCargoCapacity": 6000
       },
-      "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship",
       "recoveryCapacity": 6,
-      "recoveryCapacityBasis": "category:battleship"
+      "recoveryCapacityBasis": "category:battleship",
+      "strategicSpeedRating": 5.5,
+      "strategicSpeed": 1.04,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "BM supercapital; very large hull."
     },
     {
       "id": 63,
@@ -3074,10 +3155,13 @@
         "mode": "allowed",
         "resistance": "hardened"
       },
-      "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship",
       "recoveryCapacity": 6,
-      "recoveryCapacityBasis": "category:battleship"
+      "recoveryCapacityBasis": "category:battleship",
+      "strategicSpeedRating": 6,
+      "strategicSpeed": 1.08,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback (retired)",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 64,
@@ -3191,10 +3275,13 @@
         "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
         "previousCargoCapacity": 4000
       },
-      "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship",
       "recoveryCapacity": 6,
-      "recoveryCapacityBasis": "category:battleship"
+      "recoveryCapacityBasis": "category:battleship",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "BM supercapital; large hull offsets Romulan propulsion quality."
     },
     {
       "id": 65,
@@ -3308,10 +3395,13 @@
         "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
         "previousCargoCapacity": 3000
       },
-      "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship",
       "recoveryCapacity": 6,
-      "recoveryCapacityBasis": "category:battleship"
+      "recoveryCapacityBasis": "category:battleship",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Very heavy hull; canon observed figure is not a demonstrated maximum."
     },
     {
       "id": 66,
@@ -3427,10 +3517,13 @@
         "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
         "previousCargoCapacity": 4500
       },
-      "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship",
       "recoveryCapacity": 6,
-      "recoveryCapacityBasis": "category:battleship"
+      "recoveryCapacityBasis": "category:battleship",
+      "strategicSpeedRating": 5.5,
+      "strategicSpeed": 1.04,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Supercapital; inferred."
     },
     {
       "id": 206,
@@ -3542,10 +3635,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Scout role."
     },
     {
       "id": 207,
@@ -3657,10 +3753,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Raider role; fast enough to intercept commerce, not a known top-warp benchmark."
     },
     {
       "id": 208,
@@ -3773,10 +3872,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 5,
+      "strategicSpeed": 1,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 209,
@@ -3888,10 +3990,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:fastCruiser"
+      "recoveryCapacityBasis": "category:fastCruiser",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 210,
@@ -4003,10 +4108,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 3,
+      "strategicSpeed": 0.85,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Small Vulcan shuttle."
     },
     {
       "id": 211,
@@ -4119,10 +4227,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital",
       "recoveryCapacity": 5,
-      "recoveryCapacityBasis": "category:capital"
+      "recoveryCapacityBasis": "category:capital",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "BM expeditionary capital; endurance emphasized over sprint."
     },
     {
       "id": 212,
@@ -4234,10 +4345,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Courier role favors sustained speed."
     },
     {
       "id": 213,
@@ -4351,10 +4465,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital",
       "recoveryCapacity": 5,
-      "recoveryCapacityBasis": "category:capital"
+      "recoveryCapacityBasis": "category:capital",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 214,
@@ -4466,10 +4583,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 215,
@@ -4582,10 +4702,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 4,
-      "recoveryCapacityBasis": "category:freighter"
+      "recoveryCapacityBasis": "category:freighter",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Quantum-drive freighter; lower than the cruiser but above conventional bulk freighters."
     },
     {
       "id": 216,
@@ -4697,10 +4820,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Dominion combat cruiser; inferred from battlecruiser family."
     },
     {
       "id": 217,
@@ -4812,10 +4938,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 218,
@@ -4927,10 +5056,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Late Dominion-War peer combatant; no precise canon sustainable speed used."
     },
     {
       "id": 219,
@@ -5042,10 +5174,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 8.5,
+      "strategicSpeed": 1.28,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Highly advanced late-24c power; strategic speed inferred."
     },
     {
       "id": 220,
@@ -5157,10 +5292,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 221,
@@ -5272,10 +5410,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital",
       "recoveryCapacity": 5,
-      "recoveryCapacityBasis": "category:capital"
+      "recoveryCapacityBasis": "category:capital",
+      "strategicSpeedRating": 8.5,
+      "strategicSpeed": 1.28,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Galaxy-derived command variant; same broad propulsion generation."
     },
     {
       "id": 222,
@@ -5387,10 +5528,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 4.5,
+      "strategicSpeed": 0.96,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Small craft; inferred."
     },
     {
       "id": 223,
@@ -5502,10 +5646,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 4,
-      "recoveryCapacityBasis": "category:freighter"
+      "recoveryCapacityBasis": "category:freighter",
+      "strategicSpeedRating": 5,
+      "strategicSpeed": 1,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Cargo role."
     },
     {
       "id": 224,
@@ -5617,10 +5764,13 @@
         "mode": "allowed",
         "resistance": "hardened"
       },
-      "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship",
       "recoveryCapacity": 6,
-      "recoveryCapacityBasis": "category:battleship"
+      "recoveryCapacityBasis": "category:battleship",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Large advanced Son'a hull."
     },
     {
       "id": 225,
@@ -5733,10 +5883,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 6,
+      "strategicSpeed": 1.08,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Commerce cruiser."
     },
     {
       "id": 226,
@@ -5848,10 +6001,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 5.5,
+      "strategicSpeed": 1.04,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Ancient/legacy Promellian tech; inferred."
     },
     {
       "id": 227,
@@ -5963,10 +6119,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 5,
+      "strategicSpeed": 1,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Heavy ancient cruiser; inferred."
     },
     {
       "id": 228,
@@ -6078,10 +6237,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 5,
+      "strategicSpeed": 1,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Warp-capable tactical craft; strategic endurance lower than cruisers."
     },
     {
       "id": 229,
@@ -6199,10 +6361,13 @@
         "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
         "previousCargoCapacity": 110
       },
-      "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Premium command yacht; fast auxiliary."
     },
     {
       "id": 230,
@@ -6315,10 +6480,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 231,
@@ -6431,10 +6599,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 232,
@@ -6546,10 +6717,13 @@
         "mode": "allowed",
         "resistance": "hardened"
       },
-      "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship",
       "recoveryCapacity": 6,
-      "recoveryCapacityBasis": "category:battleship"
+      "recoveryCapacityBasis": "category:battleship",
+      "strategicSpeedRating": 6,
+      "strategicSpeed": 1.08,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Large warship; inferred."
     },
     {
       "id": 233,
@@ -6661,10 +6835,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 4.5,
+      "strategicSpeed": 0.96,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Small craft."
     },
     {
       "id": 234,
@@ -6776,10 +6953,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "BM fast shield cruiser."
     },
     {
       "id": 235,
@@ -6891,10 +7071,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 5,
+      "strategicSpeed": 1,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Advanced small craft."
     },
     {
       "id": 236,
@@ -7006,10 +7189,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 4,
-      "recoveryCapacityBasis": "category:freighter"
+      "recoveryCapacityBasis": "category:freighter",
+      "strategicSpeedRating": 5,
+      "strategicSpeed": 1,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 237,
@@ -7121,10 +7307,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:fastCruiser"
+      "recoveryCapacityBasis": "category:fastCruiser",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "BM fast cruiser; role inference."
     },
     {
       "id": 238,
@@ -7236,10 +7425,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 4,
-      "recoveryCapacityBasis": "category:freighter"
+      "recoveryCapacityBasis": "category:freighter",
+      "strategicSpeedRating": 5,
+      "strategicSpeed": 1,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Logistics role."
     },
     {
       "id": 239,
@@ -7351,10 +7543,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 4,
-      "recoveryCapacityBasis": "category:freighter"
+      "recoveryCapacityBasis": "category:freighter",
+      "strategicSpeedRating": 5,
+      "strategicSpeed": 1,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Armed logistics ship."
     },
     {
       "id": 240,
@@ -7466,10 +7661,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "BM later patrol cruiser; inferred."
     },
     {
       "id": 241,
@@ -7581,10 +7779,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 6,
+      "strategicSpeed": 1.08,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 242,
@@ -7696,10 +7897,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 243,
@@ -7811,10 +8015,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 5,
+      "strategicSpeed": 1,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 244,
@@ -7926,10 +8133,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 4,
-      "recoveryCapacityBasis": "category:freighter"
+      "recoveryCapacityBasis": "category:freighter",
+      "strategicSpeedRating": 6,
+      "strategicSpeed": 1.08,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 245,
@@ -8041,10 +8251,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:fastCruiser"
+      "recoveryCapacityBasis": "category:fastCruiser",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 246,
@@ -8156,10 +8369,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital",
       "recoveryCapacity": 5,
-      "recoveryCapacityBasis": "category:capital"
+      "recoveryCapacityBasis": "category:capital",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Older Romulan capital design."
     },
     {
       "id": 247,
@@ -8271,10 +8487,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 4.5,
+      "strategicSpeed": 0.96,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 248,
@@ -8386,10 +8605,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 249,
@@ -8501,10 +8723,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 6,
+      "strategicSpeed": 1.08,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 250,
@@ -8616,10 +8841,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 5.5,
+      "strategicSpeed": 1.04,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Command yacht."
     },
     {
       "id": 251,
@@ -8731,10 +8959,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 6,
+      "strategicSpeed": 1.08,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Reserved BM Gorn hull; inferred."
     },
     {
       "id": 252,
@@ -8846,10 +9077,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Patrol role; inferred."
     },
     {
       "id": 253,
@@ -8961,10 +9195,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 8.5,
+      "strategicSpeed": 1.28,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Voyager-era hunter expected to cover large distances efficiently."
     },
     {
       "id": 254,
@@ -9076,10 +9313,13 @@
         "mode": "allowed",
         "resistance": "hardened"
       },
-      "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital",
       "recoveryCapacity": 5,
-      "recoveryCapacityBasis": "category:capital"
+      "recoveryCapacityBasis": "category:capital",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Large Voyager-era warship; inferred."
     },
     {
       "id": 255,
@@ -9191,10 +9431,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "BM Klingon attack cruiser; role inference."
     },
     {
       "id": 256,
@@ -9306,10 +9549,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 257,
@@ -9421,10 +9667,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 5,
+      "strategicSpeed": 1,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "BM Suliban raiding cruiser; early-era baseline with advanced tech."
     },
     {
       "id": 258,
@@ -9536,10 +9785,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 4,
+      "strategicSpeed": 0.92,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Small Cabal craft; future-aided but limited hull."
     },
     {
       "id": 259,
@@ -9651,10 +9903,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 4.5,
+      "strategicSpeed": 0.96,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Warp-capable 22nd-century craft with future-aided technology."
     },
     {
       "id": 260,
@@ -9766,10 +10021,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "BM Vulcan exploration cruiser; inferred."
     },
     {
       "id": 261,
@@ -9888,10 +10146,13 @@
         "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
         "previousCargoCapacity": 4000
       },
-      "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship",
       "recoveryCapacity": 6,
-      "recoveryCapacityBasis": "category:battleship"
+      "recoveryCapacityBasis": "category:battleship",
+      "strategicSpeedRating": 9,
+      "strategicSpeed": 1.32,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Same principle: conventional travel high; transwarp is a special system."
     },
     {
       "id": 262,
@@ -10003,10 +10264,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 263,
@@ -10118,10 +10382,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cargoShuttle",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 2.5,
+      "strategicSpeed": 0.82,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Shuttlecraft-era strategic performance; comparable shuttle types are low-warp."
     },
     {
       "id": 264,
@@ -10233,10 +10500,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 7,
-      "recoveryCapacityBasis": "category:support"
+      "recoveryCapacityBasis": "category:support",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Late-24c support ship; capable but not a speed-specialist."
     },
     {
       "id": 265,
@@ -10348,10 +10618,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Conventional warp only here; spore drive should be a separate special movement system."
     },
     {
       "id": 266,
@@ -10463,10 +10736,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 6,
+      "strategicSpeed": 1.08,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 267,
@@ -10578,10 +10854,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Hunting shuttle."
     },
     {
       "id": 268,
@@ -10693,10 +10972,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 269,
@@ -10808,10 +11090,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 2,
+      "strategicSpeed": 0.78,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "NX-01 era warp-five technology; very slow by late-24c standards."
     },
     {
       "id": 270,
@@ -10923,10 +11208,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 271,
@@ -11038,10 +11326,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 7,
-      "recoveryCapacityBasis": "category:support"
+      "recoveryCapacityBasis": "category:support",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Modern engineering/support cruiser."
     },
     {
       "id": 272,
@@ -11153,10 +11444,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 9,
+      "strategicSpeed": 1.32,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "BM fast courier; role intentionally speed-specialized."
     },
     {
       "id": 273,
@@ -11268,10 +11562,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 4.5,
+      "strategicSpeed": 0.96,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Later/advanced shuttle, still not a long-range starship."
     },
     {
       "id": 274,
@@ -11383,10 +11680,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 5,
+      "strategicSpeed": 1,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 275,
@@ -11498,10 +11798,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 8.5,
+      "strategicSpeed": 1.28,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Strike escort; inferred high speed."
     },
     {
       "id": 276,
@@ -11613,10 +11916,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Civilian explorer."
     },
     {
       "id": 277,
@@ -11728,10 +12034,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 4,
-      "recoveryCapacityBasis": "category:freighter"
+      "recoveryCapacityBasis": "category:freighter",
+      "strategicSpeedRating": 5,
+      "strategicSpeed": 1,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Heavy logistics role."
     },
     {
       "id": 278,
@@ -11843,10 +12152,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 4,
-      "recoveryCapacityBasis": "category:freighter"
+      "recoveryCapacityBasis": "category:freighter",
+      "strategicSpeedRating": 6,
+      "strategicSpeed": 1.08,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Military transport; inferred."
     },
     {
       "id": 279,
@@ -11958,10 +12270,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Generic later warbird; inferred between D'deridex and Norexan."
     },
     {
       "id": 280,
@@ -12073,10 +12388,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 5,
+      "strategicSpeed": 1,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Old Constitution lineage/refit; TOS-era warp numbers are not directly comparable to 24c scale."
     },
     {
       "id": 281,
@@ -12188,10 +12506,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Armed auxiliary scout."
     },
     {
       "id": 282,
@@ -12303,10 +12624,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 283,
@@ -12418,10 +12742,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "24c multi-mission cruiser; no firm canon max used."
     },
     {
       "id": 284,
@@ -12533,10 +12860,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 10,
+      "strategicSpeed": 1.4,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Warp 9.99 observed."
     },
     {
       "id": 285,
@@ -12648,10 +12978,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 9,
+      "strategicSpeed": 1.32,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Modern reconnaissance design; speed role strongly implied, no firm canon number used."
     },
     {
       "id": 286,
@@ -12763,10 +13096,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 8.5,
+      "strategicSpeed": 1.28,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Modern fleet-cruiser successor to Excelsior."
     },
     {
       "id": 287,
@@ -12878,10 +13214,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 8.5,
+      "strategicSpeed": 1.28,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Modern fleet assault cruiser."
     },
     {
       "id": 288,
@@ -12993,10 +13332,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Interceptor role; inferred."
     },
     {
       "id": 289,
@@ -13108,10 +13450,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital",
       "recoveryCapacity": 5,
-      "recoveryCapacityBasis": "category:capital"
+      "recoveryCapacityBasis": "category:capital",
+      "strategicSpeedRating": 10,
+      "strategicSpeed": 1.4,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Explicitly called Starfleet's fastest ship in 2399."
     },
     {
       "id": 290,
@@ -13223,10 +13568,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 291,
@@ -13338,10 +13686,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:fastCruiser"
+      "recoveryCapacityBasis": "category:fastCruiser",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Explicit fast frontier freighter."
     },
     {
       "id": 292,
@@ -13453,10 +13804,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 4,
-      "recoveryCapacityBasis": "category:freighter"
+      "recoveryCapacityBasis": "category:freighter",
+      "strategicSpeedRating": 5,
+      "strategicSpeed": 1,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Convoy transport."
     },
     {
       "id": 293,
@@ -13568,10 +13922,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 3.5,
+      "strategicSpeed": 0.89,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "22nd-century Andorian battlecruiser; early warp generation."
     },
     {
       "id": 294,
@@ -13683,10 +14040,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Memory Alpha lists warp 8 for the canon class."
     },
     {
       "id": 295,
@@ -13798,10 +14158,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Late-24c Starfleet combat/support hull."
     },
     {
       "id": 296,
@@ -13919,10 +14282,13 @@
         "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
         "previousCargoCapacity": 500
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Long-range science vessel."
     },
     {
       "id": 297,
@@ -14034,10 +14400,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 298,
@@ -14155,10 +14524,13 @@
         "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
         "previousCargoCapacity": 600
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Modern utility cruiser."
     },
     {
       "id": 299,
@@ -14270,10 +14642,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital",
       "recoveryCapacity": 5,
-      "recoveryCapacityBasis": "category:capital"
+      "recoveryCapacityBasis": "category:capital",
+      "strategicSpeedRating": 9,
+      "strategicSpeed": 1.32,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Modern capital explorer."
     },
     {
       "id": 300,
@@ -14385,10 +14760,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 7,
-      "recoveryCapacityBasis": "category:support"
+      "recoveryCapacityBasis": "category:support",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Modernized sensor-support cruiser."
     },
     {
       "id": 301,
@@ -14500,10 +14878,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Frontier escort; inferred."
     },
     {
       "id": 302,
@@ -14615,10 +14996,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Reconnaissance cruiser; inferred."
     },
     {
       "id": 303,
@@ -14730,10 +15114,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 4.5,
+      "strategicSpeed": 0.96,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 305,
@@ -14849,10 +15236,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 6,
+      "strategicSpeed": 1.08,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Old but extensively refitted Starfleet workhorse."
     },
     {
       "id": 306,
@@ -14968,10 +15358,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 6,
+      "strategicSpeed": 1.08,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Canon Nova maximum warp 8; short-term science design."
     },
     {
       "id": 307,
@@ -15087,10 +15480,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Late-24c escort; compact fast-response role."
     },
     {
       "id": 308,
@@ -15206,10 +15602,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 3,
+      "strategicSpeed": 0.85,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Canon Danube maximum warp 5."
     },
     {
       "id": 309,
@@ -15326,10 +15725,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 4,
-      "recoveryCapacityBasis": "category:freighter"
+      "recoveryCapacityBasis": "category:freighter",
+      "strategicSpeedRating": 5.5,
+      "strategicSpeed": 1.04,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 310,
@@ -15452,10 +15854,13 @@
         "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
         "previousCargoCapacity": 430
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 311,
@@ -15578,10 +15983,13 @@
         "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
         "previousCargoCapacity": 380
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 312,
@@ -15698,10 +16106,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 6,
+      "strategicSpeed": 1.08,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Miranda/Excelsior-era reserve frame."
     },
     {
       "id": 313,
@@ -15818,10 +16229,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Ambassador-era strategic cruiser."
     },
     {
       "id": 314,
@@ -15937,10 +16351,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Fast patrol craft relative to Cardassian fleet."
     },
     {
       "id": 315,
@@ -16056,10 +16473,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "D'Kora class is canonically warp 9+."
     },
     {
       "id": 316,
@@ -16175,10 +16595,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cargoShuttle",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 3,
+      "strategicSpeed": 0.85,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Small cargo shuttle."
     },
     {
       "id": 317,
@@ -16294,10 +16717,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "BM defense cruiser; inferred."
     },
     {
       "id": 318,
@@ -16413,10 +16839,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 4,
-      "recoveryCapacityBasis": "category:freighter"
+      "recoveryCapacityBasis": "category:freighter",
+      "strategicSpeedRating": 4,
+      "strategicSpeed": 0.92,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Bulk freighter; intentionally slow strategic hauler."
     },
     {
       "id": 319,
@@ -16532,10 +16961,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Long-range role."
     },
     {
       "id": 320,
@@ -16651,10 +17083,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital",
       "recoveryCapacity": 5,
-      "recoveryCapacityBasis": "category:capital"
+      "recoveryCapacityBasis": "category:capital",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Observed around warp 9; warp 9.6 damages propulsion; staying cloaked limits it to warp 6."
     },
     {
       "id": 321,
@@ -16770,10 +17205,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:fastCruiser"
+      "recoveryCapacityBasis": "category:fastCruiser",
+      "strategicSpeedRating": 9,
+      "strategicSpeed": 1.32,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Later Romulan fast strike design; newer than D'deridex."
     },
     {
       "id": 322,
@@ -16889,10 +17327,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:fastCruiser"
+      "recoveryCapacityBasis": "category:fastCruiser",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Canon observed warp 7+; some technical sources give higher, but sustained capability is uncertain."
     },
     {
       "id": 323,
@@ -17008,10 +17449,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Canon approximately warp 8."
     },
     {
       "id": 324,
@@ -17127,10 +17571,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital",
       "recoveryCapacity": 5,
-      "recoveryCapacityBasis": "category:capital"
+      "recoveryCapacityBasis": "category:capital",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Observed/technical references include enhanced warp performance; advanced Galor derivative."
     },
     {
       "id": 325,
@@ -17248,10 +17695,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:fastCruiser"
+      "recoveryCapacityBasis": "category:fastCruiser",
+      "strategicSpeedRating": 8.5,
+      "strategicSpeed": 1.28,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Combat-optimized Akira variant."
     },
     {
       "id": 326,
@@ -17367,10 +17817,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 8.5,
+      "strategicSpeed": 1.28,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Warp ~9.5 achievable, but engines are explicitly overpowered/stress-limited for the hull."
     },
     {
       "id": 327,
@@ -17486,10 +17939,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 10,
+      "strategicSpeed": 1.4,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Canon maximum cruising speed warp 9.975."
     },
     {
       "id": 328,
@@ -17605,10 +18061,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 10,
+      "strategicSpeed": 1.4,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Warp 9.9+ / 9.99 references; described as fastest Starfleet vessel of its era."
     },
     {
       "id": 329,
@@ -17720,10 +18179,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.9,
-      "strategicSpeedBasis": "category:capital",
       "recoveryCapacity": 5,
-      "recoveryCapacityBasis": "category:capital"
+      "recoveryCapacityBasis": "category:capital",
+      "strategicSpeedRating": 9.5,
+      "strategicSpeed": 1.36,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Sovereign-derived command hull."
     },
     {
       "id": 330,
@@ -17839,10 +18301,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.3,
-      "strategicSpeedBasis": "category:scout",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Small Bird-of-Prey scout; good response speed, limited sustained endurance."
     },
     {
       "id": 331,
@@ -17958,10 +18423,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 4,
-      "recoveryCapacityBasis": "category:freighter"
+      "recoveryCapacityBasis": "category:freighter",
+      "strategicSpeedRating": 5.5,
+      "strategicSpeed": 1.04,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Older Klingon hull in cargo conversion."
     },
     {
       "id": 332,
@@ -18077,10 +18545,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Bird-of-Prey patrol role; fast response but not top-tier strategic cruise."
     },
     {
       "id": 333,
@@ -18192,10 +18663,13 @@
         "mode": "allowed",
         "resistance": "hardened"
       },
-      "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship",
       "recoveryCapacity": 6,
-      "recoveryCapacityBasis": "category:battleship"
+      "recoveryCapacityBasis": "category:battleship",
+      "strategicSpeedRating": 7.5,
+      "strategicSpeed": 1.2,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Mirror Negh'Var observed up to warp 9; huge command battleship."
     },
     {
       "id": 334,
@@ -18311,10 +18785,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 8.5,
+      "strategicSpeed": 1.28,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Memory Alpha lists warp 9.5+."
     },
     {
       "id": 335,
@@ -18431,10 +18908,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:escort",
       "recoveryCapacity": 1,
-      "recoveryCapacityBasis": "category:escort"
+      "recoveryCapacityBasis": "category:escort",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 336,
@@ -18551,10 +19031,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.1,
-      "strategicSpeedBasis": "category:lightCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:lightCruiser"
+      "recoveryCapacityBasis": "category:lightCruiser",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 338,
@@ -18670,10 +19153,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:fastCruiser"
+      "recoveryCapacityBasis": "category:fastCruiser",
+      "strategicSpeedRating": 8,
+      "strategicSpeed": 1.24,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "BM 'quantum-drive' role suggests above-average strategic propulsion; not canon-grounded."
     },
     {
       "id": 340,
@@ -18790,10 +19276,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 8,
-      "recoveryCapacityBasis": "category:tug"
+      "recoveryCapacityBasis": "category:tug",
+      "strategicSpeedRating": 4,
+      "strategicSpeed": 0.92,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 341,
@@ -18910,10 +19399,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 8,
-      "recoveryCapacityBasis": "category:tug"
+      "recoveryCapacityBasis": "category:tug",
+      "strategicSpeedRating": 2.5,
+      "strategicSpeed": 0.82,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 342,
@@ -19030,10 +19522,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 0.8,
-      "strategicSpeedBasis": "category:freighter",
       "recoveryCapacity": 7,
-      "recoveryCapacityBasis": "category:support"
+      "recoveryCapacityBasis": "category:support",
+      "strategicSpeedRating": 6,
+      "strategicSpeed": 1.08,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 343,
@@ -19149,10 +19644,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cruiser",
       "recoveryCapacity": 3,
-      "recoveryCapacityBasis": "category:cruiser"
+      "recoveryCapacityBasis": "category:cruiser",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "BM Vulcan defense cruiser; inferred."
     },
     {
       "id": 344,
@@ -19268,10 +19766,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:fastCruiser"
+      "recoveryCapacityBasis": "category:fastCruiser",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 345,
@@ -19387,10 +19888,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cargoShuttle",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 1,
+      "strategicSpeed": 0.7,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Solar-sail craft is not a normal warp cruiser; exceptional tachyon-assisted FTL should remain special."
     },
     {
       "id": 346,
@@ -19512,10 +20016,13 @@
         "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
         "previousCargoCapacity": 6000
       },
-      "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship",
       "recoveryCapacity": 6,
-      "recoveryCapacityBasis": "category:battleship"
+      "recoveryCapacityBasis": "category:battleship",
+      "strategicSpeedRating": 9,
+      "strategicSpeed": 1.32,
+      "strategicSpeedConfidence": "high",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Conventional strategic speed is high, but Borg transwarp should be modeled separately rather than as rating 10+."
     },
     {
       "id": 347,
@@ -19631,10 +20138,13 @@
         "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
         "previousCargoCapacity": 5000
       },
-      "strategicSpeed": 0.85,
-      "strategicSpeedBasis": "category:battleship",
       "recoveryCapacity": 6,
-      "recoveryCapacityBasis": "category:battleship"
+      "recoveryCapacityBasis": "category:battleship",
+      "strategicSpeedRating": 6.5,
+      "strategicSpeed": 1.12,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "BM Project X supercapital; strategic speed kept below specialist cruisers."
     },
     {
       "id": 348,
@@ -19745,10 +20255,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1,
-      "strategicSpeedBasis": "category:cargoShuttle",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 3,
+      "strategicSpeed": 0.85,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Cargo shuttle."
     },
     {
       "id": 349,
@@ -19860,10 +20373,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 4,
+      "strategicSpeed": 0.92,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 350,
@@ -19974,10 +20490,13 @@
         "mode": "allowed",
         "resistance": "light"
       },
-      "strategicSpeed": 1.15,
-      "strategicSpeedBasis": "category:shuttle",
       "recoveryCapacity": 0,
-      "recoveryCapacityBasis": "category:shuttle"
+      "recoveryCapacityBasis": "category:shuttle",
+      "strategicSpeedRating": 4,
+      "strategicSpeed": 0.92,
+      "strategicSpeedConfidence": "low",
+      "strategicSpeedBasis": "rater:fallback",
+      "strategicSpeedNote": "Provisional BM role/class inference; no specific canon warp figure used."
     },
     {
       "id": 351,
@@ -20094,10 +20613,13 @@
         "mode": "allowed",
         "resistance": "standard"
       },
-      "strategicSpeed": 1.2,
-      "strategicSpeedBasis": "category:fastCruiser",
       "recoveryCapacity": 2,
-      "recoveryCapacityBasis": "category:fastCruiser"
+      "recoveryCapacityBasis": "category:fastCruiser",
+      "strategicSpeedRating": 7,
+      "strategicSpeed": 1.16,
+      "strategicSpeedConfidence": "medium",
+      "strategicSpeedBasis": "rater:table",
+      "strategicSpeedNote": "Light Bird-of-Prey; tactical agility does not automatically equal top strategic cruise."
     }
   ],
   "aliases": {

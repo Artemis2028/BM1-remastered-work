@@ -2991,9 +2991,10 @@ export function routeLegDaysFor(world, systems, speed = null) {
 // crewless hull is not travelling and does not count; a group with none of those left flies at the
 // slowest of what it has, so a timing is always defined).
 export function hullSpeed(world, h) { return SPD.classSpeed(h ? world?.shipStats?.(h.shipId) : null); }
+export function hullCanTravel(h) { return Boolean(h) && h.status !== 'lost' && !hullIsDisabled(h) && h.status !== 'surrendered' && !hullAwaitingCrew(h); }
 export function hullsSpeed(world, hulls) {
   const list = (hulls || []).filter(Boolean);
-  const able = list.filter((h) => h.status !== 'lost' && !hullIsDisabled(h) && h.status !== 'surrendered' && !hullAwaitingCrew(h));
+  const able = list.filter(hullCanTravel);
   return SPD.groupSpeed((able.length ? able : list).map((h) => hullSpeed(world, h))) ?? SPD.SPEED_DEFAULT;
 }
 // The speed a journey's members fly at: the slowest able member, or — a group with hulks in tow
@@ -3122,6 +3123,7 @@ export function startJourney(book, world, spec, day, effects = []) {
     return { ok: true, journey: tr, arrived: true };
   }
   J.scheduleLeg(tr, day);
+  tr.plannedEtaDay = tr.etaDay; // the ETA it set out on (debug: planned vs actual arrival)
   for (const d of tr.legDays) { st.legDays += d; st.legs++; }
   putMembersOnLeg(book, tr);
   effects.push(journeyEffect(tr, 'journeyDeparted', day, { from: tr.from, to: tr.path[0], arrivalDay: tr.legArrivalDay, eta: tr.etaDay, leg: 0, legs: tr.path.length }));
@@ -3649,7 +3651,7 @@ export function validateEvacuationDestination(book, world, sponsor, origin, dest
   if (!route) return { ok: false, reason: `There is no route to ${dest.name}.` };
   // Too far in real days, not in jumps (STRATEGIC-TIME-SCALE-CORRECTION).
   const days = routeLegDaysFor(world, route, speed).reduce((n, d) => n + d, 0);
-  if (days > (c.evacMaxOneWayDays ?? 45)) return { ok: false, reason: `${dest.name} is too far: ${days} days each way${speed != null && SPD.clampSpeed(speed) !== 1 ? ` at the convoy's ${SPD.speedLabel(speed)}` : ''}.` };
+  if (days > (c.evacMaxOneWayDays ?? 45)) return { ok: false, reason: `${dest.name} is too far: ${days} days each way${speed != null && SPD.clampSpeed(speed) !== 1 ? ` at the convoy's ${SPD.ratingLabel(speed)}` : ''}.` };
   return { ok: true, route, hops: route.length - 1, days };
 }
 // Every refuge a sponsor may take its people to from `origin`, best first (STRATEGIC-TIME-SCALE-CORRECTION):
