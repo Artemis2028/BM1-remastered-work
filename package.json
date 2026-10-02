@@ -92,6 +92,10 @@
     "test:towing": "node scripts/towing-salvage-test.mjs",
     "test:towing:ingame": "node scripts/towing-salvage-gate.cjs",
     "measure:towing": "node scripts/towing-salvage-measure.cjs",
+    "test:treaty": "node scripts/treaty-expansion-test.mjs",
+    "test:treaty:ingame": "node scripts/treaty-expansion-gate.cjs",
+    "measure:treaty": "node scripts/treaty-expansion-measure.mjs",
+    "measure:treaty:ingame": "node scripts/treaty-expansion-ingame-measure.cjs",
     "bench:map": "node scripts/map-render-bench.cjs",
     "screens:section6": "node scripts/section6-screens.cjs"
   },

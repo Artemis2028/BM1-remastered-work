@@ -23,7 +23,8 @@
 
 import * as D from './doctrine-runtime.mjs';
 import { seededUnit, applicableBlockadesAt, resolveBlockadeRun, shortestRoute, strategicAssignments, warAuthorityStamp, warAuthorityHolds, rescueStrandedCrew, hullIsDisabled, hullAwaitingCrew, localDefenseStrength, raidStrikeDay, standDownOperation, hullStrength,
-  startJourney, stepJourney, journeyById, registerJourneyKind, legDaysBetween, routeLegDaysFor, defendingHullsAt, encounterHullLookup, fellBackToday, settleAbandonedHandoff, hullSpeed, hullsSpeed } from './campaign-strategy.mjs';
+  startJourney, stepJourney, journeyById, registerJourneyKind, legDaysBetween, routeLegDaysFor, defendingHullsAt, encounterHullLookup, fellBackToday, settleAbandonedHandoff, hullSpeed, hullsSpeed,
+  plotJourney, treatyBarred, treatyBarredAt, trafficClassOf, transitGuaranteeAt, treatyBook } from './campaign-strategy.mjs';
 import * as J from './strategic-journey.mjs';
 import * as SE from './strategic-encounter.mjs';
 import { classifyDamage } from './ship-fleet.mjs';
@@ -151,8 +152,12 @@ function liveHull(book, polityId, hullId) {
 function vidOf(h) { return h?.identity?.vid || h?.vid || h?.id || null; }
 function relSide(world, polityId) { return polityId === 'player' ? (world.playerRelationSide || world.playerFaction) : polityId; }
 function atWar(world, a, b) { return world.relation(relSide(world, a), relSide(world, b)) === 'war'; }
-function routeBetween(world, from, to, polityId) {
+// Treaty terms bind doctrine's routes as they bind every journey (TREATY-EXPANSION §11, §13): with a DMZ in
+// force for this polity's traffic of this class, the route is the model's lawful one; otherwise the chart's.
+function routeBetween(world, from, to, polityId, cls = 'military') {
   if (Number(from) === Number(to)) return [Number(from)];
+  const tb = world.treatyBook;
+  if (tb?.treatyTerms?.length && treatyBarred(tb, polityId, cls).size) { const plan = plotJourney(world, from, to, polityId, null, null, { cls }); return plan ? plan.systems.map(Number) : null; }
   return shortestRoute(world, from, to, polityId);
 }
 
@@ -531,12 +536,12 @@ export function overdueEventFor(db, observerId, incidentId) {
 // ---------- assignments: routine jobs on real hulls, and the legs of doctrine objectives ----------
 // An itinerary is a list of adjacent systems; a stop with dwell > 0 is held that many days. A milestone
 // on a stop is the owner's expectation: arrival (or check-in back home) by a due day, with a grace.
-function buildItinerary(world, polityId, stops) {
+function buildItinerary(world, polityId, stops, cls = 'military') {
   const out = [];
   for (let i = 0; i < stops.length; i++) {
     const s = stops[i];
     if (i === 0) { out.push({ systemIndex: Number(s.systemIndex), dwell: s.dwell || 0, milestone: s.milestone || null }); continue; }
-    const path = routeBetween(world, stops[i - 1].systemIndex, s.systemIndex, polityId);
+    const path = routeBetween(world, stops[i - 1].systemIndex, s.systemIndex, polityId, cls);
     if (!path) return null;
     for (let j = 1; j < path.length; j++) out.push({ systemIndex: path[j], dwell: j === path.length - 1 ? (s.dwell || 0) : 0, milestone: j === path.length - 1 ? (s.milestone || null) : null });
   }
@@ -565,7 +570,7 @@ export function issueAssignment(book, world, spec, day, effects = []) {
     }
   }
   // A cargo job starts with a day in port loading; the crew sail with their command's current notices.
-  const itinerary = buildItinerary(world, polity, [{ systemIndex: startAt, dwell: loadDays }, ...stops]);
+  const itinerary = buildItinerary(world, polity, [{ systemIndex: startAt, dwell: loadDays }, ...stops], trafficClassOf('doctrine', kind));
   if (!itinerary) return { ok: false, reason: 'no route' };
   const id = nid(book, db, 'asg');
   const grace = (m) => (m === 'check_in' ? db.config.checkInGraceDays : db.config.arrivalGraceDays);
@@ -732,7 +737,10 @@ function stepAssignment(book, world, db, a, day, effects) {
   const spec = { kind: 'doctrine', ref: a.id, sponsor: a.polity, destination: systems.at(-1), purpose: a.kind, war: obj?.authority?.stamp || null, authority: { kind: 'doctrine', ref: a.objectiveId || a.id, assignment: a.id },
     meta: { assignmentId: a.id, startPos: a.pos, segmentEnd: j }, plan: { path: systems.slice(1), legDays: routeLegDaysFor(world, systems, groupSpeed) } };
   let r = startJourney(book, world, { ...spec, hulls: [h, ...escorts.map((x) => x.h)] }, leaveOn, effects);
-  if (!r.ok && escorts.length) r = startJourney(book, world, { ...spec, hulls: [h] }, leaveOn, effects);
+  if (!r.ok && escorts.length && !r.treaty) r = startJourney(book, world, { ...spec, hulls: [h] }, leaveOn, effects);
+  // The route ahead crosses a DMZ that binds this polity (a term made since the job was planned): doctrine
+  // does not invent a way through — the job is stood down, and its owner plans again (TREATY-EXPANSION §13).
+  if (!r.ok && r.treaty) { treatyBook(book).stats.treaty.doctrineStoodDown++; endAssignment(db, book, a, day, 'aborted', r.reason); return; }
   if (!r.ok) return blocked();
   // Re-made at the speed the journey actually flies (alone if its escorts could not start with it). An
   // assignment issued before ship speed existed (no a.speed) was timed at 1.0.
@@ -831,6 +839,9 @@ registerJourneyKind('doctrine', {
       authority: tr.authority, meta: { assignmentId: a.id, retreatOf: tr.id }, prior: tr, plan: { path: [prev], legDays: [legDaysBetween(world, at, prev)] } }, day, effects);
     if (back.ok && !back.arrived) { back.journey.retreatFrom = Number(at); a.journeyId = back.journey.id; }
     else { a.journeyId = null; a.departDay = day + 1; }
+    // Turned back under a treaty (a DMZ warning heeded, passage denied after a refused inspection): doctrine does
+    // not try the same way again day after day; the job is stood down and its owner plans anew (TREATY-EXPANSION §13).
+    if (tr.treatyTurnBack) { treatyBook(book).stats.treaty.doctrineStoodDown++; endAssignment(doctrineBook(book), book, a, day, 'aborted', `treaty: turned back (${tr.treatyTurnBack})`); }
     return true;
   },
   onArrive(book, world, tr, at, day, effects) {
@@ -2763,9 +2774,12 @@ function borderPolicyAt(world, systemIndex) {
 }
 // How the authority classes a vessel it can see: by what the vessel transmits and the formal relation,
 // never by its flag alone. A vessel without a transponder is unknown until it identifies.
-function accessClassOf(world, authority, targetPolity, identified) {
+export function accessClassOf(world, authority, targetPolity, identified, book = null, systemIndex = null, cls = 'military') {
   if (targetPolity === authority) return 'exempt';
   if (!identified) return 'unknown';
+  // A transit guarantee the authority itself gave this vessel's side, at this world: it passes, whatever the
+  // relation or a static hostility says (TREATY-EXPANSION §3). The grantor always knows its own term.
+  if (book?.treatyTerms?.length && systemIndex != null && transitGuaranteeAt(book, authority, targetPolity, systemIndex, book.day, cls)) return 'exempt';
   if (atWar(world, authority, targetPolity)) return 'warFlag';
   if (!world.isFaction?.(targetPolity)) return 'independent';
   return 'other';
@@ -2825,7 +2839,7 @@ function detectBreaches(doctrine, book, world, db, day, effects) {
       if (visit.objectiveId || visit.outcome) { if (visit.objectiveId && db.objectives.some((o) => o.id === visit.objectiveId && o.status === 'active')) bump(db, 'enforcementRepeatPrevented'); continue; }
       if (hullIsDisabled(h) || h.status === 'surrendered') continue; // nothing to demand of a hulk or a surrendered ship
       const identified = vesselTransmits(a);
-      const cls = accessClassOf(world, A, a.polity, identified);
+      const cls = accessClassOf(world, A, a.polity, identified, book, S, trafficClassOf('doctrine', a.kind));
       const dm = demandFor(policy, cls, identified);
       if (!dm.type) { visit.outcome = 'lawful'; bump(db, 'lawfulTransits'); logEnforcement(db, { day, authority: A, systemIndex: S, vid, class: cls, decision: dm.decision, result: 'lawful transit: policy permits it' }); continue; }
       const enf = enforcerAt(book, world, db, A, S);
@@ -3005,7 +3019,7 @@ function advanceEnforcement(doctrine, book, world, db, day, effects) {
     // 1. Authority, every day, before anything else.
     const policy = borderPolicyAt(world, S);
     if (o.authority.source === 'formal_war' && !atWar(world, o.polity, o.target.polity)) {
-      const cls = accessClassOf(world, o.polity, o.target.polity, o.target.identity === 'known');
+      const cls = accessClassOf(world, o.polity, o.target.polity, o.target.identity === 'known', book, S, trafficClassOf('doctrine', a?.kind));
       const dm = policy ? demandFor(policy, cls, o.target.identity === 'known') : { type: null };
       if (dm.type) {
         // The war-only part ends at once; the local policy still stands on its own.
@@ -3026,7 +3040,7 @@ function advanceEnforcement(doctrine, book, world, db, day, effects) {
     }
     if (!policy || policy.authority !== o.polity) { closeLater(o, 'aborted', ['objective_cancelled'], 'authority removed: no policy or jurisdiction here now'); bump(db, 'enforcementCancelledByAuthority'); continue; }
     if (o.authority.source === 'security_policy') {
-      const cls = accessClassOf(world, o.polity, o.target.polity, o.target.identity === 'known');
+      const cls = accessClassOf(world, o.polity, o.target.polity, o.target.identity === 'known', book, S, trafficClassOf('doctrine', a?.kind));
       if ((policy.access[cls] || 'open') === 'open') { closeLater(o, 'aborted', ['objective_cancelled'], `policy now permits ${cls} vessels`); bump(db, 'enforcementCancelledByAuthority'); continue; }
     }
     // 2. The target and the enforcer, as they are.
@@ -3087,7 +3101,7 @@ function advanceEnforcement(doctrine, book, world, db, day, effects) {
       }
       if (o.demand.type === 'halt_identify') {
         o.target.identity = 'known'; o.target.identitySource = 'identified';
-        const cls = accessClassOf(world, o.polity, o.target.polity, true);
+        const cls = accessClassOf(world, o.polity, o.target.polity, true, book, S, trafficClassOf('doctrine', a?.kind));
         const dm = demandFor(policy, cls, true);
         o.target.class = cls;
         if (dm.type === 'leave_area') { reviseDemand(o, dm, day, `identified as ${cls}: barred`); continue; }
@@ -3589,6 +3603,20 @@ SE.registerEncounterFamily('enforcement', {
     return { continuation: 'strategic strike to disable, once' };
   },
 });
+// A military job whose ship stands inside a DMZ that binds its own polity (its own side's term: always known to
+// it) is stood down there, so the ship can withdraw; doctrine never keeps a warship on station in breach of
+// its own treaty, and never acts on a term it does not know (TREATY-EXPANSION §13).
+function treatyStandDown(book, world, db, day) {
+  if (!book.treatyTerms?.length) return;
+  for (const a of db.assignments) {
+    if (a.status !== 'active' || trafficClassOf('doctrine', a.kind) !== 'military' || a.kind === 'return') continue;
+    const h = liveHull(book, a.polity, a.hullId);
+    if (!h || h.transit || h.opId !== a.id) continue;
+    if (!treatyBarredAt(book, a.polity, 'military', h.systemIndex, day)) continue;
+    endAssignment(db, book, a, day, 'aborted', 'treaty: stood down inside a demilitarised zone');
+    treatyBook(book).stats.treaty.doctrineStoodDown++;
+  }
+}
 export function advanceDoctrineDay(book, world, day, effects, doctrine) {
   if (!doctrine) { if (book.doctrine) releaseDoctrineHulls(book, day, 'doctrine runtime unavailable', effects); return; }
   const db = doctrineBook(book);
@@ -3598,6 +3626,7 @@ export function advanceDoctrineDay(book, world, day, effects, doctrine) {
   indexLocations(world, db);
   generateRoutine(doctrine, book, world, db, day, effects);
   advanceContracts(book, world, db, day, effects);
+  treatyStandDown(book, world, db, day);
   for (const a of db.assignments) if (a.status === 'active') stepAssignment(book, world, db, a, day, effects);
   tickEscorts(book, world, db, day, effects);
   recordFates(book, world, db, day, effects);

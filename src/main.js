@@ -5,6 +5,7 @@ import * as Campaign from './campaign-strategy.mjs';
 import * as Journey from './strategic-journey.mjs';
 import * as Encounter from './strategic-encounter.mjs';
 import * as Speed from './strategic-speed.mjs';
+import * as Treaty from './treaty-terms.mjs';
 import * as Recovery from './strategic-recovery.mjs';
 import * as Doctrine from './doctrine-runtime.mjs';
 import * as DoctrineCampaign from './doctrine-campaign.mjs';
@@ -9037,6 +9038,8 @@ function applyDebugCommand(raw) {
     message = triggerCampaignDebug(args);
   } else if (command === 'doctrine' && args.length >= 1) {
     message = triggerDoctrineDebug(args);
+  } else if (command === 'treaty' && args.length >= 2) {
+    message = triggerTreatyDebug(args);
   } else if (command === 'repair' && !args.length) {
     state.hull = 100;
     state.shields = 100;
@@ -9157,6 +9160,7 @@ function openDebugMenu() {
     <section data-planning-section><h3>ETA-aware planning (debug)</h3><div data-planning-debug>${renderPlanningDebug()}</div></section>
     <section data-encounter-section><h3>Strategic ↔ tactical encounters (debug)</h3><div data-encounter-debug>${renderEncounterDebug()}</div></section>
     <section data-recovery-section><h3>Recovery & salvage (debug)</h3><div data-recovery-debug>${renderRecoveryDebug()}</div></section>
+    <section data-treaty-section><h3>Treaty terms (debug)</h3><div data-treaty-debug>${renderTreatyDebug()}</div></section>
     <section><h3>Cheat codes</h3><form data-debug-form="code"><label>Code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="standing romulan 50" required></label><button type="submit">Run code</button></form>
       <details><summary>Remaster code list</summary><p>Codes are case-insensitive. Faction keys appear in the selector above.</p><ul>
         <li><code>crisis romulan klingon</code>, <code>war romulan klingon</code>, <code>peace romulan klingon</code> — change bilateral relations.</li><li><code>standing romulan 50</code> — set one faction's standing.</li><li><code>latinum 10000</code>, <code>duranium 500</code>, <code>antimatter 6</code> — set resources.</li>
@@ -9164,7 +9168,7 @@ function openDebugMenu() {
         <li><code>god on</code>, <code>god off</code> — toggle God Mode.</li><li><code>ship ${state.playership}</code> — switch to a loaded ship ID and enable God Mode.</li>
         <li><code>feat vexBorgDown on</code>, <code>feat bajoranFleetDown off</code> — set or reset a milestone.</li>
         <li><code>doctrine status</code>, <code>doctrine patrol romulan</code>, <code>doctrine lose</code>, <code>doctrine relay &lt;incident&gt; &lt;from&gt; &lt;to&gt;</code>, <code>doctrine off</code> — faction doctrine runtime (debug; relay and lose are overrides).</li>
-        <li><code>campaign advance 10</code>, <code>campaign phase staging</code>, <code>campaign treasury klingon 500000</code>, <code>campaign readiness romulan 30</code>, <code>campaign damage</code>, <code>campaign restore</code>, <code>campaign stock current deplete</code>, <code>campaign mission relief</code>, <code>campaign discover gorn</code> — campaign and empire controls.</li></ul></details></section>`;
+        <li><code>campaign advance 10</code>, <code>campaign phase staging</code>, <code>campaign treasury klingon 500000</code>, <code>campaign readiness romulan 30</code>, <code>campaign damage</code>, <code>campaign restore</code>, <code>campaign stock current deplete</code>, <code>campaign mission relief</code>, <code>campaign discover gorn</code> — campaign and empire controls.</li><li><code>treaty klingon terran add dmz systems sirius/vega</code>, <code>treaty klingon player grant transit route a/b/c</code>, <code>treaty cardassian player grant basing at bajor for repair/resupply</code>, <code>treaty player klingon tribute 5000 every 30 days</code>, <code>treaty player klingon reparations 20000 over 4 payments</code>, <code>treaty player klingon inspection regime on military freighters at a/b</code>, <code>treaty end 42</code>, <code>treaty defy &lt;formation&gt;</code>, <code>treaty obstruct &lt;blockade&gt;</code> — treaty terms (first party grants or pays, second benefits or receives; debug override).</li></ul></details></section>`;
   const faction = debugMenuEl.querySelector('[name="faction"]').value;
   debugMenuEl.querySelector('[name="standing"]').value = getFactionStanding(faction);
   refreshDebugReadout();
@@ -9879,9 +9883,10 @@ function updateServiceRangeIndicator() {
   const distance = Math.round(distanceToPlayer(station));
   el.textContent = `Transporter range: ${distance.toLocaleString()} / ${TRANSPORTER_RANGE.toLocaleString()} units · ${getServiceTransferBlock() ? 'Browse only — approach to transfer' : 'Transfers available'} · Dock for hull repairs.`;
 }
-function requireServiceConnection() {
+function requireServiceConnection(service = null) {
   const rangeBlock = getServiceTransferBlock();
   if (rangeBlock) { setLog(rangeBlock); return false; }
+  if (playerBasingRight(service)) return true; // resupply under basing rights (TREATY-EXPANSION §4)
   const st = getCurrentServiceStation();
   const block = getSecurityDockingBlock(st ? getStationOwner(st) : getSystemControl(state.currentPlanet).polityId)
     || vendorRefusal(st, st?.faction || getSystemFaction(state.currentPlanet));
@@ -14800,11 +14805,12 @@ function tryDockAtPlanetIndex(i, marker = state.planets[i]) {
   return true;
 }
 
-function requireDocked() {
+function requireDocked(service = null) {
   if (!state.docked) {
     setLog('You must dock at a planet first (fly to planet and click it).');
     return false;
   }
+  if (playerBasingRight(service)) return true; // received under basing rights for this service (TREATY-EXPANSION §4)
   const block = getSecurityDockingBlock();
   if (block) { setLog(block); return false; }
   return true;
@@ -17086,7 +17092,7 @@ function randomTravelEvent() {
 
 function refuel() {
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireServiceConnection()) return;
+  if (!requireServiceConnection('resupply')) return;
   syncFuelToAntimatter();
   const missing = state.fuelCap - state.antimatter;
   if (missing <= 0) {
@@ -17109,7 +17115,7 @@ function refuel() {
 
 function repairHull() {
   if (state.gameOver || !state.gameStarted) return;
-  if (!requireDocked()) return;
+  if (!requireDocked('repair')) return;
   const beforeHull = state.hull;
   const beforeShields = clamp(finiteNumber(state.shields, 0), 0, 100);
   if (beforeHull >= 100 && beforeShields >= 100) {
@@ -26407,8 +26413,17 @@ function autoAssignFleet(ship) {
 function fleetLocalActor(id) {
   return state.npcShips.find((n) => n.fleetId === id && !n.destroyed);
 }
-function fleetServiceAllowed(npc, physical = false) {
+// Basing rights (TREATY-EXPANSION §4): a host's facility the empire may use for this service under a treaty
+// term in force, while the host still holds the system. Only the named service: never sales, purchases or
+// refits, never ownership, stock or production.
+function playerBasingRight(service, systemIndex = state.currentPlanet) {
+  const book = campaignBook();
+  if (!service || !book.treatyTerms?.length) return null;
+  return Campaign.basingRightAt(book, buildCampaignWorld(), PLAYER_SIDE, Number(systemIndex), service, state.day);
+}
+function fleetServiceAllowed(npc, physical = false, service = null) {
   const st = getCurrentServiceStation();
+  const based = Boolean(playerBasingRight(service));
   return (
     !!npc &&
     (physical ? state.docked : hasServiceConnection()) &&
@@ -26424,13 +26439,13 @@ function fleetServiceAllowed(npc, physical = false) {
         /shipyard|starbase|maintenance/i.test(getShipStats(st.stationTypeId).name || ''))) &&
     // Fleet repair, refit, sale and equipment transfer all hang off this one test. A yard the captain
     // built does not ask a foreign government whether it will service their own ships. [review]
-    !vendorRefusal(st, st?.faction || getSystemFaction(state.currentPlanet)) &&
-    !getSecurityDockingBlock(st ? getStationOwner(st) : getSystemControl(state.currentPlanet).polityId)
+    (based || !vendorRefusal(st, st?.faction || getSystemFaction(state.currentPlanet))) &&
+    (based || !getSecurityDockingBlock(st ? getStationOwner(st) : getSystemControl(state.currentPlanet).polityId))
   );
 }
 function repairFleetVessel(id) {
   const npc = id === 'player' ? null : fleetLocalActor(id);
-  if (id === 'player' ? !requireDocked() : !fleetServiceAllowed(npc, true)) return false;
+  if (id === 'player' ? !requireDocked('repair') : !fleetServiceAllowed(npc, true, 'repair')) return false;
   if (npc) ensureNpcCombatStats(npc);
   const shipId = npc ? npc.shipId : state.playership,
     max = npc ? npc.maxCombatHull : getNpcCombatDurability(shipId).hull,
@@ -26809,7 +26824,8 @@ function isGeneralProductionDesign(shipId, factionKey = null) {
 let campaignWorldCache = null;
 function buildCampaignWorld(force = false) {
   const key = `${state.day}:${state.currentPlanet}:${state.warp.active ? 'w' : 'l'}:${(state.stationDefinitions || []).length}:${Object.keys(state.destroyedStations || {}).length}:${(state.controlledSystems || []).join(',')}:${JSON.stringify(state.factionSystemOverrides || {})}`;
-  if (!force && campaignWorldCache && campaignWorldCache.key === key) return campaignWorldCache.world;
+  // Treaty terms (TREATY-EXPANSION) are read off the live book by every route the model plots.
+  if (!force && campaignWorldCache && campaignWorldCache.key === key) { campaignWorldCache.world.treatyBook = campaignBook(); return campaignWorldCache.world; }
   if (!state.travelRoutes.length) rebuildTravelRoutes();
   const systems = state.planets.map((planet, index) => {
     const control = getSystemControl(index);
@@ -26851,7 +26867,7 @@ function buildCampaignWorld(force = false) {
     // Phase 4: the published security policy of a world's holder, which is what strategic enforcement reads.
     borderPolicy: (i, w = world) => campaignBorderPolicy(i, w.systems[Number(i)]?.controller ?? null),
     factionName: (id) => (id === 'player' ? `${state.captainName || 'Captain'}'s empire` : formatFaction(id)),
-    shipStats: (id) => { const s = state.shipStatsById[Number(id)]; if (!s) return null; return { price: getShipPrice(s), mass: finiteNumber(s.mass, 1), combatHull: getNpcCombatDurability(Number(id)).hull, faction: getShipFaction(Number(id)), cargo: Math.max(0, finiteNumber(s.cargoCapacity, 0)), speed: shipStrategicSpeed(Number(id)), strategicSpeed: shipStrategicSpeed(Number(id)), cloak: shipClassCloak(Number(id)), combat: shipClassCombat(Number(id)), recoveryCapacity: Recovery.classRecoveryCapacity(s) }; },
+    shipStats: (id) => { const s = state.shipStatsById[Number(id)]; if (!s) return null; return { price: getShipPrice(s), mass: finiteNumber(s.mass, 1), combatHull: getNpcCombatDurability(Number(id)).hull, faction: getShipFaction(Number(id)), cargo: Math.max(0, finiteNumber(s.cargoCapacity, 0)), speed: shipStrategicSpeed(Number(id)), strategicSpeed: shipStrategicSpeed(Number(id)), cloak: shipClassCloak(Number(id)), combat: shipClassCombat(Number(id)), recoveryCapacity: Recovery.classRecoveryCapacity(s), category: Speed.speedCategory(s) }; },
     pickHull: (polityId, u) => { if (polityId === 'player') return null; const key = campaignFactionKeyFor(polityId); const seed = Math.floor(u * 100000) + 1; for (const role of ['fleetAttack', 'patrol', 'traffic']) { const id = getNpcShipIdForFaction(key, seed, role); if (id != null) return Number(id); } return null; },
     // A culture's catalogue for the purposes of captured industry: everything it actually builds, less
     // the named exceptions. Filtering this by the retail rule is what made capturing a Dominion major
@@ -26917,6 +26933,7 @@ function buildCampaignWorld(force = false) {
     // decided by Campaign.defendingPolityIds, which keeps the old rule: any holder the captain is not
     // at war with, including neutral hosts such as Bajora against the Dominion.
   };
+  world.treatyBook = campaignBook();
   campaignWorldCache = { key, world };
   return world;
 }
@@ -26960,7 +26977,7 @@ function syncPlayerPolity(book) {
   // day, booking a fresh kill every day. 'assigned' keeps it out of both the defence total and the
   // attrition pass, exactly as a hull committed to an operation is.
   const sceneOwned = (f) => Boolean(fleetLocalActor(f.id));
-  p.hulls = (state.playerFleet || []).filter((f) => !f.destroyed && f.vessel?.condition !== 'destroyed').map((f) => ({ id: `pf:${f.id}`, vid: ensureFleetVesselIdentity(f).vid, shipId: Number(f.shipId), hull: finiteNumber(f.vessel?.hull, finiteNumber(f.vessel?.maxHull, 100)), maxHull: finiteNumber(f.vessel?.maxHull, 100), crew: 1, systemIndex: Number(f.assignment === 'escort' ? state.currentPlanet : f.systemIndex), status: f.assignment === 'transit' || sceneOwned(f) || f.strategicOp ? 'assigned' : 'ready', opId: f.strategicOp || null, ...(fleetVesselCondition(f) === 'disabled' ? { engineDisabled: true } : {}) }));
+  p.hulls = (state.playerFleet || []).filter((f) => !f.destroyed && f.vessel?.condition !== 'destroyed').map((f) => ({ id: `pf:${f.id}`, vid: ensureFleetVesselIdentity(f).vid, shipId: Number(f.shipId), hull: finiteNumber(f.vessel?.hull, finiteNumber(f.vessel?.maxHull, 100)), maxHull: finiteNumber(f.vessel?.maxHull, 100), crew: 1, systemIndex: Number(f.assignment === 'escort' ? state.currentPlanet : f.systemIndex), status: f.assignment === 'transit' || sceneOwned(f) || f.strategicOp ? 'assigned' : 'ready', opId: f.strategicOp || null, ...(fleetVesselCondition(f) === 'disabled' ? { engineDisabled: true } : {}), ...(f.transit ? { legTo: Number(f.transit.to) } : {}) }));
   // A captain's ship on a model journey (an evacuation convoy, a blockade force taking station) is where the
   // journey record says, on the leg it says: the record is authoritative and the mirror is rebuilt from it
   // on every call, so a leg in flight survives the rebuild (STRATEGIC-MOVEMENT-UNIFICATION §10).
@@ -27502,6 +27519,39 @@ function applyCampaignEffects(effects, day = state.day) {
       case 'pactChanged': {
         // A secret agreement: recorded in the campaign's treaty state, published to nobody.
         campaignWorldCache = null;
+        break;
+      }
+      // TREATY-EXPANSION: terms, incidents, inspections and payments. Money moves on the captain's real
+      // account; reports reach him only for what he may know (a secret term, an incident he has no evidence of,
+      // are published to nobody).
+      case 'treatyPayment': {
+        if (e.payer === PLAYER_SIDE) { state.latinum -= e.amount; state.mylatinum = state.latinum; }
+        if (e.recipient === PLAYER_SIDE) { state.latinum += e.amount; state.mylatinum = state.latinum; }
+        if (e.payer === PLAYER_SIDE || e.recipient === PLAYER_SIDE)
+          campaignReport({ id: `treaty:payment:${e.termId}:${e.day ?? day}`, systemIndex: null, day: e.day ?? day, kind: e.termType === 'tribute' ? 'Tribute paid' : 'Reparations paid', confidence: 'Campaign record', factions: [e.payer, e.recipient].filter((x) => x !== PLAYER_SIDE).map(campaignFactionKeyFor), playerRelated: true,
+            text: `${e.payer === PLAYER_SIDE ? 'Your empire paid' : `${formatFaction(campaignFactionKeyFor(e.payer))} paid you`} ${Math.round(e.amount).toLocaleString()} L under treaty (${e.termType}).` });
+        break;
+      }
+      case 'treatyTermAdded': case 'treatyTermEnded': {
+        campaignWorldCache = null;
+        const t = Campaign.treatyTermById(book, e.id);
+        if (t && Treaty.termVisibleTo(t, PLAYER_SIDE) && (t.parties.includes(PLAYER_SIDE) || t.parties.some((p) => campaignPowerContact(p))))
+          campaignReport({ id: `treaty:term:${e.id}:${e.type}`, systemIndex: t.systems?.[0] ?? null, day: e.day ?? day, kind: e.type === 'treatyTermAdded' ? 'Treaty term in force' : e.suspended ? 'Treaty term suspended' : 'Treaty term ended', confidence: 'Campaign record',
+            factions: t.parties.filter((x) => x !== PLAYER_SIDE).map(campaignFactionKeyFor), playerRelated: t.parties.includes(PLAYER_SIDE),
+            text: `${t.parties.map((p) => (p === PLAYER_SIDE ? 'Your empire' : formatFaction(campaignFactionKeyFor(p)))).join(' – ')}: ${Treaty.termHeadline(t, treatyPartyName)}${e.type === 'treatyTermEnded' ? ` — ${e.reason}` : ''}.` });
+        break;
+      }
+      case 'treatyIncident': case 'treatyBreach': {
+        if (e.type === 'treatyBreach' || !(e.knownTo || []).includes(PLAYER_SIDE)) break;
+        const x = (book.treatyIncidents || []).find((y) => y.id === e.id);
+        if (x) campaignReport({ id: `treaty:incident:${x.id}`, systemIndex: x.systemIndex, day: x.day, kind: 'Treaty incident', confidence: 'Campaign record', factions: [x.breaching, ...x.against].filter((p) => p !== PLAYER_SIDE).map(campaignFactionKeyFor), playerRelated: true,
+          text: Treaty.incidentLine(x, treatyPartyName) });
+        break;
+      }
+      case 'treatyInspection': {
+        if (e.inspector !== PLAYER_SIDE && e.inspected !== PLAYER_SIDE) break;
+        campaignReport({ id: `treaty:inspection:${e.id}:${e.state}`, systemIndex: e.systemIndex, day: e.day ?? day, kind: `Inspection ${e.state}`, confidence: 'Campaign record', factions: [e.inspector, e.inspected].filter((p) => p !== PLAYER_SIDE).map(campaignFactionKeyFor), playerRelated: true,
+          text: `${treatyPartyName(e.inspector)} inspection of ${treatyPartyName(e.inspected)} traffic at ${state.planets[e.systemIndex]?.name || '?'}: ${e.state}.` });
         break;
       }
       case 'followerBound': {
@@ -28979,8 +29029,91 @@ function renderWarsAndTreaties(book, world) {
   return `<section><h3>Your empire's wars</h3><ul class="war-list">${rows}</ul></section>
     <section data-war-hostile><h3>Hostile, not at war with your empire</h3><p>${hostileOnly.length ? `${escapeHtml(hostileOnly.join(', '))}. Their ships may fire on yours; no formal war exists.` : 'None you know of.'}</p></section>
     <section data-war-others><h3>Other formal wars you know of</h3><ul class="war-list">${otherRows}</ul></section>
+    ${renderTreatyTermsSection(book)}
     <section data-war-territory><h3>Occupied and disputed territory</h3><ul>${terr}</ul></section>
     <section><h3>Ceasefires and settlements reported to you</h3><ul>${news}</ul></section>`;
+}
+// TREATY-EXPANSION §15: per relationship, the terms the captain knows of — status, scope, expiry or what is
+// due, the breaches he has evidence of, his own obligations. A secret term he does not know is not here.
+function renderTreatyTermsSection(book) {
+  const view = Campaign.treatyViewFor(book, PLAYER_SIDE, state.day);
+  const live = view.terms.filter((t) => t.status !== 'ended' || Number(state.day) - Number(t.endedDay) <= 60);
+  if (!live.length) return '<section data-war-treaties><h3>Treaty terms</h3><p>No treaty term you know of.</p></section>';
+  const nm = (i) => state.planets[Number(i)]?.name || `system ${i}`;
+  const byPair = new Map();
+  for (const t of live) { const key = t.parties.slice().sort().join('|'); if (!byPair.has(key)) byPair.set(key, []); byPair.get(key).push(t); }
+  const rel = (parties) => {
+    if (parties.length !== 2) return '';
+    const st = book.warStates?.[Campaign.warKey(parties[0], parties[1])];
+    return st ? (st.status === 'war' ? `at war since day ${st.statusSince ?? st.startedDay}` : st.status === 'ceasefire' ? `ceasefire since day ${st.statusSince}` : `peace since day ${st.statusSince}`) : 'no formal war';
+  };
+  const groups = [...byPair.entries()].map(([key, terms]) => {
+    const parties = key.split('|');
+    const items = terms.map((t) => {
+      const status = view.status(t);
+      const scope = t.systems?.length ? `Scope: ${t.systems.map(nm).join(', ')}` : t.type === 'tribute' || t.type === 'reparations' ? `${treatyPartyName(t.payer)} → ${treatyPartyName(t.recipient)}` : '';
+      const obligation = Treaty.termObligationLine(t, state.day);
+      const mine = t.parties.includes(PLAYER_SIDE) ? treatyObligationsForPlayer(book, t) : '';
+      const breaches = view.incidents.filter((x) => x.termId === t.id).slice(-4).map((x) => `<li data-treaty-incident="${escapeHtml(x.id)}" data-incident-state="${escapeHtml(x.state)}">${escapeHtml(Treaty.incidentLine(x, treatyPartyName))}</li>`).join('');
+      const insp = view.inspections.filter((x) => x.termId === t.id).slice(-3).map((x) => `<li data-treaty-inspection="${escapeHtml(x.id)}" data-inspection-state="${escapeHtml(x.state)}">Day ${x.day} at ${escapeHtml(nm(x.systemIndex))}: ${escapeHtml(x.history.map((h) => h.state).join(' → '))}${x.observed ? ` · seen: ${escapeHtml((x.observed.manifest || []).map((m) => `${m.cargoId}${m.quantity != null ? ` ×${m.quantity}` : ''}`).join(', ') || 'nothing declared')}` : ''}</li>`).join('');
+      const ledger = view.ledger.filter((e) => e.termId === t.id).slice(-4).map((e) => `<li data-treaty-ledger="${escapeHtml(t.id)}">Day ${e.day}: ${e.status} ${Math.round(e.amount).toLocaleString()} L${e.arrearsPaid ? ` (incl. ${Math.round(e.arrearsPaid).toLocaleString()} L arrears)` : ''}</li>`).join('');
+      return `<li data-treaty-term="${escapeHtml(t.id)}" data-term-type="${escapeHtml(t.type)}" data-term-status="${escapeHtml(status)}"><b>${escapeHtml(Treaty.termHeadline(t, treatyPartyName))}</b> <span class="meta">— ${escapeHtml(status)}${t.secret ? ' · secret' : ''}</span>
+        <div class="meta">${escapeHtml([scope, Treaty.termExpiryLine(t), obligation].filter(Boolean).join(' · '))}</div>${mine ? `<div class="meta" data-treaty-mine>${escapeHtml(mine)}</div>` : ''}${breaches ? `<ul class="meta">${breaches}</ul>` : ''}${insp ? `<ul class="meta">${insp}</ul>` : ''}${ledger ? `<ul class="meta">${ledger}</ul>` : ''}</li>`;
+    }).join('');
+    return `<li data-treaty-pair="${escapeHtml(key)}"><b>${escapeHtml(parties.map(treatyPartyName).join(' – '))}</b> <span class="meta">(${escapeHtml(rel(parties))})</span><ul>${items}</ul></li>`;
+  }).join('');
+  return `<section data-war-treaties><h3>Treaty terms</h3><ul class="war-list">${groups}</ul></section>`;
+}
+// What a term asks of the captain's own empire right now.
+function treatyObligationsForPlayer(book, t) {
+  if (t.type === 'dmz' && t.restricted.includes(PLAYER_SIDE) && t.status === 'active') {
+    const mine = Object.values(t.withdrawal?.hulls || {}).filter((w) => w.polity === PLAYER_SIDE && ['pending', 'breach', 'stranded'].includes(w.state));
+    const pending = mine.filter((w) => w.state === 'pending').length, stranded = mine.filter((w) => w.state === 'stranded').length, late = mine.filter((w) => w.state === 'breach').length;
+    return [pending ? `Withdraw ${pending} ship${pending === 1 ? '' : 's'} from the DMZ by day ${t.withdrawal.dueDay}` : '', stranded ? `${stranded} disabled ship${stranded === 1 ? '' : 's'} awaiting recovery in the DMZ (a tow is allowed)` : '', late ? `${late} ship${late === 1 ? '' : 's'} still in the DMZ in breach` : ''].filter(Boolean).join(' · ') || 'Military transit prohibited for your ships';
+  }
+  if ((t.type === 'tribute' || t.type === 'reparations') && t.payer === PLAYER_SIDE && t.status === 'active') return `${t.type === 'tribute' ? 'Tribute due' : 'Reparations installment due'}: ${Math.round(Treaty.installmentAmount(t)).toLocaleString()} L on day ${t.nextDue}${t.arrears ? ` · arrears ${Math.round(t.arrears).toLocaleString()} L` : ''}${t.type === 'reparations' ? ` · remaining ${Math.round(t.remaining).toLocaleString()} L` : ''}`;
+  if (t.type === 'basing' && t.guest === PLAYER_SIDE) return `Your ships may use ${t.purposes.join(', ')} at ${t.systems.map((i) => state.planets[i]?.name || i).join(', ')} (ownership, stock and production unchanged)`;
+  if (t.type === 'transit' && t.beneficiary === PLAYER_SIDE) return 'Your ships may pass under this guarantee';
+  if (t.type === 'inspection' && t.inspected === PLAYER_SIDE) return `Your ${t.traffic.join('/')} ${t.hullCategories.length ? t.hullCategories.join('/') : 'traffic'} must heave to for inspection there`;
+  return '';
+}
+// Debug is omniscient: every term (secret or not), every incident, inspection and payment, and the counters.
+function renderTreatyDebug() {
+  if (!state.gameStarted) return '<p class="meta">No campaign.</p>';
+  const book = campaignBook();
+  if (!book.initialized) return '<p class="meta">No campaign.</p>';
+  const view = Campaign.treatyViewFor(book, 'debug', state.day);
+  const nm = (i) => escapeHtml(i == null ? '—' : state.planets[Number(i)]?.name || `system ${i}`);
+  const st = book.stats?.treaty || {};
+  const head = `<p class="meta" data-treaty-stats>Terms ${(book.treatyTerms || []).length} (active ${Campaign.activeTreatyTerms(book, null, state.day).length}) · DMZ crossings ${st.dmzCrossings || 0} · warnings ${st.dmzWarnings || 0} · compliant withdrawals ${st.compliantWithdrawals || 0} · breaches ${st.breaches || 0} · inspections ${st.inspectionsRequested || 0} req / ${st.inspectionsCompleted || 0} done / ${st.inspectionsRefused || 0} refused · tribute ${st.tributePaid || 0} paid / ${st.tributeMissed || 0} missed · reparations completed ${st.reparationsCompleted || 0} · blockades closed ${st.blockadeClosures || 0} · routes refused ${st.dmzRoutesRefused || 0} · wars declared by a treaty: 0 (none can be)</p>`;
+  const terms = (book.treatyTerms || []).slice(-30).reverse().map((t) => `<tr data-treaty-debug-term="${escapeHtml(t.id)}"><td><code>${escapeHtml(t.id.split(':').slice(-2).join(':'))}</code></td><td>${escapeHtml(t.type)}</td><td>${escapeHtml(t.parties.map(treatyPartyName).join(' – '))}</td><td>${t.systems?.length ? t.systems.map(nm).join(', ') : escapeHtml(t.type === 'tribute' ? `${t.amount} L / ${t.cadenceDays} d` : t.type === 'reparations' ? `${t.remaining}/${t.total} L` : '—')}</td><td>${t.startDay}–${t.endDay ?? '…'}</td><td><b>${escapeHtml(view.status(t))}</b></td><td>${t.secret ? `secret: ${escapeHtml(t.knownTo.join(', '))}` : 'public'}</td><td>${escapeHtml((t.enforcers || []).join(', '))}</td><td>${t.breaches.length}</td><td>${escapeHtml(t.settlementSource ? `${t.settlementSource.warKey} → ${t.settlementSource.to}` : (t.authority?.kind || ''))}</td></tr>`).join('');
+  const incidents = (book.treatyIncidents || []).slice(-30).reverse().map((x) => `<tr data-treaty-debug-incident="${escapeHtml(x.id)}"><td>${x.day}</td><td>${escapeHtml(x.kind)}</td><td>${escapeHtml(treatyPartyName(x.breaching))}</td><td>${nm(x.systemIndex)}</td><td>${escapeHtml(x.assets.join(', ') || '—')}</td><td>${escapeHtml(x.evidence.map((e) => `${e.type} by ${e.by}`).join('; ') || 'none')}</td><td>${escapeHtml(x.knownTo.join(', '))}</td><td>${escapeHtml(x.severity)}</td><td><b>${escapeHtml(x.state)}</b><div class="meta">${escapeHtml(x.responses.map((r) => `d${r.day} ${r.state}`).join(' → '))}</div></td><td>${x.warDeclared ? 'YES' : 'no'}</td></tr>`).join('');
+  const insp = (book.treatyInspections || []).slice(-12).reverse().map((x) => `<tr data-treaty-debug-inspection="${escapeHtml(x.id)}"><td>${x.day}</td><td>${escapeHtml(treatyPartyName(x.inspector))} → ${escapeHtml(treatyPartyName(x.inspected))}</td><td>${nm(x.systemIndex)}</td><td>${escapeHtml(x.vids.join(', '))}</td><td><b>${escapeHtml(x.state)}</b><div class="meta">${escapeHtml(x.history.map((h) => h.detail).join(' → '))}</div></td><td>${escapeHtml(x.observed ? JSON.stringify(x.observed) : 'nothing (request only)')}</td></tr>`).join('');
+  const ledger = (book.treatyLedger || []).slice(-12).reverse().map((e) => `<tr data-treaty-debug-ledger><td>${e.day}</td><td>${escapeHtml(e.type)}</td><td>${escapeHtml(treatyPartyName(e.payer))} → ${escapeHtml(treatyPartyName(e.recipient))}</td><td>${Math.round(e.amount).toLocaleString()} L</td><td>${escapeHtml(e.status)}</td></tr>`).join('');
+  const withdrawals = Campaign.activeTreatyTerms(book, 'dmz', state.day).flatMap((t) => Object.entries(t.withdrawal?.hulls || {}).map(([id, w]) => `<tr data-treaty-debug-withdrawal><td><code>${escapeHtml(w.vid || id)}</code></td><td>${escapeHtml(treatyPartyName(w.polity))}</td><td>${nm(w.systemIndex)}</td><td>${escapeHtml(w.state)}</td><td>due day ${Math.max(t.withdrawal.dueDay, w.since + t.graceDays)}</td></tr>`)).join('');
+  const table = (attr, headers, rows, empty) => (rows ? `<table class="doctrine-debug" ${attr}><thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>` : `<p class="meta">${empty}</p>`);
+  return `${head}${table('data-treaty-term-table', ['Term', 'Type', 'Parties', 'Scope', 'Days', 'Status', 'Knowledge', 'Enforcers', 'Breaches', 'Source'], terms, 'No treaty terms.')}
+    <h4>Incidents</h4>${table('data-treaty-incident-table', ['Day', 'Kind', 'Breaching', 'System', 'Assets', 'Evidence', 'Known to', 'Severity', 'State', 'War'], incidents, 'No treaty incidents.')}
+    <h4>Inspections</h4>${table('data-treaty-inspection-table', ['Day', 'Inspector → inspected', 'System', 'Vessels', 'State', 'Observed'], insp, 'No inspections.')}
+    <h4>Ledger</h4>${table('data-treaty-ledger-table', ['Day', 'Term', 'Payer → recipient', 'Amount', 'Status'], ledger, 'No payments.')}
+    <h4>DMZ withdrawal</h4>${table('data-treaty-withdrawal-table', ['Vessel', 'Party', 'System', 'State', 'Due'], withdrawals, 'Nothing to withdraw.')}`;
+}
+// Debug: treaty <by> <to> <clause…> | treaty end <termId> | treaty defy <formation> (dispatch through a DMZ, in breach).
+function triggerTreatyDebug(args) {
+  const book = campaign(); syncPlayerPolity(book);
+  const world = buildCampaignWorld(true);
+  const effects = [];
+  if (args[0] === 'end' && args[1]) { const id = (book.treatyTerms || []).find((t) => t.id.toLowerCase() === args[1] || t.id.endsWith(`:term:${args[1]}`))?.id; const r = id ? Campaign.endTreatyTerm(book, world, id, state.day, 'ended (debug override)', effects) : { ok: false, reason: 'no such term' }; applyCampaignEffects(effects, state.day); return r.ok ? `Treaty term ${id} ended (override).` : r.reason; }
+  if (args[0] === 'obstruct' && args[1]) { const b = (book.blockades || []).find((x) => x.id.toLowerCase() === args[1] || x.id.endsWith(`:blockade:${args[1]}`)); const r = b ? Campaign.orderBlockadeObstruction(book, b.id) : { ok: false, reason: 'no such blockade' }; return r.ok ? `Blockade ${b.id} ordered to stop guaranteed traffic too (each such run is a breach of the guarantee).` : r.reason; }
+  if (args[0] === 'defy' && args[1]) { const ok = dispatchFleetFormation(args[1], { defy: true }); return ok ? `Formation ${args[1]} dispatched through the DMZ in defiance (each crossing is an incident).` : 'Dispatch refused.'; }
+  const [by, to] = [args[0], args[1]].map((x) => (x === 'player' || x === 'captain' ? PLAYER_SIDE : campaignPolityIdFor(x) || x));
+  const clause = args.slice(2).join(' ');
+  const [spec] = Campaign.treatyClauseSpecs(world, [clause], { by, to });
+  const r = Campaign.addTreatyTerm(book, world, spec, state.day, effects, null);
+  applyCampaignEffects(effects, state.day);
+  campaignWorldCache = null;
+  if (!r.ok) throw new Error(`treaty: ${r.reason}`);
+  return `Treaty term ${r.term.id} (${r.term.type}) in force between ${r.term.parties.join(' and ')} (debug override): ${Treaty.termHeadline(r.term, treatyPartyName)}.`;
 }
 function renderCampaignPanel() {
   const el = document.getElementById('campaign-panel');
@@ -29800,7 +29933,7 @@ function renderFleetManager(open = false) {
     <select data-fleet-destination="${escapeHtml(g.id)}">${options(
       state.planets.map((p, i) => [i, chartSystemLabel(i)]).filter(([i])=>isChartSystemVisible(i)),
       g.destination ?? state.currentPlanet,
-    )}</select>${btn('dispatch', formationTravel(g) ? 'Redirect to system' : 'Dispatch to system', g.id)}${btn('dispatch-attack', 'Dispatch to attack', g.id)}<select data-fleet-blockade-policy="${escapeHtml(g.id)}" aria-label="At blockades">${options([['run', 'At blockades: run'], ['wait', 'At blockades: wait'], ['reroute', 'At blockades: reroute']], g.blockadePolicy || 'run')}</select>${formationTravel(g) ? btn('dispatch-cancel', 'Stop at next system', g.id) : ''}${btn('trade-start-group', 'Trade with formation', g.id)}${btn('trade-stop-group', 'Stop formation trading', g.id)}${g.travel ? `<p class="formation-travel" data-formation-travel="${escapeHtml(g.id)}" data-travel-status="${escapeHtml(g.travel.status)}">${escapeHtml(formationTravelLine(g))}</p>` : ''}</div>`,
+    )}</select>${btn('dispatch', formationTravel(g) ? 'Redirect to system' : 'Dispatch to system', g.id)}${btn('dispatch-attack', 'Dispatch to attack', g.id)}<select data-fleet-blockade-policy="${escapeHtml(g.id)}" aria-label="At blockades">${options([['run', 'At blockades: run'], ['wait', 'At blockades: wait'], ['reroute', 'At blockades: reroute']], g.blockadePolicy || 'run')}</select>${formationTravel(g) ? btn('dispatch-cancel', 'Stop at next system', g.id) : ''}${btn('trade-start-group', 'Trade with formation', g.id)}${btn('trade-stop-group', 'Stop formation trading', g.id)}${g.travel ? `<p class="formation-travel" data-formation-travel="${escapeHtml(g.id)}" data-travel-status="${escapeHtml(g.travel.status)}">${escapeHtml(formationTravelLine(g))}</p>` : ''}${g.treatyNote && !formationTravel(g) ? `<p class="formation-treaty" data-formation-treaty="${escapeHtml(g.id)}">${escapeHtml(g.treatyNote)}</p>` : ''}${formationTravel(g) && formationTreatyNotes(g.travel).length ? `<p class="formation-treaty" data-formation-treaty="${escapeHtml(g.id)}">${escapeHtml(formationTreatyNotes(g.travel).join(' · '))}</p>` : ''}</div>`,
     )
     .join('');
   const ships = hasServiceChannel() ? getShipyardStock() : [];
@@ -30206,7 +30339,12 @@ function scheduleFormationLeg(g, tr) {
 // at `from`.
 function beginFormationTravel(g, members, from, destination, purpose, war, day, prior = null, opts = {}) {
   const origin = Number(from), dest = Number(destination);
-  const route = origin === dest ? { systems: [origin], legs: [] } : getPlottedRoute(origin, dest);
+  // Treaty terms bind the captain's formations as they bind every model journey (TREATY-EXPANSION §11): a
+  // route that ends in or crosses a DMZ binding his empire is not plotted, unless he sends it through in
+  // defiance (opts.defy), when each crossing is an incident; a retreat back the way it came is never re-routed.
+  const cls = formationTrafficClass(purpose);
+  const lawful = !opts.defy && opts.treaty !== false;
+  const route = origin === dest ? { systems: [origin], legs: [] } : lawful ? playerLawfulRoute(origin, dest, cls) : getPlottedRoute(origin, dest);
   if (!route) return null;
   // At the speed of its slowest able ship (SHIP-DEPENDENT-STRATEGIC-SPEED): an escort never hurries a freighter.
   const speed = fleetGroupSpeed(members);
@@ -30215,13 +30353,15 @@ function beginFormationTravel(g, members, from, destination, purpose, war, day, 
     members: members.map((f) => f.id), vids: Object.fromEntries(members.map((f) => [f.id, ensureFleetVesselIdentity(f).vid])),
     purpose, war: war || null, authority: { kind: 'formation', ref: g.id }, prior });
   tr.legBase = routeLegBase(route); tr.speed = speed; tr.speedHistory = [{ fromLeg: 0, speed }];
+  tr.trafficClass = cls;
+  if (opts.defy) tr.treatyDefy = true;
   g.travel = tr;
   g.destination = dest;
   if (!tr.path.length) { arriveFormation(g, tr, origin, Number(day)); return tr; }
   if (opts.skipGate) scheduleFormationLeg(g, tr); else departFormationLeg(g, tr, Number(day));
   return tr;
 }
-function dispatchFleetFormation(id, { fromRelay = false, purpose = null } = {}) {
+function dispatchFleetFormation(id, { fromRelay = false, purpose = null, defy = false } = {}) {
   const b = fleetBook(),
     g = b.formations.find((g) => g.id === id);
   if (!g || g.destination === null || !state.planets[g.destination]) return false;
@@ -30284,6 +30424,13 @@ function dispatchFleetFormation(id, { fromRelay = false, purpose = null } = {}) 
     setLog(`No plottable route from ${state.planets[origin]?.name} to ${state.planets[g.destination]?.name} for ${g.name}.`);
     return false;
   }
+  // TREATY-EXPANSION: a DMZ that binds the empire refuses the order (or routes round it); only an explicit
+  // order to go through anyway sends it in, and every crossing is then an incident.
+  if (!defy && origin !== Number(g.destination)) {
+    const why = playerTreatyRouteRefusal(origin, Number(g.destination), formationTrafficClass(want));
+    if (why) { g.treatyNote = why; setLog(`${g.name}: ${why}`); return false; }
+  }
+  delete g.treatyNote;
   captureShipPowerState();
   for (const f of members) {
     // The dispatch is the captain's newest word for her: trading she would have resumed after a repair
@@ -30293,7 +30440,7 @@ function dispatchFleetFormation(id, { fromRelay = false, purpose = null } = {}) 
     if (f.assignment === 'escort') { f.systemIndex = Number(state.currentPlanet); f.assignment = 'defense'; }
   }
   if (g.warOrder) delete g.warOrder;
-  const tr = beginFormationTravel(g, members, origin, g.destination, want, war, Number(state.day));
+  const tr = beginFormationTravel(g, members, origin, g.destination, want, war, Number(state.day), null, { defy });
   if (!tr) return false;
   if (tr.status === 'underway' && tr.waiting) setLog(`${g.name} dispatched${want === 'attack' ? ' to attack' : ''}; ${tr.note.toLowerCase()}.`);
   else if (tr.status === 'underway')
@@ -30381,14 +30528,14 @@ function runFormationBlockades(g, tr, at, day) {
 }
 // Turned back: the formation goes back to the system it came from, as one body; an order it was given
 // on the way is kept and flown from there.
-function retreatFormation(g, tr, at, day) {
+function retreatFormation(g, tr, at, day, by = 'the blockade') {
   const prev = Number(tr.legIndex > 0 ? tr.path[tr.legIndex - 1] : tr.plotFrom);
   const where = state.planets[at]?.name || 'the blockade';
   const pending = tr.pending; tr.pending = null;
   tr.status = 'halted'; tr.endDay = Number(day); tr.endReason = 'forced-back'; tr.note = `Turned back at ${where}`;
   if (g.order === 'attack') g.order = 'hold';
-  const back = beginFormationTravel(g, formationTravelMembers(tr), at, prev, 'move', null, Number(day), tr, { skipGate: true });
-  if (back) { back.retreatFrom = Number(at); back.note = `Turned back at ${where}`; if (pending) back.pending = pending; }
+  const back = beginFormationTravel(g, formationTravelMembers(tr), at, prev, 'move', null, Number(day), tr, { skipGate: true, treaty: false });
+  if (back) { back.retreatFrom = Number(at); back.retreatBy = by; back.note = `Turned back at ${where}`; if (pending) back.pending = pending; }
 }
 // Before a leg into a system under a blockade the captain knows of, the formation's standing order for
 // blockades decides: run it, wait where it is until it lifts, or reroute round it (waiting if there is
@@ -30426,6 +30573,54 @@ function departFormationLeg(g, tr, day) {
   tr.legDepartDay = Number(day);
   scheduleFormationLeg(g, tr);
   return true;
+}
+// ---- treaty terms and the captain's formations (TREATY-EXPANSION) ----
+function treatyPartyName(p) { return p === PLAYER_SIDE ? 'Your empire' : formatFaction(campaignFactionKeyFor(p)); }
+function formationTrafficClass(purpose) { return Campaign.trafficClassOf('formation', purpose === 'trade' ? 'trade' : purpose); }
+function playerTreatyBarred(cls = 'military', day = state.day) {
+  const book = campaignBook();
+  return book.treatyTerms?.length ? Campaign.treatyBarred(book, PLAYER_SIDE, cls, Number(day)) : new Set();
+}
+// The captain's chart route round every system a treaty bars to his traffic of this class (leaving the zone he
+// is in is allowed; ending in one, or crossing back into one, is not).
+function playerLawfulRoute(from, to, cls = 'military') {
+  const barred = playerTreatyBarred(cls);
+  if (!barred.size) return getPlottedRoute(from, to);
+  if (barred.has(Number(to))) return null;
+  const avoid = new Set(barred);
+  if (barred.has(Number(from))) { const q = [Number(from)]; avoid.delete(Number(from)); while (q.length) { const c = q.shift(); for (const r of state.travelRoutes) { const n = getRouteOtherEnd(r, c); if (n != null && avoid.has(n)) { avoid.delete(n); q.push(n); } } } }
+  const route = getPlottedRoute(from, to, avoid);
+  if (!route) return null;
+  return Campaign.treatyRouteBlocked(campaignBook(), from, route.systems.slice(1), PLAYER_SIDE, cls, state.day) == null ? route : null;
+}
+// Why a dispatch is refused under treaty (null when it is not): the concise line the fleet manager shows.
+function playerTreatyRouteRefusal(from, to, cls = 'military') {
+  const barred = playerTreatyBarred(cls);
+  if (!barred.size) return null;
+  const zone = (i) => { const t = Campaign.activeTreatyTerms(campaignBook(), 'dmz', state.day).find((x) => x.systems.includes(Number(i)) && Treaty.dmzRestricts(x, PLAYER_SIDE, cls)); return t ? ` (${t.parties.map(treatyPartyName).join('–')} DMZ)` : ''; };
+  if (barred.has(Number(to))) return `DMZ — Military transit prohibited: ${state.planets[to]?.name || to} is inside a demilitarised zone${zone(to)}.`;
+  if (getPlottedRoute(from, to) && !playerLawfulRoute(from, to, cls)) return `DMZ — Military transit prohibited: every route to ${state.planets[to]?.name || to} crosses a demilitarised zone.`;
+  return null;
+}
+// What a formation's crossing meets under treaty: the one engine (Campaign.treatyCrossing) every model journey uses.
+function runFormationTreaty(g, tr, at, day) {
+  const book = campaignBook();
+  if (!book.treatyTerms?.length) return { turnedBack: false, incidents: [], inspections: [] };
+  syncPlayerPolity(book);
+  const world = buildCampaignWorld(true);
+  const members = formationTravelMembers(tr);
+  const cargo = members.flatMap((f) => (fleetTradeState(f)?.manifest || []).map((m) => ({ cargoId: m.goods || m.kind, quantity: m.tons ?? null, concealed: Boolean(m.concealed) })));
+  const effects = [];
+  const r = Campaign.treatyCrossing(book, world, { sponsor: PLAYER_SIDE, cls: tr.trafficClass || 'military', at, day, key: tr.id, vids: members.map((f) => ensureFleetVesselIdentity(f).vid), defy: Boolean(tr.treatyDefy),
+    response: g.treatyResponse || null, inspectionResponse: g.inspectionPolicy === 'refuse' ? 'refuse' : 'comply', cargo, hulls: members.map((f) => ({ vid: ensureFleetVesselIdentity(f).vid, shipId: Number(f.shipId) })),
+    categories: [...new Set(members.map((f) => Speed.speedCategory(getShipStats(f.shipId))).filter(Boolean))], canReceive: members.some((f) => fleetVesselCondition(f) === 'operational') }, effects);
+  applyCampaignEffects(effects, day);
+  campaignWorldCache = null;
+  const where = state.planets[at]?.name || `system ${at}`;
+  if (r.complied) { tr.treatyDefy = false; tr.note = `Warned out of the DMZ at ${where}; complying`; setLog(`${g.name} warned at ${where}: military transit prohibited. Complying — turning back.`); }
+  else for (const x of r.incidents) if (x.kind === 'dmz_entry') setLog(`${g.name} at ${where}: ${x.state === 'breach' ? (x.evidence.length ? 'warning refused — treaty breach recorded' : 'entered the DMZ unobserved — a breach only you know of') : x.state}.`);
+  for (const x of r.inspections) { tr.inspections = [...(tr.inspections || []), x.id]; setLog(`${g.name} at ${where}: inspection ${x.state}${x.state === 'refused' ? ' — passage denied' : ''}.`); }
+  return r;
 }
 function detachFormationMember(tr, f, at, day, reason) {
   tr.members = tr.members.filter((id) => id !== f.id);
@@ -30516,6 +30711,13 @@ function crossFormationLeg(g, tr) {
     return;
   }
   if (runs.turnedBack) { retreatFormation(g, tr, at, day); return; }
+  // Treaty terms met here (a DMZ warning for a formation sent through in defiance, an inspection regime).
+  const treaty = runFormationTreaty(g, tr, at, day);
+  if (treaty.turnedBack) { retreatFormation(g, tr, at, day, treaty.complied ? 'a DMZ warning (complied)' : 'a refused inspection (passage denied)'); return; }
+  // A treaty that started, ended or changed while the leg was in flight: the rest of the route is re-plotted
+  // lawfully from here (or the formation holds here), never teleported, the legs flown untouched.
+  if (!tr.pending && !tr.treatyDefy && tr.legIndex + 1 < tr.path.length && Campaign.treatyRouteBlocked(campaignBook(), at, tr.path.slice(tr.legIndex + 1), PLAYER_SIDE, tr.trafficClass || 'military', Number(day)) != null)
+    tr.pending = { destination: tr.destination, purpose: tr.purpose, war: tr.war, day: Number(day), treaty: true };
   // A war order is only as good as the war it was given under.
   const warGone = tr.purpose === 'attack' && !formationWarHolds(tr.war);
   const pendingMove = tr.pending && tr.pending.purpose !== 'attack';
@@ -30534,7 +30736,8 @@ function crossFormationLeg(g, tr) {
     tr.status = 'superseded'; tr.endDay = day; tr.endReason = 'superseded';
     const next = beginFormationTravel(g, formationTravelMembers(tr), at, p.destination, p.purpose, p.war, day, tr);
     if (!next) {
-      haltFormation(g, tr, at, day, 'no-route', `${g.name} holds at ${where}: no plottable route to ${state.planets[p.destination]?.name}.`);
+      if (p.treaty) haltFormation(g, tr, at, day, 'treaty', `${g.name} holds at ${where}: DMZ — Military transit prohibited; no lawful route on to ${state.planets[p.destination]?.name}.`);
+      else haltFormation(g, tr, at, day, 'no-route', `${g.name} holds at ${where}: no plottable route to ${state.planets[p.destination]?.name}.`);
       return;
     }
     if (next.status === 'underway') setLog(`${g.name} replots at ${where}: ${next.path.length} leg${next.path.length === 1 ? '' : 's'} to ${state.planets[next.destination]?.name}, arriving day ${next.etaDay}.`);
@@ -30598,6 +30801,23 @@ function completeFleetJourneys() {
     }
 }
 // What the formation's row says about its journey.
+// What the treaty terms in force mean for the rest of a formation's route, in the concise words of TREATY-EXPANSION §14.
+function formationTreatyNotes(tr) {
+  const book = campaignBook();
+  if (!tr || !book.treatyTerms?.length) return [];
+  const ahead = tr.path.slice(tr.legIndex).map(Number);
+  const cls = tr.trafficClass || 'military';
+  const out = [];
+  const nm = (i) => state.planets[i]?.name || '?';
+  if (tr.treatyDefy) out.push('DMZ — sent through in defiance of the treaty');
+  const dmz = Campaign.activeTreatyTerms(book, 'dmz', state.day).filter((t) => Treaty.termVisibleTo(t, PLAYER_SIDE) && Treaty.dmzRestricts(t, PLAYER_SIDE, cls));
+  const guaranteed = ahead.filter((i) => dmz.some((t) => t.systems.includes(i)) && !Campaign.treatyBarredAt(book, PLAYER_SIDE, cls, i, state.day));
+  if (guaranteed.length) out.push(`Transit guaranteed under treaty through ${guaranteed.map(nm).join(', ')}`);
+  const insp = Campaign.activeTreatyTerms(book, 'inspection', state.day).filter((t) => Treaty.termVisibleTo(t, PLAYER_SIDE) && t.inspected === PLAYER_SIDE && (t.traffic || []).includes(cls));
+  const at = ahead.filter((i) => insp.some((t) => t.systems.includes(i)));
+  if (at.length) out.push(`Inspection required at ${at.map(nm).join(', ')}`);
+  return out;
+}
 function formationTravelLine(g) {
   const tr = g?.travel;
   if (!tr) return '';
@@ -30607,14 +30827,14 @@ function formationTravelLine(g) {
     return `${tr.purpose === 'attack' ? 'Attack on' : 'En route to'} ${name(tr.destination)} · waiting at ${name(tr.waiting.at)} since day ${tr.waiting.since}: blockade at ${name(tr.waiting.system)}${tr.waiting.policy === 'reroute' ? ', no way round' : ''}${crossed.length ? ` · crossed ${crossed.join(', ')}` : ''}`;
   }
   if (tr.status === 'underway' && tr.retreatFrom != null && !tr.pending) {
-    return `Turned back at ${name(tr.retreatFrom)} by the blockade · returning to ${name(tr.destination)}, arrives day ${tr.etaDay}`;
+    return `Turned back at ${name(tr.retreatFrom)} by ${tr.retreatBy || 'the blockade'} · returning to ${name(tr.destination)}, arrives day ${tr.etaDay}`;
   }
   if (tr.status === 'underway') {
     const pos = formationTravelPosition(tr);
     const head = `${tr.purpose === 'attack' ? 'Attack on' : 'En route to'} ${name(tr.destination)} · leg ${tr.legIndex + 1}/${tr.path.length} ${name(tr.from)} → ${name(tr.path[tr.legIndex])} ${pos.standing ? `departed day ${tr.legDepartDay}` : 'in warp'}, arrives day ${tr.legArrivalDay} · destination day ${tr.etaDay}${tr.speed != null ? ` · strategic speed ${Speed.speedLabel(tr.speed)}` : ''}`;
     return `${head}${crossed.length ? ` · crossed ${crossed.join(', ')}` : ''}${tr.note ? ` · ${tr.note}` : ''}`;
   }
-  if (tr.status === 'arrived' && tr.retreatFrom != null) return `Turned back at ${name(tr.retreatFrom)} by the blockade · holding at ${name(tr.destination)} since day ${tr.arrivedDay}`;
+  if (tr.status === 'arrived' && tr.retreatFrom != null) return `Turned back at ${name(tr.retreatFrom)} by ${tr.retreatBy || 'the blockade'} · holding at ${name(tr.destination)} since day ${tr.arrivedDay}`;
   if (tr.status === 'arrived') return `Arrived at ${name(tr.destination)} day ${tr.arrivedDay}${crossed.length > 1 ? ` via ${crossed.slice(0, -1).join(', ')}` : ''}`;
   if (tr.status === 'halted') return tr.note || `Halted at ${name(tr.from)}`;
   return '';

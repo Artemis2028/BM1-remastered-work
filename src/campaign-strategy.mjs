@@ -16,6 +16,7 @@ import * as J from './strategic-journey.mjs';
 import * as SE from './strategic-encounter.mjs';
 import * as SPD from './strategic-speed.mjs';
 import * as REC from './strategic-recovery.mjs';
+import * as TT from './treaty-terms.mjs';
 
 export const CAMPAIGN_VERSION = 1;
 
@@ -260,6 +261,10 @@ export function createCampaignBook(seed, day = 1, config = {}) {
     journeys: [],        // every strategic movement under way (STRATEGIC-MOVEMENT-UNIFICATION): one record shape
     hullRecoveries: [],  // tow / salvage missions for disabled hulls (TOWING-SALVAGE-RECOVERY)
     derelicts: [],       // written-off hulks still lying where they were abandoned (salvageable until they break up)
+    treatyTerms: [],     // treaty terms: DMZs, guarantees, basing, inspections, tribute, reparations (TREATY-EXPANSION)
+    treatyIncidents: [], // breach / warning incidents under those terms
+    treatyLedger: [],    // tribute and reparations payments, paid and missed
+    treatyInspections: [], // inspection requests and their results
     dominion: { phase: 'dormant', phaseDay: null, warnings: [], entrySystem: null, stagingSystem: null, expeditionOpId: null, reinforcementCut: false, convoys: 0, lastConvoyDay: null },
     designs: {},         // shipId → { sources: [stationId], lost: [stationId], relocatedTo: stationId|null }
     recoveries: [],      // bounded recovery contracts
@@ -295,7 +300,7 @@ export function upgradeCampaignBook(book) {
   if (!book.strategicSpeed) { if (book.config.interceptRefSpeed === 45) book.config.interceptRefSpeed = CAMPAIGN_RULES.interceptRefSpeed; book.strategicSpeed = 1; }
   book.discoveries ||= { gorn: false };
   for (const key of ['polities', 'designs', 'incomeLedger', 'restoredStations', 'activatedStations', 'unstaffedStations', 'occupations', 'wars', 'warStates', 'territory']) book[key] ||= {};
-  for (const key of ['operations', 'recoveries', 'missions', 'orders', 'history', 'journeys', 'hullRecoveries', 'derelicts']) if (!Array.isArray(book[key])) book[key] = [];
+  for (const key of ['operations', 'recoveries', 'missions', 'orders', 'history', 'journeys', 'hullRecoveries', 'derelicts', 'treatyTerms', 'treatyIncidents', 'treatyLedger', 'treatyInspections']) if (!Array.isArray(book[key])) book[key] = [];
   book.dominion ||= { phase: 'dormant', phaseDay: null, warnings: [], entrySystem: null, stagingSystem: null, expeditionOpId: null, reinforcementCut: false, convoys: 0, lastConvoyDay: null };
   book.stats ||= { battlesResolved: 0, captures: 0, hullsBuilt: 0, hullsLost: 0, missionsOffered: 0 };
   book.stats.missionsOffered ??= 0;
@@ -633,11 +638,15 @@ export function advanceCampaignDay(book, world, day) {
 }
 function settleCampaignDay(book, world, day, effects) {
   book.day = day;
+  // Every route the model plots today reads the treaty terms in force (TREATY-EXPANSION).
+  world.treatyBook = book;
   settleEconomy(book, world, day, effects);
   advanceProduction(book, world, day, effects);
   advanceGarrisons(book, world, day);
   advanceStranded(book, world, day, effects);
   advanceRepairs(book, world, day, effects);
+  // Treaty terms: start and expiry, DMZ withdrawal and blockade bans, blockade clauses, tribute and reparations.
+  advanceTreaties(book, world, day, effects);
   advanceIntegrations(book, world, day, effects);
   enforceRelations(book, world, day, effects);
   planOperations(book, world, day, effects);
@@ -962,6 +971,12 @@ function advanceRecrewing(book, h, polityId, day, effects) {
 function ownYardAt(world, polityId, systemIndex) {
   return world.systems[Number(systemIndex)]?.controller === polityId && (stationEffects(world, Number(systemIndex), polityId).repairCapacity || 0) > 0;
 }
+// An own yard, or a host's yard the polity may use for recovery under basing rights (TREATY-EXPANSION §4).
+function recoveryYardAt(book, world, polityId, systemIndex) {
+  if (ownYardAt(world, polityId, systemIndex)) return true;
+  const t = book.treatyTerms?.length ? basingRightAt(book, world, polityId, systemIndex, 'recovery') : null;
+  return Boolean(t) && (stationEffects(world, Number(systemIndex), t.host).repairCapacity || 0) > 0;
+}
 function strandHull(book, h, polityId, day, effects) {
   const c = book.config;
   h.stranded = { since: day, systemIndex: Number(h.systemIndex), recovery: 'awaiting_recovery', recoverySince: null, recoveredBy: null,
@@ -998,11 +1013,11 @@ export function advanceStranded(book, world, day, effects = []) {
       // Out of a yard's hands again: whatever kept her people alive there no longer does (a tow's crew support
       // ends at the yard; the clock resumes with what was left of it).
       const outOfYard = () => { if (s.crewSupportedBy) { s.crewUntil = day + (s.crewDaysLeft ?? 1); delete s.crewSupportedBy; delete s.crewDaysLeft; } };
-      if (s.recovery === 'awaiting_recovery' && ownYardAt(world, id, s.systemIndex) && !blockaded) { s.recovery = 'recovering'; s.recoverySince = day; s.recoveredBy = 'yard'; }
-      else if (s.recovery === 'recovering' && (blockaded || !ownYardAt(world, id, s.systemIndex))) { s.recovery = 'awaiting_recovery'; s.recoverySince = null; s.recoveredBy = null; outOfYard(); }
+      if (s.recovery === 'awaiting_recovery' && recoveryYardAt(book, world, id, s.systemIndex) && !blockaded) { s.recovery = 'recovering'; s.recoverySince = day; s.recoveredBy = 'yard'; }
+      else if (s.recovery === 'recovering' && (blockaded || !recoveryYardAt(book, world, id, s.systemIndex))) { s.recovery = 'awaiting_recovery'; s.recoverySince = null; s.recoveredBy = null; outOfYard(); }
       // In the yard, it stays there through a later blockade (the yard has it); if the yard itself is lost —
       // the world taken, the yard destroyed — the hulk is out in the open again, awaiting recovery.
-      else if (s.recovery === 'in_yard' && !ownYardAt(world, id, s.systemIndex)) { s.recovery = 'awaiting_recovery'; s.recoverySince = null; s.recoveredBy = null; outOfYard(); }
+      else if (s.recovery === 'in_yard' && !recoveryYardAt(book, world, id, s.systemIndex)) { s.recovery = 'awaiting_recovery'; s.recoverySince = null; s.recoveredBy = null; outOfYard(); }
       if (s.recovery === 'recovering' && day - s.recoverySince >= (c.strandedRecoveryDays ?? 2)) {
         s.recovery = 'in_yard';
         effects.push({ type: 'hullRecovered', polityId: id, hullId: h.id, vid: h.identity?.vid || h.id, systemIndex: s.systemIndex, day, via: s.recoveredBy });
@@ -1026,7 +1041,7 @@ export function advanceStranded(book, world, day, effects = []) {
 export function recoverStrandedHull(book, world, polityId, hullId, day, via = 'recovery') {
   const h = hullOf(book, polityId, hullId);
   if (!h || !hullIsDisabled(h)) return { ok: false, reason: 'not a disabled hull' };
-  if (!ownYardAt(world, polityId, h.systemIndex)) return { ok: false, reason: 'no own yard here: it waits for a tow' };
+  if (!recoveryYardAt(book, world, polityId, h.systemIndex)) return { ok: false, reason: 'no own yard here: it waits for a tow' };
   if (applicableBlockadesAt(book, world, h.systemIndex, polityId).length) return { ok: false, reason: 'the yard is under blockade' };
   h.stranded ||= { since: day, systemIndex: Number(h.systemIndex), crew: 'aboard', crewUntil: day + (book.config.crewSurvivalDays ?? 20), crewEndDay: null };
   h.stranded.recovery = 'in_yard'; h.stranded.recoverySince = day; h.stranded.recoveredBy = via;
@@ -1045,6 +1060,17 @@ function advanceRepairs(book, world, day, effects = []) {
     const p = polity(book, id);
     const budget = {};
     for (const sys of controlled(world, id)) budget[sys.index] = stationEffects(world, sys.index, id).repairCapacity || 0;
+    // Basing rights (TREATY-EXPANSION §4): a share of the host's repair capacity at the named facilities, for as
+    // long as the term holds and the host holds the system. Nothing changes hands.
+    const basing = {};
+    for (const t of activeTreatyTerms(book, 'basing', day)) {
+      if (t.guest !== id || !t.purposes.includes('repair')) continue;
+      for (const i of t.systems) {
+        if (budget[i] > 0 || world.systems[Number(i)]?.controller !== t.host) continue;
+        const cap = stationEffects(world, Number(i), t.host).repairCapacity || 0;
+        if (cap > 0) { budget[i] = Math.max(1, Math.floor(cap * t.repairShare)); basing[i] = t.id; }
+      }
+    }
     const yards = Object.keys(budget).map(Number).filter((i) => budget[i] > 0);
     p.repairedToday = {};
     for (const h of p.hulls) {
@@ -1069,6 +1095,7 @@ function advanceRepairs(book, world, day, effects = []) {
       if (!(budget[h.systemIndex] > 0)) continue;
       const need = h.maxHull - h.hull, done = Math.min(need, budget[h.systemIndex]);
       h.hull += done; budget[h.systemIndex] -= done; p.repairedToday[h.systemIndex] = (p.repairedToday[h.systemIndex] || 0) + done;
+      if (basing[h.systemIndex]) { treatyStats(book).basingRepairDays++; h.basedRepair = { termId: basing[h.systemIndex], day, systemIndex: Number(h.systemIndex) }; }
       // A stranded hull repaired out of the disabled band: back with its crew, or waiting for one (§1a).
       finishStrandedRepair(book, h, id, day, effects);
       // A doctrine job keeps its hull through the repair; it resumes when the hull can sail (§6) — which a
@@ -2524,6 +2551,23 @@ function applyWarTransitionInModel(book, world, st, t, day, effects, source = 'e
     addHistory(book, day, 'ceasefire', `Ceasefire between ${world.factionName(st.a)} and ${world.factionName(st.b)}: ${t.reason}.`, { key: st.key, basis: t.basis });
   }
   if (world.shadow) world.shadow.relations.set(`${relSide(world, st.a)}:${relSide(world, st.b)}`, t.to);
+  // Treaty terms the settlement carries (TREATY-EXPANSION §16): created here, bound to this war instance, never
+  // copied to a follower's inherited war (a follower is not a party to its government's terms).
+  const treatyIds = [];
+  if (source !== 'inherited' && Array.isArray(t.treaty) && t.treaty.length) {
+    // A clause string reads `by` (grants or pays) as the loser and `to` as the winner; a negotiated settlement
+    // names them ({ clause, by, to }) or gives full term specs.
+    // With no winner or loser (a negotiated settlement) a bare clause string names nobody: only a symmetric clause
+    // (a DMZ, a blockade lift) is read from it; anything with a payer or a grantor must say who ({ clause, by, to }).
+    const ctx = t.loser && t.winner ? { by: t.loser, to: t.winner } : { by: st.a, to: st.b, symmetric: true };
+    const specs = t.treaty.map((x) => (typeof x === 'string' ? treatyClauseSpecs(world, [x], ctx)[0] : x?.clause ? treatyClauseSpecs(world, [x.clause], { by: x.by ?? ctx.by, to: x.to ?? ctx.to })[0] : x));
+    for (const spec of specs) {
+      const r = addTreatyTerm(book, world, spec, day, effects, { warKey: st.key, warId: st.warId, instance: st.instance ?? null, to: t.to, day });
+      if (r.ok) treatyIds.push(r.term.id);
+    }
+    st.treatyTerms = [...(st.treatyTerms || []), ...treatyIds];
+    if (st.settlement && t.to === 'peace') st.settlement.treatyTerms = treatyIds.slice();
+  }
   // A war the captain's empire inherited from one of these parties follows it: the officer's empire
   // was fighting the government's war, and the government's settlement binds it, with the same
   // cleanup. A war the empire made its own (an incident, a seizure) has no inheritance and is not
@@ -2552,7 +2596,7 @@ function applyWarTransitionInModel(book, world, st, t, day, effects, source = 'e
       }
     }
   }
-  effects.push({ type: t.to === 'peace' ? 'warResolved' : 'warCeasefire', key: st.key, a: st.a, b: st.b, warId: st.warId, to: t.to, basis: t.basis, winner: t.winner, loser: t.loser, reason: t.reason, terms: applied, standDown: closed, source, parentKey: t.parentKey || null, alsoBinds: bound, day });
+  effects.push({ type: t.to === 'peace' ? 'warResolved' : 'warCeasefire', key: st.key, a: st.a, b: st.b, warId: st.warId, to: t.to, basis: t.basis, winner: t.winner, loser: t.loser, reason: t.reason, terms: applied, standDown: closed, source, parentKey: t.parentKey || null, alsoBinds: bound, treatyTerms: treatyIds, day });
 }
 // Operations between the pair stand down the same day, in any phase, in both directions. A battle the
 // loaded scene owns is marked and stood down when the scene releases it. Escort and blockade contracts
@@ -2603,14 +2647,14 @@ export function answerWarOffer(book, world, key, accept, day) {
   return { ok: true, accepted: true, offer, effects };
 }
 // A transition decided outside the evaluator (debug, an authored story beat) still takes the same path.
-export function forceWarTransition(book, world, a, b, to, day, reason = 'Directed settlement', basis = 'directed') {
+export function forceWarTransition(book, world, a, b, to, day, reason = 'Directed settlement', basis = 'directed', opts = {}) {
   const key = warKey(a, b);
   const pair = warPairsInView(book, world).find((p) => warKey(p.a, p.b) === key) || { a, b, warId: book.warStates?.[key]?.warId || 'static', warStarted: day };
   let st = book.warStates?.[key];
   if (!st || st.warId !== (pair.warId || 'static') || st.status === 'peace') st = openWarInstance(book, world, pair, day);
   const effects = [];
   const terms = to === 'peace' ? settlementTerms('negotiated', null, pairOccupations(book, world, st), Object.fromEntries([st.a, st.b].map((id) => [id, polityReadiness(book, world, id).strength]))) : [];
-  applyWarTransitionInModel(book, world, st, { to, basis, winner: null, loser: null, reason, terms }, day, effects, 'directed');
+  applyWarTransitionInModel(book, world, st, { to, basis, winner: opts.winner ?? null, loser: opts.loser ?? null, reason, terms, treaty: opts.treaty || null }, day, effects, 'directed');
   return effects;
 }
 // ---------- treaties: authored pacts (DOMINION-FORMAL-WAR-RULES §2a) ----------
@@ -2651,6 +2695,8 @@ export function activatePact(book, world, government, partner, day, effects = []
 // history as it was recorded. The book keeps everything; only what is shown is filtered.
 export function historyVisibleTo(book, entry, viewer = 'player') {
   if (!entry) return false;
+  // A treaty term's entry: visible to whoever may see the term (a secret one only to those who know of it).
+  if (entry.secretTerm) { const t = (book.treatyTerms || []).find((x) => x.id === entry.secretTerm); return Boolean(t) && TT.termVisibleTo(t, viewer); }
   if (entry.secretOf) {
     const rec = book.treaties?.[entry.secretOf];
     if (!rec) return false;
@@ -2971,13 +3017,16 @@ function journeyNeighbours(world, i, polityId, noFixed = false) {
   for (const w of world.wormholes || []) { if (Number(w.from) === i) out.add(Number(w.to)); if (Number(w.to) === i) out.add(Number(w.from)); }
   return [...out].filter((n) => world.edgeOpen ? world.edgeOpen(i, n, polityId) !== false : true).filter((n) => !noFixed || !world.legFixed?.(i, n)).sort((a, b) => a - b);
 }
-function routeFewestJumps(world, from, to, polityId, avoid = null, noFixed = false) {
+function routeFewestJumps(world, from, to, polityId, avoid = null, noFixed = false, barred = null) {
   const prev = new Map([[Number(from), null]]); const q = [Number(from)];
+  // Treaty-barred systems (a DMZ): never entered, except on the way out of the zone the mover starts in.
+  const leaving = Boolean(barred?.has(Number(from)));
   while (q.length) {
     const cur = q.shift();
     if (cur === Number(to)) break;
     for (const x of journeyNeighbours(world, cur, polityId, noFixed)) {
       if (prev.has(x) || (avoid && avoid.has(x) && x !== Number(to))) continue;
+      if (barred && barred.has(x) && !(leaving && barred.has(cur))) continue;
       prev.set(x, cur); q.push(x);
     }
   }
@@ -2988,9 +3037,14 @@ function routeFewestJumps(world, from, to, polityId, avoid = null, noFixed = fal
 // A route for a model mover: the fewest jumps (the model's routes have always been jump-counted and blind
 // to the captain's chart), each with its real length.
 // The route never depends on the ship (the same systems, the same legs); only its days do.
+// Treaty terms bind it too (TREATY-EXPANSION): a polity's traffic of the class given (opts.cls, military by
+// default) is routed round a DMZ that binds it and never ends inside one; opts.treaty === false is the one
+// explicit exception (a mover sent through in defiance, whose crossings are then incidents).
 export function plotJourney(world, from, to, polityId, avoid = null, speed = null, opts = {}) {
   if (Number(from) === Number(to)) return { systems: [Number(from)], path: [], legDays: [], legBase: [], speed: speed == null ? SPD.SPEED_DEFAULT : SPD.clampSpeed(speed) };
-  const systems = routeFewestJumps(world, from, to, polityId, avoid && avoid.size ? avoid : null, Boolean(opts.noFixed));
+  const barred = opts.treaty === false ? null : treatyBarredFor(world, polityId, opts.cls || 'military');
+  if (barred && barred.has(Number(to))) return null;
+  const systems = routeFewestJumps(world, from, to, polityId, avoid && avoid.size ? avoid : null, Boolean(opts.noFixed), barred);
   if (!systems) return null;
   const legBase = routeLegBase(world, systems);
   return { systems, path: systems.slice(1).map(Number), legDays: SPD.legDaysAt(legBase, speed), legBase, speed: speed == null ? SPD.SPEED_DEFAULT : SPD.clampSpeed(speed) };
@@ -3027,8 +3081,25 @@ export function startJourney(book, world, spec, day, effects = []) {
   if (hulls.some((h) => Number(h.systemIndex) !== from)) return { ok: false, reason: 'split between systems' };
   if (hulls.some((h) => h.transit)) return { ok: false, reason: 'already under way' };
   const tow = spec.tow?.targets?.length ? { targets: spec.tow.targets.map(String), penalty: spec.tow.penalty ?? book.config.towPenalty ?? SPD.TOW_PENALTY, recoveryId: spec.tow.recoveryId ?? null, need: spec.tow.need ?? null } : null;
-  const plan = spec.plan || plotJourney(world, from, spec.destination, spec.sponsor, spec.avoid || null, null, { noFixed: Boolean(tow) });
-  if (!plan) return { ok: false, reason: 'no route' };
+  // Treaty terms (TREATY-EXPANSION): the route is lawful for this traffic class, or the journey is refused. A
+  // plan a caller made is checked too; only a mover explicitly sent through in defiance (treatyDefy) is
+  // let through, and its crossings become incidents. A retreat back the way it came is never re-routed.
+  world.treatyBook = book;
+  const cls = spec.trafficClass || trafficClassOf(spec.kind, spec.purpose);
+  const defy = Boolean(spec.treatyDefy ?? spec.meta?.treatyDefy);
+  let plan = spec.plan || plotJourney(world, from, spec.destination, spec.sponsor, spec.avoid || null, null, { noFixed: Boolean(tow), cls, treaty: !defy });
+  if (plan && spec.plan && !defy && spec.purpose !== 'retreat' && book.treatyTerms?.length && treatyRouteBlocked(book, from, plan.path, spec.sponsor, cls) != null) {
+    if (spec.kind === 'doctrine') { treatyStats(book).dmzRoutesRefused++; return { ok: false, treaty: true, reason: 'treaty: the route crosses a demilitarised zone' }; }
+    plan = plotJourney(world, from, spec.destination, spec.sponsor, spec.avoid || null, null, { noFixed: Boolean(tow), cls });
+    if (plan) treatyStats(book).treatyReplots++;
+  }
+  if (!plan) {
+    if (!defy && book.treatyTerms?.length && plotJourney(world, from, spec.destination, spec.sponsor, spec.avoid || null, null, { noFixed: Boolean(tow), treaty: false })) {
+      treatyStats(book).dmzRoutesRefused++;
+      return { ok: false, treaty: true, reason: 'treaty: no lawful route (demilitarised zone)' };
+    }
+    return { ok: false, reason: 'no route' };
+  }
   // The days are always the ships' own: the route's legs (whoever plotted it) at the speed of the hulls
   // actually flying, its slowest able member (SHIP-DEPENDENT-STRATEGIC-SPEED). A planner that asked for
   // the same hulls' journeyDays got exactly these.
@@ -3040,6 +3111,8 @@ export function startJourney(book, world, spec, day, effects = []) {
     purpose: spec.purpose || 'move', war: spec.war || null, authority: spec.authority || null, prior: spec.prior || null, meta: spec.meta || null });
   tr.legBase = legBase; tr.speed = speed; tr.speedHistory = [{ fromLeg: 0, speed }];
   if (tow) tr.tow = tow;
+  tr.trafficClass = cls;
+  if (defy) tr.treatyDefy = true;
   list.push(tr);
   st.started++; st.byKind[tr.kind] = (st.byKind[tr.kind] || 0) + 1;
   if (!tr.path.length) {
@@ -3109,6 +3182,8 @@ export function crossJourneyLeg(book, world, tr, effects = [], opts = {}) {
   dropUntowed(book, world, tr, at, day, effects, out);
   effects.push(journeyEffect(tr, 'journeyCrossed', day, { systemIndex: at, leg: tr.legIndex, legs: tr.path.length, final: !J.hasMoreLegs(tr) }));
   if (tr.members.length && opts.blockades !== false) runJourneyBlockades(book, world, tr, at, day, effects, out, opts);
+  // Treaty terms met here (a DMZ warning for a mover in defiance, an inspection regime), once per crossing.
+  if (!out.turnedBack && !out.held) runTreatyCrossing(book, world, tr, at, day, effects, out);
   return out;
 }
 // A tow whose towing ships are all gone (lost, disabled, surrendered, left): the hulk is let go where the
@@ -3139,7 +3214,7 @@ function dropUntowed(book, world, tr, at, day, effects, out) {
 function runJourneyBlockades(book, world, tr, at, day, effects, out, opts = {}) {
   const st = book.stats.journeys;
   const hooks = JOURNEY_KINDS[tr.kind] || {};
-  for (const b of applicableBlockadesAt(book, world, at, tr.sponsor)) {
+  for (const b of applicableBlockadesAt(book, world, at, tr.sponsor, tr.trafficClass || 'military')) {
     if (opts.skip?.has(b.id)) continue;
     if (tr.encounters.some((e) => e.blockadeId === b.id && e.leg === tr.legIndex && e.seq === tr.seq)) continue;
     const towedIds = new Set((tr.tow?.targets || []).map(String));
@@ -3151,7 +3226,7 @@ function runJourneyBlockades(book, world, tr, at, day, effects, out, opts = {}) 
     const runner = opts.runner ? opts.runner(ships) : { key: hooks.runnerKey?.(book, tr) ?? `${tr.ref != null ? `${tr.ref}:` : ''}${tr.id}:s${tr.seq}:l${tr.legIndex}`, sponsor: tr.sponsor, kind: tr.kind,
       hulls: [...ships.map((h) => ({ hullId: h.id, vid: vidOfHull(h), shipId: h.shipId, hull: h.hull, maxHull: h.maxHull, crew: h.crew, role: hooks.role?.(book, tr, h) ?? null })),
         ...towedHulls.map((h) => ({ hullId: h.id, vid: vidOfHull(h), shipId: h.shipId, hull: h.hull, maxHull: h.maxHull, crew: h.crew, role: 'towed', towed: true }))],
-      ...(towedHulls.length ? { towSpeed: tr.speed } : {}) };
+      ...(towedHulls.length ? { towSpeed: tr.speed } : {}), trafficClass: tr.trafficClass || 'military' };
     // STRATEGIC-TACTICAL-HANDOFF: the captain is in this system — an interception is fought in the scene.
     if (opts.handoff && tr.sponsor !== 'player' && world.localSystem != null && Number(world.localSystem) === Number(at)) {
       const contact = blockadeContact(book, world, b, runner, day);
@@ -3245,8 +3320,24 @@ function settleCrossing(book, world, tr, cross, effects) {
       return;
     }
   }
+  // A treaty that started, ended or changed while the leg was in flight: the rest of the route is re-plotted
+  // lawfully from here, or the journey stops here (a doctrine job stops; its owner re-plans).
+  if (!tr.pending && treatyBoundaryCheck(book, world, tr) != null) {
+    if (tr.kind === 'doctrine' || tr.kind === 'evacuation') {
+      treatyStats(book).treatyHalts++;
+      J.haltJourney(tr, at, day, 'treaty', 'the route ahead crosses a demilitarised zone');
+      endJourneyEffect(book, tr, day, effects, { treaty: true });
+      if (hooks.onHalt) hooks.onHalt(book, world, tr, at, day, effects); else releaseMembersHere(book, tr);
+      return;
+    }
+    treatyStats(book).treatyReplots++;
+    const avoid = (book.blockades || []).filter((b) => blockadeApplies(book, world, b, tr.sponsor, tr.trafficClass || 'military')).map((b) => Number(b.target)).filter((i) => i !== Number(tr.destination));
+    tr.pending = { destination: tr.destination, purpose: tr.purpose, day, treaty: true, ...(avoid.length ? { avoid } : {}) };
+  }
   if (tr.pending) {
     const p = tr.pending; tr.pending = null;
+    if (p.treaty) delete p.treaty;
+    if (Array.isArray(p.avoid)) p.avoid = new Set(p.avoid);
     const next = replotJourney(book, world, tr, { ...p, reason: 'superseded' }, day, effects);
     endJourneyEffect(book, tr, day, effects, { superseded: true });
     if (!next.ok) {
@@ -3411,7 +3502,7 @@ registerJourneyKind('return', {
 registerJourneyKind('repair', {
   // The yard's world is still its own: otherwise it stops at this system and looks for another yard.
   valid(book, world, tr) {
-    return world.systems[Number(tr.destination)]?.controller === tr.sponsor ? { ok: true } : { ok: false, reason: 'yard lost' };
+    return world.systems[Number(tr.destination)]?.controller === tr.sponsor || basingRightAt(book, world, tr.sponsor, tr.destination, 'repair') ? { ok: true } : { ok: false, reason: 'yard lost' };
   },
   onHalt(book, world, tr, at, day) {
     for (const h of journeyMemberHulls(book, tr)) { if (h.transit) continue; if (h.opId === tr.id) h.opId = null; if (h.status === 'repairing' && !hullUnavailable(h)) h.status = 'ready'; h.repairRetryAfter = Number(day) + 1; }
@@ -3692,6 +3783,9 @@ export function startBlockade(book, world, spec, day, effects = []) {
   // Authority: an ordinary military blockade is an act of war and needs one. (An authored or treaty
   // authority is a hook for later rounds; nothing grants one yet.)
   if (authority !== 'war' || !formallyAtWar(world, power, sys.controller)) return { ok: false, reason: `${world.factionName(power)} is not at war with ${world.factionName(sys.controller)}.` };
+  // A DMZ that binds the power forbids a blockade inside it (TREATY-EXPANSION §12), whatever the war.
+  const ban = treatyBlockadeBan(book, power, target, day);
+  if (ban) { treatyStats(book).blockadesRefused++; return { ok: false, treaty: true, reason: ban.type === 'dmz' ? `Treaty: no blockades in the demilitarised zone (${ban.id}).` : `Treaty: blockades there are lifted by agreement (${ban.id}).` }; }
   if (activeBlockadesAt(book, target).some((b) => b.power === power) || (book.blockades || []).some((b) => b.status === 'forming' && b.power === power && Number(b.target) === Number(target)))
     return { ok: false, reason: `${world.factionName(power)} already blockades ${sys.name}.` };
   const taken = strategicAssignments(book);
@@ -3929,16 +4023,21 @@ export function blockadeRunContinues(outcome) { return RUN_CONTINUES.has(outcome
 // Does this blockade bear on this sponsor's ships crossing its system? Only an active blockade, still
 // resting on its war, and only against a power it is formally at war with. (Neutral traffic is not
 // fired on: inspection regimes are a later treaty term.)
-export function blockadeApplies(book, world, b, sponsor) {
+export function blockadeApplies(book, world, b, sponsor, cls = 'military') {
   if (!b || b.status !== 'active' || b.power === sponsor) return false;
   const holder = world.systems[Number(b.target)]?.controller;
   if (!holder || holder === b.power || !formallyAtWar(world, b.power, holder)) return false;
   const st = b.warKey ? book.warStates?.[b.warKey] : null;
   if (st && st.status !== 'war') return false;
-  return formallyAtWar(world, b.power, sponsor);
+  if (!formallyAtWar(world, b.power, sponsor)) return false;
+  // A transit guarantee the blockading power gave this sponsor at this system is honoured (TREATY-EXPANSION
+  // §12): its ships pass. Only a blockade explicitly ordered to obstruct anyway (treatyDefy) still bears on
+  // them — and the run it makes is then a recorded breach, not silent hostility.
+  if (book.treatyTerms?.length && !b.treatyDefy && transitGuaranteeAt(book, b.power, sponsor, b.target, book.day, cls)) return false;
+  return true;
 }
-export function applicableBlockadesAt(book, world, systemIndex, sponsor) {
-  return activeBlockadesAt(book, systemIndex).filter((b) => blockadeApplies(book, world, b, sponsor));
+export function applicableBlockadesAt(book, world, systemIndex, sponsor, cls = 'military') {
+  return activeBlockadesAt(book, systemIndex).filter((b) => blockadeApplies(book, world, b, sponsor, cls));
 }
 // The ships running it, read from their records: condition, dash speed, cloak, fighting value.
 // A runner is { key, sponsor, kind, hulls: [{ hullId, vid, shipId, hull, maxHull, role }] }; class facts
@@ -4181,6 +4280,17 @@ function releaseHeldCrossing(book, world, tr, enc, run, day, effects) {
 export function resolveBlockadeRun(book, world, b, runner, day, effects = [], opts = {}) {
   const c = book.config;
   book.stats.interceptions = (book.stats.interceptions || 0) + 1;
+  // Obstructing guaranteed transit (a blockade ordered to stop a beneficiary anyway): the run happens, and it is
+  // a breach by the blockading power, known to the ships it stopped (TREATY-EXPANSION §3, §12).
+  const guarantee = book.treatyTerms?.length ? transitGuaranteeAt(book, b.power, runner.sponsor, b.target, day, runner.trafficClass || 'military') : null;
+  if (guarantee) {
+    const key = `${guarantee.id}|obstructed|${runner.key}`;
+    treatyBook(book);
+    if (!book.treatyIncidents.some((x) => x.key === key)) {
+      treatyStats(book).obstructions++;
+      recordTreatyIncident(book, world, { key, term: guarantee, kind: 'transit_obstructed', breaching: b.power, systemIndex: Number(b.target), assets: [b.id], evidence: [{ type: 'intercepted', by: runner.sponsor, day }], knownTo: [runner.sponsor], severity: 'serious', state: 'breach', day, detail: `blockade ${b.id} stopped guaranteed transit` }, effects);
+    }
+  }
   const f = blockadeForce(book, world, b);
   const a = assessBlockadeRun(book, world, b, runner, f);
   const u = (tag) => seededUnit(book.seed, 'blockade-run', b.id, runner.key, day, tag);
@@ -4303,6 +4413,8 @@ function towYardOk(book, world, sponsor, i) {
   const sys = world.systems[Number(i)];
   if (!sys || applicableBlockadesAt(book, world, i, sponsor).length) return false;
   if (sys.controller === sponsor) return (stationEffects(world, Number(i), sponsor).repairCapacity || 0) > 0;
+  // A host's yard under basing rights for recovery (TREATY-EXPANSION §4).
+  if (basingRightAt(book, world, sponsor, i, 'recovery')) return (stationEffects(world, Number(i), sys.controller).repairCapacity || 0) > 0;
   if (sponsor !== 'player' || !sys.controller) return false;
   if (world.relation(relSide(world, 'player'), relSide(world, sys.controller)) === 'war') return false;
   return (stationEffects(world, Number(i), sys.controller).repairCapacity || 0) > 0;
@@ -4312,7 +4424,7 @@ function chooseTowYard(book, world, sponsor, from, speed, avoid = null) {
   let best = null;
   for (const sys of world.systems) {
     if (!towYardOk(book, world, sponsor, sys.index)) continue;
-    const plan = Number(sys.index) === Number(from) ? { path: [], legDays: [] } : plotJourney(world, from, sys.index, sponsor, avoid, speed, { noFixed: true });
+    const plan = Number(sys.index) === Number(from) ? { path: [], legDays: [] } : plotJourney(world, from, sys.index, sponsor, avoid, speed, { noFixed: true, cls: 'recovery' });
     if (!plan) continue;
     const days = plan.legDays.reduce((n, d) => n + d, 0);
     if (!best || days < best.days || (days === best.days && sys.index < best.yard)) best = { yard: Number(sys.index), days, plan };
@@ -4367,11 +4479,11 @@ export function planHullRecovery(book, world, spec, day = book.day) {
   if (escorts.some((e) => !e || e.status === 'lost' || hullUnavailable(e) || e.opId || Number(e.systemIndex) !== Number(tug.systemIndex))) return { ok: false, reason: 'an escort is not free or not with the recovery vessel' };
   const group = [tug, ...escorts];
   const groupSpeed = hullsSpeed(world, group);
-  const outbound = Number(tug.systemIndex) === at ? { systems: [at], path: [], legDays: [] } : plotJourney(world, tug.systemIndex, at, sponsor, spec.avoid ? new Set(spec.avoid) : null, groupSpeed);
+  const outbound = Number(tug.systemIndex) === at ? { systems: [at], path: [], legDays: [] } : plotJourney(world, tug.systemIndex, at, sponsor, spec.avoid ? new Set(spec.avoid) : null, groupSpeed, { cls: 'recovery' });
   if (!outbound) return { ok: false, reason: 'no route to the hulk' };
   const tSpeed = SPD.towSpeed(groupSpeed, hullSpeed(world, target), book.config.towPenalty);
   const yard = spec.yard != null && towYardOk(book, world, sponsor, spec.yard)
-    ? { yard: Number(spec.yard), plan: Number(spec.yard) === at ? { path: [], legDays: [] } : plotJourney(world, at, spec.yard, sponsor, null, tSpeed, { noFixed: true }) }
+    ? { yard: Number(spec.yard), plan: Number(spec.yard) === at ? { path: [], legDays: [] } : plotJourney(world, at, spec.yard, sponsor, null, tSpeed, { noFixed: true, cls: 'recovery' }) }
     : chooseTowYard(book, world, sponsor, at, tSpeed, spec.avoid ? new Set(spec.avoid) : null);
   if (!yard || !yard.plan) return { ok: false, reason: 'no yard a tow can reach' };
   const outboundDays = outbound.legDays.reduce((n, d) => n + d, 0), towDays = yard.plan.legDays.reduce((n, d) => n + d, 0);
@@ -4522,7 +4634,7 @@ function startTow(book, world, rec, day, effects) {
     rec.yard = y.yard;
   }
   if (from === Number(rec.yard)) return deliverHulk(book, world, rec, target, from, day, effects);
-  const plan = plotJourney(world, from, rec.yard, rec.sponsor, rec.avoid.length ? new Set(rec.avoid) : null, speed, { noFixed: true });
+  const plan = plotJourney(world, from, rec.yard, rec.sponsor, rec.avoid.length ? new Set(rec.avoid) : null, speed, { noFixed: true, cls: 'recovery' });
   if (!plan) { rec.waitingSince ??= Number(day); rec.waitReason = 'no route a tow can take'; noteRecovery(rec, day, 'towing', 'holding: no route a tow can take'); return false; }
   const r = startJourney(book, world, { kind: 'recovery', ref: rec.id, sponsor: rec.sponsor, hulls: [...group, target], destination: rec.yard, purpose: 'tow', plan,
     tow: { targets: [target.id], recoveryId: rec.id, need: rec.need }, authority: { kind: 'recovery', ref: rec.id }, meta: { recoveryId: rec.id, leg: 'inbound' } }, day, effects);
@@ -4839,7 +4951,7 @@ function evacuationPlan(world, e, fromSystem, toward) {
   const route = e.route.map(Number);
   const i = route.indexOf(Number(fromSystem));
   const speed = evacuationSpeed(world, e);
-  if (i < 0) return plotJourney(world, fromSystem, toward === 'destination' ? e.destination : e.origin, e.sponsor, null, speed);
+  if (i < 0) return plotJourney(world, fromSystem, toward === 'destination' ? e.destination : e.origin, e.sponsor, null, speed, { cls: 'civilian' });
   const systems = toward === 'destination' ? route.slice(i) : route.slice(0, i + 1).reverse();
   return { systems, path: systems.slice(1), legDays: routeLegDaysFor(world, systems, speed) };
 }
@@ -5120,6 +5232,7 @@ function aiStrategicOps(book, world, day, effects) {
       if (S >= D * c.minReadinessRatioToAttack) break; // an assault is possible: planning mounts that instead
       if (S < D * c.blockadeStartRatio || activeBlockadesAt(book, t.index).length) continue;
       if (day - (p.blockadeFailures?.[t.index] ?? -1e9) < (c.blockadeRetryDays ?? 180)) continue;
+      if (book.treatyTerms?.length && treatyBlockadeBan(book, id, t.index, day)) continue; // a DMZ that binds it: never planned
       const evacuating = (book.evacuations || []).some((e) => e.status === 'active' && e.origin === t.index);
       const r = startBlockade(book, world, { power: id, target: t.index, hullIds: chosen.map((h) => h.id), purpose: evacuating ? 'stop_evacuation' : 'isolate_world' }, day, effects);
       if (r.ok) { p.lastBlockadeDay = day; break; }
@@ -5227,4 +5340,399 @@ export function checksum(book) {
   // still omitted the seed, the war resolutions, relocated offers, assessments and the budget-migration
   // flag. Anything added to the book from now on is covered without anyone remembering to add it.
   return stableHash(canonicalJson(book));
+}
+
+// =====================================================================================================
+// TREATY TERMS (TREATY-EXPANSION): DMZs, transit guarantees, basing rights, inspection regimes, tribute,
+// reparations and blockade clauses. The record and its pure rules are treaty-terms.mjs; here they act
+// through the systems that already exist — the shared journey (routing and crossings), the blockade engine,
+// the yards, the economy — never as labels and never by a second movement or combat engine. A breach is an
+// incident with a response state; nothing here declares, resumes or authorises a war.
+// =====================================================================================================
+const TREATY_STATS = Object.freeze({ termsAdded: 0, termsEnded: 0, termsRefused: 0, termsSuspended: 0, dmzCrossings: 0, dmzWarnings: 0, dmzRoutesRefused: 0, compliantWithdrawals: 0, withdrawalsOrdered: 0, strandedInDmz: 0,
+  breaches: 0, incidentsResolved: 0, inspectionsRequested: 0, inspectionsCompleted: 0, inspectionsRefused: 0, inspectionsUnreceived: 0, inspectionsUnenforced: 0,
+  tributePaid: 0, tributeMissed: 0, reparationsPaid: 0, reparationsMissed: 0, reparationsCompleted: 0, arrearsCleared: 0,
+  blockadeClosures: 0, blockadesRefused: 0, obstructions: 0, basingRepairDays: 0, treatyReplots: 0, treatyHalts: 0, doctrineStoodDown: 0 });
+export function treatyBook(book) {
+  for (const k of ['treatyTerms', 'treatyIncidents', 'treatyLedger', 'treatyInspections']) if (!Array.isArray(book[k])) book[k] = [];
+  book.stats ||= {};
+  book.stats.treaty = { ...TREATY_STATS, ...(book.stats.treaty || {}) };
+  return book;
+}
+function treatyStats(book) { return treatyBook(book).stats.treaty; }
+export function treatyTermById(book, id) { return (book.treatyTerms || []).find((t) => t.id === id) || null; }
+export function activeTreatyTerms(book, type = null, day = book?.day) {
+  return (book?.treatyTerms || []).filter((t) => (!type || t.type === type) && TT.termActive(t, day));
+}
+// Which traffic class a journey is (TREATY-EXPANSION §2): recovery, civilian or military. An evacuation is
+// civilian whatever escorts it; a doctrine job is civilian when its work is (deliveries, transport,
+// construction, exploration, rescue, investigation); a formation is civilian only on a trade passage.
+const TREATY_CIVIL_PURPOSES = Object.freeze(['delivery', 'transport', 'construction', 'exploration', 'rescue', 'investigation', 'trade']);
+export function trafficClassOf(kind, purpose) {
+  if (kind === 'recovery') return 'recovery';
+  if (kind === 'evacuation') return 'civilian';
+  if (TREATY_CIVIL_PURPOSES.includes(purpose) && (kind === 'doctrine' || kind === 'formation' || kind === 'trade')) return 'civilian';
+  return 'military';
+}
+// A standing hull's class, read off the job it is on (a doctrine assignment's kind), else military.
+function hullTrafficClass(book, h) {
+  if (h?.opId) { const a = (book.doctrine?.assignments || []).find((x) => x.id === h.opId); if (a && TREATY_CIVIL_PURPOSES.includes(a.kind)) return 'civilian'; }
+  return 'military';
+}
+// A transit guarantee by one of a DMZ's own parties lifts that DMZ for its beneficiary at the systems it covers.
+function guaranteeLifts(book, dmz, polity, systemIndex, cls, day) {
+  return activeTreatyTerms(book, 'transit', day).some((g) => dmz.parties.includes(g.grantor) && TT.transitCovers(g, polity, systemIndex, cls));
+}
+// The systems a polity's traffic of this class may not enter or cross (a DMZ that binds it, less what a
+// guarantee opens). Read by every route the model plots (plotJourney) and every journey it starts.
+export function treatyBarred(book, polity, cls = 'military', day = book?.day) {
+  const out = new Set();
+  if (!book?.treatyTerms?.length) return out;
+  for (const t of activeTreatyTerms(book, 'dmz', day)) {
+    if (!TT.dmzRestricts(t, polity, cls)) continue;
+    for (const s of t.systems) if (!guaranteeLifts(book, t, polity, s, cls, day)) out.add(Number(s));
+  }
+  return out;
+}
+export function treatyBarredAt(book, polity, cls, systemIndex, day = book?.day) { return treatyBarred(book, polity, cls, day).has(Number(systemIndex)); }
+function treatyBarredFor(world, polity, cls) {
+  const book = world?.treatyBook;
+  if (!book?.treatyTerms?.length) return null;
+  const s = treatyBarred(book, polity, cls, book.day);
+  return s.size ? s : null;
+}
+// The first system on a route (from → path) that a treaty bars, or null. Leaving: a mover that starts inside
+// a restricted zone may cross the zone's systems on its way out (the departure prefix), never re-enter one,
+// and never end inside one.
+export function treatyRouteBlocked(book, from, path, polity, cls, day = book?.day) {
+  const barred = treatyBarred(book, polity, cls, day);
+  if (!barred.size || !path?.length) return null;
+  let prefix = barred.has(Number(from));
+  for (let i = 0; i < path.length; i++) {
+    const s = Number(path[i]);
+    if (!barred.has(s)) { prefix = false; continue; }
+    if (!prefix || i === path.length - 1) return s;
+  }
+  return null;
+}
+// A treaty's evidence: an enforcer of the term who knows of it and can see the system — it holds the system or
+// a neighbouring one (border sensors), or has an operational ship standing there.
+function treatyObservers(book, world, t, breaching, at) {
+  const near = [Number(at), ...((world.neighbours?.(Number(at)) || []).map(Number))];
+  return (t.enforcers || []).filter((p) => p !== breaching && TT.termKnownTo(t, p) && (
+    near.some((i) => world.systems[i]?.controller === p)
+    || (book.polities[p]?.hulls || []).some((h) => h.status !== 'lost' && !h.transit && Number(h.systemIndex) === Number(at) && classifyDamage(h.hull, h.maxHull) === 'operational')));
+}
+function presentAt(book, world, polity, at) {
+  return world.systems[Number(at)]?.controller === polity || (book.polities[polity]?.hulls || []).some((h) => h.status !== 'lost' && !h.transit && Number(h.systemIndex) === Number(at) && classifyDamage(h.hull, h.maxHull) === 'operational');
+}
+function recordTreatyIncident(book, world, spec, effects) {
+  const x = TT.makeIncident(nextCampaignId(book, 'tincident'), spec);
+  if (spec.key) x.key = spec.key;
+  book.treatyIncidents.push(x);
+  if (x.state === 'breach') markTreatyBreach(book, spec.term, x, effects);
+  addHistory(book, x.day, 'treaty', `Treaty incident: ${TT.incidentLine(x, (p) => world.factionName?.(p) || p)}.`, { incidentId: x.id, secret: true, knownTo: x.knownTo.slice() });
+  effects.push({ type: 'treatyIncident', id: x.id, termId: x.termId, kind: x.kind, breaching: x.breaching, state: x.state, systemIndex: x.systemIndex, knownTo: x.knownTo.slice(), day: x.day });
+  return x;
+}
+function markTreatyBreach(book, t, x, effects) {
+  if (!t.breaches.includes(x.id)) t.breaches.push(x.id);
+  if (t.breaches.length > 40) t.breaches = t.breaches.slice(-40);
+  treatyStats(book).breaches++;
+  // A breach is a diplomatic matter: recorded, reported to those who know, escalated only through an explicit
+  // authority. It never touches a war state.
+  effects?.push({ type: 'treatyBreach', id: x.id, termId: t.id, termType: t.type, breaching: x.breaching, kind: x.kind, knownTo: x.knownTo.slice(), day: x.day });
+}
+function escalateIncident(book, x, day, state, detail, effects) {
+  const was = x.state;
+  TT.noteIncident(x, day, state, detail);
+  const t = treatyTermById(book, x.termId);
+  if (state === 'breach' && was !== 'breach' && t) markTreatyBreach(book, t, x, effects);
+  if (state === 'resolved' && was !== 'resolved') treatyStats(book).incidentsResolved++;
+}
+// Add a term (settlement code, an authored story beat, the debug menu, fixtures). The only way terms come into
+// being: no negotiation AI invents one.
+export function addTreatyTerm(book, world, spec, day, effects = [], source = null) {
+  treatyBook(book);
+  if (spec?.error) { treatyStats(book).termsRefused++; return { ok: false, reason: spec.error }; }
+  const r = TT.makeTerm({ ...spec, settlementSource: spec?.settlementSource ?? source }, nextCampaignId(book, 'term'), day);
+  if (!r.ok) { treatyStats(book).termsRefused++; return r; }
+  const t = r.term;
+  for (const p of [...t.parties, ...(t.enforcers || [])]) if (!book.polities[p] && !world.isFaction?.(p) && p !== 'player') { treatyStats(book).termsRefused++; return { ok: false, reason: `unknown party ${p}` }; }
+  book.treatyTerms.push(t);
+  treatyStats(book).termsAdded++;
+  world.treatyBook = book;
+  addHistory(book, day, 'treaty', `Treaty term between ${t.parties.map((p) => world.factionName?.(p) || p).join(' and ')}: ${TT.termHeadline(t, (p) => world.factionName?.(p) || p)}.`, { termId: t.id, secretTerm: t.id });
+  effects.push({ type: 'treatyTermAdded', id: t.id, termType: t.type, parties: t.parties.slice(), secret: t.secret, status: t.status, day });
+  if (t.status === 'active') activateTreatyTerm(book, world, t, day, effects);
+  return { ok: true, term: t };
+}
+// Bounded authoring from settlement clauses ("add DMZ systems A/B", "tribute 5000 every 30 days", …): `by` grants
+// or pays, `to` benefits or receives. Systems by name or index.
+export function treatyClauseSpecs(world, clauses, ctx) {
+  const system = (name) => { const s = (world.systems || []).find((x) => String(x.name || '').toLowerCase() === String(name).toLowerCase()); return s ? s.index : null; };
+  return (clauses || []).map((c) => (typeof c === 'string' ? TT.parseClause(c, { ...ctx, system }) : c));
+}
+export function endTreatyTerm(book, world, id, day, reason = 'ended by agreement', effects = []) {
+  const t = treatyTermById(book, id);
+  if (!t || t.status === 'ended') return { ok: false, reason: 'no such term in force' };
+  t.status = 'ended'; t.endedDay = Number(day); t.endReason = reason;
+  treatyStats(book).termsEnded++;
+  addHistory(book, day, 'treaty', `Treaty term ${t.type.replace('_', ' ')} ended: ${reason}.`, { termId: t.id, secretTerm: t.id });
+  effects.push({ type: 'treatyTermEnded', id: t.id, termType: t.type, parties: t.parties.slice(), reason, day });
+  return { ok: true, term: t };
+}
+function activateTreatyTerm(book, world, t, day, effects) {
+  t.status = 'active'; t.activatedDay = Number(day);
+  if (t.type === 'dmz') { t.withdrawal = { dueDay: Number(day) + t.graceDays, hulls: {} }; dmzDay(book, world, t, day, effects); }
+  if (t.type === 'blockade_lift') liftTreatyBlockades(book, world, t, day, effects);
+}
+// A blockade clause: the named blockades (or a party's blockades at the named systems) are closed under treaty
+// authority, through the blockade's own end.
+function liftTreatyBlockades(book, world, t, day, effects) {
+  for (const b of book.blockades || []) {
+    if (!['forming', 'active'].includes(b.status) || !t.parties.includes(b.power)) continue;
+    if (!t.blockadeIds.includes(b.id) && !t.systems.includes(Number(b.target))) continue;
+    endBlockade(book, world, b, day, 'closed', `lifted under treaty (${t.id})`, effects);
+    t.lifted.push(b.id); treatyStats(book).blockadeClosures++;
+  }
+}
+// May this power lay a blockade here? A DMZ that binds it forbids one.
+export function treatyBlockadeBan(book, power, target, day = book?.day) {
+  return activeTreatyTerms(book, 'dmz', day).find((t) => TT.dmzBansBlockade(t, power, target))
+    || activeTreatyTerms(book, 'blockade_lift', day).find((t) => t.parties.includes(power) && t.systems.includes(Number(target))) || null;
+}
+// An explicit order to a blockade to stop a power its own side guaranteed transit (an authored story beat or the
+// debug menu; no AI gives it). Its runs are then breaches of the guarantee, recorded as such.
+export function orderBlockadeObstruction(book, id, on = true) {
+  const b = (book.blockades || []).find((x) => x.id === id && ['forming', 'active'].includes(x.status));
+  if (!b) return { ok: false, reason: 'No such blockade.' };
+  if (on) b.treatyDefy = true; else delete b.treatyDefy;
+  return { ok: true, record: b };
+}
+// Basing rights: the host's facility at this system, for this purpose, for this guest — while the host still holds it.
+export function basingRightAt(book, world, guest, systemIndex, purpose, day = book?.day) {
+  return activeTreatyTerms(book, 'basing', day).find((t) => TT.basingAllows(t, guest, systemIndex, purpose) && world.systems[Number(systemIndex)]?.controller === t.host) || null;
+}
+// A transit guarantee the grantor owes this beneficiary at this system, if one is in force.
+export function transitGuaranteeAt(book, grantor, beneficiary, systemIndex, day = book?.day, cls = 'military') {
+  return activeTreatyTerms(book, 'transit', day).find((t) => TT.guaranteeBinds(t, grantor, beneficiary, systemIndex, cls)) || null;
+}
+// What a crossing meets under treaty: a DMZ warning (for a mover sent through in defiance) and inspection
+// regimes. c: { sponsor, cls, at, day, key, vids, defy, response, inspectionResponse, cargo, hulls, categories,
+// canReceive }. Returns { turnedBack, complied, incidents, inspections }. One engine for the model's journeys
+// and the captain's formations.
+export function treatyCrossing(book, world, c, effects = []) {
+  const res = { turnedBack: false, complied: null, incidents: [], inspections: [] };
+  if (!book?.treatyTerms?.length) return res;
+  treatyBook(book);
+  const st = treatyStats(book);
+  const at = Number(c.at), day = Number(c.day);
+  for (const t of activeTreatyTerms(book, 'dmz', day)) {
+    if (!t.systems.includes(at) || !TT.dmzRestricts(t, c.sponsor, c.cls) || guaranteeLifts(book, t, c.sponsor, at, c.cls, day)) continue;
+    st.dmzCrossings++;
+    // A lawful mover is here only because the treaty changed while its leg was in flight: the boundary re-plot
+    // takes it out; nothing is a breach.
+    if (!c.defy) continue;
+    const key = `${t.id}|${c.key}`;
+    if (book.treatyIncidents.some((x) => x.key === key)) continue; // one incident per term per journey
+    const observers = treatyObservers(book, world, t, c.sponsor, at);
+    if (!observers.length) {
+      // Nobody with evidence: the breach is real but only the mover knows of it.
+      res.incidents.push(recordTreatyIncident(book, world, { key, term: t, kind: 'dmz_entry', breaching: c.sponsor, systemIndex: at, assets: c.vids, evidence: [], knownTo: [], severity: 'moderate', state: 'breach', day, detail: 'unobserved: no party with evidence' }, effects));
+      continue;
+    }
+    st.dmzWarnings++;
+    const x = recordTreatyIncident(book, world, { key, term: t, kind: 'dmz_entry', breaching: c.sponsor, systemIndex: at, assets: c.vids, evidence: observers.map((p) => ({ type: 'observed', by: p, day })), knownTo: observers, severity: 'moderate', state: 'warned', day, detail: `warned by ${observers.join(', ')}: military transit prohibited` }, effects);
+    res.incidents.push(x);
+    const resp = c.response || t.compliance?.[c.sponsor] || 'comply';
+    if (resp === 'comply') { escalateIncident(book, x, day, 'complied', 'complied: turned back and escorted out of the zone', effects); st.compliantWithdrawals++; res.turnedBack = true; res.complied = x.id; return res; }
+    escalateIncident(book, x, day, 'breach', 'refused the warning and continued', effects);
+  }
+  for (const t of activeTreatyTerms(book, 'inspection', day)) {
+    if (!TT.inspectionApplies(t, c.sponsor, at, c.cls, c.categories || [])) continue;
+    const key = `${t.id}|${c.key}|${at}`;
+    if (book.treatyInspections.some((x) => x.key === key)) continue;
+    // Only an inspector that knows the regime and is there asks.
+    if (!TT.termKnownTo(t, t.inspector) || !presentAt(book, world, t.inspector, at)) { st.inspectionsUnenforced++; continue; }
+    const rec = { id: nextCampaignId(book, 'inspection'), key, termId: t.id, inspector: t.inspector, inspected: c.sponsor, systemIndex: at, day, vids: (c.vids || []).slice(),
+      state: 'requested', observed: null, knownTo: [t.inspector, c.sponsor], history: [{ day, state: 'requested', detail: 'heave to for inspection (the request reveals nothing)' }] };
+    book.treatyInspections.push(rec); st.inspectionsRequested++;
+    res.inspections.push(rec);
+    // Not heard (nobody aboard can receive it): still only a request, never a refusal.
+    if (c.canReceive === false) { rec.history.push({ day, state: 'requested', detail: 'not received' }); st.inspectionsUnreceived++; continue; }
+    const resp = c.inspectionResponse || t.compliance?.[c.sponsor] || 'comply';
+    if (resp === 'comply') {
+      rec.state = 'completed'; rec.observed = TT.inspectionObservation(t, { manifest: c.cargo || [], hulls: c.hulls || [] });
+      rec.history.push({ day, state: 'completed', detail: `inspected: ${(rec.observed.manifest || []).length} declared item(s) seen` });
+      st.inspectionsCompleted++;
+      effects.push({ type: 'treatyInspection', id: rec.id, termId: t.id, state: rec.state, inspector: t.inspector, inspected: c.sponsor, systemIndex: at, day });
+      continue;
+    }
+    rec.state = 'refused'; rec.history.push({ day, state: 'refused', detail: t.onRefusal === 'deny_passage' ? 'refused: passage denied, turned back' : 'refused: recorded' });
+    st.inspectionsRefused++;
+    effects.push({ type: 'treatyInspection', id: rec.id, termId: t.id, state: rec.state, inspector: t.inspector, inspected: c.sponsor, systemIndex: at, day });
+    const repeat = book.treatyIncidents.find((y) => y.termId === t.id && y.kind === 'inspection_refused' && y.systemIndex === at && day - y.day <= 30 && (c.vids || []).every((v) => y.assets.includes(v)));
+    if (repeat) { TT.noteIncident(repeat, day, repeat.state, 'refused again'); if (t.onRefusal === 'deny_passage') { res.turnedBack = true; return res; } continue; }
+    res.incidents.push(recordTreatyIncident(book, world, { key, term: t, kind: 'inspection_refused', breaching: c.sponsor, systemIndex: at, assets: c.vids, evidence: [{ type: 'refusal', by: t.inspector, day }], knownTo: [t.inspector], severity: 'minor', state: 'breach', day, detail: 'refused inspection' }, effects));
+    if (t.onRefusal === 'deny_passage') { res.turnedBack = true; return res; }
+  }
+  return res;
+}
+// A journey's crossing under treaty (crossJourneyLeg calls it after the blockades there).
+function runTreatyCrossing(book, world, tr, at, day, effects, out) {
+  if (!book.treatyTerms?.length || !tr.members.length || tr.status !== 'underway') return;
+  // Going back the way it came (turned back here or elsewhere) is not a new passage: nothing is asked of it.
+  if (tr.purpose === 'retreat') return;
+  const hooks = JOURNEY_KINDS[tr.kind] || {};
+  const hulls = journeyMemberHulls(book, tr);
+  const r = treatyCrossing(book, world, { sponsor: tr.sponsor, cls: tr.trafficClass || trafficClassOf(tr.kind, tr.purpose), at, day, key: tr.id, vids: tr.members.map((id) => tr.vids?.[id] ?? id), defy: Boolean(tr.treatyDefy),
+    response: tr.meta?.treatyResponse, inspectionResponse: tr.meta?.inspectionResponse, cargo: hooks.cargo?.(book, tr) ?? tr.meta?.cargo ?? [],
+    hulls: hulls.map((h) => ({ vid: vidOfHull(h), shipId: h.shipId })), categories: [...new Set(hulls.map((h) => world.shipStats?.(h.shipId)?.category).filter(Boolean))],
+    canReceive: hulls.some((h) => classifyDamage(h.hull, h.maxHull) === 'operational') }, effects);
+  out.treaty = r;
+  if (r.turnedBack) {
+    out.turnedBack = true;
+    tr.treatyTurnBack = r.complied ? 'dmz' : 'inspection';
+    // Complying: it goes back the way it came, as any turned-back group does, and no longer defies the zone.
+    if (r.complied) { tr.treatyDefy = false; tr.meta = { ...(tr.meta || {}), treatyDefy: false, treatyComplied: r.complied }; }
+  }
+}
+// Is the rest of this journey's route still lawful? Checked at every boundary: a treaty that started, ended or
+// changed while a leg was in flight is met where the leg ends (no teleport; legs flown are never touched).
+function treatyBoundaryCheck(book, world, tr) {
+  if (!book.treatyTerms?.length || tr.treatyDefy || tr.purpose === 'retreat' || !J.hasMoreLegs(tr)) return null;
+  return treatyRouteBlocked(book, tr.from, tr.path.slice(tr.legIndex + 1), tr.sponsor, tr.trafficClass || trafficClassOf(tr.kind, tr.purpose));
+}
+// The DMZ's day: no blockade inside it; restricted parties' warships out within the grace period (AI ones are
+// sent out by an ordinary journey; the captain's are his to move); after it, a ship kept there is a breach. A
+// disabled hulk is not a breach: it is listed as stranded until it is recovered (a tow is not an offensive fleet).
+function dmzDay(book, world, t, day, effects) {
+  const st = treatyStats(book);
+  for (const b of book.blockades || []) {
+    if (!['forming', 'active'].includes(b.status) || !TT.dmzBansBlockade(t, b.power, b.target)) continue;
+    endBlockade(book, world, b, day, 'closed', `closed under treaty: no blockades in the DMZ (${t.id})`, effects);
+    st.blockadeClosures++;
+  }
+  const w = t.withdrawal ||= { dueDay: Number(t.startDay) + t.graceDays, hulls: {} };
+  for (const [id, rec] of Object.entries(w.hulls)) if (!hullOf(book, rec.polity, id) && ['withdrawn', 'withdrawn_late', 'stranded'].includes(rec.state)) delete w.hulls[id];
+  for (const p of t.restricted) {
+    for (const h of book.polities[p]?.hulls || []) {
+      if (h.status === 'lost') continue;
+      // The captain's ships fly their own legs (a formation's); his mirror says only where the leg ends (legTo).
+      const flying = Boolean(h.transit) || h.legTo != null;
+      const where = Number(h.transit ? h.transit.to : h.legTo ?? h.systemIndex);
+      const inZone = t.systems.includes(where);
+      const rec = w.hulls[h.id];
+      if (!inZone) {
+        if (rec && ['pending', 'stranded'].includes(rec.state)) { rec.state = 'withdrawn'; rec.day = Number(day); st.compliantWithdrawals++; }
+        else if (rec && rec.state === 'breach') { rec.state = 'withdrawn_late'; rec.day = Number(day); const x = book.treatyIncidents.find((y) => y.id === rec.incidentId); if (x && x.state === 'breach') escalateIncident(book, x, day, 'resolved', 'the ship has left the zone', effects); }
+        continue;
+      }
+      if (hullTrafficClass(book, h) !== 'military' || !TT.dmzRestricts(t, p, 'military') || guaranteeLifts(book, t, p, where, 'military', day)) continue;
+      // In a tow, it is a recovery, not a warship (§2).
+      if (h.transit && journeyById(book, h.transit.journeyId)?.kind === 'recovery') continue;
+      let r = w.hulls[h.id] ||= { polity: p, vid: vidOfHull(h), systemIndex: Number(h.systemIndex), since: Number(day), state: 'pending' };
+      // Back in the zone after leaving it: a new presence, with its own grace and its own enforcement.
+      if (['withdrawn', 'withdrawn_late'].includes(r.state)) r = w.hulls[h.id] = { polity: p, vid: vidOfHull(h), systemIndex: Number(h.systemIndex), since: Number(day), state: 'pending', returned: (r.returned || 0) + 1 };
+      if (hullIsDisabled(h) || h.status === 'surrendered') { if (r.state === 'pending') { r.state = 'stranded'; st.strandedInDmz++; } continue; }
+      if (r.state === 'stranded') r.state = 'pending'; // repaired where it lay: it must now leave
+      if (flying) continue; // on its way (a withdrawal under way, or a leg the boundary re-plot will meet)
+      const due = Math.max(Number(w.dueDay), Number(r.since) + t.graceDays);
+      if (p !== 'player' && h.status === 'ready' && !h.opId && r.state === 'pending' && !(r.orderedDay != null && Number(day) - r.orderedDay < 3)) {
+        const dest = treatyWithdrawalTarget(book, world, p, Number(h.systemIndex));
+        // Tried at most every few days, whether or not a way out was found (no daily re-planning churn).
+        r.orderedDay = Number(day);
+        if (dest != null) {
+          const ref = `treaty:${t.id}`;
+          const j = startJourney(book, world, { kind: 'return', ref, sponsor: p, hulls: [h], destination: dest, purpose: 'withdraw', authority: { kind: 'treaty', ref: t.id }, meta: { home: dest, treatyWithdrawal: t.id } }, day, effects);
+          // The order is the journey's reference, as for every other mover: a re-plot (a new journey id) still releases it.
+          if (j.ok) { st.withdrawalsOrdered++; if (!j.arrived) { h.status = 'assigned'; h.opId = ref; } }
+        }
+      }
+      if (Number(day) > due && r.state === 'pending' && !flying) {
+        const observers = treatyObservers(book, world, t, p, h.systemIndex);
+        const x = recordTreatyIncident(book, world, { key: `${t.id}|stationed|${h.id}`, term: t, kind: 'dmz_stationing', breaching: p, systemIndex: Number(h.systemIndex), assets: [vidOfHull(h)], evidence: observers.map((o) => ({ type: 'observed', by: o, day })), knownTo: observers, severity: 'moderate', state: 'breach', day, detail: `still in the zone after the withdrawal period (due day ${due})` }, effects);
+        r.state = 'breach'; r.incidentId = x.id;
+      }
+    }
+  }
+}
+// Where a withdrawing warship goes: the nearest world its own side holds outside the restricted zone, by a
+// lawful route; else the nearest system outside it.
+function treatyWithdrawalTarget(book, world, polity, from) {
+  const barred = treatyBarred(book, polity, 'military');
+  let best = null, bestDays = Infinity;
+  const consider = (i) => { if (barred.has(Number(i))) return; const plan = plotJourney(world, from, i, polity); if (!plan) return; const d = plan.legDays.reduce((n, x) => n + x, 0); if (d < bestDays || (d === bestDays && i < best)) { best = Number(i); bestDays = d; } };
+  for (const s of controlled(world, polity)) consider(s.index);
+  if (best == null) for (const n of journeyNeighbours(world, from, polity)) consider(n);
+  return best;
+}
+// A payment term's day (§6, §7): the existing treasuries move; a miss is arrears and a breach, never a war.
+function paymentDay(book, world, t, day, effects) {
+  const st = treatyStats(book);
+  const payer = book.polities[t.payer], recipient = book.polities[t.recipient];
+  if (!payer || !recipient) return;
+  const r = TT.settlePaymentDay(t, payer.treasury, day);
+  if (!r.due && !r.arrearsPaid) return;
+  const moved = r.arrearsPaid + r.paid;
+  if (moved > 0) {
+    payer.treasury = (Number(payer.treasury) || 0) - moved;
+    recipient.treasury = t.recipient === 'player' ? (Number(recipient.treasury) || 0) + moved : bounded((Number(recipient.treasury) || 0) + moved, -book.config.treasuryCap, book.config.treasuryCap);
+    book.treatyLedger.push({ day: Number(day), termId: t.id, type: t.type, payer: t.payer, recipient: t.recipient, amount: moved, arrearsPaid: r.arrearsPaid, status: 'paid' });
+    effects.push({ type: 'treatyPayment', termId: t.id, termType: t.type, payer: t.payer, recipient: t.recipient, amount: moved, day: Number(day) });
+    if (t.type === 'tribute') st.tributePaid++; else st.reparationsPaid++;
+  }
+  if (r.arrearsPaid > 0) {
+    st.arrearsCleared++;
+    for (const x of book.treatyIncidents) if (x.termId === t.id && x.kind === 'payment_missed' && x.state === 'breach') escalateIncident(book, x, day, 'resolved', `arrears of ${r.arrearsPaid} L paid`, effects);
+  }
+  if (r.missed > 0) {
+    book.treatyLedger.push({ day: Number(day), termId: t.id, type: t.type, payer: t.payer, recipient: t.recipient, amount: r.missed, status: 'missed' });
+    if (t.type === 'tribute') st.tributeMissed++; else st.reparationsMissed++;
+    // The recipient's own books show it unpaid: that is the evidence.
+    recordTreatyIncident(book, world, { key: `${t.id}|missed|${day}`, term: t, kind: 'payment_missed', breaching: t.payer, systemIndex: null, assets: [], evidence: [{ type: 'ledger', by: t.recipient, day }], knownTo: [t.recipient], severity: 'minor', state: 'breach', day, detail: `${r.missed} L due on day ${day} not paid` }, effects);
+  }
+  const { completed } = TT.applyPaymentDay(t, r);
+  if (completed) { if (t.type === 'reparations') st.reparationsCompleted++; endTreatyTerm(book, world, t.id, day, t.type === 'reparations' ? 'paid in full' : 'all installments paid', effects); }
+  if (book.treatyLedger.length > 200) book.treatyLedger = book.treatyLedger.slice(-200);
+}
+// The daily pass (settleCampaignDay): terms start and expire on their days; a settlement's terms are suspended if
+// its war resumes (the treaty never resumes it); DMZs, blockade clauses and payments act.
+function advanceTreaties(book, world, day, effects) {
+  if (!book.treatyTerms?.length) return;
+  treatyBook(book);
+  world.treatyBook = book;
+  for (const t of book.treatyTerms) {
+    if (t.status === 'pending' && Number(day) >= Number(t.startDay)) activateTreatyTerm(book, world, t, day, effects);
+    if (t.status === 'active' && t.endDay != null && Number(day) > Number(t.endDay)) endTreatyTerm(book, world, t.id, day, 'expired', effects);
+    if (t.status === 'active' && t.settlementSource?.warKey) {
+      const ws = book.warStates?.[t.settlementSource.warKey];
+      if (ws && ws.status === 'war' && ((ws.instance ?? null) !== (t.settlementSource.instance ?? null) || Number(ws.statusSince ?? 0) > Number(t.settlementSource.day))) {
+        t.status = 'suspended'; t.suspendedDay = Number(day); t.endReason = 'the war it settled resumed';
+        treatyStats(book).termsSuspended++;
+        addHistory(book, day, 'treaty', `Treaty term ${t.type.replace('_', ' ')} suspended: the war it settled resumed.`, { termId: t.id, secretTerm: t.id });
+        effects.push({ type: 'treatyTermEnded', id: t.id, termType: t.type, parties: t.parties.slice(), reason: t.endReason, suspended: true, day });
+      }
+    }
+  }
+  for (const t of activeTreatyTerms(book, null, day)) {
+    if (t.type === 'dmz') dmzDay(book, world, t, day, effects);
+    else if (t.type === 'blockade_lift') liftTreatyBlockades(book, world, t, day, effects);
+    else if (t.type === 'tribute' || t.type === 'reparations') paymentDay(book, world, t, day, effects);
+  }
+  if (book.treatyIncidents.length > 120) {
+    const open = book.treatyIncidents.filter((x) => x.state === 'breach' || x.state === 'warned');
+    book.treatyIncidents = open.concat(book.treatyIncidents.filter((x) => !open.includes(x)).slice(-60)).slice(-120);
+  }
+  if (book.treatyInspections.length > 60) book.treatyInspections = book.treatyInspections.slice(-60);
+}
+// What a viewer may see of the treaty record (Wars & Treaties): terms it knows, incidents it has evidence of,
+// inspections it took part in, payments it made or received. The book keeps everything.
+export function treatyViewFor(book, viewer = 'player', day = book?.day) {
+  const terms = (book.treatyTerms || []).filter((t) => TT.termVisibleTo(t, viewer));
+  const incidents = (book.treatyIncidents || []).filter((x) => TT.incidentVisibleTo(x, viewer));
+  return { terms, incidents, inspections: (book.treatyInspections || []).filter((x) => viewer === 'debug' || x.knownTo.includes(viewer)),
+    ledger: (book.treatyLedger || []).filter((e) => viewer === 'debug' || [e.payer, e.recipient].includes(viewer) || terms.some((t) => t.id === e.termId)),
+    status: (t) => TT.displayStatus(t, incidents), day };
 }

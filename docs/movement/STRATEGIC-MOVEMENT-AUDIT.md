@@ -151,3 +151,17 @@ breaks up.
   - Tactical Cube;
   - **individual / class-specific strategic speed refinement** (explicit per-class speeds, Sovereign-style
     overrides, category only as a fallback; damage/engine-condition penalties with it) — TOWING-SALVAGE-RECOVERY §21.
+
+## Treaty terms (TREATY-EXPANSION)
+
+All the model's routing goes through `plotJourney`, `startJourney` and `settleCrossing`, and these now read the
+treaty terms in force:
+
+- A DMZ that binds the mover's polity and traffic class is routed round, and is never a destination.
+- A transit guarantee lifts the DMZ for its beneficiary.
+- Each leg boundary re-checks the rest of the route, so a term that starts, ends or changes mid-route is met where
+  the leg ends. There is no teleport, and legs already flown are never changed.
+- Doctrine's `routeBetween` and the captain's formation dispatch (`playerLawfulRoute`) follow the same rules.
+- There is no second movement engine.
+
+Details are in docs/diplomacy/TREATY-EXPANSION.md §11 and TREATY-AUTHORITY-AUDIT.md rows 1–4.
