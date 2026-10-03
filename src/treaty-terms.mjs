@@ -163,12 +163,19 @@ export function dmzRestricts(t, polity, cls) {
   if (cls === 'civilian') return t.civilian === 'prohibited';
   return t.restrict?.transit !== false || t.restrict?.stationing !== false;
 }
+// Whether a guarantee's traffic scope names this class. Recovery traffic (a tug, a tow) is covered by a guarantee
+// that names `recovery`, and — as before — by one that names `military` (TOWING-SALVAGE-AUDIT A10: a guarantee
+// naming only `recovery` used to cover no recovery traffic at all).
+export function trafficInScope(traffic, cls) {
+  const list = traffic || [];
+  return list.includes(cls) || (cls === 'recovery' && list.includes('military'));
+}
 export function transitCovers(t, polity, systemIndex, cls) {
-  return Boolean(t) && t.type === 'transit' && t.beneficiary === polity && (t.systems || []).includes(Number(systemIndex)) && (t.traffic || []).includes(cls === 'recovery' ? 'military' : cls);
+  return Boolean(t) && t.type === 'transit' && t.beneficiary === polity && (t.systems || []).includes(Number(systemIndex)) && trafficInScope(t.traffic, cls);
 }
 export function guaranteeBinds(t, grantor, beneficiary, systemIndex, cls = null) {
   return Boolean(t) && t.type === 'transit' && t.grantor === grantor && t.beneficiary === beneficiary && (t.systems || []).includes(Number(systemIndex))
-    && (cls == null || (t.traffic || []).includes(cls === 'recovery' ? 'military' : cls));
+    && (cls == null || trafficInScope(t.traffic, cls));
 }
 export function basingAllows(t, guest, systemIndex, purpose) {
   return Boolean(t) && t.type === 'basing' && t.guest === guest && (t.systems || []).includes(Number(systemIndex)) && (t.purposes || []).includes(purpose);

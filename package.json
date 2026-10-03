@@ -95,6 +95,8 @@
     "test:towing": "node scripts/towing-salvage-test.mjs",
     "test:towing:ingame": "node scripts/towing-salvage-gate.cjs",
     "measure:towing": "node scripts/towing-salvage-measure.cjs",
+    "test:towing:audit": "node scripts/towing-audit-test.mjs",
+    "test:towing:audit:ingame": "node scripts/towing-audit-gate.cjs",
     "test:treaty": "node scripts/treaty-expansion-test.mjs",
     "test:treaty:ingame": "node scripts/treaty-expansion-gate.cjs",
     "test:treaty:captain": "node scripts/captain-treaty-gate.cjs",

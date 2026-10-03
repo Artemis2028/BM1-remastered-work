@@ -47,7 +47,7 @@ export const CAMPAIGN_RULES = Object.freeze({
   derelictWriteOffDays: 90,        // a crewless hulk nobody recovers is written off this long after its crew were gone
   minOperatingCrew: 0.5,           // a repaired hull whose crew left sails again only with this much of a complement
   // Towing, salvage and stranded-hull recovery (TOWING-SALVAGE-RECOVERY).
-  towPenalty: 0.7,                 // a tow flies at min(towing group, towed frame) × this (strategic-speed.mjs towSpeed)
+  towPenalty: 0.7,                 // a tow flies at its towing group's multiplier × this (strategic-speed.mjs towSpeed)
   towSignature: 0.2,               // a blockade sees a group with a hulk in tow this much more easily (signature +)
   derelictLifeDays: 365,           // a written-off derelict stays salvageable this long, then breaks up (identity retired)
   maxDerelicts: 60,                // the oldest derelicts break up first beyond this
@@ -971,11 +971,18 @@ function advanceRecrewing(book, h, polityId, day, effects) {
 function ownYardAt(world, polityId, systemIndex) {
   return world.systems[Number(systemIndex)]?.controller === polityId && (stationEffects(world, Number(systemIndex), polityId).repairCapacity || 0) > 0;
 }
-// An own yard, or a host's yard the polity may use for recovery under basing rights (TREATY-EXPANSION §4).
+// An own yard, or a host's yard the polity may use under basing rights (TREATY-EXPANSION §4) to take a hulk in
+// AND repair it there: rights for `recovery` and for `repair` both. A host yard that would take her in but may
+// not repair her is no yard for her: she would lie there unrepaired for ever (TOWING-SALVAGE-AUDIT A4).
+// Basing never transfers ownership: the hulk stays the guest's.
+export function basingRecoveryYardAt(book, world, guest, systemIndex) {
+  if (!book.treatyTerms?.length) return null;
+  const t = basingRightAt(book, world, guest, systemIndex, 'recovery');
+  if (!t || !basingRightAt(book, world, guest, systemIndex, 'repair')) return null;
+  return (stationEffects(world, Number(systemIndex), t.host).repairCapacity || 0) > 0 ? t : null;
+}
 function recoveryYardAt(book, world, polityId, systemIndex) {
-  if (ownYardAt(world, polityId, systemIndex)) return true;
-  const t = book.treatyTerms?.length ? basingRightAt(book, world, polityId, systemIndex, 'recovery') : null;
-  return Boolean(t) && (stationEffects(world, Number(systemIndex), t.host).repairCapacity || 0) > 0;
+  return ownYardAt(world, polityId, systemIndex) || Boolean(basingRecoveryYardAt(book, world, polityId, systemIndex));
 }
 function strandHull(book, h, polityId, day, effects) {
   const c = book.config;
@@ -1609,8 +1616,9 @@ function applyDefenderLosses(book, world, systemIndex, fraction, op, day, effect
   for (const id of defendingPolityIds(book, world, systemIndex, op.faction)) {
     const p = polity(book, id);
     // Losses fall on the defenders and on any hulk lying there: a disabled hull adds nothing to the defence
-    // but is not out of the fight's reach (it can be finished off where it lies).
-    const local = p.hulls.filter((h) => !hullInEncounter(h) && (defendsHere(h, systemIndex) || (hullIsDisabled(h) && Number(h.systemIndex) === Number(systemIndex) && !h.opId)));
+    // but is not out of the fight's reach (it can be finished off where it lies). A hulk in tow, in warp, lies
+    // nowhere: it is not at the system it left (TOWING-SALVAGE-AUDIT A11).
+    const local = p.hulls.filter((h) => !hullInEncounter(h) && (defendsHere(h, systemIndex) || (hullIsDisabled(h) && !h.transit && Number(h.systemIndex) === Number(systemIndex) && !h.opId)));
     if (!local.length) continue;
     let budget = local.reduce((n, h) => n + h.maxHull, 0) * fraction, i = 0;
     const report = [];
@@ -2998,16 +3006,14 @@ export function hullsSpeed(world, hulls) {
   return SPD.groupSpeed((able.length ? able : list).map((h) => hullSpeed(world, h))) ?? SPD.SPEED_DEFAULT;
 }
 // The speed a journey's members fly at: the slowest able member, or — a group with hulks in tow
-// (tr.tow) — the tow speed: min(towing group, towed frame) × towPenalty, bounded (TOWING-SALVAGE-RECOVERY §6).
-// Escorts are part of the towing group: they can only slow it.
+// (tr.tow) — the tow speed: the towing group's multiplier × towPenalty, bounded (TOWING-SALVAGE-RULES §5).
+// Escorts are part of the towing group: they can only slow it. The towed hull's own rating does not count.
 export function journeySpeed(world, book, tr, hulls) {
   if (!tr?.tow?.targets?.length) return hullsSpeed(world, hulls);
   const towed = new Set(tr.tow.targets.map(String));
   const towing = hulls.filter((h) => !towed.has(String(h.id)));
-  const targets = hulls.filter((h) => towed.has(String(h.id)));
   const g = towing.length ? hullsSpeed(world, towing) : SPD.SPEED_DEFAULT;
-  const t = targets.length ? Math.min(...targets.map((h) => hullSpeed(world, h))) : SPD.SPEED_DEFAULT;
-  return SPD.towSpeed(g, t, tr.tow.penalty ?? book?.config?.towPenalty ?? SPD.TOW_PENALTY);
+  return SPD.towSpeed(g, tr.tow.penalty ?? book?.config?.towPenalty ?? SPD.TOW_PENALTY);
 }
 // The model's adjacency for a journey: the chart's routes and the wormholes (an engine may close an edge
 // to a power, as the uncharted Bajoran wormhole is closed to everyone but the Dominion).
@@ -3146,7 +3152,14 @@ export function crossJourneyLeg(book, world, tr, effects = [], opts = {}) {
     const h = hullOf(book, tr.sponsor, id);
     // Gone from its books while the leg was in flight. With a tow, it was lost somewhere on this leg: the
     // hulk it towed is let go where they last stood together, the leg's start (dropUntowed).
-    if (!h) { J.detachMember(tr, id, at, day, 'lost'); if (tr.tow) out.leftEnRoute.push({ id, reason: 'lost', systemIndex: legStart }); continue; }
+    if (!h) {
+      J.detachMember(tr, id, at, day, 'lost');
+      if (tr.tow) out.leftEnRoute.push({ id, reason: 'lost', systemIndex: legStart });
+      // The casualty itself gone from the books mid-leg: the tow ends with it — it is not flown on to the yard
+      // with nothing in tow (TOWING-SALVAGE-AUDIT A12).
+      if (towed.has(String(id))) { tr.tow = { ...tr.tow, targets: tr.tow.targets.filter((x) => String(x) !== String(id)) }; out.destroyed.push(id); hooks.onDetach?.(book, world, tr, { id, status: 'lost' }, 'lost', legStart, day, effects); }
+      continue;
+    }
     // A hulk in tow is carried: it is disabled by definition and goes where the towing group goes. Lost (a
     // run finished it off), it is gone like any other.
     if (towed.has(String(id))) {
@@ -4415,8 +4428,8 @@ function towYardOk(book, world, sponsor, i) {
   const sys = world.systems[Number(i)];
   if (!sys || applicableBlockadesAt(book, world, i, sponsor).length) return false;
   if (sys.controller === sponsor) return (stationEffects(world, Number(i), sponsor).repairCapacity || 0) > 0;
-  // A host's yard under basing rights for recovery (TREATY-EXPANSION §4).
-  if (basingRightAt(book, world, sponsor, i, 'recovery')) return (stationEffects(world, Number(i), sys.controller).repairCapacity || 0) > 0;
+  // A host's yard under basing rights to take her in and repair her (TREATY-EXPANSION §4; AUDIT A4).
+  if (basingRecoveryYardAt(book, world, sponsor, i)) return true;
   if (sponsor !== 'player' || !sys.controller) return false;
   if (world.relation(relSide(world, 'player'), relSide(world, sys.controller)) === 'war') return false;
   return (stationEffects(world, Number(i), sys.controller).repairCapacity || 0) > 0;
@@ -4469,8 +4482,9 @@ export function planHullRecovery(book, world, spec, day = book.day) {
   const unfit = hulkUnfit(book, found);
   if (unfit) return { ok: false, reason: unfit };
   const target = found.h, at = Number(target.systemIndex);
-  const claim = REC.claimVerdict(claimFacts(book, world, sponsor, found, at));
+  const claim = REC.claimVerdict(claimFacts(book, world, sponsor, found, at, spec.recordId ?? null));
   if (!claim.ok) return { ok: false, reason: claim.reason, claim };
+  if (spec.tugHullId == null) return { ok: false, reason: 'no recovery vessel available', claimOk: true, kind: claim.kind, authority: claim.authority, owner: found.owner, derelict: found.derelict, target, at, crew: hulkCrew(target, found.owner) };
   const tug = hullOf(book, sponsor, spec.tugHullId);
   if (!tug || tug.status === 'lost') return { ok: false, reason: 'no such recovery vessel' };
   if (tug.id === target.id) return { ok: false, reason: 'a hulk cannot tow itself' };
@@ -4483,7 +4497,7 @@ export function planHullRecovery(book, world, spec, day = book.day) {
   const groupSpeed = hullsSpeed(world, group);
   const outbound = Number(tug.systemIndex) === at ? { systems: [at], path: [], legDays: [] } : plotJourney(world, tug.systemIndex, at, sponsor, spec.avoid ? new Set(spec.avoid) : null, groupSpeed, { cls: 'recovery' });
   if (!outbound) return { ok: false, reason: 'no route to the hulk' };
-  const tSpeed = SPD.towSpeed(groupSpeed, hullSpeed(world, target), book.config.towPenalty);
+  const tSpeed = SPD.towSpeed(groupSpeed, book.config.towPenalty);
   const yard = spec.yard != null && towYardOk(book, world, sponsor, spec.yard)
     ? { yard: Number(spec.yard), plan: Number(spec.yard) === at ? { path: [], legDays: [] } : plotJourney(world, at, spec.yard, sponsor, null, tSpeed, { noFixed: true, cls: 'recovery' }) }
     : chooseTowYard(book, world, sponsor, at, tSpeed, spec.avoid ? new Set(spec.avoid) : null);
@@ -4499,7 +4513,7 @@ function noteRecovery(rec, day, state, note = '') {
   if (rec.history.length > 24) rec.history = rec.history.slice(-24);
 }
 function recoveryEffect(rec, type, day, extra = {}) {
-  return { type, id: rec.id, kind: rec.kind, sponsor: rec.sponsor, owner: rec.owner, targetHullId: rec.target.hullId, vid: rec.target.vid, tugHullId: rec.tug.hullId,
+  return { type, id: rec.id, kind: rec.kind, sponsor: rec.sponsor, owner: rec.owner, targetHullId: rec.target.hullId, vid: rec.target.vid, tugHullId: rec.tug?.hullId ?? null,
     escortHullIds: rec.escorts.map((e) => e.hullId), targetSystem: rec.targetSystem, yard: rec.yard, state: rec.state, day: Number(day), ...extra };
 }
 // Start a recovery: the plan made real. The tug (and escorts) are committed and set out at once.
@@ -4529,7 +4543,49 @@ export function requestHullRecovery(book, world, spec, day, effects = []) {
   startOutbound(book, world, rec, day, effects);
   return { ok: true, record: rec, plan };
 }
-function recoveryGroup(book, rec) { return [rec.tug, ...rec.escorts].map((x) => hullOf(book, rec.sponsor, x.hullId)).filter((h) => h && h.status !== 'lost'); }
+// A request with no recovery vessel free (TOWING-SALVAGE-RULES §3): kept, not refused and never answered by
+// conjuring a ship. The hulk is claimed (no second mission, no write-off while it waits) and lies exactly where
+// it is; a vessel is assigned when one is free (assignHullRecoveryAsset), or the request is cancelled.
+export function requestHullRecoveryWaiting(book, world, spec, day, effects = []) {
+  const st = recoveryStats(book);
+  st.requested++;
+  const p = planHullRecovery(book, world, { ...spec, tugHullId: null }, day);
+  if (!p.claimOk) { st.refused++; return { ok: false, reason: p.reason }; }
+  const target = p.target;
+  const rec = { id: nextCampaignId(book, 'tow'), kind: p.kind, sponsor: spec.sponsor, owner: p.owner, requestedBy: spec.requestedBy || (spec.sponsor === 'player' ? 'player' : 'ai'),
+    target: { hullId: target.id, vid: vidOfHull(target), shipId: target.shipId, origin: target.identity?.origin?.builder ?? p.owner, crewAtRequest: p.crew },
+    tug: null, escorts: [], need: REC.towRequirement(world.shipStats(target.shipId)), targetSystem: p.at, yard: null, claim: { authority: p.authority, kind: p.kind, since: Number(day) }, value: hulkValue(world, target),
+    plan: null, outbound: null, inbound: null, journeyIds: [], attachment: null, crew: p.crew, createdDay: Number(day), endedDay: null, reason: null, avoid: [...(spec.avoid || [])],
+    waitingSince: null, awaitingAsset: Number(day), history: [], losses: [] };
+  noteRecovery(rec, day, 'requested', `${p.kind} of ${rec.target.vid} at ${p.at}: awaiting a recovery vessel`);
+  recoveryBook(book).push(rec);
+  if (target.status !== 'lost') target.recoveryClaim = { id: rec.id, by: spec.sponsor, kind: p.kind, since: Number(day) };
+  st.waitingRequests = (st.waitingRequests || 0) + 1;
+  effects.push(recoveryEffect(rec, 'hullRecoveryAwaitingAsset', day));
+  return { ok: true, record: rec, waiting: true };
+}
+// A waiting request gets its vessel: the same planner, the same record; it sets out at once.
+export function assignHullRecoveryAsset(book, world, id, spec, day, effects = []) {
+  const rec = hullRecoveryById(book, id);
+  if (!rec || rec.state !== 'requested' || rec.awaitingAsset == null) return { ok: false, reason: 'no request awaiting a vessel' };
+  const plan = planHullRecovery(book, world, { sponsor: rec.sponsor, targetHullId: rec.target.hullId, tugHullId: spec.tugHullId, escortHullIds: spec.escortHullIds || [], yard: spec.yard, avoid: rec.avoid, recordId: rec.id }, day);
+  if (!plan.ok) return plan;
+  const { tug, escorts } = plan;
+  rec.tug = { hullId: tug.id, vid: vidOfHull(tug), shipId: tug.shipId, capacity: plan.capacity };
+  rec.escorts = escorts.map((e) => ({ hullId: e.id, vid: vidOfHull(e), shipId: e.shipId }));
+  rec.need = plan.need; rec.yard = plan.yard;
+  rec.plan = { outboundDays: plan.outboundDays, towDays: plan.towDays, towSpeed: plan.towSpeed, groupSpeed: plan.groupSpeed, arriveDay: plan.arriveDay, deliverDay: plan.deliverDay };
+  rec.waitedDays = Number(day) - rec.awaitingAsset;
+  rec.awaitingAsset = null;
+  for (const h of [tug, ...escorts]) { if (rec.sponsor !== 'player') h.status = 'assigned'; h.opId = rec.id; }
+  noteRecovery(rec, day, 'assigned', `${rec.tug.vid} (capacity ${plan.capacity} ≥ ${plan.need}) after ${rec.waitedDays} day(s) waiting`);
+  const st = recoveryStats(book); st.launched++; if (plan.kind === 'salvage') st.salvageClaims++;
+  effects.push(recoveryEffect(rec, 'hullRecoveryAssigned', day, { etaDays: plan.etaDays, outboundDays: plan.outboundDays, towDays: plan.towDays, towSpeed: plan.towSpeed }));
+  if (rec.sponsor === 'player') effects.push({ type: 'strategicShipsAssigned', id: rec.id, sponsor: 'player', hulls: [tug.id, ...escorts.map((e) => e.id)], role: 'recovery', systemIndex: Number(tug.systemIndex), day });
+  startOutbound(book, world, rec, day, effects);
+  return { ok: true, record: rec, plan };
+}
+function recoveryGroup(book, rec) { return [rec.tug, ...rec.escorts].filter(Boolean).map((x) => hullOf(book, rec.sponsor, x.hullId)).filter((h) => h && h.status !== 'lost'); }
 function startOutbound(book, world, rec, day, effects) {
   const group = recoveryGroup(book, rec).filter((h) => !h.transit);
   const tug = hullOf(book, rec.sponsor, rec.tug.hullId);
@@ -4575,6 +4631,9 @@ function onRecoveryScene(book, world, rec, day, effects) {
     if (rec.sponsor === 'player') {
       // The captain's books are the engine's: it adopts the very same vessel (identity, class, damage) and
       // names the record it now keeps her under; the tow sets out once it has (adoptSalvagedHull).
+      // Her condition as she lies, read before she leaves the old owner's books (transferHullOut zeroes the
+      // record it closes): the captain gets this damage, not a fresh hull and not 1 point (TOWING-SALVAGE-AUDIT A2).
+      const hull0 = Number(h.hull), maxHull0 = Number(h.maxHull);
       const out = transferHullOut(book, h.id, { day, to: 'player', systemIndex: rec.targetSystem, event: 'salvaged' });
       const identity = out?.identity || Identity.normalizeIdentity(h.identity);
       if (found.derelict) { book.derelicts = book.derelicts.filter((x) => x !== h); h.derelict.salvagedBy = 'player'; }
@@ -4582,7 +4641,7 @@ function onRecoveryScene(book, world, rec, day, effects) {
       rec.attachment = { day: Number(day), at: rec.targetSystem, salvagedFrom: found.owner };
       noteRecovery(rec, day, 'attached', `salvaged from ${found.owner ?? 'nobody'}; handed to the captain's books`);
       recoveryStats(book).salvaged++;
-      effects.push(recoveryEffect(rec, 'hullSalvagedToPlayer', day, { identity, shipId: h.shipId, hull: h.hull, maxHull: h.maxHull, systemIndex: rec.targetSystem, from: found.owner, origin: rec.target.origin }));
+      effects.push(recoveryEffect(rec, 'hullSalvagedToPlayer', day, { identity, shipId: h.shipId, hull: hull0, maxHull: maxHull0, crew: hulkCrew(h, found.owner), systemIndex: rec.targetSystem, from: found.owner, origin: rec.target.origin }));
       return true;
     }
     if (found.derelict) { book.derelicts = book.derelicts.filter((x) => x !== h); delete h.derelict; h.fate = null; }
@@ -4628,7 +4687,7 @@ function startTow(book, world, rec, day, effects) {
   // Escorts that are not with the hulk are not part of the tow: free where they are.
   for (const x of rec.escorts) { const e = hullOf(book, rec.sponsor, x.hullId); if (e && e.opId === rec.id && !group.includes(e) && !e.transit) { e.opId = null; if (rec.sponsor !== 'player') e.status = releaseStatus(e); } }
   const from = Number(target.systemIndex);
-  const speed = SPD.towSpeed(hullsSpeed(world, group), hullSpeed(world, target), book.config.towPenalty);
+  const speed = SPD.towSpeed(hullsSpeed(world, group), book.config.towPenalty);
   if (!towYardOk(book, world, rec.sponsor, rec.yard)) {
     const y = chooseTowYard(book, world, rec.sponsor, from, speed, rec.avoid.length ? new Set(rec.avoid) : null);
     if (!y) { rec.waitingSince ??= Number(day); rec.waitReason = 'no yard a tow can reach'; noteRecovery(rec, day, 'towing', 'holding: no yard a tow can reach'); return false; }
@@ -4661,6 +4720,7 @@ function deliverHulk(book, world, rec, h, at, day, effects) {
     if (h.stranded.crewSupportedBy) h.stranded.crewSupportedBy = 'yard'; // her people are ashore at the yard now
   }
   rec.endedDay = Number(day); rec.reason = 'delivered';
+  rec.after = { phase: 'in_yard', day: Number(day), startHull: Number(h.hull), history: [{ day: Number(day), phase: 'in_yard' }] };
   noteRecovery(rec, day, 'delivered_to_yard', `at ${at}`);
   const st = recoveryStats(book); st.delivered++; st.valueRecovered += rec.value || 0;
   releaseRecoveryGroup(book, world, rec, day, effects);
@@ -4695,7 +4755,7 @@ function failRecovery(book, world, rec, day, effects, reason, state = 'failed', 
 }
 // The tug and escorts go free where they are (one still in warp is freed when its leg ends).
 function releaseRecoveryGroup(book, world, rec, day, effects) {
-  const ids = [rec.tug, ...rec.escorts].map((x) => x.hullId);
+  const ids = [rec.tug, ...rec.escorts].filter(Boolean).map((x) => x.hullId);
   for (const id of ids) {
     const h = hullOf(book, rec.sponsor, id);
     if (!h || h.status === 'lost' || h.opId !== rec.id) continue;
@@ -4727,7 +4787,7 @@ export function adoptSalvagedHull(book, world, id, newHullId, day, effects = [])
   return { ok: startTow(book, world, rec, day, effects), record: rec };
 }
 registerJourneyKind('recovery', {
-  role(book, tr, h) { const rec = hullRecoveryById(book, tr.ref); return rec && rec.tug.hullId === h.id ? 'tug' : 'escort'; },
+  role(book, tr, h) { const rec = hullRecoveryById(book, tr.ref); return rec && rec.tug?.hullId === h.id ? 'tug' : 'escort'; },
   valid(book, world, tr, day, effects = []) {
     const rec = hullRecoveryById(book, tr.ref);
     if (!rec || !REC.recoveryOpen(rec)) return { ok: false, reason: 'recovery called off' };
@@ -4790,7 +4850,7 @@ registerJourneyKind('recovery', {
     // Off the mission where it dropped out (the hulk itself is the mission's own business).
     if (String(h.id) !== String(rec.target.hullId) && h.status !== 'lost' && h.opId === rec.id) { h.opId = null; if (rec.sponsor !== 'player') h.status = releaseStatus(h); if (rec.sponsor === 'player') effects.push({ type: 'strategicShipReleased', id: rec.id, sponsor: 'player', hullIds: [h.id], day, recovery: true }); }
     if (rec.losses.length > 12) rec.losses = rec.losses.slice(-12);
-    if (h.id === rec.tug.hullId && ['destroyed', 'disabled', 'lost', 'surrendered'].includes(reason)) recoveryStats(book).tugLosses++;
+    if (h.id === rec.tug?.hullId && ['destroyed', 'disabled', 'lost', 'surrendered'].includes(reason)) recoveryStats(book).tugLosses++;
     if (String(h.id) === String(rec.target.hullId) && ['destroyed', 'lost'].includes(reason)) { recoveryStats(book).hulksLostUnderTow++; failRecovery(book, world, rec, day, effects, 'the hulk was destroyed under tow', 'failed'); }
   },
   onTowDropped(book, world, tr, h, where, day, effects, at = where) {
@@ -4820,6 +4880,13 @@ export function advanceHullRecoveries(book, world, day, effects = []) {
   const st = recoveryStats(book);
   for (const rec of openHullRecoveries(book)) {
     if (rec.awaitingAdoption) continue;
+    // Awaiting a recovery vessel: nothing moves. Closed if the hulk is gone, repaired or no longer claimable.
+    if (rec.awaitingAsset != null) {
+      const found = findHulk(book, rec.target.hullId);
+      const why = !found ? 'the hulk is gone' : hulkUnfit(book, found) === 'not disabled' ? 'the hulk was already recovered' : null;
+      if (why) failRecovery(book, world, rec, day, effects, why, 'aborted');
+      continue;
+    }
     const live = rec.journeyIds.map((id) => journeyById(book, id)).find((tr) => tr && tr.status === 'underway');
     if (live) continue;
     // Its journey ended by a path that told nobody (a forced halt): the mission ends where things lie.
@@ -4835,6 +4902,21 @@ export function advanceHullRecoveries(book, world, day, effects = []) {
     }
     if (rec.state === 'towing') startTow(book, world, rec, day, effects);
     else if (['assigned', 'en_route_to_hulk'].includes(rec.state)) startOutbound(book, world, rec, day, effects);
+  }
+  // After delivery the record follows the same hull through the yard: in yard → repairing → (awaiting crew) →
+  // back in service, or lost. It never moves or repairs anything itself; it reads the hull.
+  for (const rec of recoveryBook(book)) {
+    if (rec.state !== 'delivered_to_yard' || !rec.after || ['complete', 'lost_after_delivery'].includes(rec.after.phase)) continue;
+    const h = hullOf(book, rec.sponsor, rec.target.hullId);
+    const phase = REC.yardPhase({ lost: !h, disabled: Boolean(h) && hullIsDisabled(h), awaitingCrew: Boolean(h?.recrew), inYard: rec.sponsor === 'player' ? true : ['recovering', 'in_yard'].includes(h?.stranded?.recovery), hull: h?.hull, startHull: rec.after.startHull });
+    if (phase !== rec.after.phase) {
+      // Repaired out of the disabled band within one yard day: the repair still happened, that day.
+      if (rec.after.phase === 'in_yard' && ['recrew_if_required', 'complete'].includes(phase)) rec.after.history.push({ day: Number(day), phase: 'repairing' });
+      rec.after.phase = phase; rec.after.day = Number(day);
+      rec.after.history.push({ day: Number(day), phase });
+      if (rec.after.history.length > 8) rec.after.history = rec.after.history.slice(-8);
+      if (phase === 'complete') { rec.completedDay = Number(day); recoveryStats(book).returnedToService = (recoveryStats(book).returnedToService || 0) + 1; effects.push(recoveryEffect(rec, 'hullRecoveryComplete', day)); }
+    }
   }
   // Derelicts break up after derelictLifeDays (or the oldest, beyond maxDerelicts): only then is the vessel's
   // identity retired. One somebody is towing or coming for is not broken up.

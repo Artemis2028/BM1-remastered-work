@@ -317,6 +317,11 @@ before the repair.
 
 ## 6. Tow speed
 
+> **Superseded (audit round, 03 Oct):** the tow now flies at `clamp(towing group × 0.70, 0.40, 1.00)`; the
+> casualty's own rating no longer enters it. See TOWING-SALVAGE-RULES.md §5 and TOWING-SALVAGE-AUDIT.md A3.
+> Other later corrections (salvage hull figure, basing yards, waiting requests, the lifecycle record) are in
+> those two documents.
+
 ```
 towSpeed = clamp( min(towing group speed, towed frame speed) × 0.7 , 0.4 , 1.0 )
 ```

@@ -43,7 +43,7 @@ export const SPEED_MAX = 1.5;
 // A journey's speed may go lower than any class's: a group towing a disabled hull
 // (TOWING-SALVAGE-RECOVERY §tow speed). Nothing else flies below SPEED_MIN.
 export const JOURNEY_SPEED_MIN = 0.4;
-export const TOW_PENALTY = 0.7;     // a tow flies at 70% of the slower of the towing group and the towed frame
+export const TOW_PENALTY = 0.7;     // a tow flies at 70% of its towing group's multiplier
 export const TOW_SPEED_MAX = 1.0;   // and never faster than the chart's own pace
 
 export function clampSpeed(v) {
@@ -63,13 +63,15 @@ export function classRating(stats) {
   if (stats?.strategicSpeedRating != null) return Math.round(Number(stats.strategicSpeedRating) * 2) / 2;
   return stats?.strategicSpeed != null ? multiplierRating(stats.strategicSpeed) : 5;
 }
-// A tow: the towing group (its slowest able member, escorts included — they cannot hurry it) and the towed
-// frame, the slower of the two, times the tow penalty; bounded [JOURNEY_SPEED_MIN, TOW_SPEED_MAX].
-//   towSpeed = clamp(min(groupSpeed, towedClassSpeed) × TOW_PENALTY, 0.4, 1.0)
-export function towSpeed(groupSpeedValue, towedSpeed, penalty = TOW_PENALTY) {
+// A tow (TOWING-SALVAGE-RULES §5): the towing group's multiplier — its slowest able towing member, escorts
+// included (they cannot hurry it) — times the tow penalty, bounded [JOURNEY_SPEED_MIN, TOW_SPEED_MAX].
+//   towSpeed = clamp(towingGroupMultiplier × TOW_PENALTY, 0.4, 1.0)
+// The casualty's own rating does not enter it: a disabled hull has no drive of its own; the tug carries it.
+// (Before 03 Oct the casualty's rating capped it — min(group, casualty) — so a slow-rated wreck slowed a tow
+// its drive took no part in: TOWING-SALVAGE-AUDIT A3.)
+export function towSpeed(groupSpeedValue, penalty = TOW_PENALTY) {
   const g = groupSpeedValue == null ? SPEED_DEFAULT : Number(groupSpeedValue);
-  const t = towedSpeed == null ? SPEED_DEFAULT : Number(towedSpeed);
-  const v = Math.min(g, t) * (Number(penalty) || TOW_PENALTY);
+  const v = (Number.isFinite(g) ? g : SPEED_DEFAULT) * (Number(penalty) || TOW_PENALTY);
   return Math.min(TOW_SPEED_MAX, Math.max(JOURNEY_SPEED_MIN, Math.round(v * 100) / 100));
 }
 // The group's speed: its slowest member. An empty group (nobody able to travel) has no speed.

@@ -92,7 +92,7 @@ const { startProbe } = require('./probe-harness.cjs');
     evidence.push({ check: 'STRANDED', ...r0 });
     assert.equal(r0.at30, r0.T, 'she moved without a tug'); assert.equal(r0.cond, 'disabled');
     if (!hasTow) throw new Error(`no towing on this build: after 30 days she still lies at Tellar with no way to send a tug (line: "${r0.line}")`);
-    assert.match(r0.line, /Recovery possible — Tug Atlas/);
+    assert.match(r0.line, /Recovery vessel: Tug Atlas · ETA: \d+ days · Tow to: /); // TOWING-SALVAGE-RULES §9 wording (audit round)
     // Request recovery, in the fleet manager.
     const r1 = await ev(() => {
       const t = testBM1, s = t.state;
@@ -110,7 +110,7 @@ const { startProbe } = require('./probe-harness.cjs');
     evidence.push({ check: 'OUTBOUND', ...r1 });
     assert.ok(r1.rec, `no mission (button "${r1.clicked}")`);
     assert.equal(r1.rec.state, 'en_route_to_hulk');
-    assert.match(r1.line, /Recovery assigned — Tug Atlas · tug arrives day \d+/);
+    assert.match(r1.line, /Recovery requested — .* · Recovery vessel: Tug Atlas · ETA: \d+ days · Tow to: /);
     assert.ok(r1.rec.outbound.route.length >= 3, `outbound route ${r1.rec.outbound.route}`);
     // Day by day until she is in tow.
     const r2 = await ev((T) => {
@@ -127,7 +127,7 @@ const { startProbe } = require('./probe-harness.cjs');
     evidence.push({ check: 'ATTACHED', ...r2 });
     assert.equal(r2.state, 'towing', JSON.stringify(r2));
     assert.equal(r2.attachment.at, r0.T); assert.equal(r2.attachment.day, r1.rec.outbound.eta, 'attached on another day than the tug arrived');
-    assert.match(r2.line, /Under tow → .* · tow ETA day \d+/);
+    assert.match(r2.line, /Tug Atlas towing .* → .* · arrives day \d+/);
     assert.ok(r2.inbound.towSpeed < r1.rec.outbound.speed, `tow ${r2.inbound.towSpeed}× is not slower than the tug's ${r1.rec.outbound.speed}×`);
     const r3 = await ev(() => {
       const t = testBM1, s = t.state;

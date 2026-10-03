@@ -23,6 +23,44 @@ export const RECOVERY_OPEN = Object.freeze(['requested', 'assigned', 'en_route_t
 export const RECOVERY_CANCELLABLE = Object.freeze(['requested', 'assigned', 'en_route_to_hulk', 'on_scene']);
 export function recoveryOpen(rec) { return Boolean(rec) && RECOVERY_OPEN.includes(rec.state); }
 
+// ---- the lifecycle in the brief's terms (TOWING-SALVAGE-RULES §2) ----
+// One phase per record, from the request to the hull back in service (or the end that stopped it). The
+// mission states above drive the tow; after delivery the record keeps following the same hull through the
+// yard (`rec.after`, advanced daily by advanceHullRecoveries) until it is back in service or lost.
+export const RECOVERY_PHASES = Object.freeze([
+  'requested',                // waiting for a recovery vessel (none free yet)
+  'recovery_asset_en_route',  // assigned; the vessel is flying out
+  'on_scene',
+  'tow_attached',
+  'towing',
+  'in_yard',                  // delivered: the yard's recovery has it, not yet repaired
+  'repairing',                // the yard is repairing it
+  'recrew_if_required',       // structurally repaired, waiting for a crew (crew rescued or lost)
+  'complete',                 // back in service: same hull, same vid
+  'aborted', 'failed', 'lost_after_delivery',
+]);
+export function recoveryPhase(rec) {
+  if (!rec) return null;
+  switch (rec.state) {
+    case 'requested': return rec.awaitingAsset != null ? 'requested' : 'recovery_asset_en_route';
+    case 'assigned': case 'en_route_to_hulk': return 'recovery_asset_en_route';
+    case 'on_scene': return 'on_scene';
+    case 'attached': return 'tow_attached';
+    case 'towing': return 'towing';
+    case 'delivered_to_yard': return rec.after?.phase || 'in_yard';
+    default: return rec.state;
+  }
+}
+// The yard phase of a delivered hull, read off the hull itself. hull: its record (or null if gone);
+// facts: { disabled, inYard (the yard's recovery has it), awaitingCrew, lost, startHull }.
+export function yardPhase(f) {
+  if (f.lost) return 'lost_after_delivery';
+  if (f.awaitingCrew) return 'recrew_if_required';
+  if (!f.disabled) return 'complete';
+  if (f.inYard && Number(f.hull) > Number(f.startHull)) return 'repairing';
+  return 'in_yard';
+}
+
 // ---- capability: who can tow what ----
 // A class's recoveryCapacity is the heaviest hull (by the catalogue's mass, 1–10) it can take in tow alone.
 // It is explicit in bm-ships/ships.json (scripts/assign-recovery-capacity.mjs), assigned once from the

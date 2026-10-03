@@ -9471,7 +9471,7 @@ function updateRecoveryPanel() {
   const signature = JSON.stringify([status, graceSeconds, boarding?.phase, choices.map((f) => [f.id, f.name])]);
   if (signature === recoveryPanelSignature) return;
   recoveryPanelSignature = signature;
-  panel.innerHTML = `<h2>Ship disabled</h2>${graceSeconds ? `<p role="status">Emergency damage protection: ${graceSeconds}s. Request recovery or transfer command now.</p>` : ''}<p role="status">${escapeHtml(status.reason)}</p><div class="debug-actions"><button data-recovery="request" ${status.available ? '' : 'disabled'}>Request recovery</button><button data-recovery="fleet">Transfer command / Fleet</button>${boarding ? '<button data-recovery="boarding">Boarding status / cancel</button>' : ''}</div><p>${choices.length ? 'Open Fleet to choose an eligible nearby vessel for command transfer.' : 'No other local fleet vessel is available for command transfer.'}</p>`;
+  panel.innerHTML = `<h2>Ship disabled</h2>${graceSeconds ? `<p role="status">Emergency damage protection: ${graceSeconds}s. Emergency recovery or transfer command now.</p>` : ''}<p role="status">${escapeHtml(status.reason)}</p><div class="debug-actions"><button data-recovery="request" ${status.available ? '' : 'disabled'}>Emergency recovery</button><button data-recovery="fleet">Transfer command / Fleet</button>${boarding ? '<button data-recovery="boarding">Boarding status / cancel</button>' : ''}</div><p>${choices.length ? 'Open Fleet to choose an eligible nearby vessel for command transfer.' : 'No other local fleet vessel is available for command transfer.'}</p>`;
 }
 document.getElementById('disabled-recovery')?.addEventListener('click', (e) => {
   const action = e.target.closest('[data-recovery]')?.dataset.recovery;
@@ -10531,23 +10531,43 @@ function playerRecoveryFor(fleetId) {
   return Campaign.openHullRecoveries(campaignBook()).find((r) => r.sponsor === PLAYER_SIDE && String(r.target.hullId) === `pf:${fleetId}`) || null;
 }
 // Every ship of the captain's free to go and tow her, each with the plan it would fly (real days each way).
-function playerRecoveryOptions(fleetId) {
+function playerRecoveryOptions(fleetId, recordId = null) {
   const target = (state.playerFleet || []).find((f) => String(f.id) === String(fleetId));
   if (!target) return [];
   const book = campaign(); syncPlayerPolity(book);
   const world = buildCampaignWorld(true);
   return (state.playerFleet || []).filter((f) => f !== target && fleetShipFreeForOperation(f))
-    .map((f) => ({ f, plan: Campaign.planHullRecovery(book, world, { sponsor: PLAYER_SIDE, targetHullId: `pf:${target.id}`, tugHullId: `pf:${f.id}` }, state.day) }))
+    .map((f) => ({ f, plan: Campaign.planHullRecovery(book, world, { sponsor: PLAYER_SIDE, targetHullId: `pf:${target.id}`, tugHullId: `pf:${f.id}`, recordId }, state.day) }))
     .sort((a, b) => (a.plan.ok ? 0 : 1) - (b.plan.ok ? 0 : 1) || (a.plan.deliverDay ?? 1e9) - (b.plan.deliverDay ?? 1e9) || String(a.f.id).localeCompare(String(b.f.id)));
 }
+// With a ship of his free that can tow her, she gets it now; with none, the request is kept — "awaiting
+// recovery vessel" — and is matched the first day one is free (matchWaitingPlayerRecoveries). No ship is ever
+// conjured for it (TOWING-SALVAGE-RULES §3).
 function requestPlayerRecovery(fleetId, tugId = null) {
   const opts = playerRecoveryOptions(fleetId);
   const pick = tugId ? opts.find((o) => String(o.f.id) === String(tugId)) : opts.find((o) => o.plan.ok);
-  if (!pick || !pick.plan.ok) { setLog(pick?.plan?.reason ? `No recovery: ${pick.plan.reason}.` : 'No ship of yours can tow her.'); return { ok: false, reason: pick?.plan?.reason || 'no recovery vessel' }; }
+  const target = (state.playerFleet || []).find((f) => String(f.id) === String(fleetId));
+  if (tugId && (!pick || !pick.plan.ok)) { setLog(`No recovery: ${pick?.plan?.reason || 'that ship cannot tow her'}.`); return { ok: false, reason: pick?.plan?.reason || 'no recovery vessel' }; }
+  if (!pick || !pick.plan.ok) {
+    const w = runStrategicCommand((book, world, effects) => Campaign.requestHullRecoveryWaiting(book, world, { sponsor: PLAYER_SIDE, targetHullId: `pf:${fleetId}`, requestedBy: 'player' }, state.day, effects));
+    setLog(w.ok ? `Recovery requested — ${target?.name || 'vessel'} · No recovery vessel available.` : `No recovery: ${w.reason}.`);
+    return w;
+  }
   const r = runStrategicCommand((book, world, effects) => Campaign.requestHullRecovery(book, world, { sponsor: PLAYER_SIDE, targetHullId: `pf:${fleetId}`, tugHullId: `pf:${pick.f.id}`, requestedBy: 'player' }, state.day, effects));
-  if (r.ok) setLog(`Recovery assigned — ${pick.f.name}. Tug arrives in ${r.plan.outboundDays} days.`);
+  if (r.ok) setLog(`Recovery requested — ${target?.name || 'vessel'} · Recovery vessel: ${pick.f.name} · ETA: ${r.plan.outboundDays} days · Tow to: ${state.planets[r.plan.yard]?.name || '?'}`);
   else setLog(`No recovery: ${r.reason}.`);
   return r;
+}
+// Each campaign day: a request awaiting a vessel takes the first ship of his that is now free and can tow her.
+function matchWaitingPlayerRecoveries() {
+  const book = campaignBook();
+  const waiting = (book.hullRecoveries || []).filter((r) => r.sponsor === PLAYER_SIDE && r.state === 'requested' && r.awaitingAsset != null);
+  for (const rec of waiting) {
+    const fleetId = String(rec.target.hullId).replace(/^pf:/, '');
+    const pick = playerRecoveryOptions(fleetId, rec.id).find((o) => o.plan.ok);
+    if (!pick) continue;
+    runStrategicCommand((b, world, effects) => Campaign.assignHullRecoveryAsset(b, world, rec.id, { tugHullId: `pf:${pick.f.id}` }, state.day, effects));
+  }
 }
 function cancelPlayerRecovery(id) {
   const r = runStrategicCommand((book, world, effects) => Campaign.cancelHullRecovery(book, world, id, state.day, effects, 'cancelled by the captain'));
@@ -10599,19 +10619,23 @@ function playerSalvageSection(btn) {
   }).join('');
   return `<h3>Hulks in sight</h3>${rows}`;
 }
+// TOWING-SALVAGE-RULES §9: concise, no explanation.
 function playerRecoveryLine(f) {
   const rec = playerRecoveryFor(f.id);
   const nm = (i) => state.planets[Number(i)]?.name || `system ${i}`;
   if (rec) {
-    const tug = fleetEntryForHull(rec.tug.hullId);
-    if (rec.state === 'towing') return rec.waitingSince != null ? `Under tow — holding at ${nm(f.systemIndex)}: ${rec.waitReason || 'no way on'}` : `Under tow → ${nm(rec.yard)} · tow ETA day ${rec.inbound?.eta ?? '?'}`;
-    if (rec.state === 'attached') return `Tow made fast at ${nm(rec.targetSystem)}`;
-    return `Recovery assigned — ${tug?.name || rec.tug.vid} · tug arrives day ${rec.outbound?.eta ?? state.day}`;
+    if (rec.awaitingAsset != null) return 'Recovery requested — No recovery vessel available';
+    const tug = fleetEntryForHull(rec.tug.hullId)?.name || rec.tug.vid;
+    if (rec.state === 'towing') return rec.waitingSince != null ? `${tug} towing ${f.name} — holding at ${nm(f.systemIndex)}: ${rec.waitReason || 'no way on'}` : `${tug} towing ${f.name} → ${nm(rec.yard)} · arrives day ${rec.inbound?.eta ?? '?'}`;
+    if (rec.state === 'attached') return `${tug} attached to ${f.name} at ${nm(rec.targetSystem)}`;
+    return `Recovery requested — ${f.name} · Recovery vessel: ${tug} · ETA: ${Math.max(0, Number(rec.outbound?.eta ?? state.day) - Number(state.day))} days · Tow to: ${nm(rec.yard)}`;
   }
+  // Delivered: she lies at the yard, still disabled, until he repairs her there.
+  const done = (campaignBook().hullRecoveries || []).filter((r) => r.state === 'delivered_to_yard' && String(r.target.hullId) === `pf:${f.id}` && Number(r.yard) === Number(f.systemIndex)).slice(-1)[0];
+  if (done) return `In yard at ${nm(done.yard)} — awaiting repair`;
   const best = playerRecoveryOptions(f.id).find((o) => o.plan.ok);
-  if (best) return `Recovery possible — ${best.f.name} · tug arrives in ${best.plan.outboundDays} days · ${nm(best.plan.yard)} day ${best.plan.deliverDay}`;
-  const need = Recovery.towRequirement(getShipStats(f.shipId));
-  return `No recovery vessel free that can tow her (needs tow capacity ${need})`;
+  if (best) return `Recovery vessel: ${best.f.name} · ETA: ${best.plan.outboundDays} days · Tow to: ${nm(best.plan.yard)}`;
+  return `No recovery vessel available (needs tow capacity ${Recovery.towRequirement(getShipStats(f.shipId))})`;
 }
 function assignPlayerEscorts(id, fleetIds) { return runStrategicCommand((book, world, effects) => Campaign.assignEvacuationEscorts(book, world, id, (fleetIds || []).map((x) => `pf:${x}`), state.day, effects)); }
 function startPlayerBlockade(target, fleetIds, purpose = 'isolate_world') {
@@ -10847,16 +10871,19 @@ function applyStrategicOpEffect(e, day) {
     }
     case 'evacuationHalfway': break;
     case 'hullSalvagedToPlayer': adoptSalvagedToPlayer(e); break;
-    case 'hullRecoveryAssigned': case 'hullTowStarted': case 'hullRecoveryDelivered': case 'hullRecoveryFailed': case 'hullRecoveryAborted': {
+    case 'hullRecoveryAssigned': case 'hullTowStarted': case 'hullRecoveryDelivered': case 'hullRecoveryFailed': case 'hullRecoveryAborted': case 'hullRecoveryAwaitingAsset': case 'hullRecoveryComplete': {
       if (e.sponsor !== PLAYER_SIDE) break;
       const target = fleetEntryForHull(e.targetHullId);
       // Let go by a lost tug: she lies where the tow last stood.
       if (e.type === 'hullRecoveryFailed' && e.droppedAt != null && target) target.systemIndex = Number(e.droppedAt);
       const name = target?.name || e.vid;
-      const kind = { hullRecoveryAssigned: 'Recovery assigned', hullTowStarted: 'Under tow', hullRecoveryDelivered: 'Recovered to yard', hullRecoveryFailed: 'Recovery failed', hullRecoveryAborted: 'Recovery called off' }[e.type];
-      const text = e.type === 'hullRecoveryAssigned' ? `${name}: tug arrives in ${e.outboundDays} days; tow ${e.towDays} days to ${nameOf(e.yard)}.`
-        : e.type === 'hullTowStarted' ? `${name} under tow at ${e.towSpeed}× → ${nameOf(e.yard)}, arriving day ${e.eta}.`
+      const tug = e.tugHullId ? fleetEntryForHull(e.tugHullId)?.name || e.tugHullId : null;
+      const kind = { hullRecoveryAssigned: 'Recovery requested', hullTowStarted: 'Under tow', hullRecoveryDelivered: 'Recovered to yard', hullRecoveryFailed: 'Recovery failed', hullRecoveryAborted: 'Recovery called off', hullRecoveryAwaitingAsset: 'Awaiting recovery vessel', hullRecoveryComplete: 'Back in service' }[e.type];
+      const text = e.type === 'hullRecoveryAssigned' ? `Recovery vessel: ${tug} · ETA: ${e.outboundDays} days · Tow to: ${nameOf(e.yard)}.`
+        : e.type === 'hullTowStarted' ? `${tug} towing ${name} → ${nameOf(e.yard)} · arrives day ${e.eta}.`
         : e.type === 'hullRecoveryDelivered' ? `${name} is at ${nameOf(e.systemIndex)}, awaiting repair.`
+        : e.type === 'hullRecoveryAwaitingAsset' ? 'No recovery vessel available.'
+        : e.type === 'hullRecoveryComplete' ? `${name} is back in service.`
         : `${name}: ${e.reason}.`;
       reportStrategicOp({ id: `tow:${e.id}:${e.type}`, systemIndex: e.systemIndex ?? e.targetSystem, day: d, kind: `${kind} — ${name}`, own: true, factions: [], direct: text });
       break;
@@ -11299,7 +11326,7 @@ function renderRecoveryDebug() {
   const fac = (id) => escapeHtml(id ? (id === PLAYER_SIDE ? 'Captain' : formatFaction(campaignFactionKeyFor(id))) : '—');
   const cls = (shipId) => escapeHtml(getShipStats(shipId)?.name || `class ${shipId}`);
   const st = book.stats?.recovery || {};
-  const head = `<p class="meta" data-recovery-stats>Missions ${(book.hullRecoveries || []).length} · launched ${st.launched || 0} · delivered ${st.delivered || 0} · failed ${st.failed || 0} · aborted ${st.aborted || 0} · tug losses ${st.tugLosses || 0} · salvage claims ${st.salvageClaims || 0} (salvaged ${st.salvaged || 0}) · derelicts ${(book.derelicts || []).length} · AI skipped ${Object.values(st.skipped || {}).reduce((n, x) => n + x, 0)}</p>`;
+  const head = `<p class="meta" data-recovery-stats>Missions ${(book.hullRecoveries || []).length} · awaiting a vessel ${(book.hullRecoveries || []).filter((r) => r.awaitingAsset != null && r.state === 'requested').length} · launched ${st.launched || 0} · delivered ${st.delivered || 0} · back in service ${st.returnedToService || 0} · failed ${st.failed || 0} · aborted ${st.aborted || 0} · tug losses ${st.tugLosses || 0} · salvage claims ${st.salvageClaims || 0} (salvaged ${st.salvaged || 0}) · derelicts ${(book.derelicts || []).length} · AI skipped ${Object.values(st.skipped || {}).reduce((n, x) => n + x, 0)}</p>`;
   const recs = (book.hullRecoveries || []).slice(-24).reverse();
   const hulkOf = (r) => { for (const p of Object.values(book.polities)) { const h = p.hulls.find((x) => String(x.id) === String(r.target.hullId)); if (h) return h; } return (book.derelicts || []).find((x) => String(x.id) === String(r.target.hullId)) || null; };
   const rows = recs.map((r) => {
@@ -11307,12 +11334,19 @@ function renderRecoveryDebug() {
     const crew = h?.stranded?.crew ?? r.crew ?? '—';
     const tr = r.inbound ? Campaign.journeyById(book, r.inbound.journeyId) : r.outbound ? Campaign.journeyById(book, r.outbound.journeyId) : null;
     const route = r.inbound ? `out ${r.outbound ? r.outbound.route.map(nm).join(' → ') : '(on scene)'}<br>tow ${r.inbound.route.map(nm).join(' → ')}` : r.outbound ? `out ${r.outbound.route.map(nm).join(' → ')}` : '—';
-    return `<tr data-recovery-row="${escapeHtml(r.id)}"><td><code>${escapeHtml(r.target.vid)}</code><div class="meta">${cls(r.target.shipId)}</div></td><td>${fac(r.owner)} / origin ${fac(r.target.origin)}</td><td>${nm(h?.systemIndex ?? r.targetSystem)}</td><td>${escapeHtml(crew)}</td>
-      <td><b>${escapeHtml(r.state)}</b>${r.waitingSince != null ? `<div class="meta">holding since day ${r.waitingSince}: ${escapeHtml(r.waitReason || '')}</div>` : ''}</td><td><code>${escapeHtml(r.tug.vid)}</code> ${cls(r.tug.shipId)}${r.escorts.length ? `<div class="meta">+ ${r.escorts.length} escort(s)</div>` : ''}</td>
-      <td data-recovery-capacity>${r.tug.capacity} vs ${r.need}</td><td>${route}${tr ? `<div class="meta">leg ${tr.legIndex + 1}/${tr.path.length} · ${escapeHtml(tr.legDays.join(' + '))} days</div>` : ''}</td>
-      <td data-recovery-tow-speed>${r.inbound ? `${r.inbound.towSpeed}×` : `(${r.plan.towSpeed}× planned)`}</td><td>${nm(r.yard)}</td><td>${escapeHtml(r.kind)} · ${escapeHtml(r.claim.authority || '')}</td><td>${escapeHtml(r.reason || '')}${r.endedDay != null ? ` (day ${r.endedDay})` : ''}${r.state === 'delivered_to_yard' && h ? `<div class="meta" data-recovery-after>${h.recrew ? 'repaired — awaiting crew' : Campaign.hullIsDisabled(h) ? `in the yard (${escapeHtml(h.stranded?.recovery || 'awaiting repair')})` : 'repaired'}</div>` : ''}</td></tr>`;
+    const phase = Recovery.recoveryPhase(r);
+    // ETA: the next thing due — the vessel on scene, the tow at the yard — from the live journey or the plan.
+    const eta = r.awaitingAsset != null ? '—' : ['assigned', 'en_route_to_hulk'].includes(r.state) ? `on scene day ${r.outbound?.eta ?? r.plan?.arriveDay ?? '?'}` : ['attached', 'towing'].includes(r.state) ? `yard day ${tr && r.inbound ? tr.etaDay : r.plan?.deliverDay ?? '?'}` : r.state === 'delivered_to_yard' ? `delivered day ${r.endedDay}` : '—';
+    const blocker = r.awaitingAsset != null ? `no recovery vessel free (since day ${r.awaitingAsset})` : r.waitingSince != null ? `holding since day ${r.waitingSince}: ${r.waitReason || ''}` : '—';
+    const tugCell = r.tug ? `<code>${escapeHtml(r.tug.vid)}</code> ${cls(r.tug.shipId)}${r.escorts.length ? `<div class="meta">+ ${r.escorts.length} escort(s)</div>` : ''}` : '<span class="meta">none yet</span>';
+    const towRule = r.inbound ? `${r.inbound.towSpeed}× <div class="meta">group ${r.plan?.groupSpeed ?? '?'}× × ${book.config.towPenalty ?? 0.7}</div>` : r.plan ? `(${r.plan.towSpeed}× planned)<div class="meta">group ${r.plan.groupSpeed}× × ${book.config.towPenalty ?? 0.7}</div>` : '—';
+    const after = r.state === 'delivered_to_yard' && r.after ? `<div class="meta" data-recovery-after>${escapeHtml(r.after.history.map((x) => `${x.phase} d${x.day}`).join(' → '))}</div>` : '';
+    return `<tr data-recovery-row="${escapeHtml(r.id)}"><td><code>${escapeHtml(r.id.split(':').slice(-2).join(':'))}</code></td><td><code>${escapeHtml(r.target.vid)}</code><div class="meta">${cls(r.target.shipId)}</div></td><td>${fac(r.owner)} / origin ${fac(r.target.origin)}</td><td>${escapeHtml(crew)}</td><td>${tugCell}</td>
+      <td data-recovery-phase><b>${escapeHtml(phase)}</b><div class="meta">${escapeHtml(r.state)}</div></td><td>${nm(h?.systemIndex ?? r.targetSystem)}${tr ? `<div class="meta">leg ${tr.legIndex + 1}/${tr.path.length} · ${escapeHtml(tr.legDays.join(' + '))} days</div>` : ''}<div class="meta">${route}</div></td>
+      <td>${nm(r.yard)}</td><td data-recovery-capacity>${r.tug ? r.tug.capacity : '—'} vs ${r.need}</td><td data-recovery-tow-speed>${towRule}</td><td data-recovery-eta>${escapeHtml(eta)}</td><td data-recovery-blocker>${escapeHtml(blocker)}</td>
+      <td>${escapeHtml(r.kind)} · ${escapeHtml(r.claim.authority || '')}</td><td>${escapeHtml(r.reason || '')}${r.endedDay != null ? ` (day ${r.endedDay})` : ''}${after}</td></tr>`;
   }).join('');
-  const table = rows ? `<table class="doctrine-debug" data-recovery-table><thead><tr><th>Target vid</th><th>Owner / origin</th><th>System</th><th>Crew</th><th>Recovery state</th><th>Tug / formation</th><th>Capability vs needed</th><th>Route</th><th>Tow speed</th><th>Destination yard</th><th>Claim</th><th>Completion / failure</th></tr></thead><tbody>${rows}</tbody></table>` : '<p class="meta">No recovery missions.</p>';
+  const table = rows ? `<table class="doctrine-debug" data-recovery-table><thead><tr><th>Recovery</th><th>Casualty vid</th><th>Owner / origin</th><th>Crew</th><th>Recovery asset</th><th>Phase</th><th>System / leg</th><th>Destination yard</th><th>Capability vs needed</th><th>Speed / tow penalty</th><th>ETA</th><th>Blocker</th><th>Claim</th><th>Result</th></tr></thead><tbody>${rows}</tbody></table>` : '<p class="meta">No recovery missions.</p>';
   const claimed = new Set(Campaign.openHullRecoveries(book).map((r) => String(r.target.hullId)));
   const stranded = Object.entries(book.polities).flatMap(([pid, p]) => p.hulls.filter((h) => Campaign.hullIsDisabled(h) && !claimed.has(String(h.id))).map((h) => ({ pid, h })));
   // The captain's vessels: their identity is on the fleet record (the model's mirror carries only the vid); one
@@ -26331,6 +26365,8 @@ function advanceFleetCalendar(days, id) {
       // actually is today, not where she was yesterday.
       acknowledgeCampaignOrders();
       advanceFleetTrading(day);
+      // A recovery awaiting a vessel takes one the day one of his ships is free (TOWING-SALVAGE-RULES §3).
+      if ((campaignBook().hullRecoveries || []).some((r) => r.sponsor === PLAYER_SIDE && r.awaitingAsset != null && r.state === 'requested')) matchWaitingPlayerRecoveries();
       const completed = completeDueStationConstructions({ silent: true, deferScene: state.warp.active });
       if (state.warp.active) state.warp.completedStations = (state.warp.completedStations || 0) + completed;
       Fleet.progressBuilds(fleetBook(), fleetBuildStationStatus, deliverFleetBuild);
@@ -27618,7 +27654,7 @@ function applyCampaignEffects(effects, day = state.day) {
       case 'evacuationStarted': case 'strategicShipsAssigned': case 'strategicShipReleased': case 'evacuationHalfway': case 'evacuationLoss': case 'evacuationEnded': case 'blockadeRun': case 'evacuationConvoyMoved':
       case 'journeyDeparted': case 'journeyCrossed': case 'journeyEnded':
       case 'blockadeStarted': case 'blockadeActive': case 'blockadeCoverage': case 'blockadeEnded':
-      case 'hullSalvagedToPlayer': case 'hullRecoveryAssigned': case 'hullTowStarted': case 'hullRecoveryDelivered': case 'hullRecoveryFailed': case 'hullRecoveryAborted':
+      case 'hullSalvagedToPlayer': case 'hullRecoveryAssigned': case 'hullTowStarted': case 'hullRecoveryDelivered': case 'hullRecoveryFailed': case 'hullRecoveryAborted': case 'hullRecoveryAwaitingAsset': case 'hullRecoveryComplete':
         applyStrategicOpEffect(e, day);
         break;
       case 'pactChanged': {
@@ -30101,7 +30137,7 @@ function renderFleetManager(open = false) {
   // the close never end up underneath the body the way the OPS panel's did. [playtest]
   fleetManagerEl.innerHTML = `<h2>Fleet &amp; shipyard${btn('close', '\u00d7')}</h2><div class="fleet-manager-body"><p>Calendar day ${state.day} · Fleet upkeep ${state.playerFleet.filter((f) => !f.destroyed).reduce((n, f) => n + upkeepPerDay(f.shipId), 0)} L/day. Personal vessel exempt.</p><p class="fleet-identity" data-personal-identity="${escapeHtml(ensurePersonalIdentity().vid)}">Your ship ${escapeHtml(state.shipName || '')} · ${escapeHtml(vesselIdentityLine(ensurePersonalIdentity()))}</p>
     <p>Arrears ${b.debt.toFixed(2)} L ${btn('pay', 'Settle arrears')}</p><p>Team: ${b.boarding ? b.boarding.phase : b.team.available ? 'Available' : 'Lost'} · XP ${b.team.xp}. ${btn('board', 'Board selected disabled ship')}${btn('cancel', 'Cancel deployment')}${btn('recruit', 'Recruit (2000 L)')}${btn('train', 'Train +5 XP (1000 L)')}</p>
-    <p>${btn('repair', 'Repair personal hull', 'player')}${btn('rescue', 'Request recovery')}</p><h3>Formations</h3>${groups}${btn('group', 'New formation')}<h3>Owned vessels (${state.playerFleet.filter((f) => !f.destroyed).length})</h3>${roster || '<p>No fleet vessels.</p>'}${playerSalvageSection(btn)}<h3>Plans & construction</h3>${plans || '<p>Dock at a suitable vendor.</p>'}${b.orders.map((o) => `<p>${escapeHtml(getShipStats(o.shipId).name)}: ${o.status}, ${Math.max(0, o.remainingDays)} work days remaining</p>`).join('')}<h3>Financial book</h3><p>Older history: ${b.ledgerArchive.entries} entries summarized below; recent entries remain itemized.</p>${Object.entries(b.ledgerArchive.byKind).map(([kind, total]) => `<p>${escapeHtml(kind)}: ${total.amount.toFixed(2)} L total, ${total.paid.toFixed(2)} L paid.</p>`).join('')}${b.ledger
+    <p>${btn('repair', 'Repair personal hull', 'player')}${btn('rescue', 'Emergency recovery')}</p><h3>Formations</h3>${groups}${btn('group', 'New formation')}<h3>Owned vessels (${state.playerFleet.filter((f) => !f.destroyed).length})</h3>${roster || '<p>No fleet vessels.</p>'}${playerSalvageSection(btn)}<h3>Plans & construction</h3>${plans || '<p>Dock at a suitable vendor.</p>'}${b.orders.map((o) => `<p>${escapeHtml(getShipStats(o.shipId).name)}: ${o.status}, ${Math.max(0, o.remainingDays)} work days remaining</p>`).join('')}<h3>Financial book</h3><p>Older history: ${b.ledgerArchive.entries} entries summarized below; recent entries remain itemized.</p>${Object.entries(b.ledgerArchive.byKind).map(([kind, total]) => `<p>${escapeHtml(kind)}: ${total.amount.toFixed(2)} L total, ${total.paid.toFixed(2)} L paid.</p>`).join('')}${b.ledger
       .slice(-20)
       .map((e) => `<p>Day ${e.day}: ${e.kind} ${e.amount.toFixed(2)} L</p>`)
       .join('')}</div>`;
@@ -30429,6 +30465,11 @@ function remapFleetSecurity(destination, former) {
   if (incoming) ledger.visitors.player = incoming;
   captureSecurityParticipants(state.currentPlanet);
 }
+// INTENTIONAL PLAYER-ONLY EMERGENCY RECOVERY EXCEPTION (TOWING-SALVAGE-AUDIT §3 A1, Rafael 03 Oct): the
+// vessel the captain is aboard — and only that one — is stabilised where it lies, operational 5 seconds later,
+// billed as rescue debt. It takes no vessel id and reads only the personal vessel's condition, so it cannot
+// repair a fleet vessel, an NPC or a doctrine vessel; it is not strategic towing (no recovery record, no
+// journey, no yard). Every other disabled hull is recovered only by the shared recovery system.
 function recoverDisabledPlayer() {
   if (!state.gameStarted || state.gameOver) { setLog('Recovery requires an active run.'); return false; }
   const status = getRecoveryStatus();
@@ -30438,7 +30479,7 @@ function recoverDisabledPlayer() {
   state.hull = status.restored;
   state.recoveryAt = gameNow() + 5000;
   syncLegacyState();
-  setLog('Recovery crew stabilizing propulsion. Unpaid costs are recorded as debt.');
+  setLog('Emergency recovery: stabilizing propulsion. Unpaid costs are recorded as debt.');
   return true;
 }
 // ---- formation strategic route traversal (FORMATION-ROUTE-TRAVERSAL-RULES-261700ZSEP26) ----

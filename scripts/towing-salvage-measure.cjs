@@ -14,7 +14,7 @@ const { startProbe } = require('./probe-harness.cjs');
   const { ev, fresh, page } = probe;
   await page.waitForFunction(() => !testBM1.doctrineStatus || testBM1.doctrineStatus().state !== 'loading', null, { timeout: 30000 }).catch(() => {});
   await fresh('tow-longrun');
-  await ev(() => { window.__acc = { ms: 0, n: 0, strandedEver: {}, strandedMax: 0, strandedDays: 0, openMax: 0, tugsBusyMax: {}, minStanding: {}, towSpeeds: [], crewlessBackInAction: [], writtenOff: 0, derelictMax: 0, valueStranded: 0 }; });
+  await ev(() => { window.__acc = { ms: 0, n: 0, strandedEver: {}, strandedMax: 0, strandedDays: 0, openMax: 0, tugsBusyMax: {}, minStanding: {}, towSpeeds: [], crewlessBackInAction: [], writtenOff: 0, derelictMax: 0, valueStranded: 0, rescuedBeforeRecovery: {}, orphanTows: 0, towJourneysSeen: {} }; });
   const samples = [];
   for (let d = 0; d < days; d += 10) {
     await ev(() => {
@@ -29,6 +29,8 @@ const { startProbe } = require('./probe-harness.cjs');
           for (const h of p.hulls) {
             if (h.status === 'lost') continue;
             if (h.stranded) { stranded++; a.strandedEver[h.id] ||= { pid, shipId: h.shipId, since: h.stranded.since }; }
+            // Crew taken off before any recovery of the hull had reached her (TOWING-SALVAGE-AUDIT round).
+            if (h.stranded?.crew === 'rescued' && !h.towedBy && !a.rescuedBeforeRecovery[h.id]) a.rescuedBeforeRecovery[h.id] = t.state.day;
             // A repaired hull with too few crew must not be back in action.
             if (h.recrew && (h.status === 'ready' || (h.status === 'assigned' && !String(h.opId || '').includes('doctrine')))) a.crewlessBackInAction.push([h.id, t.state.day, h.status]);
           }
@@ -39,6 +41,9 @@ const { startProbe } = require('./probe-harness.cjs');
         const busy = {}; for (const r of open) busy[r.sponsor] = (busy[r.sponsor] || 0) + 1;
         for (const [k, v] of Object.entries(busy)) a.tugsBusyMax[k] = Math.max(a.tugsBusyMax[k] || 0, v);
         for (const r of open) if (r.inbound?.towSpeed != null && !a.towSpeeds.some((x) => x[0] === r.id)) a.towSpeeds.push([r.id, r.inbound.towSpeed]);
+        // An open tow whose casualty is gone (destroyed, salvaged elsewhere) must not survive it.
+        for (const r of open) { const found = Object.values(book.polities).some((p) => p.hulls.some((h) => String(h.id) === String(r.target.hullId) && h.status !== 'lost')) || (book.derelicts || []).some((d) => String(d.id) === String(r.target.hullId)); if (!found && !r.awaitingAdoption) a.orphanTows++; }
+        for (const r of open) if (r.inbound?.journeyId) a.towJourneysSeen[r.inbound.journeyId] = r.id;
         a.derelictMax = Math.max(a.derelictMax, (book.derelicts || []).length);
         for (const [k, p] of Object.entries(book.polities)) { if (k === 'player') continue; const n = (p.hulls || []).filter((h) => h.status === 'ready' && !h.opId && !h.transit).length; a.minStanding[k] = Math.min(a.minStanding[k] ?? 1e9, n); }
       }
@@ -69,6 +74,16 @@ const { startProbe } = require('./probe-harness.cjs');
       writtenOff: book.stats.hullsWrittenOff ?? null, derelictsNow: (book.derelicts || []).length, derelictsMax: a.derelictMax, derelictsBrokenUp: st.derelictsBrokenUp ?? 0,
       openRecoveriesMax: a.openMax, tugsBusyMaxBySponsor: a.tugsBusyMax, minStandingByPower: a.minStanding, crewlessBackInAction: a.crewlessBackInAction.slice(0, 5), crewlessBackInActionCount: a.crewlessBackInAction.length,
       duplicateIdentities: (() => { const vids = Object.values(book.polities).flatMap((p) => p.hulls.filter((h) => h.status !== 'lost').map((h) => h.identity?.vid || h.vid || h.id)).concat((book.derelicts || []).map((d) => d.identity?.vid || d.id)); return vids.length - new Set(vids).size; })(),
+      // TOWING-SALVAGE-AUDIT round additions.
+      waitingRequests: st.waitingRequests ?? 0, returnedToService: st.returnedToService ?? 0,
+      meanDaysToReachCasualty: mean(recs.filter((r) => r.attachment).map((r) => r.attachment.day - r.createdDay)),
+      meanTowingDays: mean(delivered.filter((r) => r.inbound).map((r) => r.endedDay - r.inbound.departDay)),
+      crewsRescuedBeforeHullRecovery: Object.keys(a.rescuedBeforeRecovery).length,
+      blockadeEncountersWhileTowing: (book.journeys || []).filter((j) => a.towJourneysSeen[j.id]).reduce((n, j) => n + (j.encounters || []).length, 0),
+      towFailures: recs.filter((r) => r.state === 'failed').length, failureReasons: recs.filter((r) => ['failed', 'aborted'].includes(r.state)).reduce((m, r) => { const k = String(r.reason || '').replace(/\d+/g, 'N'); m[k] = (m[k] || 0) + 1; return m; }, {}),
+      repeatRequestsSameHull: (() => { const m = {}; for (const r of recs) m[r.target.hullId] = (m[r.target.hullId] || 0) + 1; return Object.values(m).filter((n) => n > 2).length; })(),
+      orphanTowDays: a.orphanTows,
+      heaviestTowRatio: (() => { const W = t.buildCampaignWorld(true); const xs = recs.filter((r) => r.tug).map((r) => ({ tug: W.shipStats(r.tug.shipId), target: W.shipStats(r.target.shipId) })).map((x) => [Number(x.tug?.mass) || 0, Number(x.target?.mass) || 0, Number(x.tug?.recoveryCapacity) || 0]); return xs.length ? { maxTargetToTugMass: Math.max(...xs.map(([a1, b1]) => b1 / Math.max(1, a1))), overCapacity: xs.filter(([, b1, c1]) => b1 > c1).length } : null; })(),
       saveBytes, bookBytes: JSON.stringify(book).length, recoveryStateBytes: JSON.stringify(book.hullRecoveries || []).length + JSON.stringify(book.derelicts || []).length, msPerDay: Math.round(100 * a.ms / a.n) / 100, hullsLost: book.stats.hullsLost, battles: book.stats.battlesResolved,
     };
   });
