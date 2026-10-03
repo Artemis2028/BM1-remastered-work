@@ -163,7 +163,7 @@ const { startProbe } = require('./probe-harness.cjs');
     const r1 = await ev(() => {
       const t = testBM1, s = t.state, book = t.campaign();
       const j0 = (book.journeys || []).length;
-      window.__requestBtn('Hood').click();
+      window.__line('Hood'); window.__requestBtn('Hood').click();
       const rec = window.__rec();
       const tr = t.Campaign.journeyById(book, rec.outbound.journeyId);
       return { id: rec.id, state: rec.state, kind: tr.kind, journeysAdded: (book.journeys || []).length - j0, line: window.__line('Hood'), plan: rec.plan, outEta: rec.outbound.eta, day: s.day };
@@ -193,7 +193,8 @@ const { startProbe } = require('./probe-harness.cjs');
       const rec = window.__rec();
       for (let i = 0; i < 200 && rec.state === 'towing'; i++) window.__adv(1);
       const f = window.__f('Hood');
-      return { state: rec.state, endedDay: rec.endedDay, eta: rec.inbound.eta, deliver: rec.plan.deliverDay, yard: rec.yard, at: f.systemIndex, cond: t.fleetVesselCondition(f), vid: t.ensureFleetVesselIdentity(f).vid, line: window.__line('Hood'), phase: t.Recovery.recoveryPhase(rec) };
+      window.__line('Hood');
+      return { requestButton: /Request recovery/i.test(window.__requestBtn('Hood')?.textContent || ''), state: rec.state, endedDay: rec.endedDay, eta: rec.inbound.eta, deliver: rec.plan.deliverDay, yard: rec.yard, at: f.systemIndex, cond: t.fleetVesselCondition(f), vid: t.ensureFleetVesselIdentity(f).vid, line: window.__line('Hood'), phase: t.Recovery.recoveryPhase(rec) };
     });
     await shotFleet('TA-5-hull-in-yard-fleet.png', '[data-fleet-recovery="Hood"]');
     await shotSection('TA-5-hull-in-yard-recovery-debug.png', '[data-recovery-section]');
@@ -201,6 +202,7 @@ const { startProbe } = require('./probe-harness.cjs');
     evidence.push({ check: 'FLOW', ...flow });
     assert.equal(r3.state, 'delivered_to_yard'); assert.equal(r3.endedDay, r3.eta); assert.equal(r3.endedDay, r3.deliver);
     assert.equal(r3.at, r3.yard); assert.equal(r3.cond, 'disabled', 'repaired on delivery'); assert.equal(r3.vid, r0.vid);
+    assert.equal(r3.requestButton, false, 'a vessel in the yard is offered another tow');
     assert.match(r3.line, /^In yard at \S.* — awaiting repair$/); assert.equal(r3.phase, 'in_yard');
   });
 
@@ -215,7 +217,7 @@ const { startProbe } = require('./probe-harness.cjs');
       window.__ship('Hood', T, C.HULK, { disabled: true, name: 'USS Hood' });
       s.currentPlanet = window.__idx('Vulcan'); t.applySystemState(s.currentPlanet);
       const n0 = s.playerFleet.length;
-      window.__requestBtn('Hood')?.click();
+      window.__line('Hood'); window.__requestBtn('Hood')?.click(); // rendered for this campaign first (not a stale row)
       const kept = (book.hullRecoveries || []).find((x) => String(x.target.hullId) === 'pf:Hood');
       const line = window.__line('Hood');
       window.__adv(4);
@@ -282,8 +284,9 @@ const { startProbe } = require('./probe-harness.cjs');
       const book = t.campaign(); t.syncPlayerPolity(book);
       const w = t.buildCampaignWorld(true);
       const T = window.__idx('Tellar');
-      const k = book.polities.klingon.hulls.find((h) => h.status === 'ready' && !h.opId && !h.transit);
-      k.shipId = 330; k.maxHull = k.hull = w.shipStats(330).combatHull; k.systemIndex = T;
+      // A Klingon hull of her own class (one his Oberth can tow: mass ≤ 8), so her registry and class agree.
+      const k = book.polities.klingon.hulls.find((h) => h.status === 'ready' && !h.opId && !h.transit && (w.shipStats(h.shipId)?.mass ?? 99) <= 8);
+      k.systemIndex = T;
       k.hull = Math.max(1, Math.floor(k.maxHull * 0.05)); k.status = 'repairing';
       Cm.advanceStranded(book, w, s.day, []);
       k.stranded.crew = 'lost'; k.stranded.crewEndDay = s.day; k.crew = 0;

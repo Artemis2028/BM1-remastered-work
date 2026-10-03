@@ -10623,6 +10623,10 @@ function playerSalvageSection(btn) {
   }).join('');
   return `<h3>Hulks in sight</h3>${rows}`;
 }
+// Delivered to the yard she lies at: she waits for his repair there, not for another tow.
+function playerVesselInYard(f) {
+  return (campaignBook().hullRecoveries || []).some((r) => r.state === 'delivered_to_yard' && String(r.target.hullId) === `pf:${f.id}` && Number(r.yard) === Number(f.systemIndex) && !Recovery.YARD_FINAL.includes(r.after?.phase));
+}
 // The reason a recovery cannot be planned when a free ship of his IS able to tow her (route, yard, claim), or null.
 function playerRecoveryBlocked(opts) {
   const capable = opts.find((o) => !o.plan.ok && o.plan.capacity == null && !/not free|cannot take anything in tow|can tow a hull of mass|escort/.test(o.plan.reason || ''));
@@ -10640,8 +10644,7 @@ function playerRecoveryLine(f) {
     return `Recovery requested — ${f.name} · Recovery vessel: ${tug} · ETA: ${Math.max(0, Number(rec.outbound?.eta ?? state.day) - Number(state.day))} days · Tow to: ${nm(rec.yard)}`;
   }
   // Delivered: she lies at the yard, still disabled, until he repairs her there.
-  const done = (campaignBook().hullRecoveries || []).filter((r) => r.state === 'delivered_to_yard' && String(r.target.hullId) === `pf:${f.id}` && Number(r.yard) === Number(f.systemIndex)).slice(-1)[0];
-  if (done) return `In yard at ${nm(done.yard)} — awaiting repair`;
+  if (playerVesselInYard(f)) return `In yard at ${nm(f.systemIndex)} — awaiting repair`;
   const best = playerRecoveryOptions(f.id).find((o) => o.plan.ok);
   if (best) return `Recovery vessel: ${best.f.name} · ETA: ${best.plan.outboundDays} days · Tow to: ${nm(best.plan.yard)}`;
   const blocked = playerRecoveryBlocked(playerRecoveryOptions(f.id));
@@ -30051,7 +30054,7 @@ function renderFleetManager(open = false) {
         ? btn('recall', 'Recall to captain', f.id) + btn('rendezvous', 'Change rendezvous', f.id) + btn('cancel-passage', 'Cancel', f.id)
         : btn('recall', 'Recall to captain', f.id) + btn('rendezvous', 'Rendezvous at system', f.id)}
       <p class="fleet-status${fleetVesselCondition(f) === 'disabled' ? ' fleet-status-disabled' : ''}">${escapeHtml(fleetTradeStatusLine(f) || 'Not trading')}</p>
-      ${fleetVesselCondition(f) === 'disabled' ? (() => { const rec = playerRecoveryFor(f.id); return `<p class="fleet-recovery" data-fleet-recovery="${escapeHtml(f.id)}">${escapeHtml(playerRecoveryLine(f))}</p>${rec ? (Recovery.RECOVERY_CANCELLABLE.includes(rec.state) ? btn('recovery-cancel', 'Cancel recovery', rec.id) : '') : btn('recovery-request', 'Request recovery', f.id)}`; })() : ''}
+      ${fleetVesselCondition(f) === 'disabled' ? (() => { const rec = playerRecoveryFor(f.id); return `<p class="fleet-recovery" data-fleet-recovery="${escapeHtml(f.id)}">${escapeHtml(playerRecoveryLine(f))}</p>${rec ? (Recovery.RECOVERY_CANCELLABLE.includes(rec.state) ? btn('recovery-cancel', 'Cancel recovery', rec.id) : '') : playerVesselInYard(f) ? '' : btn('recovery-request', 'Request recovery', f.id)}`; })() : ''}
       ${(() => { const q = queuedFleetCommands(f); if (!q.length) return ''; const disabled = fleetVesselCondition(f) === 'disabled'; const reachable = fleetCommandReachable(f); return `<p class="fleet-queued">Queued, not yet received: ${q.map((o) => `${escapeHtml(fleetCommandLabel(o))} (day ${o.queuedDay})${disabled && reachable && o.command === 'trade-start' ? ' — waiting for repair' : ''}`).join(' · ')}${reachable ? '' : ` · ${fleetCommandInWarp(f) ? 'in warp to' : 'no relay link to'} ${escapeHtml(state.planets[fleetCommandSystem(f)]?.name || '?')}`}</p>`; })()}
       <p>Hold ${trade ? fleetTradeLoad(trade) : 0}/${fleetTradeCapacity(f)} t${trade?.paid ? ` · paid ${trade.paid} L for cargo` : ''}</p>
       ${trade?.manifest?.length ? `<p>Manifest: ${escapeHtml(fleetTradeManifestLine(trade))}</p>` : ''}

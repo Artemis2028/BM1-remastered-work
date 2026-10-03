@@ -234,7 +234,8 @@ gets the engine's class loadout snapshot. That is a known limit (audit §4).
 - requested: `Recovery requested — USS Hood · Recovery vessel: Tug Atlas · ETA: 22 days · Tow to: Vulcan`, or
   `Recovery requested — No recovery vessel available`;
 - towing: `Tug Atlas towing USS Hood → Vulcan · arrives day 43`;
-- delivered: `In yard at Vulcan — awaiting repair` (he repairs her there, docked, at the ordinary price).
+- delivered: `In yard at Vulcan — awaiting repair` (he repairs her there, docked, at the ordinary price); no
+  Request recovery is offered for a vessel in the yard she was delivered to.
 
 Reports: Recovery requested / Awaiting recovery vessel / Under tow / Recovered to yard / Back in service /
 Recovery failed / Recovery called off.
@@ -316,10 +317,9 @@ Each of the brief's 32 regressions is mapped to a check:
 
 ## 12b. Results
 
-**Code tested:** bbf49d3, on a clean worktree, with the full normal suite: **91/91 exit 0** (the build plus 90
-scripts). The commit after it adds documentation only.
-
-| suite | bbf49d3 | a7e56d2 (baseline reproduction) |
+**Code tested:** the candidate, on a clean worktree, with the full normal suite: **91/91 exit 0** (the build plus 90
+scripts). 
+| suite | candidate | a7e56d2 (baseline reproduction) |
 |---|---|---|
 | `test:towing:audit` (pure) | **32/32** (baseline-defect 8/8, new-feature 4/4, preservation 20/20) | 21/32: every baseline-defect check fails on its own assertion, the new-feature checks fail, and preservation is 20/20 |
 | `test:towing:audit:ingame` | **6/6** | 2/6: baseline-defect 0/2 (NO-VESSEL-WAITS: "No recovery vessel free that can tow her"; SALVAGE-PRIZE-HULL: 1/239 against 0.046 as she lay), the labels and lines fail, and preservation 2/2 (the emergency exception and the shared blockade run hold on both) |
@@ -329,7 +329,7 @@ scripts). The commit after it adds documentation only.
 **Long run**, 400 days of the default campaign on one seed (`measure:towing`, `fresh('tow-longrun')`; not a
 balance claim):
 
-| measure | bbf49d3 | a7e56d2 |
+| measure | candidate (bbf49d3 code) | a7e56d2 |
 |---|---|---|
 | hulls ever stranded / most at once | 17 / 8 | 17 / 8 |
 | recovery requests / vessels assigned | 8 / 8 | 8 / 8 |
