@@ -274,9 +274,9 @@ with no recovery.
 
 | suite | candidate | a7e56d2 (baseline reproduction) |
 |---|---|---|
-| `test:towing:audit` (new, pure) | see the handoff | fails every baseline-defect check on its own assertion |
-| `test:towing:audit:ingame` (new) | see the handoff | fails the baseline-defect checks on their own assertions |
-| `test:towing` / `test:towing:ingame` (existing) | unchanged pure; in-game line regexes updated to the §10 wording | — |
+| `test:towing:audit` (new, pure) | 32/32 (§12b) | 21/32; every baseline-defect check fails on its own assertion |
+| `test:towing:audit:ingame` (new) | 6/6 | 2/6; both baseline-defect checks fail on their own assertions |
+| `test:towing` / `test:towing:ingame` (existing) | 29/29 unchanged · 4/4, with the in-game line regexes updated to the §10 wording (gate changed: the old lines were replaced by the brief's) | — |
 
 Each of the brief's 32 regressions is mapped to a check:
 
@@ -313,3 +313,91 @@ Each of the brief's 32 regressions is mapped to a check:
 - STRANDED-HULL-RECOVERY and TOW-UNDER-INTERDICTION are pure;
 - SALVAGE-PRIZE-HULL is pure (AI salvager, preservation) and in-game (the captain's prize, A2 baseline-defect);
 - the lifecycle is in LIFECYCLE.
+
+## 12b. Results
+
+**Code tested:** bbf49d3, on a clean worktree, with the full normal suite: **91/91 exit 0** (the build plus 90
+scripts). The commit after it adds documentation only.
+
+| suite | bbf49d3 | a7e56d2 (baseline reproduction) |
+|---|---|---|
+| `test:towing:audit` (pure) | **32/32** (baseline-defect 8/8, new-feature 4/4, preservation 20/20) | 21/32: every baseline-defect check fails on its own assertion, the new-feature checks fail, and preservation is 20/20 |
+| `test:towing:audit:ingame` | **6/6** | 2/6: baseline-defect 0/2 (NO-VESSEL-WAITS: "No recovery vessel free that can tow her"; SALVAGE-PRIZE-HULL: 1/239 against 0.046 as she lay), the labels and lines fail, and preservation 2/2 (the emergency exception and the shared blockade run hold on both) |
+| `test:towing` / `test:towing:ingame` | 29/29 · 4/4 | — |
+| speed, treaty, handoff, movement, time-scale, disabled-hull suites | green, unchanged | — |
+
+**Long run**, 400 days of the default campaign on one seed (`measure:towing`, `fresh('tow-longrun')`; not a
+balance claim):
+
+| measure | bbf49d3 | a7e56d2 |
+|---|---|---|
+| hulls ever stranded / most at once | 17 / 8 | 17 / 8 |
+| recovery requests / vessels assigned | 8 / 8 | 8 / 8 |
+| mean days to reach the casualty | 8.9 | 8.9 |
+| mean towing days / mean request → delivery | 33 / 29.5 | 31.8 / 26.9 |
+| delivered / back in service | 8 / 8 | 7 / (not tracked) |
+| failed / aborted / tug losses | 0 / 0 / 0 | 1 ("the hulk was lost under tow": A11) / 0 / 0 |
+| days an open tow flew with no casualty | **0** | **37** (A12) |
+| tow speeds (n, mean, range) | 5, 0.85×, 0.84–0.87 | 5, 0.83×, 0.78–0.84 (casualty-capped: A3) |
+| crews rescued before hull recovery | 0 | 0 |
+| hulls written off / salvaged | 5 / 4 | 5 / 4 |
+| blockade encounters while towing | 0 | 0 |
+| hulls requested more than twice (loops) | 0 | 0 |
+| tows over capacity / heaviest casualty-to-tug mass | 0 / 1.17 | 0 / 1.17 |
+| open recoveries at once / tugs busy per power | 4 / 2 | 4 / 2 |
+| lowest ready hulls per power | identical on both trees | |
+| crewless hulls back in action / duplicate identities | 0 / 0 | 0 / 0 |
+| waiting requests (the captain's only) | 0 | — |
+| save / recovery state (bytes) | 992,445 / 15,043 | 982,813 / 13,312 |
+| AI skips | 141 (94 no vessel able to tow it, 23 below value, 20 too far, 4 none free) | 135 |
+
+**Watch items:**
+- **Fleets spending all their time towing:** no. At most 2 tugs were busy per power, and garrisons were
+  unchanged.
+- **Every hull worth recovering:** no. 8 of 17 stranded hulls were recovered; 141 candidates were skipped,
+  and 5 were written off.
+- **Tiny ships towing capitals:** no. No tow was over capacity, and the heaviest was a casualty 1.17× the
+  tug's mass.
+- **Recovery loops:** none.
+- **Tows outliving their casualty:** 37 days on a7e56d2, 0 now.
+- **Not exercised by this seed:** no tow met a blockade, and no crew was rescued before its hull was
+  recovered. Both are covered by the pure suite (R11–R13, TOW-UNDER-INTERDICTION, R16,
+  STRANDED-HULL-RECOVERY).
+
+## 13. Carry-forward: master backlog after this round
+
+Still open, unchanged by this round:
+1. trader record-shape consolidation
+2. basing staging/docking consumption
+3. DMZ stationing/loitering breach handling
+4. NPC tactical-scene persistence
+5. engine-condition strategic-speed degradation
+6. low-confidence strategic-speed playtest tuning
+7. autonomous war declarations
+8. doctrine invasion/occupation
+9. broad covert doctrine
+10. Hirogen hunting
+11. Borg assimilation/transwarp
+12. Gorn activation
+13. Tactical Cube
+
+Found or confirmed during the towing audit (not done this round):
+
+14. **The captain's foreign repair yard is not checked for service (A9).** A tow may deliver his vessel to a
+    non-hostile yard whose vendor refuses him or whose docking is blocked. A new recovery can be sent from there.
+15. **Multi-tug tows** of the heaviest hulls. Today: one tug per casualty, capacity ≥ mass.
+16. **A towed hulk drawn in the tactical scene.** Today it is a non-spawned participant; its strategic record
+    stands.
+17. **Allied recovery.** The model has no alliance relation that would grant it.
+18. **Per-hull equipment and cargo for AI hulls.** Salvage keeps what the record has; the captain's prize gets
+    the class loadout snapshot.
+19. **An incident for taking another active polity's hull without permission.** Today it is refused
+    outright.
+20. **A crew clock for the captain's own vessels.** Today they are "aboard" and never written off.
+21. **Tow-speed balance.** Dedicated tugs are rated slow (2.5–5/10), so a capital that can tow a light hull
+    tows it faster than a tug. Tugs matter by capacity only. This needs playtest.
+22. **A stationary campaign-time wait for the captain** (declined for this round by Rafael, 03 Oct). It would
+    be needed before his personal vessel could ever be towed rather than emergency-recovered.
+
+Done this round and off the list: **towing/salvage + stranded-hull recovery movement**. It is audited as one
+system, with the corrections above.
