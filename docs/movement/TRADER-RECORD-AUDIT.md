@@ -97,7 +97,7 @@ She never teleports and never flies through a zone that bars her.
 | brief test | check | 79bc258 |
 |---|---|---|
 | 1 civilian crosses a civilian-permitted DMZ | in-game T-1 | passes (preservation) |
-| 2 military freighter refused/rerouted | T-2 (re-plotted at Orion round Lik Prime to Proxima Yard; trip, vid, cargo unchanged) | **fails**: flew through |
+| 2 military freighter refused/rerouted | T-2 (re-plotted at Orion round Lik Prime: Orion → Tellar → Proxima Yard; trip, vid, cargo unchanged) | **fails**: flew through |
 | 3 applicable guarantee lets her through · 4 unrelated guarantee does not | T-3/4 | **fails** on 4 |
 | 5 inspected · 6 canonical manifest · 7 concealed stays hidden | T-5/6/7 (three declared lines seen; the concealed spice not) | **fails**: never inspected |
 | 8 same vid / trade/1 / tripId | T-2, T-8/9 | — |
