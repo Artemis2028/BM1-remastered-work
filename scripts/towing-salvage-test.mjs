@@ -583,7 +583,7 @@ test('new-feature', '30/31/32. save/load mid-tow keeps the tow route, speed and 
 // ===================================================================================================
 // Derelict lifecycle, the tow formula, special routes (supplementary)
 // ===================================================================================================
-test('new-feature', 'TOW-FORMULA and SPECIAL ROUTES. towSpeed = clamp(min(group, frame) × 0.7, 0.4, 1.0); a tow is never routed through the wormhole (unavailable, not invented); legs are never 0 days', () => {
+test('new-feature', 'TOW-FORMULA and SPECIAL ROUTES. the tow formula is in towing-audit-test R7/R8 (group × 0.7, audit round); a tow is never routed through the wormhole (unavailable, not invented); legs are never 0 days', () => {
   need();
   const SPD = C.journeySpeed ? null : null; void SPD;
   const env = campaignWorld('TW-F');

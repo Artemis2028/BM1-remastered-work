@@ -85,11 +85,12 @@ function disable(env, h, day, polity = 'terran') {
   assert.ok(h.stranded, `${polity} hull not stranded`);
 }
 const allVids = (book) => [...Object.values(book.polities).flatMap((p) => p.hulls.filter((h) => h.status !== 'lost').map(vidOf)), ...(book.derelicts || []).map(vidOf)];
-function scenario(seed, { hulk = K.danube.id, tug = K.tug2.id, escorts = [], hulkAt = IDX.Minor, tugAt = IDX.Earth, crew = 'aboard' } = {}) {
+function scenario(seed, { hulk = K.danube.id, tug = K.tug2.id, escorts = [], hulkAt = IDX.Minor, tugAt = IDX.Earth, crew = 'aboard', maxHull = null } = {}) {
   const env = campaignWorld(seed);
   const [t] = make(env, 'terran', tug, tugAt);
   const esc = escorts.map((c) => make(env, 'terran', c, tugAt)[0]);
   const [h] = make(env, 'terran', hulk, hulkAt);
+  if (maxHull) h.maxHull = h.hull = maxHull; // a hull big enough that the yard takes days over her
   park(env);
   disable(env, h, 1);
   if (crew === 'rescued') C.rescueStrandedCrew(env.book, 'terran', h.id, 1, 'test relief');
@@ -188,7 +189,7 @@ test('baseline-defect', 'R7/R8/TOW-SPEED. the tow flies at the towing vessel\'s 
   assert.deepEqual(tow.legDays, [ceilDays(11, 0.64)]);
   assert.ok(sum(tow.legDays) > ceilDays(11, 0.92), 'the tow is not slower than the tug alone');
 });
-test('baseline-defect', 'R8b. formation towing uses the slowest effective towing element: a Defiant (8.5/10) escort does not hurry a Tug Class II tow; an escort slower than the tug slows it', () => {
+test('baseline-defect', 'R8b. formation towing uses the slowest effective towing element: a Defiant (8.5/10) escort does not hurry a Tug Class II tow of a Danube; an escort slower than the tug slows it (escort handling was already right on a7e56d2; this fails there only through A3 — the Danube\'s own 3/10 capped the tow at 0.60×)', () => {
   const fast = scenario('TA-8a', { hulkAt: IDX.Minor, tugAt: IDX.Minor, escorts: [K.defiant.id] });
   const rf = request(fast, { yard: IDX.Vega }).record;
   assert.equal(C.journeyById(fast.book, rf.inbound.journeyId).speed, 0.64);
@@ -508,18 +509,42 @@ test('preservation', 'R32. no persistent vessel duplication: across a recovery, 
 // The lifecycle record (A6)
 // ===================================================================================================
 test('baseline-defect', 'LIFECYCLE. one record carries the brief\'s phases from request to back in service: recovery_asset_en_route → tow_attached/towing → in_yard → repairing → recrew_if_required → complete (on a7e56d2 the record stopped at the yard gate)', () => {
-  const env = scenario('TA-L', { crew: 'rescued', hulk: K.galaxy.id });
+  const env = scenario('TA-L', { crew: 'rescued', hulk: K.galaxy.id, maxHull: 40000 });
   env.book.config.crewRecoveryPerDay = 0.1;
   const rec = request(env, { yard: IDX.Earth }).record;
   const phases = [];
   const note = () => { const p = REC.recoveryPhase ? REC.recoveryPhase(rec) : rec.state; if (phases.at(-1) !== p) phases.push(p); };
   note();
   for (let d = 2; d < 260 && phases.at(-1) !== 'complete'; d++) { run(env.book, env.world, d, d); note(); }
-  // The record's own phase log (a phase passed within one day is in it).
-  for (const x of rec.after?.history || []) if (!phases.includes(x.phase)) phases.splice(phases.indexOf('in_yard') + 1, 0, x.phase);
+  // 'repairing' observed on its own days, while she was still disabled and in the yard (not the one-day entry).
+  assert.ok((rec.after?.history || []).filter((x) => x.phase === 'repairing').every((x) => x.day < (rec.after.history.find((y) => y.phase === 'recrew_if_required')?.day ?? Infinity)), JSON.stringify(rec.after?.history));
   log.lifecycle = { phases, after: rec.after };
   for (const p of ['recovery_asset_en_route', 'towing', 'in_yard', 'repairing', 'recrew_if_required', 'complete']) assert.ok(phases.includes(p), `missing ${p}: ${phases.join(' → ')}`);
   assert.ok(rec.completedDay > rec.endedDay);
+});
+
+test('new-feature', 'LIFECYCLE-LEFT-YARD. delivered, then the yard lost before the repair: the first record ends left_yard; a second recovery takes her to another yard; only the second record reaches complete (one hull back in service, counted once)', () => {
+  const env = scenario('TA-LY', { hulk: K.galaxy.id, maxHull: 40000 });
+  const r1 = request(env, { yard: IDX.Vega }).record;
+  const end1 = until(env, r1, ENDS, 2);
+  assert.equal(r1.state, 'delivered_to_yard');
+  env.world.systems[IDX.Vega].controller = 'klingon';
+  run(env.book, env.world, end1 + 1, end1 + 3);
+  assert.equal(REC.recoveryPhase(r1), 'left_yard');
+  const [t2] = make(env, 'terran', K.oberth.id, IDX.Earth);
+  const r2 = C.requestHullRecovery(env.book, env.world, { sponsor: 'terran', targetHullId: env.h.id, tugHullId: t2.id, yard: IDX.Earth }, end1 + 4, []).record;
+  assert.ok(r2, 'no second recovery');
+  for (let d = end1 + 5; d < end1 + 400 && REC.recoveryPhase(r2) !== 'complete'; d++) run(env.book, env.world, d, d);
+  assert.equal(REC.recoveryPhase(r2), 'complete'); assert.equal(REC.recoveryPhase(r1), 'left_yard');
+  assert.equal(env.book.stats.recovery.returnedToService, 1);
+});
+test('new-feature', 'LIFECYCLE-PRUNE. a delivered record still following its hull through the yard is not pruned as history', () => {
+  const env = scenario('TA-LP', { hulk: K.galaxy.id, maxHull: 40000 });
+  env.book.config.recoveryHistoryKept = 0;
+  const r = request(env).record;
+  until(env, r, ENDS, 2);
+  run(env.book, env.world, env.book.settled + 1, env.book.settled + 3);
+  assert.ok(env.book.hullRecoveries.includes(r), 'pruned before the hull was back in service');
 });
 
 // ===================================================================================================

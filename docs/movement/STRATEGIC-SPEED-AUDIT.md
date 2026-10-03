@@ -52,7 +52,7 @@ speed, its ETA would disagree with the arrival day. The gates and the long run c
 | 20 | **`fastestRoutesFrom` / route topology** | FIXED-TIME | The route itself never depends on the ship: the same systems and the same legs (pure 2). Only the days differ. |
 | 21 | **ambient NPC traffic in the loaded scene** | FIXED-TIME (not timed) | Scene physics, not a strategic journey. |
 | 22 | **`getRouteCosts`** | n/a | Not called by anything (dead code). Left unchanged. |
-| 23 | **stranded-hull recovery movement** | NEW MODEL (TOWING-SALVAGE-RECOVERY) | The tug's outbound journey is at its group's speed; the tow is at `towSpeed = clamp(min(group, towed frame) × 0.7, 0.4, 1.0)` (`journeySpeed`), never through a fixed traversal. |
+| 23 | **stranded-hull recovery movement** | NEW MODEL (TOWING-SALVAGE-RECOVERY) | The tug's outbound journey is at its group's speed; the tow is at `towSpeed = clamp(towing group × 0.7, 0.4, 1.0)` (`journeySpeed`; the casualty's own rating was dropped from it in the towing audit round, TOWING-SALVAGE-RULES.md §5), never through a fixed traversal. |
 | 24 | **damage-based speed** | DEFERRED | The engine has no reliable engine-condition state, only operational / damaged / disabled from hull fraction. A ship is either able to travel or not. A disabled ship cannot travel (it is refused for an evacuation, skipped by planners, and excluded from a group's pace). A reduced-speed penalty for damaged-but-able ships waits for a real engine subsystem. |
 | 25 | **`campaign legs N` debug override** | FIXED-TIME base | It replaces the chart's base days with N. Speed still applies on top. It is a labelled debug override and is never saved. |
 

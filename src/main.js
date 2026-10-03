@@ -10548,6 +10548,10 @@ function requestPlayerRecovery(fleetId, tugId = null) {
   const pick = tugId ? opts.find((o) => String(o.f.id) === String(tugId)) : opts.find((o) => o.plan.ok);
   const target = (state.playerFleet || []).find((f) => String(f.id) === String(fleetId));
   if (tugId && (!pick || !pick.plan.ok)) { setLog(`No recovery: ${pick?.plan?.reason || 'that ship cannot tow her'}.`); return { ok: false, reason: pick?.plan?.reason || 'no recovery vessel' }; }
+  // A free ship that could tow her but cannot get her anywhere (no route, no yard a tow can reach): that is the
+  // reason, not a missing vessel, and waiting for a vessel would not answer it.
+  const blocked = !pick?.plan?.ok ? playerRecoveryBlocked(opts) : null;
+  if (blocked) { setLog(`No recovery: ${blocked}.`); return { ok: false, reason: blocked }; }
   if (!pick || !pick.plan.ok) {
     const w = runStrategicCommand((book, world, effects) => Campaign.requestHullRecoveryWaiting(book, world, { sponsor: PLAYER_SIDE, targetHullId: `pf:${fleetId}`, requestedBy: 'player' }, state.day, effects));
     setLog(w.ok ? `Recovery requested — ${target?.name || 'vessel'} · No recovery vessel available.` : `No recovery: ${w.reason}.`);
@@ -10619,7 +10623,12 @@ function playerSalvageSection(btn) {
   }).join('');
   return `<h3>Hulks in sight</h3>${rows}`;
 }
-// TOWING-SALVAGE-RULES §9: concise, no explanation.
+// The reason a recovery cannot be planned when a free ship of his IS able to tow her (route, yard, claim), or null.
+function playerRecoveryBlocked(opts) {
+  const capable = opts.find((o) => !o.plan.ok && o.plan.capacity == null && !/not free|cannot take anything in tow|can tow a hull of mass|escort/.test(o.plan.reason || ''));
+  return capable ? capable.plan.reason : null;
+}
+// TOWING-SALVAGE-RULES §10: concise, no explanation.
 function playerRecoveryLine(f) {
   const rec = playerRecoveryFor(f.id);
   const nm = (i) => state.planets[Number(i)]?.name || `system ${i}`;
@@ -10635,6 +10644,8 @@ function playerRecoveryLine(f) {
   if (done) return `In yard at ${nm(done.yard)} — awaiting repair`;
   const best = playerRecoveryOptions(f.id).find((o) => o.plan.ok);
   if (best) return `Recovery vessel: ${best.f.name} · ETA: ${best.plan.outboundDays} days · Tow to: ${nm(best.plan.yard)}`;
+  const blocked = playerRecoveryBlocked(playerRecoveryOptions(f.id));
+  if (blocked) return `No recovery: ${blocked}`;
   return `No recovery vessel available (needs tow capacity ${Recovery.towRequirement(getShipStats(f.shipId))})`;
 }
 function assignPlayerEscorts(id, fleetIds) { return runStrategicCommand((book, world, effects) => Campaign.assignEvacuationEscorts(book, world, id, (fleetIds || []).map((x) => `pf:${x}`), state.day, effects)); }
@@ -11336,8 +11347,9 @@ function renderRecoveryDebug() {
     const route = r.inbound ? `out ${r.outbound ? r.outbound.route.map(nm).join(' → ') : '(on scene)'}<br>tow ${r.inbound.route.map(nm).join(' → ')}` : r.outbound ? `out ${r.outbound.route.map(nm).join(' → ')}` : '—';
     const phase = Recovery.recoveryPhase(r);
     // ETA: the next thing due — the vessel on scene, the tow at the yard — from the live journey or the plan.
-    const eta = r.awaitingAsset != null ? '—' : ['assigned', 'en_route_to_hulk'].includes(r.state) ? `on scene day ${r.outbound?.eta ?? r.plan?.arriveDay ?? '?'}` : ['attached', 'towing'].includes(r.state) ? `yard day ${tr && r.inbound ? tr.etaDay : r.plan?.deliverDay ?? '?'}` : r.state === 'delivered_to_yard' ? `delivered day ${r.endedDay}` : '—';
-    const blocker = r.awaitingAsset != null ? `no recovery vessel free (since day ${r.awaitingAsset})` : r.waitingSince != null ? `holding since day ${r.waitingSince}: ${r.waitReason || ''}` : '—';
+    const waitingNow = r.awaitingAsset != null && r.state === 'requested';
+    const eta = waitingNow ? '—' : ['assigned', 'en_route_to_hulk'].includes(r.state) ? `on scene day ${r.outbound?.eta ?? r.plan?.arriveDay ?? '?'}` : ['attached', 'towing'].includes(r.state) ? `yard day ${tr && r.inbound ? tr.etaDay : r.plan?.deliverDay ?? '?'}` : r.state === 'delivered_to_yard' ? `delivered day ${r.endedDay}` : '—';
+    const blocker = waitingNow ? `no recovery vessel free (since day ${r.awaitingAsset})` : r.waitingSince != null ? `holding since day ${r.waitingSince}: ${r.waitReason || ''}` : '—';
     const tugCell = r.tug ? `<code>${escapeHtml(r.tug.vid)}</code> ${cls(r.tug.shipId)}${r.escorts.length ? `<div class="meta">+ ${r.escorts.length} escort(s)</div>` : ''}` : '<span class="meta">none yet</span>';
     const towRule = r.inbound ? `${r.inbound.towSpeed}× <div class="meta">group ${r.plan?.groupSpeed ?? '?'}× × ${book.config.towPenalty ?? 0.7}</div>` : r.plan ? `(${r.plan.towSpeed}× planned)<div class="meta">group ${r.plan.groupSpeed}× × ${book.config.towPenalty ?? 0.7}</div>` : '—';
     const after = r.state === 'delivered_to_yard' && r.after ? `<div class="meta" data-recovery-after>${escapeHtml(r.after.history.map((x) => `${x.phase} d${x.day}`).join(' → '))}</div>` : '';

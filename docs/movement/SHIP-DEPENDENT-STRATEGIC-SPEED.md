@@ -440,8 +440,9 @@ RESCUE-FEASIBILITY (Vulcan Light Cruiser sent and on time; Vulcan Warpship refus
 
 Kept explicitly, unchanged by this round:
 
-1. towing/salvage + stranded-hull recovery movement (the tow pace is still `clamp(min(group, towed) × 0.7, 0.4,
-   1.0)` of the rated speeds)
+1. towing/salvage + stranded-hull recovery movement (the tow pace was then `clamp(min(group, towed) × 0.7, 0.4,
+   1.0)` of the rated speeds; superseded by the audit round: `clamp(towing group × 0.7, 0.4, 1.0)`, see
+   TOWING-SALVAGE-RULES.md §5)
 2. trader record-shape consolidation
 3. basing staging/docking consumption
 4. DMZ stationing/loitering breach handling

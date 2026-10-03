@@ -53,7 +53,12 @@ One persistent record per recovery (`book.hullRecoveries`), stable id `<seed>:to
 | `repairing` | (same) | the yard's repair is raising the hull | `recrew_if_required` or `complete` | — |
 | `recrew_if_required` | (same) | repaired out of the disabled band, crew rescued or lost: repaired-awaiting-crew | `complete` the day the complement is reached | — |
 | `complete` | (same) | back in service: same hull, same vid | — | — |
+| `left_yard` | (same) | still disabled and out of this yard's hands (the yard lost: back in the open), or another recovery has her; this record ends there and a new recovery's record follows her | — | as it is |
 | `aborted` / `failed` / `lost_after_delivery` | — | as above; the casualty lies where it was let go | — | — |
+
+A delivered record still following its hull is not pruned as history until its phase is final (`complete`,
+`lost_after_delivery`, `left_yard`). A repair that lifts the hull out of the disabled band within one yard day
+still records `repairing` that day.
 
 **Deadline.** Only where physically meaningful:
 - the crew's life-support clock (stopped while the tug carries them);
@@ -223,7 +228,9 @@ gets the engine's class loadout snapshot. That is a known limit (audit §4).
 
 **Fleet vessels.** Each disabled vessel's row:
 - before a request: `Recovery vessel: Tug Atlas · ETA: 22 days · Tow to: Vulcan`, or
-  `No recovery vessel available (needs tow capacity 2)`;
+  `No recovery vessel available (needs tow capacity 2)`, or — a ship of his could tow her but cannot get her
+  anywhere — `No recovery: no yard a tow can reach` (then the request is refused, not kept: waiting for a
+  vessel would not answer it);
 - requested: `Recovery requested — USS Hood · Recovery vessel: Tug Atlas · ETA: 22 days · Tow to: Vulcan`, or
   `Recovery requested — No recovery vessel available`;
 - towing: `Tug Atlas towing USS Hood → Vulcan · arrives day 43`;
@@ -304,5 +311,5 @@ Each of the brief's 32 regressions is mapped to a check:
 
 **Integrated scenarios:**
 - STRANDED-HULL-RECOVERY and TOW-UNDER-INTERDICTION are pure;
-- SALVAGE-PRIZE-HULL is pure and in-game;
+- SALVAGE-PRIZE-HULL is pure (AI salvager, preservation) and in-game (the captain's prize, A2 baseline-defect);
 - the lifecycle is in LIFECYCLE.

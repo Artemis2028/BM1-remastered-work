@@ -38,6 +38,7 @@ export const RECOVERY_PHASES = Object.freeze([
   'recrew_if_required',       // structurally repaired, waiting for a crew (crew rescued or lost)
   'complete',                 // back in service: same hull, same vid
   'aborted', 'failed', 'lost_after_delivery',
+  'left_yard',                // out of this yard's hands before repair (yard lost): this record ends; a new recovery takes over
 ]);
 export function recoveryPhase(rec) {
   if (!rec) return null;
@@ -53,8 +54,12 @@ export function recoveryPhase(rec) {
 }
 // The yard phase of a delivered hull, read off the hull itself. hull: its record (or null if gone);
 // facts: { disabled, inYard (the yard's recovery has it), awaitingCrew, lost, startHull }.
+export const YARD_FINAL = Object.freeze(['complete', 'lost_after_delivery', 'left_yard']);
 export function yardPhase(f) {
   if (f.lost) return 'lost_after_delivery';
+  // Still disabled and no longer in the yard's hands (the yard lost, back in the open; or another recovery
+  // has her): this delivery is over. A later recovery's record follows her from here, not this one.
+  if (f.disabled && (!f.inYard || f.otherClaim)) return 'left_yard';
   if (f.awaitingCrew) return 'recrew_if_required';
   if (!f.disabled) return 'complete';
   if (f.inYard && Number(f.hull) > Number(f.startHull)) return 'repairing';

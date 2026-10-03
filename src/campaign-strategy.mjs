@@ -4906,9 +4906,13 @@ export function advanceHullRecoveries(book, world, day, effects = []) {
   // After delivery the record follows the same hull through the yard: in yard → repairing → (awaiting crew) →
   // back in service, or lost. It never moves or repairs anything itself; it reads the hull.
   for (const rec of recoveryBook(book)) {
-    if (rec.state !== 'delivered_to_yard' || !rec.after || ['complete', 'lost_after_delivery'].includes(rec.after.phase)) continue;
+    if (rec.state !== 'delivered_to_yard' || !rec.after || REC.YARD_FINAL.includes(rec.after.phase)) continue;
     const h = hullOf(book, rec.sponsor, rec.target.hullId);
-    const phase = REC.yardPhase({ lost: !h, disabled: Boolean(h) && hullIsDisabled(h), awaitingCrew: Boolean(h?.recrew), inYard: rec.sponsor === 'player' ? true : ['recovering', 'in_yard'].includes(h?.stranded?.recovery), hull: h?.hull, startHull: rec.after.startHull });
+    const claim = h ? liveRecoveryClaim(book, h) : null;
+    // In this yard's hands: the AI's yard intake has her; the captain's vessel still lies at the yard she was
+    // delivered to.
+    const inYard = rec.sponsor === 'player' ? Number(h?.systemIndex) === Number(rec.yard) && !h?.transit : ['recovering', 'in_yard'].includes(h?.stranded?.recovery);
+    const phase = REC.yardPhase({ lost: !h, disabled: Boolean(h) && hullIsDisabled(h), awaitingCrew: Boolean(h?.recrew), inYard, otherClaim: Boolean(claim && claim.id !== rec.id), hull: h?.hull, startHull: rec.after.startHull });
     if (phase !== rec.after.phase) {
       // Repaired out of the disabled band within one yard day: the repair still happened, that day.
       if (rec.after.phase === 'in_yard' && ['recrew_if_required', 'complete'].includes(phase)) rec.after.history.push({ day: Number(day), phase: 'repairing' });
@@ -4931,7 +4935,8 @@ export function advanceHullRecoveries(book, world, day, effects = []) {
     book.derelicts = derelicts.filter((d) => !breakUp.has(d));
   }
   // Closed missions are history: the newest are kept for the record, the rest are let go (open ones never are).
-  const closed = recoveryBook(book).filter((r) => !REC.recoveryOpen(r));
+  // A delivered record still following its hull through the yard is not history yet.
+  const closed = recoveryBook(book).filter((r) => !REC.recoveryOpen(r) && !(r.state === 'delivered_to_yard' && r.after && !REC.YARD_FINAL.includes(r.after.phase)));
   if (closed.length > (c.recoveryHistoryKept ?? 60)) { const drop = new Set(closed.slice(0, closed.length - (c.recoveryHistoryKept ?? 60))); book.hullRecoveries = recoveryBook(book).filter((r) => !drop.has(r)); }
   if (c.aiRecovery !== false) planAiRecoveries(book, world, day, effects);
 }

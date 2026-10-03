@@ -89,28 +89,29 @@ const { startProbe } = require('./probe-harness.cjs');
       btn?.click();
       document.querySelectorAll('dialog[open]').forEach((d) => d.close());
       const pending = { cond: b.personalCondition, recoveryAt: s.recoveryAt > 0 };
-      // Pointed at the fleet vessel's id: still the personal vessel only (it takes no vessel).
-      const second = t.recoverDisabledPlayer('Hood');
+      const second = null;
       return { label, vid0, debt0, rec0, jr0, fleetHull0, pending, second, npcId: npc?.id || null, aiId: ai.id, aiHull0: ai.hull, actorId: actor?.id || null, here };
     });
     // 5 seconds of game time, then a few frames.
     // 5 seconds of game time pass: the engine's own per-frame tick, for the personal ship and every disabled actor in
     // the scene (the fleet vessel, the NPC), at the same game time.
     await ev((p) => { const t = testBM1, s = t.state; const c = t.playtestClock; c.offset -= 5200; const now = (c.stoppedAt ?? performance.now()) - c.offset;
-      t.tickDisabledVessel(null, now); for (const n of s.npcShips) if (n.condition === 'disabled') t.tickDisabledVessel(n, now); }, r);
+      t.tickDisabledVessel(null, now); for (const n of s.npcShips) if (n.condition === 'disabled') t.tickDisabledVessel(n, now);
+      // The personal ship now operational: the call, even aimed at the disabled fleet vessel, has nothing to do.
+      window.__aimed = t.recoverDisabledPlayer('Hood'); }, r);
     const r2 = await ev((p) => {
       const t = testBM1, s = t.state, b = t.fleetBook(), book = t.campaign();
       const npc = p.npcId ? s.npcShips.find((n) => n.id === p.npcId) : null;
       const ai = book.polities.terran.hulls.find((h) => h.id === p.aiId);
-      return { cond: b.personalCondition, vid: t.ensurePersonalIdentity().vid, debt: b.debt, rescueBills: (b.ledger || []).filter((x) => x.kind === 'rescue').length,
+      return { aimed: window.__aimed, cond: b.personalCondition, vid: t.ensurePersonalIdentity().vid, debt: b.debt, rescueBills: (b.ledger || []).filter((x) => x.kind === 'rescue').length,
         recs: (book.hullRecoveries || []).length, journeys: (book.journeys || []).length, fleetCond: t.fleetVesselCondition(window.__f('Hood')), fleetHull: window.__f('Hood').vessel.hull,
         npcCond: npc ? npc.condition : null, aiDisabled: t.Campaign.hullIsDisabled(ai), aiAt: ai.systemIndex, aiHull: ai.hull, aiStranded: ai.stranded?.recovery || null };
     }, r);
     evidence.push({ check: 'EMERGENCY', before: r, after: r2 });
     assert.equal(r.pending.recoveryAt, true, 'no emergency recovery started');
-    assert.equal(r.second, false, 'a second call (aimed at the fleet vessel) did something');
     assert.equal(r2.cond, 'operational', 'the personal ship did not recover after 5 seconds');
     assert.equal(r2.vid, r.vid0, 'the personal vid changed');
+    assert.equal(r2.aimed, false, 'aimed at the disabled fleet vessel, the emergency recovery acted');
     assert.ok(r2.debt > r.debt0, `no rescue debt (${r.debt0} → ${r2.debt})`); assert.ok(r2.rescueBills >= 1);
     assert.equal(r2.recs, r.rec0, 'a recovery record was created'); assert.equal(r2.journeys, r.jr0, 'a journey was created');
     assert.equal(r2.fleetCond, 'disabled', 'the fleet vessel was repaired by the personal exception');
