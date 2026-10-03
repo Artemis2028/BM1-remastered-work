@@ -115,7 +115,7 @@ The `hullSalvagedToPlayer` effect is built *after* that and reads `h.hull`, so i
 `adoptSalvagedToPlayer` then sets the adopted vessel to `max(1, 0)`.
 - Reproduction: the Klingon hulk at 5% (49/990) becomes the captain's at 1/990.
 - A derelict is not affected (`transferHullOut` skips lost records).
-- Brief §13 ("actual damage") fails for the captain's salvage. Reproduced in game (SALVAGE-PRIZE-HULL: 1/239 against 0.046 as she lay on a7e56d2); the pure R23/R24 uses an AI salvager, which was already right.
+- Brief §13 ("actual damage") fails for the captain's salvage. Reproduced in game (SALVAGE-PRIZE-HULL: 1/2804 against 0.050 as she lay on a7e56d2); the pure R23/R24 uses an AI salvager, which was already right.
 
 ### A3 — the tow is limited by the casualty's own warp rating (NEEDS CORRECTION)
 

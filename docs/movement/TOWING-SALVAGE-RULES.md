@@ -322,14 +322,14 @@ scripts).
 | suite | candidate | a7e56d2 (baseline reproduction) |
 |---|---|---|
 | `test:towing:audit` (pure) | **32/32** (baseline-defect 8/8, new-feature 4/4, preservation 20/20) | 21/32: every baseline-defect check fails on its own assertion, the new-feature checks fail, and preservation is 20/20 |
-| `test:towing:audit:ingame` | **6/6** | 2/6: baseline-defect 0/2 (NO-VESSEL-WAITS: "No recovery vessel free that can tow her"; SALVAGE-PRIZE-HULL: 1/239 against 0.046 as she lay), the labels and lines fail, and preservation 2/2 (the emergency exception and the shared blockade run hold on both) |
+| `test:towing:audit:ingame` | **6/6** | 2/6: baseline-defect 0/2 (NO-VESSEL-WAITS: "No recovery vessel free that can tow her"; SALVAGE-PRIZE-HULL: 1/2804 against 0.050 as she lay), the labels and lines fail, and preservation 2/2 (the emergency exception and the shared blockade run hold on both) |
 | `test:towing` / `test:towing:ingame` | 29/29 · 4/4 | — |
 | speed, treaty, handoff, movement, time-scale, disabled-hull suites | green, unchanged | — |
 
 **Long run**, 400 days of the default campaign on one seed (`measure:towing`, `fresh('tow-longrun')`; not a
 balance claim):
 
-| measure | candidate (bbf49d3 code) | a7e56d2 |
+| measure | candidate | a7e56d2 |
 |---|---|---|
 | hulls ever stranded / most at once | 17 / 8 | 17 / 8 |
 | recovery requests / vessels assigned | 8 / 8 | 8 / 8 |
@@ -348,7 +348,7 @@ balance claim):
 | lowest ready hulls per power | identical on both trees | |
 | crewless hulls back in action / duplicate identities | 0 / 0 | 0 / 0 |
 | waiting requests (the captain's only) | 0 | — |
-| save / recovery state (bytes) | 992,445 / 15,043 | 982,813 / 13,312 |
+| save / recovery state (bytes) | 992,435 / 15,043 | 982,813 / 13,312 |
 | AI skips | 141 (94 no vessel able to tow it, 23 below value, 20 too far, 4 none free) | 135 |
 
 **Watch items:**
