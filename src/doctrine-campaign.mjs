@@ -24,7 +24,7 @@
 import * as D from './doctrine-runtime.mjs';
 import { seededUnit, applicableBlockadesAt, resolveBlockadeRun, shortestRoute, strategicAssignments, warAuthorityStamp, warAuthorityHolds, rescueStrandedCrew, hullIsDisabled, hullAwaitingCrew, localDefenseStrength, raidStrikeDay, standDownOperation, hullStrength,
   startJourney, stepJourney, journeyById, registerJourneyKind, legDaysBetween, routeLegDaysFor, defendingHullsAt, encounterHullLookup, fellBackToday, settleAbandonedHandoff, hullSpeed, hullsSpeed,
-  plotJourney, treatyBarred, treatyBarredAt, trafficClassOf, transitGuaranteeAt, treatyBook } from './campaign-strategy.mjs';
+  plotJourney, treatyBarred, accessAt, treatyBarredAt, trafficClassOf, transitGuaranteeAt, treatyBook } from './campaign-strategy.mjs';
 import * as J from './strategic-journey.mjs';
 import * as SE from './strategic-encounter.mjs';
 import { classifyDamage } from './ship-fleet.mjs';
@@ -770,6 +770,10 @@ function realignItinerary(world, a, h, day) {
 }
 // The doctrine owner of a journey: what the assignment makes of each crossing and of each end.
 registerJourneyKind('doctrine', {
+  // What it carries, for a treaty inspection at a crossing: the assignment's own manifest (the one cargo record a
+  // delivery has in flight — a pirate's seizure empties it). Before ARCHITECTURE-CLEANUP every doctrine freighter
+  // was inspected with an empty manifest: the journey carried no cargo and the kind had no cargo hook.
+  cargo(book, tr) { const a = assignmentOfJourney(book, tr); return (a?.cargo?.manifest || []).map((m) => ({ cargoId: m.cargoId, quantity: m.quantity ?? null, concealed: Boolean(m.concealed) })); },
   // Every vessel aboard still has an active doctrine job (its charge's, or its own escort job).
   keep(book, tr, h) { return Boolean(activeAssignmentFor(doctrineBook(book), h.id)); },
   role(book, tr, h) { const a = assignmentOfJourney(book, tr); return a && h.id === a.hullId ? a.doctrineRole : 'escort'; },
@@ -1668,6 +1672,9 @@ function formPatrols(doctrine, book, world, db, day, effects, gen) {
     const h = liveHull(book, pat.polity, pat.hullId);
     if (!h) { endPatrol(db, pat, day, 'vessel lost'); continue; }
     if (hullIsDisabled(h)) { endPatrol(db, pat, day, 'vessel disabled'); continue; }
+    // Its base is still its base: a world of its own power where its warships may stay. An anchor lost, or one a
+    // DMZ now bars it from staying at, ends the patrol — transit rights never make a home base (ARCHITECTURE-CLEANUP §8).
+    if (pat.status === 'patrolling' && !activeAssignmentFor(db, h.id)) { const why = patrolBaseRefusal(book, world, pat.polity, pat.anchor); if (why) { endPatrol(db, pat, day, why); bump(db, 'patrolsEndedNoBase'); continue; } }
     if (pat.status === 'patrolling' && !activeAssignmentFor(db, h.id) && !h.opId && h.status === 'ready') issuePatrolCycle(book, world, db, pat, day, effects);
   }
   for (const [polity, n] of Object.entries(c.patrolAreas || {})) {
@@ -1696,7 +1703,8 @@ export function startAreaPatrol(book, world, polity, hullId, anchor, day, effect
   const db = doctrineBook(book);
   const h = liveHull(book, polity, hullId);
   if (!h || hullIsDisabled(h) || h.opId || h.status !== 'ready') return { ok: false, reason: 'the vessel is not free' };
-  if (world.systems[Number(anchor)]?.controller !== polity) return { ok: false, reason: 'a patrol area is anchored on a world of its own power' };
+  const why = patrolBaseRefusal(book, world, polity, anchor);
+  if (why) return { ok: false, reason: why };
   const id = nid(book, db, 'pat');
   const pat = db.patrols[id] = { id, polity, hullId: h.id, vid: vidOf(h), anchor: Number(anchor), area: patrolArea(world, polity, anchor, db.config.patrolAreaMaxLegDays), status: 'patrolling', formedDay: day, cycles: 0, next: 0, responses: [], endedDay: null, endReason: null };
   bump(db, 'patrolsFormed');
@@ -1704,8 +1712,17 @@ export function startAreaPatrol(book, world, polity, hullId, anchor, day, effect
   if (!r.ok) { endPatrol(db, pat, day, r.reason); return { ok: false, reason: r.reason }; }
   return { ok: true, patrol: pat };
 }
+// A patrol's home base: a world of its own power where its warships may stay. Transit rights never make one.
+function patrolBaseRefusal(book, world, polity, anchor) {
+  if (world.systems[Number(anchor)]?.controller !== polity) return 'a patrol area is anchored on a world of its own power';
+  const a = accessAt(book, world, polity, Number(anchor), 'military');
+  if (!a.staging.ok) return a.staging.reason;
+  return null;
+}
 function issuePatrolCycle(book, world, db, pat, day, effects) {
-  const out = pat.area.filter((i) => i !== pat.anchor);
+  // A station it would dwell at must be one its warships may stay at (a DMZ's stationing ban, unless a staging right
+  // lifts it): a patrol passes through such a system on a route at most, it never holds there.
+  const out = pat.area.filter((i) => i !== pat.anchor && accessAt(book, world, pat.polity, i, 'military').staging.ok);
   const stops = [];
   if (out.length) { const nb = out[pat.next % out.length]; pat.next++; stops.push({ systemIndex: nb, dwell: patrolStationDays(world, db.config, pat.anchor, nb, db.config.patrolAreaDwellDays, hullSpeed(world, liveHull(book, pat.polity, pat.hullId))), milestone: 'arrival' }); }
   stops.push({ systemIndex: pat.anchor, dwell: db.config.patrolAreaDwellDays, milestone: 'check_in' });
@@ -3612,7 +3629,9 @@ function treatyStandDown(book, world, db, day) {
     if (a.status !== 'active' || trafficClassOf('doctrine', a.kind) !== 'military' || a.kind === 'return') continue;
     const h = liveHull(book, a.polity, a.hullId);
     if (!h || h.transit || h.opId !== a.id) continue;
-    if (!treatyBarredAt(book, a.polity, 'military', h.systemIndex, day)) continue;
+    // Standing there (not in warp): a zone it may not cross, or one it may cross but not stay in (a stationing ban
+    // with no staging right). Its job ends there; the DMZ's own day then sends it out by an ordinary journey.
+    if (!treatyBarredAt(book, a.polity, 'military', h.systemIndex, day) && accessAt(book, world, a.polity, h.systemIndex, 'military', day).staging.ok) continue;
     endAssignment(db, book, a, day, 'aborted', 'treaty: stood down inside a demilitarised zone');
     treatyBook(book).stats.treaty.doctrineStoodDown++;
   }

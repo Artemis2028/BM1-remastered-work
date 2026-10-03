@@ -156,13 +156,24 @@ export function termKnownTo(t, polity) { return termVisibleTo(t, polity); }
 export function incidentVisibleTo(x, viewer) { return viewer === 'debug' || (x?.knownTo || []).includes(viewer); }
 
 // ---- scope predicates ----
-// Does this DMZ restrict this party's traffic of this class?
-export function dmzRestricts(t, polity, cls) {
+// Does this DMZ restrict this party's traffic of this class? Two separate questions (ARCHITECTURE-CLEANUP §4):
+//   transit    — may it enter or cross the zone at all (routing, crossings);
+//   stationing — may it stop, hold or stay there (the daily presence check, withdrawal and grace).
+// A DMZ may ban one and not the other ("military stationing prohibited", transit allowed), and a transit
+// guarantee lifts only transit: passing through is not parking a fleet there. dmzRestricts is either one.
+export function dmzRestrictsTransit(t, polity, cls) {
   if (!t || t.type !== 'dmz' || !(t.restricted || []).includes(polity)) return false;
   if (cls === 'recovery') return t.recovery === 'prohibited';
   if (cls === 'civilian') return t.civilian === 'prohibited';
-  return t.restrict?.transit !== false || t.restrict?.stationing !== false;
+  return t.restrict?.transit !== false;
 }
+export function dmzRestrictsStationing(t, polity, cls) {
+  if (!t || t.type !== 'dmz' || !(t.restricted || []).includes(polity)) return false;
+  if (cls === 'recovery') return false; // a tow or a tug at work is a recovery, never a garrison
+  if (cls === 'civilian') return t.civilian === 'prohibited';
+  return t.restrict?.stationing !== false || t.restrict?.transit !== false;
+}
+export function dmzRestricts(t, polity, cls) { return dmzRestrictsTransit(t, polity, cls) || dmzRestrictsStationing(t, polity, cls); }
 // Whether a guarantee's traffic scope names this class. Recovery traffic (a tug, a tow) is covered by a guarantee
 // that names `recovery`, and — as before — by one that names `military` (TOWING-SALVAGE-AUDIT A10: a guarantee
 // naming only `recovery` used to cover no recovery traffic at all).
@@ -286,7 +297,7 @@ export function parseClause(text, ctx) {
 const L = (n) => `${Math.round(Number(n) || 0).toLocaleString('en-US')} L`;
 export function termHeadline(t, name = (x) => x) {
   switch (t.type) {
-    case 'dmz': return `DMZ — ${t.restrict?.transit !== false ? 'Military transit prohibited' : 'Military stationing prohibited'}${t.civilian === 'allowed' ? '; civilian traffic allowed' : '; civilian traffic prohibited'}`;
+    case 'dmz': return `DMZ — ${t.restrict?.transit !== false ? 'Military transit prohibited' : 'Military stationing prohibited; transit permitted'}${t.civilian === 'allowed' ? '; civilian traffic allowed' : '; civilian traffic prohibited'}`;
     case 'transit': return `Transit guaranteed under treaty (${name(t.grantor)} → ${name(t.beneficiary)})`;
     case 'basing': return `Basing rights: ${t.purposes.join(', ')} (${name(t.host)} hosts ${name(t.guest)})`;
     case 'inspection': return `Inspection required: ${t.traffic.join('/')}${t.hullCategories.length ? ` ${t.hullCategories.join('/')}` : ''} traffic of ${name(t.inspected)} (by ${name(t.inspector)})`;

@@ -169,7 +169,7 @@ const { startProbe } = require('./probe-harness.cjs');
   });
 
   // 4 ---------------------------------------------------------------------------------------------
-  await check('new-feature', 'BASING-REPAIR at Oce Nu the Klingon yard refuses to repair the captain\'s damaged ship; basing rights for repair are granted; the same Repair hull now works, paid as any repair; Oce Nu, its stations\' owners and the shipyard sale status are unchanged', async () => {
+  await check('new-feature', 'BASING-REPAIR at Oce Nu the Klingon yard refuses to repair the captain\'s damaged ship; basing rights for repair alone do not take him past the closed checkpoint (cleanup round); with docking rights too the same Repair hull now works, paid as any repair; Oce Nu, its stations\' owners and the shipyard sale status are unchanged', async () => {
     const r = await ev(() => {
       const t = testBM1, s = t.state;
       const N = window.__idx('Oce Nu');
@@ -187,18 +187,23 @@ const { startProbe } = require('./probe-harness.cjs');
       const refused = t.repairFleetVessel(rec.id);
       const afterRefusal = a.combatHull;
       const id = window.__term({ type: 'basing', host: 'klingon', guest: 'player', systems: [N], purposes: ['repair', 'resupply'] });
+      // ARCHITECTURE-CLEANUP: a repair right is the right to be repaired, not to dock past a closed checkpoint —
+      // Oce Nu's is closed to him, so the docking right is a separate term.
+      const repairOnly = t.fleetServiceAllowed(a, true, 'repair');
+      const dockId = window.__term({ type: 'basing', host: 'klingon', guest: 'player', systems: [N], purposes: ['docking'] });
       const allowedNow = t.fleetServiceAllowed(a, true, 'repair');
       const saleAllowed = t.fleetServiceAllowed(a, true); // no service named: sales, refits — basing grants none of them
       const lat0 = s.latinum;
       const repaired = t.repairFleetVessel(rec.id);
       const owners2 = (s.stationDefinitions || []).filter((d) => Number(d.systemIndex) === N).map((d) => d.owner ?? d.faction ?? null);
       t.renderFleetManager(true);
-      return { before, refused, afterRefusal, id, allowedNow, saleAllowed, repaired, hull: a.combatHull, max: a.maxCombatHull, paid: lat0 - s.latinum, controller: t.buildCampaignWorld(true).systems[N].controller, ownersSame: JSON.stringify(owners) === JSON.stringify(owners2), rec: rec.id };
+      return { before, refused, afterRefusal, id, dockId, repairOnly, allowedNow, saleAllowed, repaired, hull: a.combatHull, max: a.maxCombatHull, paid: lat0 - s.latinum, controller: t.buildCampaignWorld(true).systems[N].controller, ownersSame: JSON.stringify(owners) === JSON.stringify(owners2), rec: rec.id };
     });
     evidence.basing = r;
     assert.ok(!r.fail, r.fail);
     assert.equal(r.refused, false, 'the Klingon yard repaired without basing rights');
     assert.equal(r.afterRefusal, r.before.hull);
+    assert.equal(r.repairOnly, false, 'a repair right alone took him past a closed checkpoint (repair implied docking)');
     assert.equal(r.allowedNow, true); assert.equal(r.saleAllowed, false, 'basing opened sales and refits');
     assert.equal(r.repaired, true); assert.ok(r.hull > r.before.hull); assert.ok(r.paid > 0);
     assert.equal(r.controller, 'klingon'); assert.ok(r.ownersSame);

@@ -763,7 +763,10 @@ function settleEconomy(book, world, day, effects) {
     // crew recovery at worlds with morale
     // Morale is a place, not an asset: shore leave at any operational station in the system counts.
     // A repaired hull waiting for a crew is recrewed the same way, where it lies in the yard (PHASE3 §1a).
-    for (const h of p.hulls) if ((h.status === 'ready' || (h.recrew && h.status === 'repairing')) && (stationEffects(world, h.systemIndex, null).morale || 0) > 0) h.crew = bounded((h.crew ?? 1) + c.crewRecoveryPerDay, 0, 1);
+    // A world held by a power it is at war with gives it no crews: a yard repair there under a host's rights is a
+    // repair, not a recrewing (ARCHITECTURE-CLEANUP §3); a hostile world never was.
+    const crewsAt = (i) => { const hold = world.systems[Number(i)]?.controller; return !hold || hold === id || world.relation(relSide(world, id), relSide(world, hold)) !== 'war'; };
+    for (const h of p.hulls) if ((h.status === 'ready' || (h.recrew && h.status === 'repairing')) && !h.transit && crewsAt(h.systemIndex) && (stationEffects(world, h.systemIndex, null).morale || 0) > 0) h.crew = bounded((h.crew ?? 1) + c.crewRecoveryPerDay, 0, 1);
   }
 }
 
@@ -3431,9 +3434,12 @@ function advanceJourneys(book, world, day, effects) {
 // holds it; otherwise the nearest world it does hold; otherwise where it set out from all the same.
 function operationHome(book, world, op, h) {
   const origin = h.originSystem ?? op.originSystem;
-  const held = (i) => i != null && world.systems[Number(i)]?.controller === op.faction;
+  // A base it may return to: a world it holds, or a host's system where a staging right in force lets its warships
+  // stay (ARCHITECTURE-CLEANUP §2: a staging right makes a valid origin and return point; it transfers nothing).
+  const staging = book.treatyTerms?.length ? activeTreatyTerms(book, 'basing').filter((t) => t.guest === op.faction && t.purposes.includes('staging')).flatMap((t) => t.systems.filter((i) => accessAt(book, world, op.faction, i).staging.base)) : [];
+  const held = (i) => i != null && (world.systems[Number(i)]?.controller === op.faction || staging.includes(Number(i)));
   if (held(origin)) return Number(origin);
-  const own = controlled(world, op.faction).map((x) => x.index);
+  const own = [...controlled(world, op.faction).map((x) => x.index), ...staging];
   // Nearest in the days the journey home will actually fly (STRATEGIC-TIME-SCALE-CORRECTION).
   let best = null, bestDays = Infinity;
   // A ship in warp goes home from the end of the leg it is flying (that is where its return starts).
@@ -4428,10 +4434,14 @@ function towYardOk(book, world, sponsor, i) {
   const sys = world.systems[Number(i)];
   if (!sys || applicableBlockadesAt(book, world, i, sponsor).length) return false;
   if (sys.controller === sponsor) return (stationEffects(world, Number(i), sponsor).repairCapacity || 0) > 0;
+  // An enemy's yard takes nothing in, whatever terms are on the books (ARCHITECTURE-CLEANUP §3).
+  if (sys.controller && world.relation(relSide(world, sponsor), relSide(world, sys.controller)) === 'war') return false;
   // A host's yard under basing rights to take her in and repair her (TREATY-EXPANSION §4; AUDIT A4).
   if (basingRecoveryYardAt(book, world, sponsor, i)) return true;
   if (sponsor !== 'player' || !sys.controller) return false;
-  if (world.relation(relSide(world, 'player'), relSide(world, sys.controller)) === 'war') return false;
+  // A foreign yard accepts the captain's hulk only if it would actually repair her for him: the engine's own
+  // service test (a working yard, a vendor that serves him — ARCHITECTURE-CLEANUP §3, TOWING-SALVAGE-AUDIT A9).
+  if (world.playerYardServes && !world.playerYardServes(Number(i))) return false;
   return (stationEffects(world, Number(i), sys.controller).repairCapacity || 0) > 0;
 }
 // The nearest suitable yard from `from`, by the days the tow will actually fly (never through a wormhole).
@@ -5468,9 +5478,59 @@ function hullTrafficClass(book, h) {
   if (h?.opId) { const a = (book.doctrine?.assignments || []).find((x) => x.id === h.opId); if (a && TREATY_CIVIL_PURPOSES.includes(a.kind)) return 'civilian'; }
   return 'military';
 }
-// A transit guarantee by one of a DMZ's own parties lifts that DMZ for its beneficiary at the systems it covers.
-function guaranteeLifts(book, dmz, polity, systemIndex, cls, day) {
-  return activeTreatyTerms(book, 'transit', day).some((g) => dmz.parties.includes(g.grantor) && TT.transitCovers(g, polity, systemIndex, cls));
+// A transit guarantee by one of a DMZ's own parties lifts that DMZ's TRANSIT ban for its beneficiary at the
+// systems it covers. It never lifts the stationing ban: "you may pass through", not "you may park there".
+function guaranteeLifting(book, dmz, polity, systemIndex, cls, day) {
+  return activeTreatyTerms(book, 'transit', day).find((g) => dmz.parties.includes(g.grantor) && TT.transitCovers(g, polity, systemIndex, cls)) || null;
+}
+function guaranteeLifts(book, dmz, polity, systemIndex, cls, day) { return Boolean(guaranteeLifting(book, dmz, polity, systemIndex, cls, day)); }
+// A staging right (basing purpose `staging`) granted by one of a DMZ's own parties, holding the system, lifts that
+// DMZ's stationing ban for its guest there: its warships may stay (ARCHITECTURE-CLEANUP §2). Nothing else.
+function stagingLifting(book, world, dmz, polity, systemIndex, day) {
+  const t = basingRightAt(book, world, polity, systemIndex, 'staging', day);
+  return t && dmz.parties.includes(t.host) ? t : null;
+}
+// ---- access at a system, as separate permissions (ARCHITECTURE-CLEANUP §2–§5) ----
+// What a polity may do at a system, each service on its own, with the exact term that grants or denies it. There
+// is no single "access" answer: transit, stationing/staging, docking, repair, resupply, recovery and production are
+// separate questions, and one never implies another.
+//   transit     — may it enter/cross (a DMZ transit ban, lifted only by a transit guarantee);
+//   staging     — may its warships stay (a DMZ stationing ban, lifted only by a staging right); `base` says whether
+//                 the system is one it may use as a base (its own world, or a staging right);
+//   docking, repair, resupply, recovery — its own world's facilities, or a host's under a basing right for exactly
+//                 that service; never a power it is at war with;
+//   production  — its own world and yard only. Basing never grants it.
+// For the captain, the engine adds its own facility checks (a yard that exists, a vendor that serves him); this is
+// the treaty and ownership half, shared by both.
+export function accessAt(book, world, polity, systemIndex, cls = 'military', day = book?.day) {
+  const i = Number(systemIndex);
+  const sys = world.systems[i];
+  const holder = sys?.controller ?? null;
+  const own = holder === polity;
+  const atWar = holder && !own && world.relation(relSide(world, polity), relSide(world, holder)) === 'war';
+  const dmzs = (book?.treatyTerms?.length ? activeTreatyTerms(book, 'dmz', day) : []).filter((t) => t.systems.includes(i));
+  const out = {};
+  // transit
+  const tBan = dmzs.find((t) => TT.dmzRestrictsTransit(t, polity, cls));
+  const tLift = tBan ? guaranteeLifting(book, tBan, polity, i, cls, day) : null;
+  out.transit = tBan && !tLift ? { ok: false, termId: tBan.id, reason: 'DMZ — transit prohibited' } : tLift ? { ok: true, basis: 'treaty', termId: tLift.id } : { ok: true, basis: 'open' };
+  // staging / stationing
+  const sBan = dmzs.find((t) => TT.dmzRestrictsStationing(t, polity, cls));
+  const stagingTerm = book?.treatyTerms?.length ? basingRightAt(book, world, polity, i, 'staging', day) : null;
+  const sLift = sBan && stagingTerm && sBan.parties.includes(stagingTerm.host) ? stagingTerm : null;
+  out.staging = sBan && !sLift ? { ok: false, termId: sBan.id, reason: `DMZ — ${cls === 'military' ? 'military ' : ''}stationing prohibited`, base: false }
+    : own ? { ok: true, basis: 'own', base: true } : stagingTerm ? { ok: true, basis: 'treaty', termId: stagingTerm.id, base: true } : { ok: true, basis: 'open', base: false };
+  // facility services
+  for (const svc of ['docking', 'repair', 'resupply', 'recovery']) {
+    if (own) { out[svc] = { ok: true, basis: 'own' }; continue; }
+    if (atWar) { out[svc] = { ok: false, reason: 'at war with the holder' }; continue; }
+    const term = book?.treatyTerms?.length ? basingRightAt(book, world, polity, i, svc, day) : null;
+    out[svc] = term ? { ok: true, basis: 'treaty', termId: term.id } : { ok: false, basis: 'none', reason: `${svc} not authorized` };
+  }
+  // production: own world and yard only — basing rights never grant it
+  out.production = own ? { ok: true, basis: 'own' } : { ok: false, reason: 'not your world: basing rights never grant production' };
+  out.holder = holder; out.atWar = Boolean(atWar);
+  return out;
 }
 // The systems a polity's traffic of this class may not enter or cross (a DMZ that binds it, less what a
 // guarantee opens). Read by every route the model plots (plotJourney) and every journey it starts.
@@ -5478,7 +5538,7 @@ export function treatyBarred(book, polity, cls = 'military', day = book?.day) {
   const out = new Set();
   if (!book?.treatyTerms?.length) return out;
   for (const t of activeTreatyTerms(book, 'dmz', day)) {
-    if (!TT.dmzRestricts(t, polity, cls)) continue;
+    if (!TT.dmzRestrictsTransit(t, polity, cls)) continue;
     for (const s of t.systems) if (!guaranteeLifts(book, t, polity, s, cls, day)) out.add(Number(s));
   }
   return out;
@@ -5600,8 +5660,10 @@ export function orderBlockadeObstruction(book, id, on = true) {
   return { ok: true, record: b };
 }
 // Basing rights: the host's facility at this system, for this purpose, for this guest — while the host still holds it.
+// A host at war with its guest grants it nothing, whatever terms are still on the books (ARCHITECTURE-CLEANUP §3).
 export function basingRightAt(book, world, guest, systemIndex, purpose, day = book?.day) {
-  return activeTreatyTerms(book, 'basing', day).find((t) => TT.basingAllows(t, guest, systemIndex, purpose) && world.systems[Number(systemIndex)]?.controller === t.host) || null;
+  return activeTreatyTerms(book, 'basing', day).find((t) => TT.basingAllows(t, guest, systemIndex, purpose) && world.systems[Number(systemIndex)]?.controller === t.host
+    && !(world.relation && world.relation(relSide(world, guest), relSide(world, t.host)) === 'war')) || null;
 }
 // A transit guarantee the grantor owes this beneficiary at this system, if one is in force.
 export function transitGuaranteeAt(book, grantor, beneficiary, systemIndex, day = book?.day, cls = 'military') {
@@ -5618,7 +5680,7 @@ export function treatyCrossing(book, world, c, effects = []) {
   const st = treatyStats(book);
   const at = Number(c.at), day = Number(c.day);
   for (const t of activeTreatyTerms(book, 'dmz', day)) {
-    if (!t.systems.includes(at) || !TT.dmzRestricts(t, c.sponsor, c.cls) || guaranteeLifts(book, t, c.sponsor, at, c.cls, day)) continue;
+    if (!t.systems.includes(at) || !TT.dmzRestrictsTransit(t, c.sponsor, c.cls) || guaranteeLifts(book, t, c.sponsor, at, c.cls, day)) continue;
     st.dmzCrossings++;
     // A lawful mover is here only because the treaty changed while its leg was in flight: the boundary re-plot
     // takes it out; nothing is a breach.
@@ -5704,55 +5766,83 @@ function dmzDay(book, world, t, day, effects) {
     st.blockadeClosures++;
   }
   const w = t.withdrawal ||= { dueDay: Number(t.startDay) + t.graceDays, hulls: {} };
-  for (const [id, rec] of Object.entries(w.hulls)) if (!hullOf(book, rec.polity, id) && ['withdrawn', 'withdrawn_late', 'stranded'].includes(rec.state)) delete w.hulls[id];
-  for (const p of t.restricted) {
-    for (const h of book.polities[p]?.hulls || []) {
-      if (h.status === 'lost') continue;
-      // The captain's ships fly their own legs (a formation's); his mirror says only where the leg ends (legTo).
-      const flying = Boolean(h.transit) || h.legTo != null;
-      const where = Number(h.transit ? h.transit.to : h.legTo ?? h.systemIndex);
-      const inZone = t.systems.includes(where);
-      const rec = w.hulls[h.id];
-      if (!inZone) {
-        if (rec && ['pending', 'stranded'].includes(rec.state)) { rec.state = 'withdrawn'; rec.day = Number(day); st.compliantWithdrawals++; }
-        else if (rec && rec.state === 'breach') { rec.state = 'withdrawn_late'; rec.day = Number(day); const x = book.treatyIncidents.find((y) => y.id === rec.incidentId); if (x && x.state === 'breach') escalateIncident(book, x, day, 'resolved', 'the ship has left the zone', effects); }
-        continue;
+  for (const [id, rec] of Object.entries(w.hulls)) if (id !== 'captain' && !hullOf(book, rec.polity, id) && ['withdrawn', 'withdrawn_late', 'stranded', 'staged'].includes(rec.state)) delete w.hulls[id];
+  // Every ship of a restricted party, and the captain himself (world.captain: his own vessel is not a model hull,
+  // but he is held to the same term — ARCHITECTURE-CLEANUP §6).
+  const movers = [];
+  for (const p of t.restricted) for (const h of book.polities[p]?.hulls || []) if (h.status !== 'lost') movers.push({ p, h });
+  const cap = world.captain;
+  if (cap && t.restricted.includes('player')) movers.push({ p: 'player', h: null, cap });
+  for (const { p, h, cap: c } of movers) {
+    const id = c ? 'captain' : h.id;
+    const vid = c ? c.vid : vidOfHull(h);
+    // The captain's ships fly their own legs (a formation's); his mirror says only where the leg ends (legTo).
+    const flying = c ? Boolean(c.moving) : Boolean(h.transit) || h.legTo != null;
+    const where = c ? Number(c.systemIndex) : Number(h.transit ? h.transit.to : h.legTo ?? h.systemIndex);
+    const at = c ? Number(c.systemIndex) : Number(h.systemIndex);
+    const inZone = t.systems.includes(where);
+    const rec = w.hulls[id];
+    if (!inZone) {
+      if (rec && ['pending', 'stranded'].includes(rec.state)) { rec.state = 'withdrawn'; rec.day = Number(day); rec.presence = null; st.compliantWithdrawals++; }
+      else if (rec && rec.state === 'breach') { rec.state = 'withdrawn_late'; rec.day = Number(day); rec.presence = null; const x = book.treatyIncidents.find((y) => y.id === rec.incidentId); if (x && x.state === 'breach') escalateIncident(book, x, day, 'resolved', 'the ship has left the zone', effects); }
+      else if (rec && rec.state === 'staged') delete w.hulls[id];
+      continue;
+    }
+    const cls = c ? c.cls : hullTrafficClass(book, h);
+    // Stationing is what this check is about; a zone that bans neither transit nor stationing for it has nothing to say.
+    if (cls !== 'military' || !TT.dmzRestrictsStationing(t, p, 'military')) { if (rec?.state === 'staged') delete w.hulls[id]; continue; }
+    // In a tow, it is a recovery, not a warship (TOWING-SALVAGE-RECOVERY §2).
+    if (h?.transit && journeyById(book, h.transit.journeyId)?.kind === 'recovery') continue;
+    // Moving through and never stopped: transit, not a presence (a crossing's DMZ rules are the crossing's).
+    if (flying && !rec) continue;
+    // A staging right in force for this ship here: it may stay. Its presence is recorded as staged, not loitering.
+    const staging = flying ? null : stagingLifting(book, world, t, p, at, day);
+    if (staging) {
+      if (rec?.state === 'breach') { const x = book.treatyIncidents.find((y) => y.id === rec.incidentId); if (x && x.state === 'breach') escalateIncident(book, x, day, 'resolved', 'staging granted under treaty', effects); }
+      w.hulls[id] = { polity: p, vid, systemIndex: at, since: rec?.since ?? Number(day), state: 'staged', presence: 'staged', termId: staging.id, ...(c ? { captain: true } : {}) };
+      continue;
+    }
+    let r = w.hulls[id] ||= { polity: p, vid, systemIndex: at, since: Number(day), state: 'pending', ...(c ? { captain: true } : {}) };
+    // Back in the zone after leaving it — or its staging right gone — a new presence, with its own grace.
+    if (['withdrawn', 'withdrawn_late', 'staged'].includes(r.state)) r = w.hulls[id] = { polity: p, vid, systemIndex: at, since: Number(day), state: 'pending', returned: (r.state === 'staged' ? r.returned || 0 : (r.returned || 0) + 1), ...(c ? { captain: true } : {}) };
+    r.systemIndex = at;
+    r.presence = flying ? 'transit' : c?.docked ? 'docked' : 'loitering';
+    if (h && (hullIsDisabled(h) || h.status === 'surrendered')) { if (r.state === 'pending') { r.state = 'stranded'; st.strandedInDmz++; } continue; }
+    if (r.state === 'stranded') r.state = 'pending'; // repaired where it lay: it must now leave
+    const due = Math.max(Number(w.dueDay), Number(r.since) + t.graceDays);
+    r.dueDay = due;
+    if (flying) continue; // on its way (a withdrawal under way, or a leg the boundary re-plot will meet)
+    // An AI warship with no other order is sent out by an ordinary journey; one kept there by a valid order of its
+    // own (an operation, a doctrine job) stays and, past the grace, is a breach — never teleported out. The
+    // captain's ships and the captain himself are his to move.
+    if (h && p !== 'player' && h.status === 'ready' && !h.opId && r.state === 'pending' && !(r.orderedDay != null && Number(day) - r.orderedDay < 3)) {
+      const dest = treatyWithdrawalTarget(book, world, p, at, t.systems);
+      // Tried at most every few days, whether or not a way out was found (no daily re-planning churn).
+      r.orderedDay = Number(day);
+      if (dest != null) {
+        const ref = `treaty:${t.id}`;
+        const j = startJourney(book, world, { kind: 'return', ref, sponsor: p, hulls: [h], destination: dest, purpose: 'withdraw', authority: { kind: 'treaty', ref: t.id }, meta: { home: dest, treatyWithdrawal: t.id } }, day, effects);
+        // The order is the journey's reference, as for every other mover: a re-plot (a new journey id) still releases it.
+        if (j.ok) { st.withdrawalsOrdered++; r.withdrawalOrdered = Number(day); if (!j.arrived) { h.status = 'assigned'; h.opId = ref; } }
       }
-      if (hullTrafficClass(book, h) !== 'military' || !TT.dmzRestricts(t, p, 'military') || guaranteeLifts(book, t, p, where, 'military', day)) continue;
-      // In a tow, it is a recovery, not a warship (§2).
-      if (h.transit && journeyById(book, h.transit.journeyId)?.kind === 'recovery') continue;
-      let r = w.hulls[h.id] ||= { polity: p, vid: vidOfHull(h), systemIndex: Number(h.systemIndex), since: Number(day), state: 'pending' };
-      // Back in the zone after leaving it: a new presence, with its own grace and its own enforcement.
-      if (['withdrawn', 'withdrawn_late'].includes(r.state)) r = w.hulls[h.id] = { polity: p, vid: vidOfHull(h), systemIndex: Number(h.systemIndex), since: Number(day), state: 'pending', returned: (r.returned || 0) + 1 };
-      if (hullIsDisabled(h) || h.status === 'surrendered') { if (r.state === 'pending') { r.state = 'stranded'; st.strandedInDmz++; } continue; }
-      if (r.state === 'stranded') r.state = 'pending'; // repaired where it lay: it must now leave
-      if (flying) continue; // on its way (a withdrawal under way, or a leg the boundary re-plot will meet)
-      const due = Math.max(Number(w.dueDay), Number(r.since) + t.graceDays);
-      if (p !== 'player' && h.status === 'ready' && !h.opId && r.state === 'pending' && !(r.orderedDay != null && Number(day) - r.orderedDay < 3)) {
-        const dest = treatyWithdrawalTarget(book, world, p, Number(h.systemIndex));
-        // Tried at most every few days, whether or not a way out was found (no daily re-planning churn).
-        r.orderedDay = Number(day);
-        if (dest != null) {
-          const ref = `treaty:${t.id}`;
-          const j = startJourney(book, world, { kind: 'return', ref, sponsor: p, hulls: [h], destination: dest, purpose: 'withdraw', authority: { kind: 'treaty', ref: t.id }, meta: { home: dest, treatyWithdrawal: t.id } }, day, effects);
-          // The order is the journey's reference, as for every other mover: a re-plot (a new journey id) still releases it.
-          if (j.ok) { st.withdrawalsOrdered++; if (!j.arrived) { h.status = 'assigned'; h.opId = ref; } }
-        }
-      }
-      if (Number(day) > due && r.state === 'pending' && !flying) {
-        const observers = treatyObservers(book, world, t, p, h.systemIndex);
-        const x = recordTreatyIncident(book, world, { key: `${t.id}|stationed|${h.id}`, term: t, kind: 'dmz_stationing', breaching: p, systemIndex: Number(h.systemIndex), assets: [vidOfHull(h)], evidence: observers.map((o) => ({ type: 'observed', by: o, day })), knownTo: observers, severity: 'moderate', state: 'breach', day, detail: `still in the zone after the withdrawal period (due day ${due})` }, effects);
-        r.state = 'breach'; r.incidentId = x.id;
-      }
+    }
+    // One breach per presence: recorded once, the day after the grace ends, while it is still there.
+    if (Number(day) > due && r.state === 'pending') {
+      const observers = treatyObservers(book, world, t, p, at);
+      const x = recordTreatyIncident(book, world, { key: `${t.id}|stationed|${id}|${r.since}`, term: t, kind: 'dmz_stationing', breaching: p, systemIndex: at, assets: [vid], evidence: observers.map((o) => ({ type: 'observed', by: o, day })), knownTo: observers, severity: 'moderate', state: 'breach', day, detail: `still in the zone after the withdrawal period (due day ${due})` }, effects);
+      r.state = 'breach'; r.incidentId = x.id; r.breachDay = Number(day);
+      st.stationingBreaches = (st.stationingBreaches || 0) + 1;
     }
   }
 }
 // Where a withdrawing warship goes: the nearest world its own side holds outside the restricted zone, by a
 // lawful route; else the nearest system outside it.
-function treatyWithdrawalTarget(book, world, polity, from) {
+// The zone itself is never the way out, even where a transit guarantee leaves it open to the ship's passage.
+export function treatyWithdrawalTarget(book, world, polity, from, avoid = []) {
   const barred = treatyBarred(book, polity, 'military');
+  const zone = new Set((avoid || []).map(Number));
   let best = null, bestDays = Infinity;
-  const consider = (i) => { if (barred.has(Number(i))) return; const plan = plotJourney(world, from, i, polity); if (!plan) return; const d = plan.legDays.reduce((n, x) => n + x, 0); if (d < bestDays || (d === bestDays && i < best)) { best = Number(i); bestDays = d; } };
+  const consider = (i) => { if (barred.has(Number(i)) || zone.has(Number(i))) return; const plan = plotJourney(world, from, i, polity); if (!plan) return; const d = plan.legDays.reduce((n, x) => n + x, 0); if (d < bestDays || (d === bestDays && i < best)) { best = Number(i); bestDays = d; } };
   for (const s of controlled(world, polity)) consider(s.index);
   if (best == null) for (const n of journeyNeighbours(world, from, polity)) consider(n);
   return best;
