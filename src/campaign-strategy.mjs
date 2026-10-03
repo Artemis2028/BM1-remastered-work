@@ -1098,7 +1098,7 @@ function advanceRepairs(book, world, day, effects = []) {
       if (hullIsDisabled(h) && h.stranded?.recovery !== 'in_yard') continue;
       // A damaged, uncommitted hull with no repair facility here sails to the nearest owned yard.
       // The captain's ships are the engine's: their mirror is never sent anywhere by the model.
-      if (id !== 'player' && h.status === 'ready' && !hullIsDisabled(h) && !(budget[h.systemIndex] > 0) && h.hull < h.maxHull * 0.6 && yards.length && !(h.repairRetryAfter > day)) {
+      if (id !== 'player' && h.status === 'ready' && !hullIsDisabled(h) && !isYard[h.systemIndex] && h.hull < h.maxHull * 0.6 && yards.length && !(h.repairRetryAfter > day)) {
         // Nearest by the days the journey will actually fly, not by jumps (STRATEGIC-TIME-SCALE-CORRECTION).
         const target = yards.map((i) => ({ i, days: plannedJourneyDays(world, h.systemIndex, i, id, hullSpeed(world, h)) })).filter((x) => x.days != null).sort((a, b) => a.days - b.days || a.i - b.i)[0];
         // It sails there, leg by leg, through whatever lies on the way (STRATEGIC-MOVEMENT-UNIFICATION).

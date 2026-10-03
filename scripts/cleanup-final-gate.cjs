@@ -254,6 +254,27 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.equal(r.end.vid, S.vid); assert.equal(r.end.hold, null);
     assert.ok(!r.keys.some((k) => ['tradeRun', 'tradeRoute', 'cargoRun', 'route'].includes(k)), `legacy record beside trade/1: ${r.keys}`);
   });
+  await check('new-feature', 'T-12 HOLD-EDGES while an armed freighter holds for want of a lawful way: disabled where she holds, she books no leg when the DMZ ends; a rendezvous order given during a hold takes her out of it as an ordinary passage', async () => {
+    const S = await traderSetup('cf-t12', MIL);
+    const last = S.stops[S.stops.length - 1];
+    const hold = async () => ev(({ last }) => { const id = window.__term({ type: 'dmz', parties: ['player', window.__holder(last)], systems: [last] }); window.__fly('cf-trader', 120, (f) => f.trade.treatyHold != null); return id; }, { last });
+    const dmz1 = await hold();
+    const a = await ev(({ dmz1 }) => { const t = testBM1, f = window.__f('cf-trader'); const held = Boolean(f.trade.treatyHold);
+      f.vessel = { ...(f.vessel || {}), hull: 1, condition: 'disabled' }; const ac = t.fleetLocalActor(f.id); if (ac) { ac.combatHull = 1; ac.condition = 'disabled'; }
+      window.__endTerm(dmz1); window.__adv(2);
+      return { held, condition: t.fleetVesselCondition(f), transit: f.transit || null, hold: f.trade.treatyHold, stage: f.trade.stage, line: t.fleetTradeStatusLine(f) }; }, { dmz1 });
+    const S2 = await traderSetup('cf-t12', MIL);
+    await hold();
+    const b = await ev(() => { const t = testBM1, f = window.__f('cf-trader'); const held = Boolean(f.trade.treatyHold); const E = window.__idx('Earth');
+      t.orderFleetRendezvous('cf-trader', E); window.__adv(1);
+      return { held, stage: f.trade.stage, hold: f.trade.treatyHold, order: f.trade.order?.kind || null, to: f.transit?.to ?? null }; });
+    evidence.t12 = { a, b, last, S2: S2.path };
+    assert.ok(a.held, 'precondition: she held');
+    assert.notEqual(a.condition, 'operational', 'precondition: disabled');
+    assert.equal(a.transit, null, `a disabled hull booked a leg: ${JSON.stringify(a.transit)}`);
+    assert.ok(b.held, 'precondition: she held');
+    assert.equal(b.hold, null, 'the order did not take her out of the hold'); assert.equal(b.stage, 'passage');
+  });
   await check('preservation', 'T-10/11 BLOCKADE-AND-TREATY a Klingon blockade and an inspection regime on the same system ahead of a civilian freighter: the blockade resolver runs her once under her key; through it, the inspection asks her once (turned back, never); one fleet entry, one trade/1 record', async () => {
     const S = await traderSetup('cf-t10', CIV);
     const X = S.path[1];

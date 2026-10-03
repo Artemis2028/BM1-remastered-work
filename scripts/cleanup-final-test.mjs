@@ -68,7 +68,8 @@ const yardDay = (seed, guest) => {
 test('preservation', 'YARD-CAPACITY (host alone). with no guest, the Klingon yard at Qonos repairs its own cruiser by its full daily capacity', () => {
   const r = yardDay('CF-Y1', false);
   log.yardAlone = r;
-  assert.ok(r.host > 0, 'nothing repaired');
+  // 140 a day: Qonos's capacity in this fixture, as 79bc258 repaired it (the host alone is unchanged).
+  assert.equal(r.host, 140, `the host alone repaired ${r.host}`);
 });
 test('baseline-defect', 'YARD-SHARED-CAPACITY. one yard repairs no more in a day than it can: a Klingon cruiser and a Terran guest under a repair basing right (share 0.5), both far below full at Qonos — host and guest together get back at most the yard\'s daily capacity (79bc258 gave the guest its share on top of the host\'s full capacity)', () => {
   const cap = yardDay('CF-Y1', false).host;

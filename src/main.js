@@ -14917,7 +14917,7 @@ function serviceCheckpointBlock(acc = null, station = getCurrentServiceStation()
 // Docked under a docking right, refused a service he holds no right to: "Docking permitted. Market not authorized."
 function checkpointRefusalLine(service, block, label = null) {
   const name = label || { repair: 'Repair', resupply: 'Resupply', market: 'Market', sales: 'Ship sales', refit: 'Refit' }[service] || 'Station services';
-  return state.docked && playerBasingRight('docking') ? `Docking permitted. ${name} not authorized.` : block;
+  return state.docked && playerBasingRight('docking', state.currentPlanet, getCurrentServiceStation()) ? `Docking permitted. ${name} not authorized.` : block;
 }
 // "Docking permitted. Repair not authorized." — the one line a refusal needs.
 function serviceRefusalLine(service, acc) {
@@ -17324,11 +17324,15 @@ function captainTrafficClass() {
   if (getPlayerEscortFleetShips().some((f) => !f.destroyed)) return 'military';
   return shipTrafficClass(state.playership);
 }
-// A ship's own traffic class under treaty: an unarmed freighter or cargo shuttle is civilian; anything that can
-// fight — a military freighter included — is military. The captain's own ship and his fleet traders alike.
-function shipTrafficClass(shipId) {
+// A ship's own traffic class under treaty: an unarmed freighter or cargo shuttle is civilian; one that carries any
+// combat weapon — a military freighter, whatever its name — is military, as is anything else. The weapons are
+// counted, not the name-scaled combat value (which cannot tell an armed "Freighter" from an unarmed one). The
+// captain's own ship and his fleet traders alike (ARCHITECTURE-CLEANUP-FINAL §2).
+function shipTrafficClass(shipId, vessel = null) {
   const cat = Speed.speedCategory(getShipStats(shipId));
-  return ['freighter', 'cargoShuttle'].includes(cat) && shipClassCombat(shipId) <= 0.3 ? 'civilian' : 'military';
+  if (!['freighter', 'cargoShuttle'].includes(cat)) return 'military';
+  const guns = shipWeaponSlots(shipId, vessel).filter((id) => isCombatWeapon(getWeapon(id))).length;
+  return guns === 0 ? 'civilian' : 'military';
 }
 // What the treaties that bind his empire say of a course: clear, re-routable (a lawful route exists), or refused.
 function captainTreatyCourse(from, to, chart = getPlottedRoute(from, to)) {
@@ -27241,7 +27245,7 @@ function syncPlayerPolity(book) {
   // day, booking a fresh kill every day. 'assigned' keeps it out of both the defence total and the
   // attrition pass, exactly as a hull committed to an operation is.
   const sceneOwned = (f) => Boolean(fleetLocalActor(f.id));
-  p.hulls = (state.playerFleet || []).filter((f) => !f.destroyed && f.vessel?.condition !== 'destroyed').map((f) => ({ id: `pf:${f.id}`, vid: ensureFleetVesselIdentity(f).vid, shipId: Number(f.shipId), hull: finiteNumber(f.vessel?.hull, finiteNumber(f.vessel?.maxHull, 100)), maxHull: finiteNumber(f.vessel?.maxHull, 100), crew: 1, trafficClass: f.assignment === 'escort' ? 'military' : shipTrafficClass(f.shipId), systemIndex: Number(f.assignment === 'escort' ? state.currentPlanet : f.systemIndex), status: f.assignment === 'transit' || sceneOwned(f) || f.strategicOp ? 'assigned' : 'ready', opId: f.strategicOp || null, ...(fleetVesselCondition(f) === 'disabled' ? { engineDisabled: true } : {}), ...(f.transit ? { legTo: Number(f.transit.to) } : {}) }));
+  p.hulls = (state.playerFleet || []).filter((f) => !f.destroyed && f.vessel?.condition !== 'destroyed').map((f) => ({ id: `pf:${f.id}`, vid: ensureFleetVesselIdentity(f).vid, shipId: Number(f.shipId), hull: finiteNumber(f.vessel?.hull, finiteNumber(f.vessel?.maxHull, 100)), maxHull: finiteNumber(f.vessel?.maxHull, 100), crew: 1, ...(f.strategicOp ? {} : { trafficClass: f.assignment === 'escort' ? 'military' : shipTrafficClass(f.shipId, f.vessel || null) }), systemIndex: Number(f.assignment === 'escort' ? state.currentPlanet : f.systemIndex), status: f.assignment === 'transit' || sceneOwned(f) || f.strategicOp ? 'assigned' : 'ready', opId: f.strategicOp || null, ...(fleetVesselCondition(f) === 'disabled' ? { engineDisabled: true } : {}), ...(f.transit ? { legTo: Number(f.transit.to) } : {}) }));
   // A captain's ship on a model journey (an evacuation convoy, a blockade force taking station) is where the
   // journey record says, on the leg it says: the record is authoritative and the mirror is rebuilt from it
   // on every call, so a leg in flight survives the rebuild (STRATEGIC-MOVEMENT-UNIFICATION §10).
@@ -32742,6 +32746,7 @@ function cancelFleetPassage(id) {
   if (legEnd !== null && Number.isFinite(legEnd)) {
     const day = f.transit ? f.transit.arrivalDay : Number(state.day);
     t.order = { ...t.order, to: legEnd, kind: 'hold', pending: false };
+    t.treatyHold = null; // nothing ahead to be held from: the passage ends where she is
     t.destination = legEnd;
     t.path = t.path.slice(0, t.legIndex + 1);
     t.legDays = t.legDays.slice(0, t.legIndex + 1);
@@ -32820,7 +32825,7 @@ function arriveFleetTradePassage(f, t, at, day = state.day) {
 // No trader-specific engine: her class (an unarmed freighter is civilian; anything that can fight is military),
 // the routes the treaties leave lawful for it (playerLawfulRoute: Campaign.treatyBarred less the guarantees that
 // cover her), and the one crossing engine (Campaign.treatyCrossing) every formation, journey and the captain meet.
-function fleetShipTrafficClass(f) { return shipTrafficClass(f?.shipId); }
+function fleetShipTrafficClass(f) { return shipTrafficClass(f?.shipId, f?.vessel || null); }
 function fleetTradeRoute(f, from, to) { return playerLawfulRoute(from, to, fleetShipTrafficClass(f)); }
 // The crossing's treaty half: an inspection regime here sees her canonical cargo lines (tradeCargoLines) — what
 // the regime reveals and nothing concealed. She complies; one request per trip per system, saved with the book.
@@ -32863,10 +32868,12 @@ function fleetTradeTreatyBoundary(f, t, reached, day) {
   let cursor = Number(reached);
   for (const to of targets) {
     const route = fleetTradeRoute(f, cursor, to);
-    if (!route) {
+    // A circuit's re-plot is held to her risk posture as her plan was (a captain's passage order is not).
+    const risky = route && t.stage === 'outbound' && !fleetTradeRouteAcceptable(f, t, cursor, to);
+    if (!route || risky) {
       const first = !t.treatyHold;
       t.treatyHold = { at: Number(reached), since: t.treatyHold?.since ?? Number(day), system: Number(blockedAt), to: Number(to) };
-      t.note = `Holding at ${name(reached)}: no lawful route to ${name(to)} under treaty (DMZ at ${name(blockedAt)}).`;
+      t.note = risky ? `Holding at ${name(reached)}: the lawful way round the DMZ at ${name(blockedAt)} to ${name(to)} is beyond her risk setting.` : `Holding at ${name(reached)}: no lawful route to ${name(to)} under treaty (DMZ at ${name(blockedAt)}).`;
       f.assignment = 'defense';
       if (first) setLog(`${f.name}: ${t.note}`);
       return false;
@@ -32887,7 +32894,12 @@ function fleetTradeTreatyBoundary(f, t, reached, day) {
 // Each day she holds: an order given meanwhile is flown; else the way on is tried again.
 function resumeFleetTradeTreatyHold(f, t, day) {
   const reached = Number(t.path[t.legIndex]);
+  // Disabled (or worse) where she holds: she flies nothing; the disablement rules take her from here.
+  const condition = fleetVesselCondition(f);
+  if (condition !== 'operational') { t.treatyHold = null; if (condition === 'disabled') markFleetShipDisabled(f, t, reached); else { t.stage = 'holding'; t.active = false; t.note = 'Lost.'; } return; }
   if (t.order && t.order.pending) { t.treatyHold = null; beginFleetTradePassage(f, t, reached, day); return; }
+  // Nothing left ahead (a passage cut short here): she has arrived, or her circuit ends here.
+  if (t.legIndex + 1 >= t.path.length) { t.treatyHold = null; if (t.stage === 'passage') arriveFleetTradePassage(f, t, reached, day); else completeFleetTradeCircuit(f, t); return; }
   if (!fleetTradeTreatyBoundary(f, t, reached, day)) return;
   t.legIndex += 1;
   scheduleFleetTradeLeg(f, t, reached, day);
