@@ -81,6 +81,20 @@ test('baseline-defect', 'R14b. legal transit is not a presence: a guaranteed war
   assert.deepEqual(seen, [], `a pass through was recorded as a presence: ${JSON.stringify(seen)}`);
   assert.equal(env.book.stats.treaty?.compliantWithdrawals ?? 0, 0);
 });
+test('baseline-defect', 'R14c. a closed presence is not reopened by a later pass: a Terran warship in a stationing-only DMZ at Border when it begins withdraws within the grace (one compliant withdrawal); later it flies through Border to Qonos — transit, no new presence, still one compliant withdrawal (1f2da30 barred transit through a stationing-only zone)', () => {
+  const env = world('CU-14c');
+  const [h] = make(env, 'terran', 91, IDX.Border); park(env);
+  const t = addTerm(env, DMZ([IDX.Border], { restrict: { transit: false } }));
+  run(env.book, env.world, 2, 30); // an AI warship with no order: sent out by an ordinary journey
+  assert.equal(presence(t, h)?.state, 'withdrawn');
+  const n = env.book.stats.treaty?.compliantWithdrawals ?? 0;
+  const r = go(env, 'terran', [h], IDX.Qonos, {}, 31); assert.ok(r.ok, r.reason); assert.ok(r.journey.path.includes(IDX.Border));
+  const seen = [];
+  for (let d = 31; d <= 70; d++) { run(env.book, env.world, d, d); if (presence(t, h) && presence(t, h).state !== 'withdrawn') seen.push([d, presence(t, h).state]); }
+  assert.equal(h.systemIndex, IDX.Qonos);
+  assert.deepEqual(seen, [], `a pass through reopened a presence: ${JSON.stringify(seen)}`);
+  assert.equal(env.book.stats.treaty?.compliantWithdrawals ?? 0, n);
+});
 test('baseline-defect', 'R2. the same transit guarantee does not permit indefinite stationing: a Terran warship that stops at Border is given the grace, and after it is a stationing breach — once (1f2da30: a guarantee lifted the whole DMZ, so a battle fleet could park there for ever)', () => {
   const env = world('CU-2');
   const t = addTerm(env, DMZ([IDX.Border]));

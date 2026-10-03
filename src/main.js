@@ -9896,8 +9896,12 @@ function updateServiceRangeIndicator() {
 function requireServiceConnection(service = null) {
   const rangeBlock = getServiceTransferBlock();
   if (rangeBlock) { setLog(rangeBlock); return false; }
-  if (service) { const acc = playerServiceAccess(service); if (!acc.ok) { setLog(serviceRefusalLine(service, acc)); return false; } if (acc.basis === 'treaty') return true; }
   const st = getCurrentServiceStation();
+  if (service) {
+    const acc = playerServiceAccess(service); if (!acc.ok) { setLog(serviceRefusalLine(service, acc)); return false; }
+    // A service granted under treaty is still behind the checkpoint: only a docking right takes him past it.
+    if (acc.basis === 'treaty') { const blk = playerDockingBlock(state.currentPlanet, st, st ? getStationOwner(st) : getSystemControl(state.currentPlanet).polityId); if (blk) { setLog(blk); return false; } return true; }
+  }
   const block = getSecurityDockingBlock(st ? getStationOwner(st) : getSystemControl(state.currentPlanet).polityId)
     || vendorRefusal(st, st?.faction || getSystemFaction(state.currentPlanet));
   if (block) { setLog(block); return false; }
@@ -14902,7 +14906,7 @@ function requireDocked(service = null) {
 function serviceRefusalLine(service, acc) {
   const label = { repair: 'Repair', resupply: 'Resupply', docking: 'Docking', staging: 'Staging' }[service] || service;
   if (/at war|Enemy/i.test(acc.reason || '')) return `${label} refused: enemy yard.`;
-  if (/not authorized/.test(acc.reason || '')) return `Docking permitted. ${label} not authorized.`;
+  if (/not authorized/.test(acc.reason || '')) return `${playerBasingRight('docking') ? 'Docking permitted. ' : ''}${label} not authorized.`;
   return acc.reason || `${label} not available here.`;
 }
 
@@ -26618,7 +26622,9 @@ function playerServiceAccess(service, systemIndex = state.currentPlanet, opts = 
   const station = opts.station !== undefined ? opts.station : (i === Number(state.currentPlanet) ? getCurrentServiceStation() : null);
   // The facility: a yard, starbase or maintenance post for repair (a planet's own dock repairs too); one that exists.
   if (station && (station.destroyed || station.underConstruction)) return { ok: false, reason: `${station.name} is not operating` };
-  if (service === 'repair' && station && !/shipyard|starbase|maintenance/i.test(getShipStats(station.stationTypeId)?.name || '')) return { ok: false, reason: 'No repair facility here' };
+  // A station repairs if its role does (a shipyard, a starbase, an outpost with a repair service…); a world's own
+  // dock always has.
+  if (service === 'repair' && station && !stationRepairs(station)) return { ok: false, reason: 'No repair facility here' };
   if (opts.remote && service === 'repair' && !systemRepairStation(i)) return { ok: false, reason: 'No repair facility there' };
   if (station ? isOwnHoldingVendor(station) : getSystemControl(i).polityId === PLAYER_SIDE) return { ok: true, basis: 'own' };
   const a = book.initialized ? Campaign.accessAt(book, world, PLAYER_SIDE, i, captainTrafficClass(), state.day) : null;
@@ -26627,12 +26633,17 @@ function playerServiceAccess(service, systemIndex = state.currentPlanet, opts = 
   if (term) return { ok: true, basis: 'treaty', termId: term.id };
   const remoteStation = station || (opts.remote ? systemRepairStation(i) : null);
   const refusal = vendorRefusal(remoteStation, remoteStation?.faction || getSystemFaction(i));
+  // Under a host's basing terms that do not name this service, the refusal is the treaty's: not authorized.
+  if (refusal && book.initialized && (book.treatyTerms || []).length && ['docking', 'repair', 'resupply', 'staging', 'recovery'].some((svc) => svc !== service && playerBasingRight(svc, i, station))) return { ok: false, reason: `${service} not authorized` };
   if (refusal) return { ok: false, reason: refusal };
   return { ok: true, basis: 'open' };
 }
+function stationRepairs(station) {
+  try { const r = getStationCapabilities(station)?.services?.repair; return Boolean(r) && r !== 'none'; } catch { return /shipyard|starbase|maintenance/i.test(getShipStats(station.stationTypeId)?.name || ''); }
+}
 // A working repair facility in a system (for a tow's destination, where the captain is not).
 function systemRepairStation(i) {
-  return (state.stationDefinitions || []).find((d) => Number(d.systemIndex) === Number(i) && !d.destroyed && !d.underConstruction && !(state.destroyedStations || {})[d.id] && /shipyard|starbase|maintenance/i.test(getShipStats(d.stationTypeId)?.name || '')) || null;
+  return (state.stationDefinitions || []).find((d) => Number(d.systemIndex) === Number(i) && !d.destroyed && !d.underConstruction && !(state.destroyedStations || {})[d.id] && stationRepairs(d)) || null;
 }
 // Docking where it is otherwise restricted (a checkpoint's clearance): only a docking right answers for it.
 function playerDockingBlock(systemIndex = state.currentPlanet, station = null, ownerSide = undefined) {
@@ -27126,7 +27137,7 @@ function buildCampaignWorld(force = false) {
     // moving), docked, his vid and his traffic class.
     get captain() {
       if (!state.gameStarted || state.gameOver) return null;
-      return { systemIndex: Number(state.currentPlanet), moving: Boolean(state.warp.active || isWormholeTransitActive()), docked: Boolean(state.docked), vid: ensurePersonalIdentity().vid, cls: captainTrafficClass() };
+      return { systemIndex: Number(state.currentPlanet), moving: Boolean(state.warp.active || isWormholeTransitActive()), docked: Boolean(state.docked), disabled: fleetBook().personalCondition === 'disabled', vid: ensurePersonalIdentity().vid, cls: captainTrafficClass() };
     },
     // A foreign yard a tow may bring his hulk to: one that would actually repair her for him (ARCHITECTURE-CLEANUP §3).
     playerYardServes: (i) => playerServiceAccess('repair', Number(i), { remote: true, station: null }).ok,
@@ -30182,7 +30193,8 @@ function captainAccessLine(systemIndex = state.currentPlanet) {
   // Basing: docking and repair always said (the two people ask about); resupply and staging when granted.
   if (terms.some((t) => t.type === 'basing')) for (const [svc, label] of [['docking', 'Docking'], ['repair', 'Repair'], ['resupply', 'Resupply'], ['staging', 'Staging']]) {
     if (svc === 'staging' && parts.some((x) => x.startsWith('Staging'))) continue;
-    const ok = svc === 'staging' ? a.staging.basis === 'treaty' : a[svc]?.basis === 'treaty';
+    // Docking and repair as the engine will actually answer them where he is (a vendor that serves him anyway counts).
+    const ok = svc === 'staging' ? a.staging.basis === 'treaty' : svc === 'repair' || svc === 'resupply' ? (i === Number(state.currentPlanet) ? playerServiceAccess(svc, i).ok : a[svc]?.ok) : a[svc]?.basis === 'treaty';
     if (!ok && (svc === 'resupply' || svc === 'staging')) continue;
     parts.push(`${label} ${ok ? 'permitted' : 'not authorized'}.`);
   }

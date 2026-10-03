@@ -763,8 +763,8 @@ function settleEconomy(book, world, day, effects) {
     // crew recovery at worlds with morale
     // Morale is a place, not an asset: shore leave at any operational station in the system counts.
     // A repaired hull waiting for a crew is recrewed the same way, where it lies in the yard (PHASE3 §1a).
-    // A world held by a power it is at war with gives it no crews: a yard repair there under a host's rights is a
-    // repair, not a recrewing (ARCHITECTURE-CLEANUP §3); a hostile world never was.
+    // A world held by a power it is at war with gives it no crews (ARCHITECTURE-CLEANUP §3). A host it is not at
+    // war with does: crews come from shore leave at a world with morale, whoever holds it.
     const crewsAt = (i) => { const hold = world.systems[Number(i)]?.controller; return !hold || hold === id || world.relation(relSide(world, id), relSide(world, hold)) !== 'war'; };
     for (const h of p.hulls) if ((h.status === 'ready' || (h.recrew && h.status === 'repairing')) && !h.transit && crewsAt(h.systemIndex) && (stationEffects(world, h.systemIndex, null).morale || 0) > 0) h.crew = bounded((h.crew ?? 1) + c.crewRecoveryPerDay, 0, 1);
   }
@@ -5790,11 +5790,13 @@ function dmzDay(book, world, t, day, effects) {
     }
     const cls = c ? c.cls : hullTrafficClass(book, h);
     // Stationing is what this check is about; a zone that bans neither transit nor stationing for it has nothing to say.
-    if (cls !== 'military' || !TT.dmzRestrictsStationing(t, p, 'military')) { if (rec?.state === 'staged') delete w.hulls[id]; continue; }
+    // (A record left from when it was a warship here — the captain changed ships — is dropped: nothing to withdraw.)
+    if (cls !== 'military' || !TT.dmzRestrictsStationing(t, p, 'military')) { if (rec && ['staged', 'pending'].includes(rec.state)) delete w.hulls[id]; continue; }
     // In a tow, it is a recovery, not a warship (TOWING-SALVAGE-RECOVERY §2).
     if (h?.transit && journeyById(book, h.transit.journeyId)?.kind === 'recovery') continue;
     // Moving through and never stopped: transit, not a presence (a crossing's DMZ rules are the crossing's).
-    if (flying && !rec) continue;
+    // An old, closed presence (it left, or was staged) is no reason to call a later pass through anything but transit.
+    if (flying && (!rec || ['withdrawn', 'withdrawn_late', 'staged'].includes(rec.state))) { if (rec?.state === 'staged') delete w.hulls[id]; continue; }
     // A staging right in force for this ship here: it may stay. Its presence is recorded as staged, not loitering.
     const staging = flying ? null : stagingLifting(book, world, t, p, at, day);
     if (staging) {
@@ -5807,7 +5809,8 @@ function dmzDay(book, world, t, day, effects) {
     if (['withdrawn', 'withdrawn_late', 'staged'].includes(r.state)) r = w.hulls[id] = { polity: p, vid, systemIndex: at, since: Number(day), state: 'pending', returned: (r.state === 'staged' ? r.returned || 0 : (r.returned || 0) + 1), ...(c ? { captain: true } : {}) };
     r.systemIndex = at;
     r.presence = flying ? 'transit' : c?.docked ? 'docked' : 'loitering';
-    if (h && (hullIsDisabled(h) || h.status === 'surrendered')) { if (r.state === 'pending') { r.state = 'stranded'; st.strandedInDmz++; } continue; }
+    // Disabled where it lies (an AI hulk, his own ship waiting for recovery): stranded, not stationed.
+    if (c ? c.disabled : (hullIsDisabled(h) || h.status === 'surrendered')) { if (r.state === 'pending') { r.state = 'stranded'; st.strandedInDmz++; } continue; }
     if (r.state === 'stranded') r.state = 'pending'; // repaired where it lay: it must now leave
     const due = Math.max(Number(w.dueDay), Number(r.since) + t.graceDays);
     r.dueDay = due;

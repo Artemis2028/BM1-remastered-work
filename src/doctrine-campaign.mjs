@@ -3629,9 +3629,10 @@ function treatyStandDown(book, world, db, day) {
     if (a.status !== 'active' || trafficClassOf('doctrine', a.kind) !== 'military' || a.kind === 'return') continue;
     const h = liveHull(book, a.polity, a.hullId);
     if (!h || h.transit || h.opId !== a.id) continue;
-    // Standing there (not in warp): a zone it may not cross, or one it may cross but not stay in (a stationing ban
-    // with no staging right). Its job ends there; the DMZ's own day then sends it out by an ordinary journey.
-    if (!treatyBarredAt(book, a.polity, 'military', h.systemIndex, day) && accessAt(book, world, a.polity, h.systemIndex, 'military', day).staging.ok) continue;
+    // Standing in a zone it may not even cross: its job ends there; the DMZ's own day sends it out by an ordinary
+    // journey. A zone it may cross but not stay in is the DMZ's own business (a grace, then a breach if its job keeps
+    // it there): a job is an order of its own, and a treaty does not mind-control it (ARCHITECTURE-CLEANUP §7).
+    if (!treatyBarredAt(book, a.polity, 'military', h.systemIndex, day)) continue;
     endAssignment(db, book, a, day, 'aborted', 'treaty: stood down inside a demilitarised zone');
     treatyBook(book).stats.treaty.doctrineStoodDown++;
   }

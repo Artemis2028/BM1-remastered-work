@@ -384,6 +384,45 @@ const { startProbe } = require('./probe-harness.cjs');
     await shotSection('CG-11-access-debug.png', '[data-treaty-section]');
   });
 
+  // 12 --------------------------------------------------------------------------------------------
+  await check('new-feature', 'CG-12 DISABLED-CAPTAIN his own ship disabled inside the DMZ at Oce Nu, waiting for recovery: he is listed as stranded, never in breach, however long the grace has run', async () => {
+    await fresh('cg-12'); await setup();
+    const r = await ev(() => {
+      const t = testBM1, S = window.__S();
+      window.__quiet(); window.__ceasefire();
+      window.__term({ type: 'dmz', parties: ['player', 'klingon'], systems: [S.N] });
+      window.__place(S.N);
+      t.fleetBook().personalCondition = 'disabled';
+      window.__adv(30);
+      return { cap: window.__cap(), inc: window.__stationing() };
+    });
+    evidence.disabledCaptain = r;
+    assert.equal(r.cap?.state, 'stranded', JSON.stringify(r.cap)); assert.equal(r.inc.length, 0);
+  });
+
+  // 13 --------------------------------------------------------------------------------------------
+  await check('new-feature', 'CG-13 SEPARATE-RIGHTS a resupply right at Oce Nu does not take him past its closed checkpoint (the transporter channel refuses, as docking does); every station whose role repairs is a repair facility to him, not only those named shipyard, starbase or maintenance', async () => {
+    await fresh('cg-13'); await setup();
+    const r = await ev(() => {
+      const t = testBM1, s = t.state, S = window.__S();
+      window.__quiet(); window.__ceasefire();
+      window.__place(S.N);
+      window.__term({ type: 'basing', host: 'klingon', guest: 'player', systems: [S.N], purposes: ['resupply'] });
+      const block = t.playerDockingBlock(S.N, t.getCurrentServiceStation());
+      const am0 = s.antimatter; s.antimatter = 10;
+      const conn = t.requireServiceConnection('resupply');
+      s.antimatter = am0;
+      const roles = (s.stationDefinitions || []).filter((d) => t.stationRepairs(d) && !/shipyard|starbase|maintenance/i.test(t.getShipStats(d.stationTypeId)?.name || ''));
+      const refused = roles.filter((d) => /No repair facility/.test(t.playerServiceAccess('repair', Number(d.systemIndex), { station: d }).reason || '')).map((d) => d.id);
+      return { block, conn, roles: roles.length, refused };
+    });
+    evidence.separate = r;
+    assert.ok(r.block, 'precondition: Oce Nu checkpoint is closed to him');
+    assert.equal(r.conn, false, 'a resupply right took him past the checkpoint');
+    assert.ok(r.roles > 0, 'precondition: no station repairs by role alone');
+    assert.deepEqual(r.refused, []);
+  });
+
   const failed = results.filter((x) => !x.ok);
   const by = (c) => `${c} ${results.filter((x) => x.category === c && x.ok).length}/${results.filter((x) => x.category === c).length}`;
   console.log(`architecture cleanup in-game: ${results.length - failed.length}/${results.length} (${['baseline-defect', 'new-feature', 'preservation'].map(by).join(', ')})`);
