@@ -5451,11 +5451,14 @@ export function checksum(book) {
 const TREATY_STATS = Object.freeze({ termsAdded: 0, termsEnded: 0, termsRefused: 0, termsSuspended: 0, dmzCrossings: 0, dmzWarnings: 0, dmzRoutesRefused: 0, compliantWithdrawals: 0, withdrawalsOrdered: 0, strandedInDmz: 0,
   breaches: 0, incidentsResolved: 0, inspectionsRequested: 0, inspectionsCompleted: 0, inspectionsRefused: 0, inspectionsUnreceived: 0, inspectionsUnenforced: 0,
   tributePaid: 0, tributeMissed: 0, reparationsPaid: 0, reparationsMissed: 0, reparationsCompleted: 0, arrearsCleared: 0,
-  blockadeClosures: 0, blockadesRefused: 0, obstructions: 0, basingRepairDays: 0, treatyReplots: 0, treatyHalts: 0, doctrineStoodDown: 0 });
+  blockadeClosures: 0, blockadesRefused: 0, obstructions: 0, basingRepairDays: 0, treatyReplots: 0, treatyHalts: 0, doctrineStoodDown: 0, stationingBreaches: 0 });
 export function treatyBook(book) {
   for (const k of ['treatyTerms', 'treatyIncidents', 'treatyLedger', 'treatyInspections']) if (!Array.isArray(book[k])) book[k] = [];
   book.stats ||= {};
-  book.stats.treaty = { ...TREATY_STATS, ...(book.stats.treaty || {}) };
+  // Filled in place: a caller holding the stats object across a call that reaches here keeps counting into the live
+  // one (a fresh copy each call dropped counts made after it — stationing breaches recorded just after their incident).
+  const st = book.stats.treaty ||= {};
+  for (const [k, v] of Object.entries(TREATY_STATS)) if (!(k in st)) st[k] = v;
   return book;
 }
 function treatyStats(book) { return treatyBook(book).stats.treaty; }
@@ -5834,7 +5837,7 @@ function dmzDay(book, world, t, day, effects) {
       const observers = treatyObservers(book, world, t, p, at);
       const x = recordTreatyIncident(book, world, { key: `${t.id}|stationed|${id}|${r.since}`, term: t, kind: 'dmz_stationing', breaching: p, systemIndex: at, assets: [vid], evidence: observers.map((o) => ({ type: 'observed', by: o, day })), knownTo: observers, severity: 'moderate', state: 'breach', day, detail: `still in the zone after the withdrawal period (due day ${due})` }, effects);
       r.state = 'breach'; r.incidentId = x.id; r.breachDay = Number(day);
-      st.stationingBreaches = (st.stationingBreaches || 0) + 1;
+      st.stationingBreaches++;
     }
   }
 }

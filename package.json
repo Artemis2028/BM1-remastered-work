@@ -102,6 +102,7 @@
     "test:treaty:captain": "node scripts/captain-treaty-gate.cjs",
     "test:cleanup": "node scripts/cleanup-test.mjs",
     "test:cleanup:ingame": "node scripts/cleanup-gate.cjs",
+    "measure:cleanup": "node scripts/cleanup-measure.mjs",
     "measure:treaty": "node scripts/treaty-expansion-measure.mjs",
     "measure:treaty:ingame": "node scripts/treaty-expansion-ingame-measure.cjs",
     "bench:map": "node scripts/map-render-bench.cjs",
