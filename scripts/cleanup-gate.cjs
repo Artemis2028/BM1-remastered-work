@@ -376,11 +376,12 @@ const { startProbe } = require('./probe-harness.cjs');
       return { head, cells };
     });
     evidence.accessDebug = r;
-    assert.deepEqual(r.head, ['Party', 'System', 'Vessel', 'Class', 'Transit', 'Docking', 'Staging', 'Repair', 'Presence', 'Deadline', 'Breach', 'Term']);
+    // (ARCHITECTURE-CLEANUP-FINAL added the Market column: commerce is its own answer, never a docking right's.)
+    assert.deepEqual(r.head, ['Party', 'System', 'Vessel', 'Class', 'Transit', 'Docking', 'Staging', 'Repair', 'Market', 'Presence', 'Deadline', 'Breach', 'Term']);
     assert.ok(r.cells, 'no row for the captain');
     assert.match(r.cells[4], /permitted \(treaty\)/); assert.match(r.cells[5], /permitted \(treaty\)/);
     assert.match(r.cells[6], /stationing|prohibited|DMZ/i); assert.match(r.cells[7], /not authorized/);
-    assert.equal(r.cells[8], 'loitering'); assert.match(r.cells[9], /day \d+/);
+    assert.match(r.cells[8], /not authorized|open/); assert.equal(r.cells[9], 'loitering'); assert.match(r.cells[10], /day \d+/);
     await shotSection('CG-11-access-debug.png', '[data-treaty-section]');
   });
 

@@ -1066,22 +1066,29 @@ export function rescueStrandedCrew(book, polityId, hullId, day, by = null) {
 }
 function advanceRepairs(book, world, day, effects = []) {
   const c = book.config;
+  // One yard, one day's capacity, whoever uses it: the host's own repairs and every guest's under a basing right
+  // draw on the same pool (ARCHITECTURE-CLEANUP-FINAL: a guest's share used to be counted on top of the host's
+  // full capacity, so one yard could repair more than it can in a day).
+  const yardUsed = {};
+  const left = (i, cap) => Math.max(0, cap - (yardUsed[i] || 0));
   for (const id of Object.keys(book.polities)) {
     const p = polity(book, id);
     const budget = {};
-    for (const sys of controlled(world, id)) budget[sys.index] = stationEffects(world, sys.index, id).repairCapacity || 0;
+    const isYard = {}; // where a damaged hull may sail for repair: a yard it may use, busy today or not
+    for (const sys of controlled(world, id)) { const cap = stationEffects(world, sys.index, id).repairCapacity || 0; if (cap > 0) isYard[sys.index] = true; budget[sys.index] = left(sys.index, cap); }
     // Basing rights (TREATY-EXPANSION §4): a share of the host's repair capacity at the named facilities, for as
     // long as the term holds and the host holds the system. Nothing changes hands.
     const basing = {};
     for (const t of activeTreatyTerms(book, 'basing', day)) {
       if (t.guest !== id || !t.purposes.includes('repair')) continue;
       for (const i of t.systems) {
-        if (budget[i] > 0 || world.systems[Number(i)]?.controller !== t.host) continue;
+        if (isYard[i] || world.systems[Number(i)]?.controller !== t.host) continue;
         const cap = stationEffects(world, Number(i), t.host).repairCapacity || 0;
-        if (cap > 0) { budget[i] = Math.max(1, Math.floor(cap * t.repairShare)); basing[i] = t.id; }
+        const share = Math.min(Math.max(1, Math.floor(cap * t.repairShare)), left(i, cap));
+        if (cap > 0) { isYard[i] = true; budget[i] = share; basing[i] = t.id; }
       }
     }
-    const yards = Object.keys(budget).map(Number).filter((i) => budget[i] > 0);
+    const yards = Object.keys(isYard).map(Number);
     p.repairedToday = {};
     for (const h of p.hulls) {
       if (h.status === 'surrendered') continue; // held where it surrendered; nobody repairs it there
@@ -1105,6 +1112,7 @@ function advanceRepairs(book, world, day, effects = []) {
       if (!(budget[h.systemIndex] > 0)) continue;
       const need = h.maxHull - h.hull, done = Math.min(need, budget[h.systemIndex]);
       h.hull += done; budget[h.systemIndex] -= done; p.repairedToday[h.systemIndex] = (p.repairedToday[h.systemIndex] || 0) + done;
+      yardUsed[h.systemIndex] = (yardUsed[h.systemIndex] || 0) + done;
       if (basing[h.systemIndex]) { treatyStats(book).basingRepairDays++; h.basedRepair = { termId: basing[h.systemIndex], day, systemIndex: Number(h.systemIndex) }; }
       // A stranded hull repaired out of the disabled band: back with its crew, or waiting for one (§1a).
       finishStrandedRepair(book, h, id, day, effects);
@@ -5478,6 +5486,8 @@ export function trafficClassOf(kind, purpose) {
 }
 // A standing hull's class, read off the job it is on (a doctrine assignment's kind), else military.
 function hullTrafficClass(book, h) {
+  // A hull that carries its own class (the captain's fleet ships: an unarmed freighter is civilian) says so.
+  if (h?.trafficClass === 'civilian' || h?.trafficClass === 'military') return h.trafficClass;
   if (h?.opId) { const a = (book.doctrine?.assignments || []).find((x) => x.id === h.opId); if (a && TREATY_CIVIL_PURPOSES.includes(a.kind)) return 'civilian'; }
   return 'military';
 }
@@ -5530,6 +5540,9 @@ export function accessAt(book, world, polity, systemIndex, cls = 'military', day
     const term = book?.treatyTerms?.length ? basingRightAt(book, world, polity, i, svc, day) : null;
     out[svc] = term ? { ok: true, basis: 'treaty', termId: term.id } : { ok: false, basis: 'none', reason: `${svc} not authorized` };
   }
+  // market (trade, ship sales, refits): own, or open on ordinary terms (the engine's clearance and vendor decide);
+  // never granted by a treaty term — a docking right included (ARCHITECTURE-CLEANUP-FINAL §1). At war, nothing.
+  out.market = own ? { ok: true, basis: 'own' } : atWar ? { ok: false, reason: 'at war with the holder' } : { ok: true, basis: 'open', treaty: false };
   // production: own world and yard only — basing rights never grant it
   out.production = own ? { ok: true, basis: 'own' } : { ok: false, reason: 'not your world: basing rights never grant production' };
   out.holder = holder; out.atWar = Boolean(atWar);
