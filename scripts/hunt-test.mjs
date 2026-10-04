@@ -232,10 +232,10 @@ function contact(seed, { preyHull = null, hunterHull = null, preyShip = 82, hunt
   if (hunterHull != null) for (const h of r.hs) h.hull = hunterHull;
   return r;
 }
-test('new-feature', 'R19. prey destroyed: the hunters catch a crippled slow cruiser at Minor; the strategic engagement destroys it; the hunt resolves "target_destroyed" and the hunters go home', () => {
+test('new-feature', 'R19. prey destroyed: the hunters catch a crippled (still mobile: a disabled hulk is no quarry) slow cruiser at Minor; the strategic engagement destroys it; the hunt resolves "target_destroyed" and the hunters go home', () => {
   need();
   let r = null;
-  for (let k = 0; k < 6 && !r; k++) { const x = contact(`HN-19-${k}`, { preyHull: 90 }); days(x.e, 2, 30); if (hunts(x.e)[0]?.result?.result === 'target_destroyed') r = x; }
+  for (let k = 0; k < 10 && !r; k++) { const x = contact(`HN-19-${k}`, { preyHull: 160 }); days(x.e, 2, 30); if (hunts(x.e)[0]?.result?.result === 'target_destroyed') r = x; }
   assert.ok(r, 'never destroyed');
   const o = hunts(r.e)[0];
   log.r19 = { result: o.result, phase: o.phase, hunters: r.hs.map((h) => [h.systemIndex, h.opId]) };

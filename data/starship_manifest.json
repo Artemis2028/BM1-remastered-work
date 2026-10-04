@@ -10190,7 +10190,13 @@
       "strategicSpeed": 1.32,
       "strategicSpeedConfidence": "medium",
       "strategicSpeedBasis": "rater:table",
-      "strategicSpeedNote": "Same principle: conventional travel high; transwarp is a special system."
+      "strategicSpeedNote": "Same principle: conventional travel high; transwarp is a special system.",
+      "assimilator": true,
+      "transwarp": {
+        "capable": false,
+        "access": "deferred",
+        "note": "Tactical Cube content is deferred."
+      }
     },
     {
       "id": 262,
@@ -20060,7 +20066,13 @@
       "strategicSpeed": 1.32,
       "strategicSpeedConfidence": "high",
       "strategicSpeedBasis": "rater:table",
-      "strategicSpeedNote": "Conventional strategic speed is high, but Borg transwarp should be modeled separately rather than as rating 10+."
+      "strategicSpeedNote": "Conventional strategic speed is high, but Borg transwarp should be modeled separately rather than as rating 10+.",
+      "assimilator": true,
+      "transwarp": {
+        "capable": true,
+        "access": "own_conduit",
+        "note": "BORG-ASSIMILATION-TRANSWARP: one bounded direct jump (fixed days, per-hull cooldown); not a speed rating."
+      }
     },
     {
       "id": 347,

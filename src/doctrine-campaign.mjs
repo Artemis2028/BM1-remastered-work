@@ -26,6 +26,7 @@ import { seededUnit, applicableBlockadesAt, resolveBlockadeRun, shortestRoute, s
   startJourney, stepJourney, journeyById, registerJourneyKind, legDaysBetween, routeLegDaysFor, defendingHullsAt, encounterHullLookup, fellBackToday, settleAbandonedHandoff, hullSpeed, hullsSpeed,
   plotJourney, treatyBarred, accessAt, treatyBarredAt, trafficClassOf, transitGuaranteeAt, treatyBook, hullCanTravel, plannedJourneyDays } from './campaign-strategy.mjs';
 import * as H from './hunt-doctrine.mjs';
+import * as BC from './borg-campaign.mjs';
 import * as J from './strategic-journey.mjs';
 import * as SE from './strategic-encounter.mjs';
 import { classifyDamage } from './ship-fleet.mjs';
@@ -33,7 +34,7 @@ import { classifyDamage } from './ship-fleet.mjs';
 export const DOCTRINE_BOOK_VERSION = 1;
 // Bumped whenever the pilot configuration changes: a book saved under an older one takes the new defaults
 // (keeping only whether doctrine was switched on). Within a version, a changed config (debug, tests) stands.
-export const DOCTRINE_CONFIG_VERSION = 5; // 5: HIROGEN-HUNTING-DOCTRINE (hunts, the hirogen hunter live)
+export const DOCTRINE_CONFIG_VERSION = 6; // 5: HIROGEN-HUNTING-DOCTRINE (hunts, the hirogen hunter live); 6: BORG-ASSIMILATION-TRANSWARP
 export const CLOCK = 'strategic_jumps';
 // First-pass pilot tuning. Every duration is in campaign days; none is a measured value.
 export const DOCTRINE_PILOT = Object.freeze({
@@ -59,12 +60,19 @@ export const DOCTRINE_PILOT = Object.freeze({
     Object.freeze({ profile: 'pirate', role: 'raider', response: 'exploit_cargo' }),
     // HIROGEN-HUNTING-DOCTRINE: the Hirogen hunter pursues a worthy quarry it has itself seen.
     Object.freeze({ profile: 'hirogen', role: 'hunter', response: 'pursue_quarry' }),
+    // BORG-ASSIMILATION-TRANSWARP: Borg command assesses technology the Collective has itself observed; the
+    // assimilation order that follows authorizes the force's `assimilation` engagement mode.
+    Object.freeze({ profile: 'borg', role: 'commander', response: 'assess_technology' }),
   ]),
   // HIROGEN-HUNTING-DOCTRINE: the hunter powers and their per-power rules (hunt-doctrine.mjs HUNT_DEFAULTS bound
   // every hunt; `hunt` may override them). A hunter power may defy a treaty ban only where it says so — and then
   // the crossing is an ordinary treaty breach.
   hunts: Object.freeze({ hirogen: Object.freeze({ reckless: false, treatyDefiance: 'when_no_lawful_route' }) }),
   hunt: Object.freeze({}),
+  // BORG-ASSIMILATION-TRANSWARP: the assimilating power and whether worlds may be targets; `borgRules` overrides
+  // borg-doctrine.mjs BORG_DEFAULTS per campaign.
+  borg: Object.freeze({ power: 'borg', worlds: true }),
+  borgRules: Object.freeze({}),
   // Routine assignments that give asset_overdue something real to be about. Per polity, how many run at once.
   patrols: Object.freeze({ romulan: 1 }),
   explorers: Object.freeze({ delpin: 1 }),
@@ -2529,7 +2537,7 @@ function checkLocated(book, world, db, obs, k, day, effects, exceptObjective = n
 }
 function closeObjectives(doctrine, book, world, db, day, effects) {
   for (const o of db.objectives) {
-    if (o.status !== 'active' || o.kind === 'hunt') continue; // a hunt closes by its own rules (closeHunt)
+    if (o.status !== 'active' || o.kind === 'hunt' || o.kind === 'assimilation') continue; // a hunt / an assimilation closes by its own rules
     const managed = o.kind === 'enforcement' || o.kind === 'predation';
     const st = managed ? (o.pendingClose || { status: 'open', reasons: [] }) : D.objectiveStatus(doctrine, o.template, objectiveFacts(book, world, db, o, day));
     if (st.status === 'open') continue;
@@ -3711,7 +3719,9 @@ function observeForHunts(book, world, db, power, day) {
   for (const [pid, p] of Object.entries(book.polities)) {
     if (pid === power || pid === 'player') continue; // the captain's own fleet ships are not prey this round (see the doc)
     for (const h of p.hulls || []) {
-      if (h.status === 'lost' || h.status === 'surrendered') continue;
+      // A disabled hulk is no quarry: it cannot run, so there is no hunt in it (BORG-ASSIMILATION-TRANSWARP review:
+      // the Hirogen had hunted down an assimilated wreck).
+      if (h.status === 'lost' || h.status === 'surrendered' || hullIsDisabled(h)) continue;
       let s = standingAt(book, h, day), seen = day;
       // Seen leaving: a hull that departed a covered system within the track window is a sighting there, on its
       // departure day, with the heading it left on (its first leg) — not a live track of where it is now.
@@ -4204,7 +4214,7 @@ export function advanceDoctrineDay(book, world, day, effects, doctrine) {
   forwardToOwnVessels(book, world, db, day);
   detectSites(book, world, db, day, effects);
   detectAttacks(book, world, db, day, effects);
-  for (const o of db.objectives) if (o.status === 'active' && o.kind !== 'hunt') workObjective(book, world, db, o, day, effects);
+  for (const o of db.objectives) if (o.status === 'active' && o.kind !== 'hunt' && o.kind !== 'assimilation') workObjective(book, world, db, o, day, effects);
   advanceRaids(book, world, db, day, effects);
   // Phase 4: surrendered vessels released on their terms; breaches detected; demands worked; predation.
   advanceSurrenders(book, world, db, day, effects);
@@ -4212,6 +4222,7 @@ export function advanceDoctrineDay(book, world, day, effects, doctrine) {
   advanceEnforcement(doctrine, book, world, db, day, effects);
   advancePredation(doctrine, book, world, db, day, effects);
   advanceHunts(doctrine, book, world, db, day, effects);
+  BC.advanceBorg(doctrine, book, world, db, day, effects, { D, isLive, nid, at, locationIdFor });
   closeObjectives(doctrine, book, world, db, day, effects);
   evaluateAll(doctrine, book, world, db, day, effects);
   searchHails(book, world, db, day, effects);
@@ -4246,6 +4257,7 @@ export function releaseDoctrineHulls(book, day, reason = 'doctrine switched off'
     else { const g = db.pirates?.[o.pirateId]; if (g) { g.objectiveId = null; if (g.status === 'demanding') g.status = 'lurking'; } }
   }
   // Hunts: the hunters are let go where they stand (one in warp is turned home by its journey's own check).
+  BC.releaseBorg(book, db, day, reason);
   for (const o of db.objectives || []) if (o.status === 'active' && o.kind === 'hunt') {
     // The hunt's own closure record (result, history, cooldown), with no world to route anyone by.
     const hb = huntBook(db);
@@ -4363,3 +4375,4 @@ export function debugSummary(book, observerFilter = null, doctrine = null, world
     stats: db.stats,
   };
 }
+export { borgSummary, borgDebug, evaluateBorgTargets } from './borg-campaign.mjs';

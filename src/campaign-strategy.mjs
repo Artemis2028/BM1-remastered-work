@@ -529,6 +529,33 @@ export function migrateHullIdentities(book) {
 // hull at once — an operation reconciling afterwards must not count it as a survivor or a loss — and
 // its identity leaves with it; the caller puts the same identity on the vessel's new record. Returns
 // that identity, or null if there is no such living hull.
+// BORG-ASSIMILATION-TRANSWARP §4: the same hull record moves to the assimilating power — its id (its vid), its
+// class, its damage, its stranded state; its identity keeps its origin (builder) and records the assimilation.
+// Nothing new is built and no class is licensed to anyone. `crew` is the explicit crew outcome (borg-doctrine
+// crewOutcome). Returns the hull, or null if it is not a living hull of `from`.
+export function assimilateHull(book, h, from, to, day, systemIndex, crew = null) {
+  const fp = book.polities[from];
+  if (!h || !fp || !fp.hulls.includes(h) || h.status === 'lost') return null;
+  fp.hulls = fp.hulls.filter((x) => x !== h);
+  fp.lostHulls = (fp.lostHulls || 0) + 1;
+  fp.assimilatedHulls = (fp.assimilatedHulls || 0) + 1;
+  polity(book, to).hulls.push(h);
+  h.identity ||= Identity.makeIdentity({ vid: h.id, shipId: h.shipId, seed: Identity.vesselHash(`${book.seed}:${h.id}`), builder: from, via: 'legacy', systemIndex: h.systemIndex, legacy: true });
+  Identity.recordProvenance(h.identity, { day, event: 'assimilated', from, to, systemIndex });
+  h.assimilated = { day: Number(day), from, originBuilder: h.identity?.origin?.builder ?? from, systemIndex: Number(systemIndex), crew: crew || null };
+  delete h.surrendered; delete h.encounterId; delete h.defendingAt;
+  h.opId = null;
+  if (crew) h.crew = crew.after;
+  if (hullIsDisabled(h)) {
+    h.status = 'repairing';
+    h.stranded ||= { since: Number(day), systemIndex: Number(systemIndex), recovery: 'awaiting_recovery', recoverySince: null, recoveredBy: null, crew: 'aboard', crewUntil: null, crewEndDay: null };
+    h.stranded.crew = crew && crew.after > 0 ? 'assimilated' : 'lost';
+    h.stranded.crewEndDay = crew && crew.after > 0 ? null : Number(day);
+    delete h.stranded.crewSupportedBy; delete h.stranded.rescuedBy;
+  } else h.status = crew && crew.after > 0 ? 'ready' : 'repairing';
+  book.stats.hullsAssimilated = (book.stats.hullsAssimilated || 0) + 1;
+  return h;
+}
 export function transferHullOut(book, hullId, { day = null, to = 'player', systemIndex = null, event = 'captured' } = {}) {
   for (const [polityId, p] of Object.entries(book.polities || {})) {
     if (polityId === 'player') continue;
@@ -574,7 +601,9 @@ function shadowWorld(world) {
 // per-internal-day hook below.
 function reduceIntoShadow(shadow, world, effects) {
   for (const e of effects) {
-    if (e.type !== 'captureSystem') continue;
+    // BORG-ASSIMILATION-TRANSWARP: an assimilated world changes controller in the shadow too (its installations
+    // pass with it exactly as a capture's would; nothing else of a capture is recorded).
+    if (e.type !== 'captureSystem' && e.type !== 'systemAssimilated') continue;
     const index = Number(e.systemIndex);
     const sys = shadow.systems[index];
     if (sys) sys.controller = e.by;
@@ -815,7 +844,7 @@ function designEligible(world, shipId, polityId) {
 function designIndustrial(world, shipId) {
   return world.designIndustrial ? Boolean(world.designIndustrial(Number(shipId))) : designEligible(world, shipId, null);
 }
-function polityCanBuildDesign(book, world, polityId, shipId) {
+export function polityCanBuildDesign(book, world, polityId, shipId) {
   const p = polity(book, polityId);
   const stats = world.shipStats(shipId) || {};
   const native = !stats.faction || stats.faction === 'neutral' || stats.faction === factionOf(world, polityId);
@@ -1036,7 +1065,8 @@ export function advanceStranded(book, world, day, effects = []) {
       // recovery or salvage claim) is never written off while that mission lasts (TOWING-SALVAGE-RECOVERY §17).
       // Written off means off the owner's books — counted lost, no longer its fleet — not gone: the wreck
       // still lies where it was (book.derelicts), salvageable, its identity intact, until it breaks up.
-      if (s.recovery === 'awaiting_recovery' && s.crew !== 'aboard' && !liveRecoveryClaim(book, h) && day - s.crewEndDay > (c.derelictWriteOffDays ?? 90)) {
+      // An assimilated crew (BORG-ASSIMILATION-TRANSWARP §6) is a crew aboard: the hulk is crewed, not abandoned.
+      if (s.recovery === 'awaiting_recovery' && s.crew !== 'aboard' && s.crew !== 'assimilated' && !liveRecoveryClaim(book, h) && day - s.crewEndDay > (c.derelictWriteOffDays ?? 90)) {
         h.status = 'lost'; h.fate = 'written_off'; h.opId = null;
         h.derelict = { since: day, systemIndex: s.systemIndex, abandonedBy: id, until: day + (c.derelictLifeDays ?? 365) };
         p.lostHulls = (p.lostHulls || 0) + 1; book.stats.hullsLost++;
@@ -3104,6 +3134,8 @@ export function startJourney(book, world, spec, day, effects = []) {
   // let through, and its crossings become incidents. A retreat back the way it came is never re-routed.
   world.treatyBook = book;
   const cls = spec.trafficClass || trafficClassOf(spec.kind, spec.purpose);
+  // BORG-ASSIMILATION-TRANSWARP: a transwarp journey is one bounded direct jump, entry to exit, never a route.
+  if (spec.mode === 'transwarp') return startTranswarpJourney(book, world, spec, hulls, from, cls, day, effects);
   const defy = Boolean(spec.treatyDefy ?? spec.meta?.treatyDefy);
   let plan = spec.plan || plotJourney(world, from, spec.destination, spec.sponsor, spec.avoid || null, null, { noFixed: Boolean(tow), cls, treaty: !defy });
   if (plan && spec.plan && !defy && spec.purpose !== 'retreat' && book.treatyTerms?.length && treatyRouteBlocked(book, from, plan.path, spec.sponsor, cls) != null) {
@@ -3146,6 +3178,52 @@ export function startJourney(book, world, spec, day, effects = []) {
   effects.push(journeyEffect(tr, 'journeyDeparted', day, { from: tr.from, to: tr.path[0], arrivalDay: tr.legArrivalDay, eta: tr.etaDay, leg: 0, legs: tr.path.length }));
   return { ok: true, journey: tr };
 }
+// ---- transwarp (BORG-ASSIMILATION-TRANSWARP §11–§15) ----
+// The capability is the class's own data (ship manifest `transwarp.capable`), never a name or a speed.
+export function transwarpCapable(world, h) { return Boolean(h) && (world.shipStats(h.shipId) || {}).transwarp?.capable === true; }
+// Why this group cannot open a conduit now (null: it can). `rules` = { cooldownDays, minCondition }.
+export function transwarpRefusal(world, hulls, day, rules = {}) {
+  if (!hulls.length) return 'no vessels';
+  const bad = hulls.find((h) => !transwarpCapable(world, h));
+  if (bad) return `${bad.id} has no transwarp capability`;
+  const minCond = Number(rules.minCondition ?? 0);
+  const weak = hulls.find((h) => Number(h.hull) < Number(h.maxHull) * minCond || hullIsDisabled(h));
+  if (weak) return `${weak.id} too damaged to hold a conduit`;
+  const cd = Number(rules.cooldownDays ?? 0);
+  const hot = hulls.find((h) => h.transwarpLastExitDay != null && Number(day) - Number(h.transwarpLastExitDay) < cd);
+  if (hot) return `transwarp cooldown (${hot.id} until day ${Number(hot.transwarpLastExitDay) + cd})`;
+  return null;
+}
+// One leg from the entry to the exit, a fixed number of days whatever the distance and whatever the hulls' speed
+// rating (transwarp is not a speed); no intermediate system is crossed. The exit is an ordinary crossing at the
+// destination (blockades there run as for any arrival).
+function startTranswarpJourney(book, world, spec, hulls, from, cls, day, effects) {
+  const st = book.stats.journeys;
+  const dest = Number(spec.destination);
+  const tw = spec.transwarp || {};
+  const refusal = transwarpRefusal(world, hulls, day, tw);
+  if (refusal) { st.transwarpRefused = (st.transwarpRefused || 0) + 1; return { ok: false, transwarp: true, reason: refusal }; }
+  if (dest === from) return { ok: false, reason: 'already there' };
+  if (!world.systems[dest]) return { ok: false, reason: 'no such system' };
+  const days = Math.max(1, Math.round(Number(tw.days) || 2));
+  const legBase = [{ days, fixed: true, transwarp: true }];
+  const tr = J.createJourney({ id: nextCampaignId(book, 'journey'), kind: spec.kind, ref: spec.ref ?? null, sponsor: spec.sponsor, from, destination: dest,
+    path: [dest], legDays: [days], day, members: hulls.map((h) => h.id), vids: Object.fromEntries(hulls.map((h) => [h.id, vidOfHull(h)])),
+    purpose: spec.purpose || 'move', war: spec.war || null, authority: spec.authority || null, prior: spec.prior || null, meta: spec.meta || null });
+  tr.legBase = legBase; tr.speed = null; tr.speedHistory = [];
+  tr.mode = 'transwarp';
+  tr.transwarp = { entry: from, exit: dest, openedDay: Number(day), days, conventionalDays: tw.conventionalDays ?? null, exitDay: null };
+  tr.trafficClass = cls;
+  journeyBook(book).push(tr);
+  st.started++; st.byKind[tr.kind] = (st.byKind[tr.kind] || 0) + 1; st.transwarpJourneys = (st.transwarpJourneys || 0) + 1;
+  J.scheduleLeg(tr, day);
+  tr.plannedEtaDay = tr.etaDay;
+  st.legDays += days; st.legs++;
+  putMembersOnLeg(book, tr);
+  effects.push(journeyEffect(tr, 'journeyDeparted', day, { from, to: dest, arrivalDay: tr.legArrivalDay, eta: tr.etaDay, leg: 0, legs: 1, mode: 'transwarp' }));
+  effects.push(journeyEffect(tr, 'transwarpEntry', day, { systemIndex: from, exit: dest, eta: tr.etaDay }));
+  return { ok: true, journey: tr };
+}
 // The crossing at the end of the leg in flight: where each member is, what the crossing sees, and every
 // blockade there that bears on the sponsor, run once through the shared engine. Processed once per
 // (seq, leg) whatever calls it. Returns what happened for the caller (a kind hook, or doctrine) to act on.
@@ -3157,6 +3235,13 @@ export function crossJourneyLeg(book, world, tr, effects = [], opts = {}) {
   const { at, day } = cross;
   const hooks = JOURNEY_KINDS[tr.kind] || {};
   st.crossings++;
+  if (tr.mode === 'transwarp') {
+    // The exit: the conduit closes here, and each hull's cooldown runs from today.
+    tr.transwarp.exitDay = Number(day);
+    for (const id of tr.members) { const h = hullOf(book, tr.sponsor, id); if (h) h.transwarpLastExitDay = Number(day); }
+    st.transwarpExits = (st.transwarpExits || 0) + 1;
+    effects.push(journeyEffect(tr, 'transwarpExit', day, { systemIndex: Number(at), entry: tr.transwarp.entry }));
+  }
   const towed = new Set((tr.tow?.targets || []).map(String));
   const legStart = Number(tr.legIndex > 0 ? tr.path[tr.legIndex - 1] : tr.plotFrom);
   for (const id of [...tr.members]) {
@@ -4052,13 +4137,17 @@ export function blockadeRunContinues(outcome) { return RUN_CONTINUES.has(outcome
 // Does this blockade bear on this sponsor's ships crossing its system? Only an active blockade, still
 // resting on its war, and only against a power it is formally at war with. (Neutral traffic is not
 // fired on: inspection regimes are a later treaty term.)
+// Powers hostile to everyone without any formal war: no war record, no diplomacy (BORG-ASSIMILATION-TRANSWARP §1).
+export const UNIVERSAL_HOSTILES = Object.freeze(['borg']);
 export function blockadeApplies(book, world, b, sponsor, cls = 'military') {
   if (!b || b.status !== 'active' || b.power === sponsor) return false;
   const holder = world.systems[Number(b.target)]?.controller;
   if (!holder || holder === b.power || !formallyAtWar(world, b.power, holder)) return false;
   const st = b.warKey ? book.warStates?.[b.warKey] : null;
   if (st && st.status !== 'war') return false;
-  if (!formallyAtWar(world, b.power, sponsor)) return false;
+  // BORG-ASSIMILATION-TRANSWARP §15: the Borg are no party to any war record, yet every blockade bears on them
+  // (their hostility is universal, not a formal war) — the same engine, the same run.
+  if (!formallyAtWar(world, b.power, sponsor) && !UNIVERSAL_HOSTILES.includes(sponsor)) return false;
   // A transit guarantee the blockading power gave this sponsor at this system is honoured (TREATY-EXPANSION
   // §12): its ships pass. Only a blockade explicitly ordered to obstruct anyway (treatyDefy) still bears on
   // them — and the run it makes is then a recorded breach, not silent hostility.
@@ -4981,7 +5070,7 @@ function planAiRecoveries(book, world, day, effects) {
     const tugs = ready.filter((h) => !held.has(Number(h.systemIndex)) || (readyAt[h.systemIndex] || 0) > (c.recoveryGarrisonFloor ?? 1));
     if (!tugs.length) { if (own.length) skip(st, 'every capable vessel is a world\'s last garrison'); continue; }
     const salvage = (book.derelicts || []).filter((d) => !liveRecoveryClaim(book, d))
-      .concat(Object.entries(book.polities).filter(([oid]) => oid !== pid && oid !== 'player').flatMap(([, op]) => op.hulls.filter((h) => h.status !== 'lost' && hullIsDisabled(h) && h.stranded && h.stranded.crew !== 'aboard' && !h.transit && !h.opId && !hullInEncounter(h) && !liveRecoveryClaim(book, h))));
+      .concat(Object.entries(book.polities).filter(([oid]) => oid !== pid && oid !== 'player').flatMap(([, op]) => op.hulls.filter((h) => h.status !== 'lost' && hullIsDisabled(h) && h.stranded && h.stranded.crew !== 'aboard' && h.stranded.crew !== 'assimilated' && !h.transit && !h.opId && !hullInEncounter(h) && !liveRecoveryClaim(book, h))));
     const candidates = [...own.map((h) => ({ h, kind: 'recovery', min: c.aiRecoveryMinValue ?? 60000 })), ...salvage.map((h) => ({ h, kind: 'salvage', min: c.aiSalvageMinValue ?? 90000 }))];
     let best = null;
     for (const cand of candidates) {

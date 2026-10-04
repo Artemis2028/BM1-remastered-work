@@ -9119,7 +9119,7 @@ function syncDebugVesselCondition() {
 
 function refreshDebugReadout() {
   const bulletin=debugMenuEl.querySelector('[data-diplomacy-bulletin]');if(bulletin)bulletin.innerHTML=renderDiplomacyBulletin();
-  const doctrinePanel=debugMenuEl.querySelector('[data-doctrine-debug]');if(doctrinePanel)doctrinePanel.innerHTML=renderDoctrineDebug();const huntPanel=debugMenuEl.querySelector('[data-hunt-debug]');if(huntPanel)huntPanel.innerHTML=renderHuntDebug();
+  const doctrinePanel=debugMenuEl.querySelector('[data-doctrine-debug]');if(doctrinePanel)doctrinePanel.innerHTML=renderDoctrineDebug();const huntPanel=debugMenuEl.querySelector('[data-hunt-debug]');if(huntPanel)huntPanel.innerHTML=renderHuntDebug();const borgPanel=debugMenuEl.querySelector('[data-borg-debug]');if(borgPanel)borgPanel.innerHTML=renderBorgDebug();
   const journeyPanel=debugMenuEl.querySelector('[data-journey-debug]');if(journeyPanel)journeyPanel.innerHTML=renderJourneyDebug();
   const planningPanel=debugMenuEl.querySelector('[data-planning-debug]');if(planningPanel)planningPanel.innerHTML=renderPlanningDebug();
   const encounterPanel=debugMenuEl.querySelector('[data-encounter-debug]');if(encounterPanel)encounterPanel.innerHTML=renderEncounterDebug();
@@ -9192,6 +9192,7 @@ function openDebugMenu() {
     <section data-journey-section><h3>Strategic journeys (debug)</h3><div data-journey-debug>${renderJourneyDebug()}</div></section>
     <section data-doctrine-section><h3>Faction doctrine (debug)</h3><div data-doctrine-debug>${renderDoctrineDebug()}</div></section>
     <section data-hunt-section><h3>Hirogen hunts</h3><div data-hunt-debug>${renderHuntDebug()}</div></section>
+    <section data-borg-section><h3>Borg assimilation</h3><div data-borg-debug>${renderBorgDebug()}</div></section>
     <!-- after the doctrine section, so the older debug sections keep their place and height in the dialog -->
     <section data-planning-section><h3>ETA-aware planning (debug)</h3><div data-planning-debug>${renderPlanningDebug()}</div></section>
     <section data-encounter-section><h3>Strategic ↔ tactical encounters (debug)</h3><div data-encounter-debug>${renderEncounterDebug()}</div></section>
@@ -10957,7 +10958,18 @@ function applyStrategicOpEffect(e, day) {
     // A shared strategic journey (STRATEGIC-MOVEMENT-UNIFICATION). The captain's own ships on one are
     // where its record says; anyone else's crossing is news only where the captain has eyes, once per
     // crossing (the record carries the mark, so a reload never tells it twice).
+    // BORG-ASSIMILATION-TRANSWARP §17, §21: an aperture is news only where it is seen — in the captain's system
+    // (his own sensors), or through the ordinary intel path elsewhere. A hidden destination is never told.
+    case 'transwarpEntry': case 'transwarpExit': {
+      const at = Number(e.systemIndex);
+      if (!state.warp.active && at === Number(state.currentPlanet)) { setLog(e.type === 'transwarpEntry' ? 'Borg transwarp aperture detected. Borg contact lost.' : 'Borg transwarp aperture detected.'); recordLocalIntel(); }
+      else reportDoctrineTrace({ id: `borg:${e.type}:${e.id}:${at}`, systemIndex: at, day: d, kind: `Transwarp aperture — ${state.planets[at]?.name || `system ${at}`}`, factions: ['borg'],
+        direct: `A Borg transwarp aperture ${e.type === 'transwarpEntry' ? 'opened and closed' : 'opened'} at ${state.planets[at]?.name}${e.type === 'transwarpExit' ? ': Borg vessels emerged' : ': the Borg vessels there are gone'}.`, rumour: `Strange subspace readings are reported near ${state.planets[at]?.name}.` });
+      break;
+    }
     case 'journeyDeparted': case 'journeyCrossed': case 'journeyEnded': {
+      // The Borg leaving the captain's own system: his sensors lose them.
+      if (e.type === 'journeyDeparted' && e.sponsor === 'borg' && e.mode !== 'transwarp' && !state.warp.active && Number(e.from) === Number(state.currentPlanet)) setLog('Borg contact lost.');
       if (e.sponsor === PLAYER_SIDE) {
         const at = e.type === 'journeyDeparted' ? e.from : e.systemIndex;
         if (at != null) for (const hid of e.hulls || []) { const f = fleetEntryForHull(hid); if (f) f.systemIndex = Number(at); }
@@ -11534,6 +11546,70 @@ function renderPlanningDebug() {
   const eta = `<p class="meta" data-eta-stats>Rescue proposed ${st.etaRescueProposed || 0} · feasible ${st.etaRescueFeasible || 0} · out of reach ${st.etaRescueFailedByDistance || 0} — investigation proposed ${st.etaInvestigationProposed || 0} · feasible ${st.etaInvestigationFeasible || 0} · out of reach ${st.etaInvestigationFailedByDistance || 0} — patrol replacements held while one is in warp ${st.patrolReplacementHeldDays || 0} day(s)</p>`;
   const objTable = objRows ? `<h4>Doctrine objectives</h4><table class="doctrine-debug" data-objective-plan-table><thead><tr><th>Actor</th><th>Target</th><th>Created</th><th>ETA</th><th>On station</th><th>Deadline</th><th>Basis</th><th>Status</th></tr></thead><tbody>${objRows}</tbody></table>` : '<p class="meta">No doctrine objectives with a plan.</p>';
   return `<p class="meta">Day ${day}. Each leg is the chart's length at the strategic speed of the ships flying it (a force or convoy at its slowest ship; wormholes fixed); every ETA below is the route its journey flies, at that speed.</p>${forceTable}${plans || '<p class="meta">No war plans yet.</p>'}${opTable}${evTable}${eta}${objTable}`;
+}
+// BORG-ASSIMILATION-TRANSWARP §17, §21: what the captain learns of the Collective at work, and how. Only his own
+// sensors (his current system) speak directly, in short lines; anything else goes through the intel path.
+function applyBorgEffect(e, day) {
+  const d = e.day ?? day;
+  const at = e.systemIndex != null ? Number(e.systemIndex) : null;
+  const here = at != null && !state.warp.active && at === Number(state.currentPlanet);
+  const nm = (i) => state.planets[i]?.name || `system ${i}`;
+  switch (e.event) {
+    case 'assimilation_begun': case 'world_assimilation_begun':
+      if (here) { setLog('Assimilation in progress.'); recordLocalIntel(); break; }
+      reportDoctrineTrace({ id: `borg:${e.event}:${e.id}`, systemIndex: at, day: d, kind: `Assimilation under way — ${nm(at)}`, factions: ['borg'],
+        direct: e.event === 'world_assimilation_begun' ? `The Borg have begun assimilating ${nm(at)}.` : `The Borg are assimilating a disabled vessel at ${nm(at)}.`, rumour: `Borg activity is reported near ${nm(at)}.` });
+      break;
+    case 'ship_assimilated': {
+      const f = campaignFactionKeyFor(e.targetPolity);
+      reportDoctrineTrace({ id: `borg:ship:${e.targetVid}`, systemIndex: at, day: d, kind: `Vessel assimilated — ${nm(at)}`, factions: ['borg', f].filter(isRecognizedFactionKey),
+        direct: `A ${isRecognizedFactionKey(f) ? `${formatFaction(f)} ` : ''}vessel was assimilated by the Borg at ${nm(at)}.`, rumour: `A ship is said to have been lost to the Borg near ${nm(at)}.` });
+      break;
+    }
+    case 'dmz_incursion':
+      reportDoctrineTrace({ id: `borg:dmz:${e.termId}:${at}:${d}`, systemIndex: at, day: d, kind: `Borg incursion into the demilitarised zone — ${nm(at)}`, factions: ['borg', ...(e.parties || []).map(campaignFactionKeyFor)].filter(isRecognizedFactionKey),
+        direct: `Borg vessels entered the demilitarised zone at ${nm(at)}.`, rumour: `Unidentified vessels are said to have crossed the demilitarised zone near ${nm(at)}.` });
+      break;
+    default: break;
+  }
+}
+// BORG-ASSIMILATION-TRANSWARP §22: the "Borg assimilation" debug section.
+function renderBorgDebug() {
+  if (!state.gameStarted || typeof DoctrineCampaign.borgDebug !== 'function') return '<p class="meta">No campaign.</p>';
+  const book = campaignBook();
+  if (!book.initialized) return '<p class="meta">No campaign.</p>';
+  const sum = DoctrineCampaign.borgDebug(book, buildCampaignWorld(true));
+  const nm = (i) => (i == null ? '—' : escapeHtml(state.planets[Number(i)]?.name || `system ${i}`));
+  const at = (x) => (typeof x === 'string' && x.startsWith('→') ? `→${nm(x.slice(1))}` : nm(x));
+  const rows = (list, cols) => list.length ? `<table class="doctrine-debug"><thead><tr>${cols.map(([h]) => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>${list.map((x) => `<tr>${cols.map(([, f]) => `<td>${f(x)}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '<p class="meta">None.</p>';
+  const shipName = (id) => escapeHtml(getShipStats(id)?.name || `class ${id}`);
+  const fac = (p) => escapeHtml(formatFaction(campaignFactionKeyFor(p)));
+  const pct = (x) => `${Math.round((Number(x) || 0) * 100)}%`;
+  const objectives = rows(sum.objectives, [
+    ['Objective', (o) => `<code>${escapeHtml(String(o.id).split(':').slice(-2).join(':'))}</code>`],
+    ['Borg force (vid · class · where · hull · transwarp)', (o) => o.force.map((h) => `<div><code>${escapeHtml(h.vid)}</code> ${shipName(h.shipId)} · ${at(h.at)} · ${h.hull}%${h.transwarp ? ` · conduit${h.lastExit != null ? ` (exit day ${h.lastExit})` : ''}` : ''}</div>`).join('')],
+    ['Target · known facts', (o) => o.targetKind === 'world' ? `world ${nm(o.target.systemIndex)} (${fac(o.target.polity)}) · pop ${o.target.known.population ?? '?'} · yards ${o.target.known.yards ?? '?'} · installations ${o.target.known.installations ?? '?'} · defence ${o.target.known.defense ?? '?'}` : `<code>${escapeHtml(o.target.vid)}</code> ${fac(o.target.polity)} ${shipName(o.target.shipId)} · seen ${nm(o.target.known.seenAt)} day ${o.target.known.seenDay} (${escapeHtml(o.target.known.source)})${o.target.known.cloak ? ' · cloak' : ''}`],
+    ['Value / score', (o) => `${o.value?.value} → ${o.why.score} — ${escapeHtml(o.why.reason)}`],
+    ['Phase', (o) => `<b>${escapeHtml(o.phase)}</b>${o.status !== 'active' ? ` (${escapeHtml(o.status)})` : ''}`],
+    ['Progress', (o) => o.worldProgress ? `${pct(o.worldProgress.progress)} · defence suppressed ${pct(o.worldProgress.suppressed)} · resist ${o.worldProgress.resist ?? '—'} · ${escapeHtml(o.worldProgress.state)}${o.worldProgress.borgPresent ? ' · Borg present' : ' · Borg absent'}` : o.progress?.state ? `${pct(o.progress.value)} · ${escapeHtml(o.progress.state)}${o.progress.startDay != null ? ` since day ${o.progress.startDay}` : ''}` : '—'],
+    ['Movement (mode · conventional ETA · transwarp ETA · why)', (o) => `${escapeHtml(o.movement?.mode || '—')} · conv ${o.movement?.conventionalDays ?? '—'} d · transwarp ${o.movement?.transwarpDays ?? '—'} d · ${escapeHtml(o.movement?.reason || '')}${o.movement?.etaDay != null ? ` · ETA day ${o.movement.etaDay}` : ''}${o.plannedNow?.choice ? `<div class="meta">now: conv ${o.plannedNow.conventionalDays ?? '—'} d / transwarp ${o.plannedNow.transwarpDays ?? '—'} d — ${escapeHtml(o.plannedNow.choice)}</div>` : ''}`],
+    ['Journey', (o) => o.journey ? `${escapeHtml(o.journey.mode)}${o.journey.mode === 'transwarp' ? ` ${nm(o.journey.entry)} ⇒ ${nm(o.journey.exit)}` : ` ${o.journey.path.map(nm).join(' → ')}`} · ETA day ${o.journey.etaDay}` : '—'],
+    ['Handoff', (o) => o.handoff ? `${o.handoff.captainScene ? 'captain\'s scene' : 'strategic'} · ${escapeHtml(o.handoff.status || '')}${o.handoff.outcome ? ` · ${escapeHtml(o.handoff.outcome)}` : ''}` : '—'],
+    ['Result', (o) => o.result ? `${escapeHtml(o.result.result)} — ${escapeHtml(o.result.reason)}` : '—'],
+  ]);
+  const hulls = rows(sum.assimilatedHulls, [['Vessel (vid)', (h) => `<code>${escapeHtml(h.vid)}</code>`], ['Class', (h) => shipName(h.shipId)], ['Origin / taken from', (h) => `${fac(h.origin)} / ${fac(h.assimilated.from)}`], ['Assimilated', (h) => `day ${h.assimilated.day} at ${nm(h.assimilated.systemIndex)} · crew ${escapeHtml(h.assimilated.crew?.result || '—')}`], ['Hull', (h) => `${h.hull}/${h.maxHull}`], ['Now', (h) => `${fac(h.owner)} · ${escapeHtml(h.status)} · ${nm(h.at)}`]]);
+  const worlds = rows(sum.progress.concat(sum.assimilatedWorlds.filter((w) => !sum.progress.some((p) => p.systemIndex === w.systemIndex)).map((w) => ({ ...w, state: 'completed', progress: 1, suppressed: 1 }))), [['World', (w) => nm(w.systemIndex)], ['Origin / former holder', (w) => `${fac(w.origin)} / ${fac(w.from)}`], ['Progress', (w) => `${pct(w.progress)} · suppressed ${pct(w.suppressed)}`], ['State', (w) => `${escapeHtml(w.state)}${w.borgPresent === false ? ' (Borg absent)' : ''}`], ['Since', (w) => `day ${w.startDay}${w.completedDay ? ` · completed day ${w.completedDay}` : ''}`]]);
+  const tw = sum.transwarp;
+  const twLog = rows(tw.log || [], [['Day', (x) => x.day], ['Entry ⇒ exit', (x) => `${nm(x.from)} ⇒ ${nm(x.to)}`], ['Conventional ETA', (x) => `${x.conventionalDays ?? '—'} d`], ['Transwarp ETA', (x) => `${x.transwarpDays} d (day ${x.etaDay})`], ['Hulls', (x) => x.hulls.map((v) => `<code>${escapeHtml(v)}</code>`).join(' ')]]);
+  const sels = Object.entries(sum.selections).flatMap(([p, list]) => list.map((s) => ({ p, ...s })));
+  const selections = rows(sels, [
+    ['Day', (s) => s.day], ['Force', (s) => s.force.length ? `${s.force.map((h) => `<code>${escapeHtml(h.vid)}</code>`).join(' ')} at ${nm(s.forceSystem)} (strength ${s.forceStrength})` : escapeHtml(s.forceReason || 'none')], ['Decision', (s) => `<b>${escapeHtml(s.decision || '—')}</b>`],
+    ['Candidates (value · score · movement · verdict)', (s) => s.candidates.length ? s.candidates.map((c) => `<div>${c.kind === 'world' ? `world ${nm(c.systemIndex)}` : `<code>${escapeHtml(c.vid)}</code> ${fac(c.polity)} ${shipName(c.shipId)}`} at ${nm(c.seen.system)} (${escapeHtml(c.seen.source)}) · value ${c.value?.value} · score ${c.score} · ${escapeHtml(c.movement?.mode || '—')} ${c.reachDays ?? '—'} d · <b>${escapeHtml(c.verdict)}</b>: ${escapeHtml(c.reason || '')}${c.vid === s.chosen ? ' ◀ chosen' : ''}</div>`).join('') : 'no target known'],
+  ]);
+  const st = sum.stats;
+  return `<p class="meta">The Collective acquires, disables and assimilates: no war, no capture, no diplomacy. Day ${sum.day}. Chart scale ${sum.scale ?? 1}. Transwarp: ${sum.rules.transwarpDays} d jump, cooldown ${sum.rules.transwarpCooldownDays} d per hull, objective score ≥ ${sum.rules.transwarpMinScore}, saving ≥ ${sum.rules.transwarpMinSavingDays} d, hull ≥ ${Math.round(sum.rules.transwarpMinCondition * 100)}%.
+    Objectives ${st.borgObjectivesOpened || 0} (ships ${st.borgShipTargets || 0}, worlds ${st.borgWorldTargets || 0}) · assimilated ships ${st.borgShipsAssimilated || 0}, worlds ${st.borgWorldsAssimilated || 0} · targets destroyed ${st.borgTargetsDestroyed || 0}, escaped ${st.borgTargetsEscaped || 0} · Borg forces lost ${st.borgForcesLost || 0} · transwarp jumps ${tw.uses || 0}, cooldown blocks ${tw.cooldownBlocks || 0}.</p>
+    <h4>Assimilation objectives</h4>${objectives}<h4>Assimilated vessels (persistent)</h4>${hulls}<h4>World assimilation progress</h4>${worlds}<h4>Transwarp journeys</h4>${twLog}<h4>Latest selections</h4>${selections}`;
 }
 // HIROGEN-HUNTING-DOCTRINE §19: the "Hirogen hunts" debug section.
 function renderHuntDebug() {
@@ -12851,6 +12927,8 @@ function occupiedMarket(systemIndex = state.currentPlanet) {
   if (!isRecognizedFactionKey(origin) || origin === 'neutral') return null;
   const holder = systemHolderPolity(i);
   if (!holder || holder === origin) return null;
+  // BORG-ASSIMILATION-TRANSWARP §19: an assimilated world has no market for anyone (no former-owner stock).
+  if (holder === 'borg') return { systemIndex: i, origin, holder, integratedDay: null, designs: new Set(), qualification: null, assimilated: true };
   const integ = ensurePlaytestState().campaign?.polities?.[holder]?.integrations?.[i] || null;
   const integratedDay = integ?.completedDay || null;
   const designs = new Set(integratedDay ? (integ.designs || []).map(Number).filter((id) => isRecoverableIndustrialDesign(id)) : []);
@@ -12858,6 +12936,7 @@ function occupiedMarket(systemIndex = state.currentPlanet) {
 }
 function occupiedMarketAllows(market, ship) {
   if (!market) return true;
+  if (market.assimilated) return false;
   const id = Number(ship?.id ?? ship);
   const faction = getShipFaction(id);
   if (!faction || faction === 'neutral') return true;
@@ -12884,6 +12963,7 @@ function occupiedMarketLine(market, station = null) {
   const builder = holderBuiltCulture(station);
   if (market && builder) return `${formatFaction(builder)}-built yard on an occupied ${formatFaction(market.origin)} world · sells the ${formatFaction(builder)} pool; captured ${formatFaction(market.origin)} industry is sold by the local yards.`;
   if (!market) return '';
+  if (market.assimilated) return `Assimilated ${formatFaction(market.origin)} world under Borg control · no market.`;
   const holder = market.holder === PLAYER_SIDE ? 'your' : `${formatFaction(market.holder)}`;
   return market.integratedDay
     ? `Occupied ${formatFaction(market.origin)} world under ${holder} control · yards integrated day ${market.integratedDay}: ${market.designs.size} ${formatFaction(market.origin)} designs in production.`
@@ -27208,7 +27288,7 @@ function buildCampaignWorld(force = false) {
     // Phase 4: the published security policy of a world's holder, which is what strategic enforcement reads.
     borderPolicy: (i, w = world) => campaignBorderPolicy(i, w.systems[Number(i)]?.controller ?? null),
     factionName: (id) => (id === 'player' ? `${state.captainName || 'Captain'}'s empire` : formatFaction(id)),
-    shipStats: (id) => { const s = state.shipStatsById[Number(id)]; if (!s) return null; return { price: getShipPrice(s), mass: finiteNumber(s.mass, 1), combatHull: getNpcCombatDurability(Number(id)).hull, faction: getShipFaction(Number(id)), cargo: Math.max(0, finiteNumber(s.cargoCapacity, 0)), speed: shipStrategicSpeed(Number(id)), strategicSpeed: shipStrategicSpeed(Number(id)), cloak: shipClassCloak(Number(id)), combat: shipClassCombat(Number(id)), recoveryCapacity: Recovery.classRecoveryCapacity(s), category: Speed.speedCategory(s) }; },
+    shipStats: (id) => { const s = state.shipStatsById[Number(id)]; if (!s) return null; return { price: getShipPrice(s), mass: finiteNumber(s.mass, 1), combatHull: getNpcCombatDurability(Number(id)).hull, faction: getShipFaction(Number(id)), cargo: Math.max(0, finiteNumber(s.cargoCapacity, 0)), speed: shipStrategicSpeed(Number(id)), strategicSpeed: shipStrategicSpeed(Number(id)), cloak: shipClassCloak(Number(id)), combat: shipClassCombat(Number(id)), recoveryCapacity: Recovery.classRecoveryCapacity(s), category: Speed.speedCategory(s), transwarp: s.transwarp || null, assimilator: s.assimilator === true }; },
     pickHull: (polityId, u) => { if (polityId === 'player') return null; const key = campaignFactionKeyFor(polityId); const seed = Math.floor(u * 100000) + 1; for (const role of ['fleetAttack', 'patrol', 'traffic']) { const id = getNpcShipIdForFaction(key, seed, role); if (id != null) return Number(id); } return null; },
     // A culture's catalogue for the purposes of captured industry: everything it actually builds, less
     // the named exceptions. Filtering this by the retail rule is what made capturing a Dominion major
@@ -27866,8 +27946,23 @@ function applyCampaignEffects(effects, day = state.day) {
         applyWarDeclarationEngine(e, e.day ?? day);
         break;
       }
+      // BORG-ASSIMILATION-TRANSWARP §7, §19: an assimilated world changes controller explicitly — the Borg take it,
+      // its origin and former holder stay on record — and it is NOT a capture: no occupation, integration,
+      // licence or war front is recorded (the capture hook is suppressed for exactly this change).
+      case 'systemAssimilated': {
+        const i = Number(e.systemIndex);
+        if (getSystemControl(i).polityId === 'borg') break;
+        const from = e.from ? campaignFactionKeyFor(e.from) : null;
+        book.suppressCaptureHook = true;
+        try { transferSystemControlToFaction(i, 'borg'); } finally { book.suppressCaptureHook = false; }
+        if (i === Number(state.currentPlanet) && !state.warp.active) { state.systemFaction = 'borg'; state.systemAttitude = getFactionAttitude('borg'); setLog(`${state.planets[i]?.name}: assimilated by the Borg.`); }
+        reportDoctrineTrace({ id: `borg:world:${i}:${e.day ?? day}`, systemIndex: i, day: e.day ?? day, kind: `World assimilated — ${state.planets[i]?.name || `system ${i}`}`, factions: ['borg', from].filter(isRecognizedFactionKey),
+          direct: `${state.planets[i]?.name} has been assimilated by the Borg${from ? ` (formerly ${formatFaction(from)})` : ''}.`, rumour: `Contact with ${state.planets[i]?.name} has been lost; Borg activity is suspected.` });
+        break;
+      }
+      case 'borgAssimilation': applyBorgEffect(e, e.day ?? day); break;
       case 'evacuationStarted': case 'strategicShipsAssigned': case 'strategicShipReleased': case 'evacuationHalfway': case 'evacuationLoss': case 'evacuationEnded': case 'blockadeRun': case 'evacuationConvoyMoved':
-      case 'journeyDeparted': case 'journeyCrossed': case 'journeyEnded':
+      case 'journeyDeparted': case 'journeyCrossed': case 'journeyEnded': case 'transwarpEntry': case 'transwarpExit':
       case 'blockadeStarted': case 'blockadeActive': case 'blockadeCoverage': case 'blockadeEnded':
       case 'hullSalvagedToPlayer': case 'hullRecoveryAssigned': case 'hullTowStarted': case 'hullRecoveryDelivered': case 'hullRecoveryFailed': case 'hullRecoveryAborted': case 'hullRecoveryAwaitingAsset': case 'hullRecoveryComplete':
         applyStrategicOpEffect(e, day);
@@ -28241,6 +28336,7 @@ function encounterStillValid(enc) {
   if (enc.type === 'blockade') { const b = (book.blockades || []).find((x) => x.id === enc.objective.ref); return b && b.status === 'active' && (enc.sides?.b === PLAYER_SIDE ? Campaign.blockadeApplies(book, world, b, PLAYER_SIDE) : Campaign.blockadeApplies(book, world, b, enc.sides?.b)) ? null : 'the blockade no longer bears on the runner'; }
   if (enc.type === 'raid') { const o = (book.doctrine?.objectives || []).find((x) => x.id === enc.objective.ref); if (!o || o.status !== 'active') return 'the raid is over'; return Campaign.warAuthorityHolds(book, world, o.authority?.stamp) ? null : 'the war ended before contact'; }
   if (enc.type === 'hunt') { const o = (book.doctrine?.objectives || []).find((x) => x.id === enc.objective.ref); return o && o.status === 'active' ? null : 'the hunt is over'; }
+  if (enc.type === 'assimilation') { const o = (book.doctrine?.objectives || []).find((x) => x.id === enc.objective.ref); return o && o.status === 'active' ? null : 'the assimilation objective is over'; }
   if (enc.type === 'predation' || enc.type === 'enforcement') { const o = (book.doctrine?.objectives || []).find((x) => x.id === enc.objective.ref); return o && o.status === 'active' ? null : 'the objective is closed'; }
   return null;
 }
@@ -28277,7 +28373,8 @@ function spawnStrategicEncounter(enc) {
   const place = state.planets[enc.system]?.name || 'this system';
   const heads = { blockade: enc.captain ? `Intercepted at ${place}: ${ships.length} blockading ship${ships.length === 1 ? '' : 's'} closing` : `A blockade intercepts ships crossing ${place}`,
     raid: `Raider attacking ${place}`, predation: enc.captain ? `Pirates close in at ${place}` : `Pirates attacking a ship at ${place}`, enforcement: `Enforcement action at ${place}`,
-    hunt: enc.captain ? 'Hirogen Hunt — Engaged' : `Hirogen hunters closing on a ship at ${place}` };
+    hunt: enc.captain ? 'Hirogen Hunt — Engaged' : `Hirogen hunters closing on a ship at ${place}`,
+    assimilation: enc.contact?.targetKind === 'world' ? `Borg vessels engaging the defenders of ${place}` : `Borg vessel attempting to disable a ship at ${place}` };
   if (heads[enc.type]) setLog(`${heads[enc.type]}.`);
   return true;
 }
@@ -28340,6 +28437,22 @@ function encounterDecision(enc, { leaving = false } = {}) {
   }
   // HIROGEN-HUNTING-DOCTRINE §8–10: the captain as prey — he breaks away (escaped), beats them (the hunters'
   // fates say destroyed or disabled), strikes (surrendered: their fire stops), is disabled, or outlasts them.
+  // BORG-ASSIMILATION-TRANSWARP §9: a Borg contact in the captain's scene. The target disabled or struck is
+  // subdued (the assimilation goes on from there, strategically, on the same hull); destroyed, escaped, or the
+  // Borg beaten end it; otherwise the window decides on the state reached. One encounter; the result is written
+  // back once.
+  if (enc.type === 'assimilation') {
+    if (sideOut(enc, 'borg')) return { outcome: 'borg_beaten', note: 'the Borg vessels are out of the fight' };
+    if (enc.contact?.targetKind !== 'world') {
+      const tp = encounterSideOf(enc, 'target')[0];
+      const n = tp && encounterNpcFor(enc, tp);
+      if (n && (n.condition === 'disabled' || n.surrendered)) return { outcome: 'subdued', note: 'the target is disabled' };
+      if (!n || n.destroyed) return { outcome: 'target_destroyed', note: 'the target was destroyed' };
+      if (encounterNpcFate(n) === 'escaped') return { outcome: 'escaped', note: 'the target broke away' };
+    } else if (sideOut(enc, 'target')) return { outcome: 'fought', note: 'the defenders are down' };
+    if (timeUp) return { outcome: 'fought', note: leaving ? 'decided on the state the captain left' : 'the engagement ran its course' };
+    return null;
+  }
   if (enc.type === 'hunt') {
     if (enc.captain) {
       if (leaving) return { outcome: 'escaped', note: 'the captain broke away' };
@@ -28443,6 +28556,7 @@ function updateStrategicEncounters() {
     if (!encounterNpcs(enc).length) { enc.status = 'pending'; enc.history.push({ day: state.day, event: 'respawned', detail: 'scene reloaded without its ships: restarted from contact' }); spawnStrategicEncounter(enc); continue; }
     enc.activatedAtMs ??= gameNow();
     enc.sceneElapsedMs = Math.max(0, gameNow() - enc.activatedAtMs); // saved: the window survives a reload
+    if (enc.type === 'assimilation' && !enc.captainWarned && encounterNpcs(enc).some((n) => n.encounterSide === 'borg' && !n.destroyed && (n.playerAggroUntil || 0) > gameNow())) { enc.captainWarned = true; setLog('Borg vessel is attempting to disable your ship.'); }
     const d = encounterDecision(enc);
     if (d) resolveStrategicEncounter(enc, d);
   }
