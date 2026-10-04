@@ -53,7 +53,7 @@ const { startProbe } = require('./probe-harness.cjs');
     window.__enc = (type) => window.__encs().filter((e) => !type || e.type === type).slice(-1)[0] || null;
     window.__npcs = (id) => t.state.npcShips.filter((n) => n.encounterId === id);
     window.__vid = (h) => h?.identity?.vid || h?.vid || h?.id;
-    window.__quiet = () => { const db = t.DoctrineCampaign.doctrineBook(t.campaign()); db.config = { ...db.config, patrols: {}, explorers: {}, merchants: {}, projects: {}, patrolAreas: {}, militaryResponses: false, enforcementResponses: false }; t.campaign().config.aiStrategicOps = false; };
+    window.__quiet = () => { const db = t.DoctrineCampaign.doctrineBook(t.campaign()); db.config = { ...db.config, patrols: {}, explorers: {}, merchants: {}, projects: {}, patrolAreas: {}, militaryResponses: false, enforcementResponses: false, hunts: {}, borg: {} }; /* hunts and Borg assimilation open encounters of their own: quiet like every other routine */ t.campaign().config.aiStrategicOps = false; };
     // The captain flies a whole plotted course the way the game does: departure, the briefing at mid-jump
     // (where the calendar is settled, leg by leg), arrival.
     window.__fly = (to) => {

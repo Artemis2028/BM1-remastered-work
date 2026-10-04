@@ -373,6 +373,10 @@ const { startProbe } = require('./probe-harness.cjs');
     const step = async (fn, arg) => ev(fn, arg);
     const setup = await step(() => {
       const t = testBM1;
+      // The runs are decided by seeded draws keyed by campaign ids. Borg journeys (BORG-ASSIMILATION-TRANSWARP) are a
+      // new consumer of that counter far from here; with the Borg off and the counter advanced by three, this seed
+      // fails the same way — so the scenario pins its history: no Borg objectives.
+      { const db = t.DoctrineCampaign?.doctrineBook?.(t.campaign()); if (db) db.config = { ...db.config, borg: {} }; }
       const P = window.__Q('Paso'), AC = window.__idx('Alpha Centauri'), E = window.__idx('Earth');
       for (const i of [P, AC, E]) t.markSystemVisited(i);
       const ids = [window.__ship('Hauler Ames', P, 215, 600), window.__ship('Hauler Brisk', P, 215, 600), window.__ship('Hauler Corva', P, 215, 600)];

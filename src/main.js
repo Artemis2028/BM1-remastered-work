@@ -12924,9 +12924,9 @@ function occupiedMarket(systemIndex = state.currentPlanet) {
   const i = Number(systemIndex);
   const control = getSystemControl(i);
   const origin = control.origin;
-  // BORG-ASSIMILATION-TRANSWARP §19: an assimilated world has no market for anyone (no former-owner stock), whatever
-  // its origin.
-  if (systemHolderPolity(i) === 'borg' || control.controller === 'borg') return { systemIndex: i, origin, holder: 'borg', integratedDay: null, designs: new Set(), qualification: null, assimilated: true };
+  // BORG-ASSIMILATION-TRANSWARP §19: an assimilated world (Borg-held, not of Borg origin) has no market for anyone
+  // (no former-owner stock), whatever its origin. The Collective's own worlds (Vex) are as they were.
+  if ((systemHolderPolity(i) === 'borg' || control.controller === 'borg') && origin !== 'borg') return { systemIndex: i, origin, holder: 'borg', integratedDay: null, designs: new Set(), qualification: null, assimilated: true };
   if (!isRecognizedFactionKey(origin) || origin === 'neutral') return null;
   const holder = systemHolderPolity(i);
   if (!holder || holder === origin) return null;
@@ -16544,8 +16544,8 @@ function stationDoesCommerce(station) {
 }
 function commodityTradeBlock() {
   if (!state.gameStarted) return '';
-  // BORG-ASSIMILATION-TRANSWARP §19: an assimilated world trades with nobody.
-  if (getSystemControl(state.currentPlanet).controller === 'borg') return `${state.planets[state.currentPlanet]?.name || 'This world'} has been assimilated by the Borg: there is no market.`;
+  // BORG-ASSIMILATION-TRANSWARP §19: an assimilated world trades with nobody (the Collective's own worlds as before).
+  if (getSystemControl(state.currentPlanet).controller === 'borg' && getSystemControl(state.currentPlanet).origin !== 'borg') return `${state.planets[state.currentPlanet]?.name || 'This world'} has been assimilated by the Borg: there is no market.`;
   // No people and no surviving installation that does economic work means nobody to trade with.
   // Derived from the world, not from a list of names, so a trading post or a mine on an empty rock
   // still deals, and a gun platform on one does not. [playtest]

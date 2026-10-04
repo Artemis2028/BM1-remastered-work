@@ -221,6 +221,8 @@ const { startProbe } = require('./probe-harness.cjs');
         const w = window.__W();
         for (const j of t.campaign().journeys || []) {
           if (seen[j.id]) continue; seen[j.id] = true;
+          // A transwarp jump (BORG-ASSIMILATION-TRANSWARP) is not a chart route: one leg of its own fixed days.
+          if (j.mode === 'transwarp') { if (j.path.length !== 1 || j.legDays.length !== 1 || j.legDays[0] !== j.transwarp?.days) bad.push({ id: j.id, legs: j.legDays, transwarp: j.transwarp }); continue; }
           const sys = [j.plotFrom ?? j.origin, ...j.path];
           // Its chart legs at the speed it was flying each one (SHIP-DEPENDENT-STRATEGIC-SPEED: a fast ship's
           // leg is legitimately shorter than the chart's; a journey recorded without a speed flies the chart).

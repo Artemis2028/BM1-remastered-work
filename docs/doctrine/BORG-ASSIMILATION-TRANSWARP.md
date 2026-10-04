@@ -346,7 +346,20 @@ Across both campaigns:
 | 6 | low | A force recalled mid-conduit was released at the exit instead of returning home | the conduit journey carries `meta.home`; the force exits, then turns for home | REVIEW-3/6 |
 | 7 | low | World progress could freeze while any Borg hull (a probe) stood there with no objective | presence requires an active objective's assimilator | — |
 | 8 | low | Border sensors counted cloaked defenders | a cloak hides defenders at border range | — |
-| 9 | low | An assimilated world of neutral origin still had a market; recovered-archive designs and commodities still traded | `occupiedMarket` reports assimilated first, whatever the origin; archive stock and commodity trade blocked | — |
+| 9 | low | An assimilated world of neutral origin still had a market; recovered-archive designs and commodities still traded | `occupiedMarket` reports assimilated first for any Borg-held world not of Borg origin; archive stock and commodity trade blocked there. A world of Borg origin (Vex) keeps its own vendor | stations:offers |
+
+### 11a. Gates pinned against Borg activity (full suite on 72e896c)
+
+Six earlier gates failed on 72e896c, all for the same reason: the Collective is now alive in every campaign. None of the failures was a regression in the behaviour those gates guard. Each fix below follows the convention already used for Hirogen hunts (`hunts: {}`), and each gate was rerun green on the final tree.
+
+| Gate | Failure on 72e896c | Cause | Fix |
+|---|---|---|---|
+| `test:stations:offers` | Vex lost its vendor | the market fix (review #9) treated the Borg's own home as assimilated | real fix: `occupiedMarket` and `commodityTradeBlock` require origin ≠ borg |
+| `test:playtest:gate` | expedition-arc DOM check | Borg objectives and encounters shifted the seeded id counter and the arc's timing | scenario config pins `borg: {}` (with `hunts: {}`) |
+| `test:blockade-running:ingame` | 12/13 burn reproduction | the shared journey/encounter id counter moved. Proved: with the Borg off it passes; with the Borg off plus `counter += 3` it fails the same way | scenario setup pins `borg: {}` |
+| `test:doctrine:ingame` | 9/13: objective counts | Borg assimilation objectives counted alongside the gate's own | `__quiet` adds `borg: {}` |
+| `test:handoff:ingame` | 13/16: encounter counts | Borg and Hirogen encounters counted alongside the gate's own | `__quiet` adds `hunts: {}, borg: {}` |
+| `test:timescale:ingame` | NO-INSTANT-MOVEMENT | a transwarp leg is shorter than the chart's conventional leg, by design | a transwarp journey is checked as one leg of exactly `transwarp.days` |
 
 ## 12. Not implemented (by the brief)
 
