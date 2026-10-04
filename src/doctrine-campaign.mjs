@@ -4154,7 +4154,9 @@ export function huntDebug(book, world) {
   const hunts = db.objectives.filter((o) => o.kind === 'hunt').slice(-12).reverse().map((o) => {
     const hs = huntHunters(book, o);
     const lead = hs.find((h) => h.status !== 'lost') || null;
-    const tr = lead?.transit ? journeyById(book, lead.transit.journeyId) : null;
+    // Only this hunt's own journeys (a hunt or its return home): a hunter since re-tasked shows nothing here.
+    const trAny = lead?.transit ? journeyById(book, lead.transit.journeyId) : null;
+    const tr = trAny && trAny.ref === o.id ? trAny : null;
     const from = lead ? (lead.transit ? Number(lead.transit.to) : Number(lead.systemIndex)) : null;
     const toLast = lead && from != null ? plannedJourneyDays(world, from, o.lastKnown.systemIndex, o.polity, hullsSpeed(world, hs.filter((h) => h.status !== 'lost'))) : null;
     const eta = tr ? { to: tr.destination, arrivalDay: tr.legArrivalDay == null ? null : Number(tr.legArrivalDay) + (tr.legDays || []).slice(tr.legIndex + 1).reduce((n, d) => n + d, 0), kind: tr.kind } : null;
