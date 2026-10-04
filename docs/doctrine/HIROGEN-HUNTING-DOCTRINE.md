@@ -397,6 +397,13 @@ An independent review of the first commit found the following; all are fixed in 
 | 8 | low | A stale enforcement record could release a hunt surrender at once | system check only for enforcement surrenders | — |
 | 9 | low | A failed captain scene was credited as his escape | `abandoned` | — |
 
+**Two earlier gates pinned.** The full suite on 47c0d3d found two earlier in-game checks that assumed no hunts. Neither is a behaviour change.
+
+- **`test:doctrine:ingame`** counts every doctrine objective; a hunt is a new kind. Its `__quiet` now quiets hunts as it quiets every other routine.
+- **`test:playtest:gate` DOM single-long-jump** pins a seeded battle history. With hunts off, advancing the shared id counter by one on day 2 flips that seed's fourth stage from `invasion` to `withdrawn`. That scenario now runs with no hunts.
+
+Both pass at cecf293. The source is unchanged from 47c0d3d.
+
 ## 14. Not implemented this round (by the brief)
 
 - trophy or prisoner economy;
