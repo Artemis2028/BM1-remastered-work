@@ -295,6 +295,32 @@ test('new-feature', 'R28. one encounter, never two resolutions: a contact in the
   assert.equal(enc.history.filter((x) => ['resolved', 'fallback'].includes(x.event)).length, 1, 'resolved more than once');
   assert.equal(hunts(e)[0].lastEngagement.day, d0 + 3);
 });
+test('new-feature', 'R10/R31b. the prey is its hulls, not its group: a lower-id Terran shuttle joining the hunted cruiser at Minor (changing the group\'s lead) neither loses the hunt nor opens a second one — the hunters still come to Minor and engage', () => {
+  need();
+  const e = env('HN-RG');
+  hunters(e);
+  const [sh] = make(e, 'terran', 83, IDX.Qonos); const [c] = make(e, 'terran', 80, IDX.Minor);
+  days(e, 2, 2);
+  const o = hunts(e)[0];
+  assert.ok(o && o.prey.vid === vidOf(c), 'no hunt on the cruiser');
+  sh.systemIndex = IDX.Minor; // joins it there
+  for (let d = 3; d <= 30 && o.status === 'active' && !o.engagements; d++) days(e, d, d);
+  log.regroup = { phase: o.phase, engagements: o.engagements, result: o.result, hunts: hunts(e).length, lostSince: o.lostSince };
+  assert.ok(o.engagements >= 1, `never engaged: ${JSON.stringify(o.result)}`);
+  assert.equal(hunts(e).length, 1, 'a second hunt on the same prey');
+});
+test('new-feature', 'R28c. no scene in warp: a contact at system 0 (Earth) while the captain is in warp (localSystem null) is settled by the strategic resolver at once, not held for a scene', () => {
+  need();
+  const e = env('HN-0');
+  hunters(e, 70, IDX.Earth);
+  make(e, 'terran', 80, IDX.Earth);
+  e.world.localSystem = null;
+  days(e, 2, 6);
+  const encs = (e.book.encounters || []).filter((x) => x.type === 'hunt');
+  log.sys0 = { encs: encs.map((x) => [x.system, x.status]), hunt: hunts(e)[0]?.lastEngagement };
+  assert.ok(encs.length >= 1, 'no contact at Earth');
+  assert.ok(encs.every((x) => !['pending', 'tactical_active'].includes(x.status)), JSON.stringify(log.sys0.encs));
+});
 test('preservation', 'R22/R23/R24. a hunt takes no world and makes no war: forty days of hunting (an existing Hirogen–Romulan war on the books) leave every system\'s holder and every relation as they were; the war with Romulus stands, no war is declared', () => {
   const e = env('HN-22', { relations: { 'hirogen:romulan': 'war' } });
   hunters(e); make(e, 'terran', 80, IDX.Minor);

@@ -7256,7 +7256,8 @@ function updatePlayerSurrender() {
   const ld = localDoctrine();
   const s = ld.surrender;
   if (!s) return;
-  if (ld.clockMs >= s.releaseAtMs || Number(state.currentPlanet) !== Number(ld.lastEnforcement?.systemIndex ?? state.currentPlanet)) {
+  // An enforcement surrender ends when he leaves that authority's system; a hunt surrender only by its hold.
+  if (ld.clockMs >= s.releaseAtMs || (s.eid && Number(state.currentPlanet) !== Number(ld.lastEnforcement?.systemIndex ?? state.currentPlanet))) {
     ld.surrender = null;
     localDoctrineRecord('release', { to: s.to });
     setLog(`${s.label}: released. Leave restricted space.`);

@@ -17,7 +17,7 @@ A hunt is a **bounded objective**. It implies no war, no claim, no occupation, n
 | Records, knowledge, selection, journeys, encounters, closure, debug summary | `src/doctrine-campaign.mjs` (the "HIROGEN-HUNTING-DOCTRINE" section; `advanceHunts` in the daily doctrine step) |
 | Captain as prey: crossing check, scene decision, surrender panel, messages, "Hirogen hunts" debug section | `src/main.js` |
 | Doctrine data (unchanged; it is the authority) | `docs/doctrine/bm1-faction-doctrine.v0.2.1.json`: Hirogen profile, role `hunter`, interest rule `quarry` → `pursue_quarry` on `prey_sighting` when `worthy_hunt_known`; objective template `hunt` |
-| Regressions | `scripts/hunt-test.mjs` (pure, 21 checks), `scripts/hunt-gate.cjs` (in game, 11 checks) |
+| Regressions | `scripts/hunt-test.mjs` (pure, 23 checks), `scripts/hunt-gate.cjs` (in game, 11 checks) |
 | Measurement | `scripts/hunt-measure.mjs` (pure), `scripts/hunt-measure-ingame.cjs` (in game) |
 
 ## 1. Authority (§1, §12)
@@ -75,7 +75,7 @@ The cooldown and history live beside the record in `db.hunt`.
 - `completed` on target destroyed, target disabled or surrender accepted.
 - `aborted` otherwise.
 
-There is one record per (power, prey vid): a second hunt on the same prey is refused with `already hunted` (R31). A hunt is never recreated each tick. Selection runs every `evaluateEveryDays`, and only while the power has fewer than `maxActive` hunts.
+There is one record per prey: a second hunt is refused with `already hunted` when a candidate shares any hull vid with a live hunt's prey (R31). The prey is its hulls, not a group key. A contact belongs to a hunt when it holds any of the prey's vids, so a group that gains a lower-id hull, loses one or changes its lead is still the same prey (R10/R31b). Cooldowns are set on every prey vid, and expired cooldowns are pruned. A hunt is never recreated each tick. Selection runs every `evaluateEveryDays`, and only while the power has fewer than `maxActive` hunts.
 
 ## 3. Prey scoring (§3, §4, §16)
 
@@ -168,9 +168,9 @@ The search ends `escaped` when either:
 | What happens | What the player gets |
 |---|---|
 | A hunter stands in his system when the hunt on him opens | "Hirogen vessel is shadowing your course." |
-| He has been shadowed or engaged, and the hunters are on their intercepting leg | "Hirogen hunters are closing." |
+| He has been shadowed or engaged, and the hunters are on their intercepting leg | "Hirogen hunters are closing." (his crew is already tracking the shadow) |
 | The interception scene opens | "Hirogen Hunt — Engaged" (log and panel) |
-| The hunt on him ends after he was aware of it | "Hirogen hunters disengaged." |
+| The hunt on him ends out of his own engagement that day | "Hirogen hunters disengaged." |
 | A hunt on another ship | the existing intel path (`reportDoctrineTrace`: a local observation, a relay or fleet report, or a rumour). No global announcement. |
 
 ## 5. Pursuit on the shared journey system (§6, §13, §14)
@@ -215,7 +215,7 @@ The real chart's median leg is 12 days, so its scale is 2. The pure fixture's sc
 | Where | Who resolves it |
 |---|---|
 | Not in the captain's system | the strategic resolver, once, now: an escape roll, else one bounded exchange scaled by the force ratio; a prey under 25% may strike (35%) |
-| The captain's system (`world.localSystem`) | held `pending` for the scene; if the captain has left by the next day, the strategic resolver settles it once (the fallback). A hunt is never held "engaged" by a scene nobody will fight. |
+| The captain's system (`world.localSystem`, never when he is in warp) | held `pending` for the scene. From the next day the shared `settleAbandonedHandoff` rule applies, as for every other family: a pending contact he is no longer at falls back to the strategic resolver once, and an engagement fought where he no longer is gets disengaged. A hunt is never held "engaged" by a scene nobody will fight (R28, R28c). |
 | The captain is the prey | held for the scene, either standing where he is (the hunters arrive) or at a crossing on his warp course (`captainCrossingCheck` returns `{ type: 'hunt', encounterId }`, and the course stops there) |
 
 **In the scene.** The hunt's own Hirogen hulls are spawned:
@@ -235,7 +235,7 @@ They are hostile to the captain, and their fates are written back to the same hu
 | Strikes (**Surrender** button on the hunt panel) | `surrendered` | `surrender_accepted`: "an unsatisfying end" |
 | His ship is disabled | `prey_disabled` | `target_disabled` |
 | Hunters driven off but not beaten, or the window runs out | `disengaged` | `abandoned` (the hunters broke off) |
-| The scene could not be made | fallback | `prey_escaped` (nothing is fought off-scene for the captain) |
+| The scene could not be made | fallback | `abandoned`: the hunters broke off. Nothing is fought off-scene for the captain, and no escape is credited for a contact never fought. |
 
 ## 7. Termination rules (§7, §9, §10)
 
@@ -262,6 +262,8 @@ These are checked each day in `huntTermination`, first match wins, plus the enga
 
 - The hunters fly home, or are released where they stand if they cannot fly.
 - A cooldown is set: `cooldownDays` 45, or `escapeCooldownDays` 60 after an escape, both scaled.
+- If the doctrine is switched off (`releaseDoctrineHulls`), hunts still get their own closure record: result `cancelled`, history and cooldown. Hunters in warp are turned home by the hunt journey's `valid` check and released where they arrive or halt. No hull is left assigned to a closed hunt.
+- Treaty defiance is decided again for each route: a redirect never inherits an earlier leg's `treatyDefy`.
 - History is kept, bounded to 30 per power.
 - After closure there are no more pursuit orders and no new encounter (R30).
 
@@ -319,7 +321,7 @@ The baseline reproduction (`scripts/hunt-gate.cjs` and `scripts/hunt-test.mjs` w
 
 | Suite | c0a5890 | Candidate |
 |---|---|---|
-| Pure suite | 3/21: preservation 3/3; baseline-defect R2 fails on its own assertion ("no hunt on an observed worthy quarry"); new-feature 0/17 | 21/21 |
+| Pure suite | 3/23: preservation 3/3; baseline-defect R2 fails on its own assertion ("no hunt on an observed worthy quarry"); new-feature 0/19 | 23/23 |
 | In-game gate | 1/11: preservation 1/1; baseline-defect HUNT-SELECTION fails on its own assertion ("no hunt on the captain"); new-feature 0/9 | 11/11 |
 
 ## 12. Long-run measurement
@@ -328,32 +330,32 @@ The baseline reproduction (`scripts/hunt-gate.cjs` and `scripts/hunt-test.mjs` w
 
 | Metric | Value |
 |---|---|
-| Hunts opened | 14 |
-| Completed | 0 |
+| Hunts opened | 19 |
+| Completed | 1 (target destroyed) |
 | Escaped | 3 |
-| Abandoned | 11 (8 "hunters need repair" / "no longer adequate"; the rest indecisive or broke off) |
+| Abandoned | 15 (mostly "hunters need repair" / "no longer adequate" after an even exchange; the rest broke off after their engagements) |
 | Hunter losses | 0 hunts lost to hunters, 0 hulls |
-| Pursuit duration | average 6.4 days, max 17 |
-| Distance | 1.2 legs on average |
-| Duplicates prevented | 0 |
-| Cooldowns | 14 set; 205 evaluations rejected a prey on cooldown |
-| Prey | 14 military, 0 civilian |
+| Pursuit duration | average 5.7 days, max 11 |
+| Distance | 1.0 legs on average |
+| Duplicates prevented | 0 (selection never re-offered a hunted prey: `maxActive` 1) |
+| Cooldowns | 19 set; 338 evaluations rejected a prey on cooldown |
+| Prey | 19 military, 0 civilian |
 | World captures by hunting | **0** (captures with hunts on vs control: 0 / 0) |
 | Formal wars by hunting | **0** (wars on vs control: 0 / 0) |
-| Hirogen hull at home | ≥ 97.2% of days |
-| Hirogen hull-days committed to hunts | ≤ 4.5% |
-| Same prey hunted again | once, 51 days after the first hunt (cooldown 45) |
-| Save state | ≤ 22 KB of hunt state per campaign (~8% of a 240 KB book), flat after day 100 |
+| Hirogen hull at home | ≥ 98% of days |
+| Hirogen hull-days committed to hunts | ≤ 6.5% |
+| Same prey hunted again | seed HM-3: one Romulan patrol hunted 7 times, each after its cooldown (shortest gap 47 days, cooldown 45). That is bounded, but a patrol that keeps returning to Hirogen space keeps getting hunted. |
+| Save state | 15–31 KB of hunt state per campaign (6–13% of a ~240 KB book). It does not grow with time: cooldowns are pruned when they expire, history and selections are capped, closed hunts fall under `closedLimit`. |
 
 **In game** (`npm run measure:hunt:ingame`): real chart and engine, 400 days, captain at Earth and captain parked beside the Range, each with a hunts-off control.
 
 | Metric | Captain at Earth | Captain beside the Range |
 |---|---|---|
 | Hunts opened | 1 | 3 (one on the captain) |
-| Results | 1 abandoned | 2 abandoned, 1 prey escaped |
+| Results | 1 abandoned | 3 abandoned (the contact with the captain is left unanswered in this run, and an unfought scene counts as the hunters breaking off) |
 | Hunt duration | 34 days | average 21 days, max 37 |
 | Hunter losses | 0 | 0 |
-| Hunt state | 11 KB, flat | 16 KB, flat |
+| Hunt state | 11 KB, flat | 17–20 KB, flat |
 
 Across both in-game runs:
 
@@ -367,19 +369,35 @@ Across both in-game runs:
 
 | Concern | Status |
 |---|---|
-| Hirogen abandoning their duties | no: home coverage ≥ 95%, commitment ≤ 4.5% |
-| Endless pursuits | none: longest 17 days pure, 37 days in game at scale 2 |
+| Hirogen abandoning their duties | no: home coverage ≥ 95%, commitment ≤ 6.5% |
+| Endless pursuits | none: longest 11 days pure, 37 days in game at scale 2 |
 | Weak-civilian farming | none: all prey military; civilian factor 0.35 and the trivial band reject it |
 | Player chain-hunted | no: once in 400 days beside their space; escape cooldown 120 days at scale 2 |
 | Hunts becoming wars | 0 |
 | Capture side effects | 0 |
 | Hidden-information leaks | none: contacts come only from direct, border and departure sightings; cloak hides at border; hidden cargo and equipment are never read |
 
-**Finding (tuning).** Worthy prey is, by design, about the hunters' own strength. Two indecisive exchanges usually leave the hunters needing repair, so strategic hunts rarely end in a kill: 0 completed in the pure runs. This matches "disengage when no longer worthwhile", but the exchange shares (`strikeShare` 0.35, `returnShare` 0.25) and `maxEngagements` (2) are the knobs if kills should be more common.
+**Finding (tuning).** Worthy prey is, by design, about the hunters' own strength. Two indecisive exchanges usually leave the hunters needing repair, so strategic hunts rarely end in a kill: 1 of 19 in the pure runs. This matches "disengage when no longer worthwhile", but the exchange shares (`strikeShare` 0.35, `returnShare` 0.25) and `maxEngagements` (2) are the knobs if kills should be more common.
 
 **Measurement note.** The in-game hunts-on and hunts-off runs diverge in the unrelated Klingon–Terran war after about day 150. The campaign's id counter is shared, so hunt journeys and encounters shift every later id and the seeded draws keyed by them. The attribution checks therefore look at the Hirogen directly (captures by or of them, war declarations by them, the reasons of their war entries), not at a whole-galaxy diff.
 
-## 13. Not implemented this round (by the brief)
+## 13. Independent review (a0d81f1) and fixes
+
+An independent review of the first commit found the following; all are fixed in the candidate:
+
+| # | Severity | Finding | Fix | Regression |
+|---|---|---|---|---|
+| 1 | high | A hunt lost its prey when a lower-id hull joined the prey's group (the contact key changed); the hunt searched and ended `escaped` with the prey sitting still, and the cooldown and duplicate checks could be bypassed the same way | prey matched by hull vids; cooldowns per vid | R10/R31b (fails on a0d81f1) |
+| 2 | medium-high | `Number(null) === 0`: a contact at system 0 during the captain's warp was held for a scene forever | `localSystem != null` | R28c (fails on a0d81f1) |
+| 3 | medium | No safety net for an engagement the captain had left | shared `settleAbandonedHandoff` | R28 |
+| 4 | low-medium | Hunters of a hunt aborted by `releaseDoctrineHulls` could stay assigned through a pending redirect | `valid` checks hunt status first; release on arrive/halt | — |
+| 5 | low | Hunts aborted by `releaseDoctrineHulls` had no result, history or cooldown | closure record | — |
+| 6 | low | Treaty defiance stuck to later redirects | re-decided per route | — |
+| 7 | low | "Hunters disengaged" sent on any closure once aware | only out of his own engagement that day | gate R29 |
+| 8 | low | A stale enforcement record could release a hunt surrender at once | system check only for enforcement surrenders | — |
+| 9 | low | A failed captain scene was credited as his escape | `abandoned` | — |
+
+## 14. Not implemented this round (by the brief)
 
 - trophy or prisoner economy;
 - a permanent prey reputation beyond the bounded history and cooldown;
@@ -390,7 +408,7 @@ Across both in-game runs:
 
 The captain's own fleet ships (the `player` polity's mirrored hulls) are not prey this round. The captain himself is.
 
-## 14. Carry-forward (unchanged from c0a5890, plus this round's)
+## 15. Carry-forward (unchanged from c0a5890, plus this round's)
 
 - `restrict.reinforcement` / `restrict.offensive` treaty consumption
 - `blockade_in_dmz` incident semantics
@@ -416,3 +434,4 @@ The captain's own fleet ships (the `player` polity's mirrored hulls) are not pre
 - **new:** the captain's fleet ships as hunt prey
 - **new:** hunt exchange tuning (kill rate, see §12)
 - **new:** the shared campaign id counter makes on/off controls diverge (measurement hygiene)
+- **new:** a prey that keeps returning to Hirogen space is hunted again after each cooldown (bounded; a longer memory would be the excluded prey-reputation system)

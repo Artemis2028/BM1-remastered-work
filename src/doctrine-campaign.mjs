@@ -3759,6 +3759,15 @@ function recordCaptainContact(book, world, db, power, cap, at, day, source) {
     cls: ships.some((s) => preyClass(world, s) === 'military') ? 'military' : 'civilian', speed: Number(cap.speed) || hullSpeed(world, { shipId: cap.shipId }), cloak: Boolean(cap.cloaked),
     systemIndex: Number(at), day, source, heading: cap.heading ?? null, firstSeenDay: prev?.firstSeenDay ?? day, sightings: (prev?.sightings || 0) + 1 };
 }
+// The prey of a hunt is its hulls, not a group's key: a contact is the hunt's if it holds any of the prey's
+// vids (a group that gains or loses a hull, or changes its lead, is still the same prey). The freshest wins.
+const shareVid = (a = [], b = []) => a.some((v) => b.includes(v));
+function huntContactFor(hb, o) {
+  let best = null;
+  for (const c of Object.values(hb.contacts[o.polity] || {})) if ((c.vid === o.prey.vid || shareVid(c.vids, o.prey.vids)) && (!best || c.day > best.day)) best = c;
+  return best;
+}
+function preyCooldown(hb, power, vids) { let u = null; for (const v of vids) { const x = hb.cooldowns[`${power}|${v}`]; if (x != null && (u == null || x > u)) u = x; } return u; }
 function liveHunts(db, power = null) { return db.objectives.filter((o) => o.kind === 'hunt' && o.status === 'active' && (!power || o.polity === power)); }
 function huntHunters(book, o) { return o.hunters.map((x) => hullOf(book, o.polity, x.hullId)).filter(Boolean); }
 // Hunters a power can send now: its own fighting hulls, free, whole and crewed — never a hull made for the hunt.
@@ -3787,9 +3796,9 @@ export function evaluateHuntTargets(doctrine, book, world, power, day) {
   const contacts = Object.values(hb.contacts[power] || {});
   const shipCounts = {};
   for (const c of contacts) for (const s of c.shipIds) shipCounts[s] = (shipCounts[s] || 0) + 1;
-  const escapedBefore = new Set((hb.history[power] || []).filter((x) => x.result === 'escaped' || x.result === 'prey_escaped').map((x) => x.preyVid));
+  const escapedBefore = new Set((hb.history[power] || []).filter((x) => x.result === 'escaped' || x.result === 'prey_escaped').flatMap((x) => [x.preyVid, ...(x.preyVids || [])]));
   const candidates = contacts.map((c) => {
-    const huntedNow = db.objectives.some((o) => o.kind === 'hunt' && o.status === 'active' && o.prey.vid === c.vid);
+    const huntedNow = db.objectives.some((o) => o.kind === 'hunt' && o.status === 'active' && (o.prey.vid === c.vid || shareVid(o.prey.vids, c.vids)));
     // Reach: the lawful route; if there is none and this power's doctrine goes through in defiance, the route
     // ignoring the treaty (the crossing is then an ordinary breach, recorded by the treaty system).
     let reachDays = av.systemIndex == null ? null : Number(av.systemIndex) === Number(c.systemIndex) ? 0 : plannedJourneyDays(world, av.systemIndex, c.systemIndex, power, hunterSpeed);
@@ -3798,7 +3807,7 @@ export function evaluateHuntTargets(doctrine, book, world, power, day) {
       if (plan) reachDays = plan.legDays.reduce((n, d) => n + d, 0);
     }
     const s = H.scorePrey({ preyStrength: c.strength, hunterStrength: hunterStrength || 1, cls: c.cls, source: c.source, ageDays: day - c.day, rare: c.shipIds.some((x) => shipCounts[x] === 1) && c.cls === 'military',
-      escapedBefore: escapedBefore.has(c.vid), cooldownUntil: hb.cooldowns[`${power}|${c.vid}`] ?? null, day, reachDays, duplicate: huntedNow, reckless: Boolean(pc.reckless) }, cfg);
+      escapedBefore: c.vids.some((v) => escapedBefore.has(v)), cooldownUntil: preyCooldown(hb, power, [c.vid, ...c.vids]), day, reachDays, duplicate: huntedNow, reckless: Boolean(pc.reckless) }, cfg);
     return { vid: c.vid, kind: c.kind, polity: c.polity, cls: c.cls, ships: c.shipIds, count: c.count, seen: { system: c.systemIndex, day: c.day, source: c.source }, preyStrength: c.strength, reachDays, ...s };
   }).sort((a, b) => (b.verdict === 'eligible') - (a.verdict === 'eligible') || b.score - a.score || String(a.vid).localeCompare(String(b.vid)));
   return { power, day, hunters: av.hulls.map((h) => ({ hullId: h.id, vid: vidOf(h), shipId: h.shipId })), hunterStrength: Math.round(hunterStrength * 10) / 10, hunterSystem: av.systemIndex, hunterReason: av.reason, candidates };
@@ -3878,7 +3887,7 @@ function moveHunters(book, world, db, o, dest, day, effects) {
   const lead = hs[0];
   if (lead.transit) {
     const tr = journeyById(book, lead.transit.journeyId);
-    if (tr && tr.status === 'underway' && Number(tr.destination) !== Number(dest) && tr.kind === 'hunt') tr.pending = { destination: Number(dest), purpose: 'hunt', authority: tr.authority, meta: tr.meta, treatyDefy: tr.treatyDefy };
+    if (tr && tr.status === 'underway' && Number(tr.destination) !== Number(dest) && tr.kind === 'hunt') tr.pending = { destination: Number(dest), purpose: 'hunt', authority: tr.authority, meta: { huntId: o.id } }; // treaty defiance is decided again for each route
     return;
   }
   if (Number(lead.systemIndex) === Number(dest)) return;
@@ -3905,9 +3914,9 @@ function workHunt(doctrine, book, world, db, o, day, effects) {
   const hb = huntBook(db);
   if (o.encounterId) {
     const enc = SE.encounterById(book, o.encounterId);
-    // A contact left waiting for a scene the captain is no longer in (another ship's, not his): the strategic
-    // resolver settles it once now, so a hunt is never held "engaged" by a scene nobody will fight.
-    if (enc && enc.status === 'pending' && !enc.captain && Number(world.localSystem) !== Number(enc.system) && day > Number(enc.createdDay ?? day)) SE.fallbackEncounter(book, world, enc.id, day, effects, 'the scene was never taken up', encounterHullLookup(book));
+    // A contact left waiting for (or being fought in) a scene the captain is no longer in: settled once by the
+    // shared rule every family uses, so a hunt is never held "engaged" by a scene nobody will fight.
+    if (enc && day > Number(enc.createdDay ?? day)) settleAbandonedHandoff(book, world, enc, day, effects);
     if (enc && SE.isLive(enc)) { setHuntPhase(o, 'engaged', day); return; }
     o.encounterId = null;
     if (o.status !== 'active') return;
@@ -3915,7 +3924,7 @@ function workHunt(doctrine, book, world, db, o, day, effects) {
   const hunters = huntHunters(book, o);
   const alive = hunters.filter((h) => h.status !== 'lost');
   const able = alive.filter((h) => hullCanTravel(h) && h.status !== 'surrendered');
-  const contact = hb.contacts[o.polity]?.[o.prey.vid] || null;
+  const contact = huntContactFor(hb, o);
   // Newer knowledge, or the same day's sighting now carrying the heading it left on.
   if (contact && (contact.day > o.lastKnown.day || (contact.day === o.lastKnown.day && contact.heading != null && o.lastKnown.heading == null))) {
     if (contact.systemIndex !== o.lastKnown.systemIndex) o.preyMoved = true;
@@ -3968,7 +3977,7 @@ function engageHunt(book, world, db, o, at, preyHulls, day, effects) {
   o.actions.push({ day, action: 'engage', detail: `contact at ${at} (engagement ${o.engagements})` });
   effects.push({ type: 'doctrineHunt', id: o.id, polity: o.polity, event: 'engaged', captain, systemIndex: Number(at), encounterId: enc.id, day });
   // The captain's own interception, or a contact in the system he stands in: the scene fights it.
-  if (captain || Number(world.localSystem) === Number(at)) return enc;
+  if (captain || (world.localSystem != null && Number(world.localSystem) === Number(at))) return enc;
   const report = huntStrategicReport(book, world, db, o, enc, day);
   SE.resolveEncounter(book, world, enc.id, report, day, effects, encounterHullLookup(book));
   return enc;
@@ -4033,14 +4042,15 @@ function closeHunt(book, world, db, o, result, reason, day, effects) {
   bump(db, success ? 'huntsCompleted' : result === 'escaped' || result === 'prey_escaped' ? 'huntsEscaped' : result === 'hunter_lost' || result === 'hunter_disabled' ? 'huntsHunterLost' : 'huntsAbandoned');
   bump(db, success ? 'objectivesCompleted' : 'objectivesAborted');
   const escaped = result === 'escaped' || result === 'prey_escaped';
-  hb.cooldowns[`${o.polity}|${o.prey.vid}`] = day + (escaped ? cfg.escapeCooldownDays : cfg.cooldownDays);
+  for (const v of new Set([o.prey.vid, ...(o.prey.vids || [])])) hb.cooldowns[`${o.polity}|${v}`] = day + (escaped ? cfg.escapeCooldownDays : cfg.cooldownDays);
   bump(db, 'huntCooldownsSet');
   const list = (hb.history[o.polity] ||= []);
-  list.push({ huntId: o.id, preyVid: o.prey.vid, preyKind: o.prey.kind, preyPolity: o.prey.polity, cls: o.prey.cls, result, reason, startDay: o.startDay, endDay: day, days: day - o.startDay, legs: o.legsFlown || 0, engagements: o.engagements, hunters: o.hunters.map((x) => x.vid) });
+  list.push({ huntId: o.id, preyVid: o.prey.vid, preyVids: (o.prey.vids || []).slice(0, 8), preyKind: o.prey.kind, preyPolity: o.prey.polity, cls: o.prey.cls, result, reason, startDay: o.startDay, endDay: day, days: day - o.startDay, legs: o.legsFlown || 0, engagements: o.engagements, hunters: o.hunters.map((x) => x.vid) });
   if (list.length > 30) hb.history[o.polity] = list.slice(-30);
   o.actions.push({ day, action: 'closed', detail: `${result}: ${reason}` });
   effects.push({ type: 'doctrineObjective', id: o.id, incidentId: null, polity: o.polity, response: o.response, hullId: o.assigned.hullId, vid: o.assigned.vid, to: o.lastKnown.systemIndex, day, status: o.status, reasons: [result] });
-  effects.push({ type: 'doctrineHunt', id: o.id, polity: o.polity, event: 'closed', result, captain: o.prey.kind === 'captain', aware: o.captainAware, day });
+  // He hears they broke off only where he sees it: the closure comes out of his own engagement today.
+  effects.push({ type: 'doctrineHunt', id: o.id, polity: o.polity, event: 'closed', result, captain: o.prey.kind === 'captain', aware: Boolean(o.captainAware && o.tacticalDay === day), day });
   // Home: each able hunter flies back to the nearest world its power holds; a hulk stays where it lies (the
   // recovery rules have it); a hunter already home is released there.
   for (const h of huntHunters(book, o)) {
@@ -4061,19 +4071,25 @@ function closeHunt(book, world, db, o, result, reason, day, effects) {
 }
 // A hunt journey: its leg ends where the hunt next wants it; when the hunt is over it turns for home at the
 // next system it reaches (never in warp).
+function releaseHuntJourneyHulls(book, tr) {
+  const o = doctrineBook(book).objectives.find((x) => x.id === tr.ref);
+  if (o && o.status === 'active') return;
+  for (const id of tr.members || []) { const h = hullOf(book, tr.sponsor, id); if (h && h.opId === tr.ref) { h.opId = null; if (h.status === 'assigned') h.status = 'ready'; } }
+}
 registerJourneyKind('hunt', {
   valid(book, world, tr) {
-    if (tr.pending) return { ok: true }; // already turned (home, or to where the hunt next wants it)
     const db = doctrineBook(book);
     const o = db.objectives.find((x) => x.id === tr.ref);
     if (o && o.status === 'active') return { ok: true };
+    if (tr.pending?.kind === 'return' || tr.pending?.purpose === 'return') return { ok: true }; // already turned home
     return { ok: false, reason: 'hunt over', pending: { kind: 'return', destination: tr.meta?.home ?? tr.origin, purpose: 'return', war: null, authority: { kind: 'return', ref: tr.ref }, meta: { home: tr.meta?.home ?? tr.origin } } };
   },
   onCross(book, world, tr) { const o = doctrineBook(book).objectives.find((x) => x.id === tr.ref); if (o) { o.legsFlown = (o.legsFlown || 0) + 1; o.distanceDays = (o.distanceDays || 0) + Number(tr.legDays?.[tr.legIndex] || 0); } },
   onDetach(book, world, tr, h) { if (h.opId === tr.ref && (h.status === 'lost' || !hullCanTravel(h))) h.opId = null; },
-  // Arrived, or held with no way on: the hunters stay on the hunt where they are (the hunt decides the next move).
-  onArrive() {},
-  onHalt() {},
+  // Arrived, or held with no way on: the hunters stay on the hunt where they are (the hunt decides the next
+  // move) — unless the hunt is over, in which case they are let go there (never left assigned to a closed hunt).
+  onArrive(book, world, tr) { releaseHuntJourneyHulls(book, tr); },
+  onHalt(book, world, tr) { releaseHuntJourneyHulls(book, tr); },
 });
 SE.registerEncounterFamily('hunt', {
   resolve(book, world, enc, report, day, effects) {
@@ -4089,8 +4105,8 @@ SE.registerEncounterFamily('hunt', {
     const o = db.objectives.find((x) => x.id === enc.objective.ref);
     if (!o || o.status !== 'active') return { continuation: 'the hunt was already over' };
     o.encounterId = null; o.tacticalDay = day;
-    if (enc.captain) { // his own interception with no scene: he slipped them (nothing is fought off-scene for him)
-      return applyHuntEngagement(book, world, db, o, enc, { outcome: 'escaped', strategic: true }, day, effects);
+    if (enc.captain) { // his own interception with no scene: nothing is fought off-scene for him; the hunters broke off
+      return applyHuntEngagement(book, world, db, o, enc, { outcome: 'disengaged', strategic: true, note: 'no scene' }, day, effects);
     }
     const report = huntStrategicReport(book, world, db, o, enc, day);
     const hook = SE.fateHooks().applyFate;
@@ -4158,6 +4174,7 @@ export function huntDebug(book, world) {
 function advanceHunts(doctrine, book, world, db, day, effects) {
   if (!huntPowers(book, db).length) return;
   huntScale(world, db);
+  { const hb = huntBook(db); for (const [k, until] of Object.entries(hb.cooldowns)) if (Number(until) < day) delete hb.cooldowns[k]; } // bounded: only live cooldowns are kept
   for (const p of huntPowers(book, db)) observeForHunts(book, world, db, p, day);
   for (const o of db.objectives) if (o.kind === 'hunt' && o.status === 'active') workHunt(doctrine, book, world, db, o, day, effects);
   selectHunts(doctrine, book, world, db, day, effects);
@@ -4227,6 +4244,14 @@ export function releaseDoctrineHulls(book, day, reason = 'doctrine switched off'
     else { const g = db.pirates?.[o.pirateId]; if (g) { g.objectiveId = null; if (g.status === 'demanding') g.status = 'lurking'; } }
   }
   // Hunts: the hunters are let go where they stand (one in warp is turned home by its journey's own check).
+  for (const o of db.objectives || []) if (o.status === 'active' && o.kind === 'hunt') {
+    // The hunt's own closure record (result, history, cooldown), with no world to route anyone by.
+    const hb = huntBook(db);
+    o.result = { result: 'cancelled', reason, day }; o.phase = 'resolved'; (o.phaseHistory ||= []).push({ day, phase: 'resolved' });
+    for (const v of new Set([o.prey.vid, ...(o.prey.vids || [])])) hb.cooldowns[`${o.polity}|${v}`] = day + huntCfg(db).cooldownDays;
+    const list = (hb.history[o.polity] ||= []); list.push({ huntId: o.id, preyVid: o.prey.vid, preyVids: (o.prey.vids || []).slice(0, 8), preyKind: o.prey.kind, preyPolity: o.prey.polity, cls: o.prey.cls, result: 'cancelled', reason, startDay: o.startDay, endDay: day, days: day - o.startDay, legs: o.legsFlown || 0, engagements: o.engagements, hunters: o.hunters.map((x) => x.vid) });
+    if (list.length > 30) hb.history[o.polity] = list.slice(-30);
+  }
   for (const o of db.objectives || []) if (o.status === 'active' && o.kind === 'hunt') for (const x of o.hunters || []) { const h = hullOf(book, o.polity, x.hullId); if (h && h.opId === o.id && !h.transit) { h.opId = null; if (h.status === 'assigned') h.status = 'ready'; } }
   for (const p of Object.values(book.polities || {})) for (const h of p.hulls || []) if (h.status === 'surrendered') { delete h.surrendered; h.status = hullIsDisabled(h) ? 'repairing' : 'ready'; if (h.status === 'ready') h.opId = null; }
   for (const o of db.objectives || []) if (o.status === 'active') { o.status = 'aborted'; o.closedDay = day; bump(db, 'objectivesAborted'); o.resolution = { status: 'aborted', reasons: ['objective_cancelled'], day, note: reason }; if (o.response === 'protect') o.escortState = 'closed'; }
