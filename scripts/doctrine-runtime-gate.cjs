@@ -53,7 +53,7 @@ const SCHEMA = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs/doctrine/bm1-fac
     window.__P = (id) => t.campaign().polities[id];
     window.__ready = (polity, at = null) => (window.__P(polity)?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && (at == null || h.systemIndex === at)).sort((a, b) => String(a.id).localeCompare(String(b.id)));
     // Routine pilot generation off: each scenario issues exactly the jobs it needs.
-    window.__quiet = () => { const db = window.__D(); db.config = { ...db.config, patrols: {}, explorers: {}, merchants: {}, projects: {}, patrolAreas: {}, militaryResponses: false, enforcementResponses: false, predation: false }; };
+    window.__quiet = () => { const db = window.__D(); db.config = { ...db.config, patrols: {}, explorers: {}, merchants: {}, projects: {}, patrolAreas: {}, militaryResponses: false, enforcementResponses: false, predation: false, hunts: {} }; }; // hunts (HIROGEN-HUNTING-DOCTRINE) are their own objectives: quiet here like every other routine
     window.__authored = (fn) => t.runCampaignAuthored(fn);
     window.__patrol = (polity, hullId, target, opts = {}) => window.__authored((book, world, fx) => t.DoctrineCampaign.issuePatrol(book, world, polity, hullId, target, t.state.day, fx, opts));
     window.__assign = (spec) => window.__authored((book, world, fx) => t.DoctrineCampaign.issueAssignment(book, world, spec, t.state.day, fx));

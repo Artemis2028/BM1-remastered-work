@@ -420,6 +420,11 @@ const { startProbe } = require('./probe-harness.cjs');
         dominionChallengeRatio: 1e6, dominionCorridorCloseRatio: 1e6, dominionMinPlayerCategories: 0,
         dominionOpeningWindowDays: 1, dominionOpeningSustainDays: 1,
         dominionReconDwellDays: 0, dominionStagingDwellDays: 0 });
+      // The arc's fourth stage is decided by seeded battles keyed by campaign ids: one extra id early on
+      // (any new consumer of the shared counter — e.g. a Hirogen hunt journey on day 2) flips this seed's
+      // invasion into a withdrawal with no hunt anywhere near it (HIROGEN-HUNTING-DOCTRINE §12, measurement
+      // note). The check is about pacing, so its seeded history is pinned: no hunts in this scenario.
+      { const db = t.DoctrineCampaign?.doctrineBook?.(book); if (db) db.config = { ...db.config, hunts: {} }; }
       const jump = (days) => {
         const before = { phase: book.dominion.phase, warnings: book.dominion.warnings.length };
         t.advanceFleetCalendar(days, t.Fleet.nextId(t.fleetBook(), 'journey'));
