@@ -361,6 +361,21 @@ Six earlier gates failed on 72e896c, all for the same reason: the Collective is 
 | `test:handoff:ingame` | 13/16: encounter counts | Borg and Hirogen encounters counted alongside the gate's own | `__quiet` adds `hunts: {}, borg: {}` |
 | `test:timescale:ingame` | NO-INSTANT-MOVEMENT | a transwarp leg is shorter than the chart's conventional leg, by design | a transwarp journey is checked as one leg of exactly `transwarp.days` |
 
+### 11b. Handoff gate stability (test-only correction on d2a6220)
+
+`test:handoff:ingame` PASSED-AND-RESUMED cripples one blockader just under the disable line late in the fight, while Alpha Centauri's station guns still fire on enemies. Sometimes they finish it before the window closes, so its record ends `lost` instead of `awaiting_recovery` (1 run in 12 at d2a6220; the failed run contained no Borg). Both are legitimate combat outcomes, and the record was written back correctly in both.
+
+No combat, station-fire, Borg or handoff behaviour changed. The gate now asserts the invariant, not one fate:
+
+- **PASSED-AND-RESUMED** keeps its scene exactly, with live station guns. The cripple must end `disabled` (stranded `awaiting_recovery` at the system, hull at or under the disable line) or `destroyed` (record `lost`, hull 0, not stranded), and every handoff invariant must hold:
+  - the runner passed;
+  - one encounter, resolved once, with no fallback and no abstract run beside it;
+  - every blockader's fate is on its one record (the same vid), and the blockade's tallies match the fates;
+  - the course resumes once.
+- **CRIPPLE-EITHER-FATE** (new) runs both fates on purpose, on the same seed, scene and timing. The scene is closed by the engine's own window rule with no simulated fire after the last act. One branch leaves the cripple disabled; the other finishes it with one station hit through the engine's damage path (`damageCombatTarget(…, 'station')`, now exposed by `probe-harness.cjs`).
+
+Station fire was not removed from the scene: it is the only third-party kill this gate sees, and it writes back like any other. Mutations confirm the new assertions catch real defects: a disabled hull not stranded, an abstract run recorded beside the scene, and a second record carrying a vid each fail both checks.
+
 ## 12. Not implemented (by the brief)
 
 - Tactical Cube (stays `transwarp.capable: false`, deferred)

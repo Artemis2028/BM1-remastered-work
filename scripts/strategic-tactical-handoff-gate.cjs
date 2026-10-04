@@ -92,7 +92,89 @@ const { startProbe } = require('./probe-harness.cjs');
       const bid = window.__blockade(AC, blockadeN);
       return { P, AC, E, bid };
     };
+    // The scene closes on its own rule at the end of its window, with no simulated combat after the fixture's
+    // last act: the clock is moved on (no tick runs, so nobody fires), and the engine's own per-frame encounter
+    // step decides and writes back exactly as it does when the window runs out. No constant is assumed: the
+    // clock moves a second at a time until the engine closes it.
+    window.__closeAtWindow = (enc) => {
+      for (let k = 0; k < 120 && t.Encounter.isLive(enc); k++) { t.playtestClock.offset -= 1000; t.updateStrategicEncounters(); }
+      return enc.status;
+    };
+    // HANDOFF INVARIANTS: what must hold however the scene's own later fire treats a cripple — finished by the
+    // world's station guns, or left adrift. One encounter for the captain's crossing, resolved once, never
+    // settled by the strategic resolver beside it; every blockader's fate written onto its one persistent
+    // record (the same vid), with the blockade's tallies agreeing with those fates.
+    window.__handoffInvariants = (encId, roles = {}) => {
+      const book = t.campaign();
+      const enc = t.Encounter.encounterById(book, encId);
+      const bl = window.__block(enc.objective.ref);
+      const all = Object.values(book.polities).flatMap((p) => p.hulls || []);
+      const byVid = (vid) => all.filter((h) => window.__vid(h) === vid);
+      const events = enc.history.map((h) => h.event);
+      const key = enc.contact?.runner?.key || null;
+      const blockaders = enc.participants.filter((p) => p.side === 'blockader').map((p) => {
+        const recs = byVid(p.vid);
+        const own = (book.polities[p.polity]?.hulls || []).find((h) => String(h.id) === String(p.hullId)) || null;
+        const rec = recs[0] || null;
+        const npc = t.state.npcShips.find((n) => n.encounterId === enc.id && n.encounterRef === p.ref) || null;
+        return { vid: p.vid, fate: p.fate, after: p.after?.hull ?? null, vidMismatch: p.vidMismatch || null, spawned: (enc.spawned || []).includes(p.vid),
+          records: recs.length, ownIsSame: own ? own === rec : null,
+          rec: rec && { status: rec.status, hull: rec.hull, maxHull: rec.maxHull, systemIndex: rec.systemIndex, stranded: rec.stranded?.recovery || null, fate: rec.fate || null,
+            surrenderedTo: rec.surrendered?.to || null, stillMarked: rec.encounterId === enc.id, disableLine: Math.max(1, Math.floor(t.Fleet.disableThreshold(rec.maxHull))) },
+          scene: npc && { vid: npc.vid, destroyed: Boolean(npc.destroyed), surrendered: Boolean(npc.surrendered), disabled: npc.condition === 'disabled', lastDamageSource: npc.lastDamageSource || null } };
+      });
+      const roleOf = (vid) => blockaders.find((x) => x.vid === vid) || null;
+      return {
+        id: enc.id, system: enc.system, status: enc.status, result: enc.result, fallback: enc.fallback, resolvedDay: enc.resolvedDay,
+        resolvedEvents: events.filter((e) => e === 'resolved').length, fallbackEvents: events.filter((e) => e === 'fallback').length, history: events,
+        // Every encounter the book holds for this blockade with the captain in it (one contact, one record).
+        captainEncounters: (book.encounters || []).filter((e) => e.captain && e.type === 'blockade' && String(e.objective?.ref) === String(enc.objective.ref)).length,
+        runsForEncounter: (bl.runs || []).filter((x) => x.encounterId === enc.id).map((x) => ({ outcome: x.outcome, tactical: Boolean(x.tactical), day: x.day })),
+        // The strategic resolver's own run for the captain's crossing, if it had settled the contact beside the scene.
+        abstractRuns: (bl.runs || []).filter((x) => !x.tactical && x.day >= enc.createdDay && (x.by === key || x.encounterId === enc.id)).length,
+        blockade: { status: bl.status, losses: bl.losses || 0 },
+        blockaders, roles: Object.fromEntries(Object.entries(roles).map(([k, vid]) => [k, roleOf(vid)])),
+      };
+    };
   });
+  // The handoff invariants, asserted the same way for every branch (see window.__handoffInvariants).
+  function assertHandoffInvariants(inv) {
+    assert.equal(inv.status, 'resolved', `encounter ${inv.status}: ${JSON.stringify(inv.result)}`);
+    assert.equal(inv.resolvedEvents, 1, `resolved ${inv.resolvedEvents} times: ${inv.history.join(' → ')}`);
+    assert.equal(inv.fallbackEvents, 0, `the strategic fallback also ran: ${inv.history.join(' → ')}`);
+    assert.equal(inv.fallback, null, `fallback recorded: ${JSON.stringify(inv.fallback)}`);
+    assert.equal(inv.captainEncounters, 1, `${inv.captainEncounters} encounters for one crossing`);
+    assert.ok(['passed', 'broken'].includes(inv.result.outcome), `the runner did not pass: ${inv.result.outcome}`);
+    assert.ok(['fought_through', 'blockade_broken'].includes(inv.result.run), `run recorded as ${inv.result.run}`);
+    assert.equal(inv.runsForEncounter.length, 1, `runs for this encounter: ${JSON.stringify(inv.runsForEncounter)}`);
+    assert.equal(inv.runsForEncounter[0].tactical, true, 'the run on the blockade record is not the tactical one');
+    assert.equal(inv.abstractRuns, 0, 'an abstract blockade run was also recorded for the captain\'s crossing');
+    const tally = { lost: 0, disabled: 0, surrendered: 0 };
+    for (const b of inv.blockaders) {
+      const at = `blockader ${b.vid} (${b.fate})`;
+      assert.ok(b.spawned, `${at} was not in the scene`);
+      assert.equal(b.vidMismatch, null, `${at}: the scene spoke for ${b.vidMismatch}`);
+      assert.ok(b.records <= 1, `${at}: ${b.records} records carry this vid`);
+      if (b.scene) assert.equal(b.scene.vid, b.vid, `${at}: scene ship is ${b.scene.vid}`);
+      if (b.fate !== 'destroyed') { assert.equal(b.records, 1, `${at}: no record`); assert.equal(b.rec.stillMarked, false, `${at}: still marked as in the encounter`); }
+      if (b.ownIsSame === false) assert.fail(`${at}: the record under its hull id is not the record carrying its vid`);
+      // What the scene showed is what the encounter says (the record's own classifier may only make a
+      // damaged ship disabled or lost, never the reverse).
+      if (b.scene?.destroyed) assert.equal(b.fate, 'destroyed', `${at}: destroyed in the scene`);
+      if (b.scene?.surrendered) assert.equal(b.fate, 'surrendered', `${at}: struck in the scene`);
+      if (b.scene?.disabled && !b.scene.destroyed && !b.scene.surrendered) assert.equal(b.fate, 'disabled', `${at}: disabled in the scene`);
+      if (b.fate === 'destroyed') { tally.lost++; assert.ok(!b.rec || (b.rec.status === 'lost' && b.rec.hull === 0 && !b.rec.stranded), `${at}: record ${JSON.stringify(b.rec)}`); }
+      else if (b.fate === 'disabled') { tally.disabled++; assert.ok(b.rec.stranded === 'awaiting_recovery' && b.rec.systemIndex === inv.system && b.rec.hull > 0 && b.rec.hull <= b.rec.disableLine && b.rec.status !== 'lost', `${at}: record ${JSON.stringify(b.rec)}`); }
+      else if (b.fate === 'surrendered') { tally.surrendered++; assert.equal(b.rec.status, 'surrendered', `${at}: record ${JSON.stringify(b.rec)}`); }
+      else { assert.notEqual(b.rec.status, 'lost', `${at}: lost on record`); if (b.after != null) assert.ok(Math.abs(b.rec.hull - b.after) <= 0.1, `${at}: record hull ${b.rec.hull} vs ${b.after} reported`); }
+    }
+    const bl = inv.result.blockaderLosses || {};
+    assert.deepEqual({ lost: bl.lost, disabled: bl.disabled, surrendered: bl.surrendered }, tally, `blockade tallies vs fates ${JSON.stringify(bl)}`);
+    assert.ok(inv.blockade.losses >= tally.lost, `blockade losses ${inv.blockade.losses} < ${tally.lost} destroyed`);
+  }
+  // The crippled interceptor may legitimately end either way: still disabled (awaiting recovery) or finished
+  // by later valid tactical fire (destroyed, retired from its polity). Nothing else.
+  const CRIPPLE_FATES = ['disabled', 'destroyed'];
 
   // ================================================================================================
   // BLOCKADE-TACTICAL-HANDOFF
@@ -181,13 +263,19 @@ const { startProbe } = require('./probe-harness.cjs');
         surrendered: [c.vid, h(c.vid)?.status, h(c.vid)?.surrendered?.to], damaged: [d.vid, h(d.vid) && Math.round(100 * h(d.vid).hull / h(d.vid).maxHull), d.destroyed ? null : Math.round(100 * d.combatHull / d.maxCombatHull)] };
       const course = t.captainCourseLine();
       const panel = document.getElementById('security-order-panel')?.textContent?.replace(/\s+/g, ' ').trim() || '';
-      return { status: e2.status, result: e2.result, fates, blockade: { status: bl.status, hulls: bl.hulls.length, coverage: bl.coverage, sighting: bl.sightings?.player || null, losses: bl.losses }, course, panel, AC: e2.system, day: t.state.day };
+      const inv = window.__handoffInvariants(enc.id, { dead: a.vid, cripple: b2.vid, struck: c.vid, damaged: d.vid });
+      return { status: e2.status, result: e2.result, fates, inv, crippleFate: inv.roles.cripple?.fate ?? null, crippleFinishedBy: b2.destroyed ? (b2.lastDamageSource || null) : null,
+        blockade: { status: bl.status, hulls: bl.hulls.length, coverage: bl.coverage, sighting: bl.sightings?.player || null, losses: bl.losses }, course, panel, AC: e2.system, day: t.state.day };
     });
     evidence.push({ check: 'PASSED-AND-RESUMED (resolution)', ...r });
     assert.equal(r.status, 'resolved', JSON.stringify(r.result));
     assert.ok(['passed', 'broken'].includes(r.result.outcome), r.result.outcome);
     assert.ok(['lost', 'gone'].includes(r.fates.dead[1]), `destroyed blockader is ${r.fates.dead[1]}`);
-    assert.ok(r.fates.disabled[1].stranded === 'awaiting_recovery' && r.fates.disabled[1].at === r.AC, JSON.stringify(r.fates.disabled));
+    // The cripple is left just under the disable line while the world's station still fires on enemies:
+    // it may end disabled (awaiting recovery here) or finished by that later fire (lost). Both are valid
+    // combat outcomes; what must hold either way is the handoff (CRIPPLE-EITHER-FATE exercises both).
+    assert.ok(CRIPPLE_FATES.includes(r.crippleFate), `the crippled blockader came back as ${r.crippleFate}: ${JSON.stringify(r.fates.disabled)}`);
+    assertHandoffInvariants(r.inv);
     assert.equal(r.fates.surrendered[1], 'surrendered');
     // The damaged interceptor's record carries exactly what it had left in the scene (≤ 55%: it was struck).
     if (r.fates.damaged[2] != null) { assert.ok(r.fates.damaged[1] <= 56, JSON.stringify(r.fates.damaged)); assert.ok(Math.abs(r.fates.damaged[1] - r.fates.damaged[2]) <= 1, JSON.stringify(r.fates.damaged)); }
@@ -210,6 +298,59 @@ const { startProbe } = require('./probe-harness.cjs');
     assert.equal(r2.day - r2.day0, r2.legs.reduce((n, d) => n + d, 0));
     assert.ok(!r2.crossings.some((c) => c.system === r2.AC), 'Alpha Centauri was crossed again');
     assert.equal(r2.encounters, 1, 'a second encounter was opened');
+  });
+
+  // PASSED-AND-RESUMED leaves one interceptor just under the disable line late in the fight; whether the
+  // world's station guns finish it before the window closes is ordinary tactical fire. Here each fate is
+  // produced on purpose — on the same seed, scene and timing — and the scene is closed by the engine's own
+  // window rule with no simulated fire after the last act, so both branches run every time, deterministically.
+  await check('new-feature', 'CRIPPLE-EITHER-FATE the same interception with the cripple left disabled, then finished by one more station hit: either way the runner passes, the encounter resolves once with no abstract run beside it, every fate is written to the same vid, and the course resumes once', async () => {
+    for (const branch of CRIPPLE_FATES) {
+      await fresh(`th-intercept-${interceptSeed ?? 0}`); await setup();
+      const r = await ev((branch) => {
+        const t = testBM1;
+        const s = window.__interceptScene(`cf-${branch}`);
+        const f = window.__fly(s.E);
+        window.__seconds(3);
+        const enc = window.__enc('blockade');
+        if (!enc || enc.status !== 'tactical_active') return { fail: `no scene: ${JSON.stringify(enc && { status: enc.status, result: enc.result })}`, f };
+        const [a, b2, c, d] = window.__npcs(enc.id);
+        t.destroyNpcShip(a);
+        d.combatHull = Math.round(d.maxCombatHull * 0.55);
+        const elapsed = () => t.gameNow() - enc.activatedAtMs;
+        for (let k = 0; k < 80 && enc.status === 'tactical_active' && elapsed() < 56000; k++) window.__hold(1);
+        if (enc.status !== 'tactical_active') return { fail: `closed before the cripple: ${JSON.stringify(enc.result)}` };
+        b2.combatHull = Math.max(1, Math.floor(t.Fleet.disableThreshold(b2.maxCombatHull))); t.applyVesselDisablement?.(b2); b2.condition = 'disabled';
+        // The station's fire, through the engine's own damage path (shields first, then hull).
+        if (branch === 'destroyed') t.damageCombatTarget(b2, Math.ceil((b2.combatShields || 0) + b2.combatHull + 1), 'station');
+        t.surrenderNpc(c, { to: 'player', reason: 'struck to the captain', acceptedBy: 'captain' });
+        const scene = { crippleDestroyed: Boolean(b2.destroyed), crippleSource: b2.lastDamageSource || null, crippleCondition: b2.condition };
+        const closed = window.__closeAtWindow(enc);
+        const inv = window.__handoffInvariants(enc.id, { dead: a.vid, cripple: b2.vid, struck: c.vid, damaged: d.vid });
+        const course = t.captainCourseLine();
+        const day0 = t.state.day, AC = t.state.currentPlanet;
+        const ok = t.resumeCaptainCourse();
+        const again = t.resumeCaptainCourse();
+        const legs = t.state.warp.legDays;
+        t.openWarpBriefing?.(); t.closeGalaxyReports?.(); t.completeWarpTravel();
+        return { scene, closed, inv, course: course && { ready: course.ready }, resume: { ok, again, day0, day: t.state.day, at: t.state.currentPlanet, E: s.E, AC, legs, recrossed: (t.state.warp.crossings || []).some((x) => x.system === AC), encounters: window.__encs().length, warpResume: t.state.warpResume } };
+      }, branch);
+      evidence.push({ check: `CRIPPLE-EITHER-FATE (${branch})`, ...r });
+      assert.ok(!r.fail, r.fail);
+      assert.equal(r.closed, 'resolved', `the scene did not close on its window: ${r.closed}`);
+      if (branch === 'destroyed') { assert.equal(r.scene.crippleDestroyed, true, 'the station hit did not finish the cripple'); assert.equal(r.scene.crippleSource, 'station'); }
+      else assert.equal(r.scene.crippleDestroyed, false);
+      assert.equal(r.inv.roles.cripple?.fate, branch, `cripple came back ${r.inv.roles.cripple?.fate}, expected ${branch}`);
+      assert.equal(r.inv.roles.dead?.fate, 'destroyed');
+      assert.equal(r.inv.roles.struck?.fate, 'surrendered');
+      assertHandoffInvariants(r.inv);
+      assert.ok(r.course?.ready, 'the course is not ready to resume');
+      assert.equal(r.resume.ok, true, 'resume refused'); assert.equal(r.resume.again, false, 'resumed twice');
+      assert.equal(r.resume.at, r.resume.E, `arrived at ${r.resume.at}, not Earth`);
+      assert.equal(r.resume.day - r.resume.day0, r.resume.legs.reduce((n, x) => n + x, 0));
+      assert.equal(r.resume.recrossed, false, 'Alpha Centauri was crossed again');
+      assert.equal(r.resume.encounters, 1, 'a second encounter was opened');
+    }
   });
 
   await check('new-feature', 'FORCED-BACK the same interception with the captain already badly hurt: driven back — the course to Earth is off, and he falls back to Paso, never to Earth', async () => {

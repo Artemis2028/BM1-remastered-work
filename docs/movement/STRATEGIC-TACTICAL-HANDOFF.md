@@ -329,7 +329,8 @@ See `HANDOFF` in the package for the counts.
 - **In game:** `npm run test:handoff:ingame` (`scripts/strategic-tactical-handoff-gate.cjs`). It covers:
   - CAPTAIN-STOPS-AT-B;
   - SAME-SHIPS-IN-SCENE;
-  - PASSED-AND-RESUMED;
+  - PASSED-AND-RESUMED (the cripple may end disabled or finished by the station's later fire: both valid);
+  - CRIPPLE-EITHER-FATE (each of those two fates produced on purpose, with the same handoff invariants);
   - FORCED-BACK;
   - SAVE-LOAD-AROUND;
   - FALLBACK-ONCE;
