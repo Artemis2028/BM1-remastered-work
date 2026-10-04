@@ -3719,9 +3719,8 @@ function observeForHunts(book, world, db, power, day) {
   for (const [pid, p] of Object.entries(book.polities)) {
     if (pid === power || pid === 'player') continue; // the captain's own fleet ships are not prey this round (see the doc)
     for (const h of p.hulls || []) {
-      // A disabled hulk is no quarry: it cannot run, so there is no hunt in it (BORG-ASSIMILATION-TRANSWARP review:
-      // the Hirogen had hunted down an assimilated wreck).
-      if (h.status === 'lost' || h.status === 'surrendered' || hullIsDisabled(h)) continue;
+      // An assimilated wreck is no quarry (BORG-ASSIMILATION-TRANSWARP: the Hirogen had hunted one down).
+      if (h.status === 'lost' || h.status === 'surrendered' || (h.assimilated && hullIsDisabled(h))) continue;
       let s = standingAt(book, h, day), seen = day;
       // Seen leaving: a hull that departed a covered system within the track window is a sighting there, on its
       // departure day, with the heading it left on (its first leg) — not a live track of where it is now.

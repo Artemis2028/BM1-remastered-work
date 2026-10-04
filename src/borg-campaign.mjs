@@ -112,7 +112,7 @@ function observe(book, world, db, power, day) {
     const stations = (world.stationsBySystem(i) || []).filter((st) => !st.destroyed && st.cap && ['operational', 'damaged', 'unstaffed'].includes(st.cap.status));
     worlds[i] = { systemIndex: i, controller: sys.controller, day, source: src, population: Number.isFinite(Number(sys.population)) ? Number(sys.population) : null,
       yards: stations.filter((st) => (st.cap.effects?.berths || 0) > 0).length, installations: stations.length,
-      defense: r2(C.localDefenseStrength(book, world, i) + worldDefenders(book, world, i, power).reduce((n, h) => n + C.hullStrength(book, world, h), 0)), firstSeenDay: worlds[i]?.firstSeenDay ?? day };
+      defense: r2(C.localDefenseStrength(book, world, i) + worldDefenders(book, world, i, power).filter((h) => src === 'direct' || !(world.shipStats(h.shipId) || {}).cloak).reduce((n, h) => n + C.hullStrength(book, world, h), 0)), firstSeenDay: worlds[i]?.firstSeenDay ?? day };
   }
   // A world now the Collective's own is no longer a target (it knows its own worlds).
   for (const k of Object.keys(worlds)) if (world.systems[Number(k)]?.controller === power) delete worlds[k];
@@ -333,15 +333,16 @@ function workShip(book, world, db, o, f, day, effects, cfg) {
   if (contact && contact.day > o.lastKnown.day) { o.lastKnown = { systemIndex: contact.systemIndex, day: contact.day, source: contact.source, heading: contact.heading }; o.lostSince = null; }
   const fresh = contact && day - contact.day <= cfg.trackDays;
   if (!fresh && o.lostSince == null) { o.lostSince = day; o.actions.push({ day, action: 'lost_contact', detail: `last seen at ${o.lastKnown.systemIndex} on day ${o.lastKnown.day}` }); effects.push({ type: 'borgAssimilation', event: 'contact_lost', id: o.id, polity: o.polity, systemIndex: o.lastKnown.systemIndex, day }); }
-  // Destroyed is known only where the Collective can see it (its own engagement, or a covered system).
+  // Destroyed is known only where the Collective sees it: its own engagement, or the hull lost in a system its
+  // sensors cover today. A hull gone from its owner's books for any other reason (taken, written off) is just a
+  // lost contact: the search budget runs.
   const th = anyHull(book, o.target.polity, o.target.hullId);
-  const covered = (bb.cover[o.polity] || []).includes(Number(o.lastKnown.systemIndex));
-  const targetDestroyed = (!th || th.status === 'lost') && (covered || o.lastEngagement?.target === 'destroyed');
+  const targetDestroyed = o.lastEngagement?.target === 'destroyed' || Boolean(th && th.status === 'lost' && (bb.cover[o.polity] || []).includes(Number(th.systemIndex)));
   const targetGone = o.lostSince != null && day - o.lostSince > cfg.searchDays ? 'contact lost beyond the search budget' : (o.lastKnown && day - o.lastKnown.day > cfg.staleDays ? 'knowledge too stale' : null);
   const end = B.borgTermination({ day, startDay: o.startDay, budgetDays: o.budgetDays, borgAlive: f.alive.length > 0, borgAble: f.able.length > 0, targetDestroyed, targetGone: o.phase === 'assimilate' && !targetDestroyed ? null : targetGone, cancelled: o.cancelRequested || null }, cfg);
   if (end) return closeObjective(book, world, db, o, end.result, end.reason, day, effects);
   const at = Number(o.lastKnown.systemIndex);
-  const targetHere = th && th.status !== 'lost' && standingAt(book, th, day) === at;
+  const targetHere = th && th.status !== 'lost' && !th.transit && standingAt(book, th, day) === at; // never one already under way (a tow, say)
   if (f.here === at && targetHere && fresh) {
     const subdued = C.hullIsDisabled(th) || th.status === 'surrendered';
     if (subdued) {
@@ -394,6 +395,8 @@ function workWorld(book, world, db, o, f, day, effects, cfg) {
   if (f.here !== i) { const lt = f.lead?.transit; setPhase(o, lt && Number(lt.to) === i ? 'intercept' : 'approach', day); return moveForce(book, world, db, o, i, day, effects); }
   // On station: defenders first (one encounter a day while any stand), then suppression and assimilation.
   const defenders = worldDefenders(book, world, i, o.polity);
+  // A record from an earlier, completed assimilation of a world since retaken starts again from nothing.
+  if (bb.progress[i]?.state === 'completed' && day > Number(bb.progress[i].completedDay) + 1 && sys?.controller !== o.polity) delete bb.progress[i];
   const r = (bb.progress[i] ||= { systemIndex: i, objectiveId: o.id, startDay: day, progress: 0, suppressed: 0, resist: null, borgPresent: true, state: 'suppressing', from: sys?.controller ?? null, origin: sys?.origin ?? null, history: [], interruptedSince: null, lastDay: null });
   r.objectiveId = o.id;
   if (r.lastDay === day) return;
@@ -411,6 +414,10 @@ function workWorld(book, world, db, o, f, day, effects, cfg) {
     bb.assimilatedWorlds.push({ systemIndex: i, from: r.from, origin: r.origin, day, objectiveId: o.id, startDay: r.startDay });
     if (bb.assimilatedWorlds.length > 30) bb.assimilatedWorlds = bb.assimilatedWorlds.slice(-30);
     bumpStat(db, 'borgWorldsAssimilated');
+    // Whatever capture record the world carried (it was itself occupied) ends here: the Borg hold it now, by
+    // assimilation, which is no occupation (no claimant's war counts it, no occupation scales it).
+    if (book.occupations?.[i]) delete book.occupations[i];
+    if (book.territory?.[i]) delete book.territory[i];
     // An assimilation, not a capture: the engine changes the controller (keeping the origin and the former
     // holder on record) without any occupation, integration, licence or war record.
     effects.push({ type: 'systemAssimilated', systemIndex: i, by: o.polity, from: r.from, origin: r.origin, objectiveId: o.id, day });
@@ -422,10 +429,13 @@ function decayProgress(book, world, db, power, day) {
   const bb = borgBook(db);
   const cfg = cfgOf(db);
   for (const [k, r] of Object.entries(bb.progress)) {
-    if (r.state === 'completed') continue;
+    // (the engine applies the controller change after the day that completed it: a day's grace before judging)
+    if (r.state === 'completed') { if (day > Number(r.completedDay) + 1 && world.systems[Number(r.systemIndex)]?.controller !== power) delete bb.progress[k]; continue; }
     if (r.lastDay === day) continue;
-    const present = (book.polities[power]?.hulls || []).filter((h) => h.status !== 'lost' && C.hullCanTravel(h) && standingAt(book, h, day) === Number(r.systemIndex));
-    if (present.length) continue; // the objective's own day accounts for it
+    // Present means an active objective's assimilating force standing there (a probe or a released hull is not).
+    const present = db.objectives.some((o) => o.kind === KIND && o.status === 'active' && o.targetKind === 'world' && Number(o.target.systemIndex) === Number(r.systemIndex)
+      && forceHulls(book, o).some((h) => C.hullCanTravel(h) && isAssimilator(world, h) && standingAt(book, h, day) === Number(r.systemIndex)));
+    if (present) continue; // the objective's own day accounts for it
     const step = B.worldProgressStep({ progress: r.progress, suppressed: r.suppressed, borgStrength: 0, present: false }, cfg);
     if (r.state !== 'interrupted') { r.interruptedSince = day; r.history.push({ day, progress: r.progress, state: 'interrupted' }); }
     Object.assign(r, { progress: step.progress, borgPresent: false, state: 'interrupted', lastDay: day });
@@ -552,7 +562,9 @@ function closeObjective(book, world, db, o, result, reason, day, effects) {
   bumpStat(db, success ? 'borgAssimilations' : result === 'target_destroyed' ? 'borgTargetsDestroyed' : result === 'target_escaped' ? 'borgTargetsEscaped' : result === 'borg_destroyed' || result === 'borg_disabled' ? 'borgForcesLost' : 'borgObjectivesAbandoned');
   bumpStat(db, success ? 'objectivesCompleted' : 'objectivesAborted');
   const key = o.targetKind === 'world' ? `${o.polity}|world:${o.target.systemIndex}` : `${o.polity}|${o.target.vid}`;
-  if (!success) bb.cooldowns[key] = day + (o.targetKind === 'world' ? cfg.worldCooldownDays : cfg.targetCooldownDays);
+  // A failure cools the target; an assimilated world cools too (it is the Collective's — and if it is ever retaken,
+  // not again at once).
+  if (!success || o.targetKind === 'world') bb.cooldowns[key] = day + (o.targetKind === 'world' ? cfg.worldCooldownDays : cfg.targetCooldownDays);
   bb.history.push({ objectiveId: o.id, targetKind: o.targetKind, target: o.target.vid, targetPolity: o.target.polity, result, reason, startDay: o.startDay, endDay: day, days: day - o.startDay, engagements: o.engagements, mode: o.movement?.mode, force: o.force.map((x) => x.vid) });
   if (bb.history.length > 40) bb.history = bb.history.slice(-40);
   o.actions.push({ day, action: 'closed', detail: `${result}: ${reason}` });
@@ -567,7 +579,7 @@ function closeObjective(book, world, db, o, result, reason, day, effects) {
     if (h.transit) {
       const tr = C.journeyById(book, h.transit.journeyId);
       if (tr && tr.status === 'underway' && tr.mode !== 'transwarp') { tr.pending = { kind: 'return', destination: home ?? from, purpose: 'return', war: null, authority: { kind: 'return', ref: o.id }, meta: { home: home ?? from } }; continue; }
-      if (tr && tr.status === 'underway') continue; // it exits first; the borg journey's arrival lets it go
+      if (tr && tr.status === 'underway') { tr.meta = { ...(tr.meta || {}), home: home ?? from }; continue; } // it exits first, then turns for home
     }
     if (home == null || Number(home) === Number(h.systemIndex)) { h.opId = null; if (h.status === 'assigned') h.status = 'ready'; continue; }
     const r = C.startJourney(book, world, { kind: 'return', ref: o.id, sponsor: o.polity, hulls: [h], destination: home, purpose: 'return', authority: { kind: 'return', ref: o.id }, meta: { home } }, day, effects);

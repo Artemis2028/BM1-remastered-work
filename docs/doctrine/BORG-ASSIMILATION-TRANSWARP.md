@@ -18,7 +18,7 @@ None of this is war. There is no capture, no occupation, no diplomacy and no tre
 | Shared systems touched | `src/campaign-strategy.mjs`: transwarp journeys (`startJourney` with `mode: 'transwarp'`, `transwarpCapable`, `transwarpRefusal`), hull assimilation (`assimilateHull`), the Borg as universal hostiles to blockades, assimilated worlds in the shadow world |
 | Capability data | `bm-ships/ships.json` → `data/starship_manifest.json`: 346 Assimilation Cube `assimilator: true`, `transwarp.capable: true`; 261 Tactical Cube `transwarp.capable: false` (deferred) |
 | Engine | `src/main.js`: `systemAssimilated` (controller change without capture), aperture and assimilation news, scene decision, "Borg assimilation" debug, no market on an assimilated world |
-| Regressions | `scripts/borg-test.mjs` (pure, 22 checks), `scripts/borg-gate.cjs` (in game, 9 checks) |
+| Regressions | `scripts/borg-test.mjs` (pure, 25 checks), `scripts/borg-gate.cjs` (in game, 9 checks) |
 | Measurement | `scripts/borg-measure.mjs`, `scripts/borg-measure-ingame.cjs` |
 
 ## 1. Authority and identity (§1, §16, live vs shadow)
@@ -231,7 +231,7 @@ The hull's `crew` becomes what was assimilated. No drone economy is modelled.
 - They join a force only once operational and crewed.
 - They repair only through the ordinary rules, at a Borg yard. None exists in the default chart, so a hulk assimilated disabled stays where it lies. That is deliberate (carry-forward).
 
-**Hunting interaction (found this round).** The Hirogen had hunted down an assimilated wreck. A disabled hulk is now no quarry for them either: it cannot run, so there is no hunt in it. Hunt R19 now uses a mobile cripple.
+**Hunting interaction (found this round).** The Hirogen had hunted down an assimilated wreck. An assimilated hulk is now no quarry for them. The filter is scoped to assimilated, disabled hulls only, so the Hirogen's handling of other disabled prey is unchanged. Hunt R19 now uses a mobile cripple (hull above the disable line) for its destroyed-prey case.
 
 ## 7. World assimilation transition matrix (§7, §8, §19)
 
@@ -254,7 +254,7 @@ The hull's `crew` becomes what was assimilated. No drone economy is modelled.
 - **The model's world:** the shadow world applies the controller change exactly as it would a capture's, but records nothing else.
 
 **Measured.**
-- Pure: the Outpost took 44 days from arrival to completion (minimum across seeds 36), with no instant flip.
+- Pure: the Outpost took 44 days from arrival to completion (minimum across seeds 35), with no instant flip.
 - In game: Tarellia reached progress ≥ 0.2 with its defence suppressed. The cube recalled → progress decays. The cube staying → the controller becomes Borg, origin Tarellian, no market, no capture or war record.
 
 ## 8. Tactical handoff (§9, R17–R19, R33–R34)
@@ -285,7 +285,7 @@ The shared `settleAbandonedHandoff` rule covers a scene the captain is no longer
 
 | Suite | 9db1fc6 | Candidate |
 |---|---|---|
-| Pure suite | **4/22**: preservation 4/4; baseline-defect R2 fails on its own assertion ("no assimilation objective on an observed valuable vessel"); new-feature 0/17 | 22/22 |
+| Pure suite | **4/25**: preservation 4/4; baseline-defect R2 fails on its own assertion ("no assimilation objective on an observed valuable vessel"); new-feature 0/20 | 25/25 |
 | In-game gate | **1/9**: preservation 1/1; baseline-defect BORG-SELECTION fails on its own assertion ("no assimilation objective: no selection at all"); new-feature 0/7 | 9/9 |
 
 ## 10. Long-run measurement
@@ -294,18 +294,18 @@ The shared `settleAbandonedHandoff` rule covers a scene the captain is no longer
 
 | Metric | Value |
 |---|---|
-| Objectives | 28 opened (20 ship targets, 8 world targets) |
-| Ships assimilated | 8 (all still held by the Borg, same vids) |
-| Worlds assimilated | 4 (the Outpost once per seed, ≥ 36 days each) |
-| Targets destroyed | 11 (overkills, or lost to others' wars where the Collective saw it) |
-| Targets escaped | 1 |
+| Objectives | 21 opened (17 ship targets, 4 world targets) |
+| Ships assimilated | 7 (all still held by the Borg, same vids) |
+| Worlds assimilated | 4 (the Outpost once per seed, ≥ 35 days each) |
+| Targets destroyed | 4 (overkills, or lost to others' wars where the Collective saw it) |
+| Targets escaped | 6 (including contacts lost beyond the search budget) |
 | Borg losses | 0 |
-| Transwarp | 4 uses, 1 cooldown block; mean conventional ETA 7 d vs transwarp 2 d |
+| Transwarp | 6 uses, 3 cooldown blocks; mean conventional ETA 7 d vs transwarp 2 d |
 | Formal wars by assimilation | **0** |
 | World captures | **0** |
 | Borg licences / integrations | **0** |
 | Duplicate hull identities | **0** |
-| Borg state | ≤ 36 KB |
+| Borg state | ≤ 34 KB |
 
 **In game** (`npm run measure:borg:ingame`): 2 campaigns × 400 days.
 
@@ -327,14 +327,28 @@ Across both campaigns:
 | Concern | Status |
 |---|---|
 | Steamrolling the map | no: ≤ 1 world per 100 days per seed; one cube in the real game |
-| Every target assimilated | no: 11 destroyed, 1 escaped, others abandoned against 12 assimilations |
-| Transwarp trivializing distance | no: per-hull cooldown, score and saving thresholds; ≤ 4 jumps in 400 days |
+| Every target assimilated | no: 4 destroyed, 6 escaped against 11 assimilations |
+| Transwarp trivializing distance | no: per-hull cooldown, score and saving thresholds; ≤ 4 jumps in 400 days per campaign |
 | Instant world flips | no: progress over weeks, decays without the force |
 | Production rights from one hull | none: no licence or integration ever |
 | Diplomatic war loops | none |
 | Duplicate or reset vessels | none: same record, same vid, damage kept |
 
-## 11. Not implemented (by the brief)
+## 11. Independent review (901c815) and fixes
+
+| # | Severity | Finding | Fix | Regression (fails on 901c815) |
+|---|---|---|---|---|
+| 1 | high | A world retaken from the Borg was re-assimilated the day they arrived (a completed progress record was reused) | completed records of a world no longer Borg-held are dropped (after a day's grace for the engine's controller change); successful world objectives also set the world cooldown | REVIEW-1 |
+| 2 | medium | The Borg "knew" of a target's destruction anywhere once its last-known system was covered; a hull taken by someone else read as destroyed | destroyed only when seen (own engagement, or lost in a system covered today); otherwise contact lost and the search budget runs | REVIEW-2 |
+| 3 | medium | A hull another journey had under way (a tow) could be assimilated, leaving a Borg hull stuck in someone else's transit | `assimilateHull` refuses a hull in transit; presence requires not under way | REVIEW-3/6 |
+| 4 | medium | A world occupied before the Borg took it kept its occupation and territory records (skewing war termination) | cleared on assimilation | — |
+| 5 | medium | The Hirogen filter dropped every disabled hull, not only assimilated wrecks | scoped to assimilated disabled hulls | hunt suite 23/23 |
+| 6 | low | A force recalled mid-conduit was released at the exit instead of returning home | the conduit journey carries `meta.home`; the force exits, then turns for home | REVIEW-3/6 |
+| 7 | low | World progress could freeze while any Borg hull (a probe) stood there with no objective | presence requires an active objective's assimilator | — |
+| 8 | low | Border sensors counted cloaked defenders | a cloak hides defenders at border range | — |
+| 9 | low | An assimilated world of neutral origin still had a market; recovered-archive designs and commodities still traded | `occupiedMarket` reports assimilated first, whatever the origin; archive stock and commodity trade blocked | — |
+
+## 12. Not implemented (by the brief)
 
 - Tactical Cube (stays `transwarp.capable: false`, deferred)
 - full drone economy; individual drone simulation; mass-assimilation population simulation
@@ -343,7 +357,7 @@ Across both campaigns:
 - time travel
 - ordinary-faction invasion or occupation doctrine
 
-## 12. Carry-forward
+## 13. Carry-forward
 
 **Earlier rounds:**
 - `restrict.reinforcement` / `restrict.offensive` treaty consumption

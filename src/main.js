@@ -12924,11 +12924,12 @@ function occupiedMarket(systemIndex = state.currentPlanet) {
   const i = Number(systemIndex);
   const control = getSystemControl(i);
   const origin = control.origin;
+  // BORG-ASSIMILATION-TRANSWARP §19: an assimilated world has no market for anyone (no former-owner stock), whatever
+  // its origin.
+  if (systemHolderPolity(i) === 'borg' || control.controller === 'borg') return { systemIndex: i, origin, holder: 'borg', integratedDay: null, designs: new Set(), qualification: null, assimilated: true };
   if (!isRecognizedFactionKey(origin) || origin === 'neutral') return null;
   const holder = systemHolderPolity(i);
   if (!holder || holder === origin) return null;
-  // BORG-ASSIMILATION-TRANSWARP §19: an assimilated world has no market for anyone (no former-owner stock).
-  if (holder === 'borg') return { systemIndex: i, origin, holder, integratedDay: null, designs: new Set(), qualification: null, assimilated: true };
   const integ = ensurePlaytestState().campaign?.polities?.[holder]?.integrations?.[i] || null;
   const integratedDay = integ?.completedDay || null;
   const designs = new Set(integratedDay ? (integ.designs || []).map(Number).filter((id) => isRecoverableIndustrialDesign(id)) : []);
@@ -13040,7 +13041,7 @@ function getUnfilteredShipyardStock(station = getCurrentServiceStation()) {
     // A design recovered to this yard from an engineering archive is a named campaign reason in its own
     // right, and stays on sale here whoever holds the world. [foreign-stock]
     const recoveredHere = (ship) => Boolean(station && effectiveOffers?.provenance?.[`ship:${Number(ship.id)}`] === 'recovered-archive');
-    const kept = ((!station && WORLD_FOREIGN_STOCK[getCurrentSystemName()]) ? sellable : localStock).filter((ship) => occupiedMarketAllows(occupied, ship) || recoveredHere(ship));
+    const kept = ((!station && WORLD_FOREIGN_STOCK[getCurrentSystemName()]) ? sellable : localStock).filter((ship) => occupiedMarketAllows(occupied, ship) || (!occupied?.assimilated && recoveredHere(ship)));
     const authored = [...new Map(kept.map(ship => [ship.id, ship])).values()].filter(ship => !station || stationCanSellHull(station, ship));
     if (!station && authored.length) return authored;
     if (!station) {
@@ -16543,6 +16544,8 @@ function stationDoesCommerce(station) {
 }
 function commodityTradeBlock() {
   if (!state.gameStarted) return '';
+  // BORG-ASSIMILATION-TRANSWARP §19: an assimilated world trades with nobody.
+  if (getSystemControl(state.currentPlanet).controller === 'borg') return `${state.planets[state.currentPlanet]?.name || 'This world'} has been assimilated by the Borg: there is no market.`;
   // No people and no surviving installation that does economic work means nobody to trade with.
   // Derived from the world, not from a list of names, so a trading post or a mine on an empty rock
   // still deals, and a gun platform on one does not. [playtest]

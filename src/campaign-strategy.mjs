@@ -535,7 +535,7 @@ export function migrateHullIdentities(book) {
 // crewOutcome). Returns the hull, or null if it is not a living hull of `from`.
 export function assimilateHull(book, h, from, to, day, systemIndex, crew = null) {
   const fp = book.polities[from];
-  if (!h || !fp || !fp.hulls.includes(h) || h.status === 'lost') return null;
+  if (!h || !fp || !fp.hulls.includes(h) || h.status === 'lost' || h.transit) return null; // never one another journey has under way
   fp.hulls = fp.hulls.filter((x) => x !== h);
   fp.lostHulls = (fp.lostHulls || 0) + 1;
   fp.assimilatedHulls = (fp.assimilatedHulls || 0) + 1;

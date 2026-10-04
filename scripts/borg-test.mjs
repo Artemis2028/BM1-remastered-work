@@ -38,6 +38,7 @@ const sum = (e) => (DC.borgSummary ? DC.borgSummary(e.book) : { objectives: [], 
 const objs = (e) => sum(e).objectives;
 const lastSel = (e) => (sum(e).selections.borg || []).slice(-1)[0] || null;
 const days = (e, a, b) => BF.run(C, e.book, e.world, a, b);
+C.registerJourneyKind('hunt-test-move', {});
 // A galaxy with doctrine on and only the Borg live: no routine patrols, traffic, hunts or responses of anyone's.
 function env(seed, { rules = {}, borg = {}, reserve = 2, localSystem = null } = {}) {
   const e = BF.borgWorld(C, makeWorld, seed, { DC, doctrine, station, reserve });
@@ -297,6 +298,48 @@ test('new-feature', 'R21b. the Borg leaving stops the progress: an objective rec
   log.r21b = { p0, trail, result: o.result };
   assert.equal(o.result.result, 'cancelled');
   assert.ok(trail.slice(2).every((x) => x[2] !== 'assimilating') && trail.at(-1)[1] < p0, JSON.stringify(trail));
+});
+test('new-feature', 'REVIEW-1. a world retaken from the Collective is not re-assimilated on arrival: the Outpost assimilated, then handed back to the Terrans; a later objective on it must suppress and assimilate again from nothing (and only after the world cooldown)', () => {
+  need();
+  const e = worldCase('BG-RV1', { worldCooldownDays: 20 });
+  const d1 = runUntil(e, 2, 200, () => e.world.systems[IDX.Outpost].controller === 'borg');
+  assert.ok(d1, 'never assimilated');
+  e.world.systems[IDX.Outpost].controller = 'terran';
+  const trail = [];
+  const d2 = runUntil(e, d1 + 1, d1 + 200, () => { const r = sum(e).progress[IDX.Outpost]; if (r && r.state !== 'completed') trail.push([e.book.day, r.progress, r.state]); return e.world.systems[IDX.Outpost].controller === 'borg'; });
+  log.rv1 = { d1, d2, trail: trail.slice(0, 6), cooldowns: sum(e).cooldowns };
+  assert.ok(d2, 'never re-assimilated');
+  assert.ok(trail.length > 10 && trail[0][1] < 0.2, `re-assimilated without progress: ${JSON.stringify(trail.slice(0, 3))}`);
+});
+test('new-feature', 'REVIEW-2. destruction is known only where it is seen: the cruiser seen at the Outpost, then lost at Earth (no Borg sensor there) — the objective does not read "target_destroyed"; the contact is lost and the search budget runs', () => {
+  need();
+  const { e, t } = shipCase('BG-RV2', { rules: { transwarpMinScore: 9 } });
+  days(e, 2, 2);
+  const o = objs(e)[0]; assert.ok(o);
+  t.systemIndex = IDX.Earth; t.status = 'lost'; t.hull = 0;
+  days(e, 3, 3);
+  log.rv2 = { result: o.result, lostSince: o.lostSince };
+  assert.notEqual(o.result?.result, 'target_destroyed', 'the Collective knew of a loss it could not see');
+});
+test('new-feature', 'REVIEW-3/6. a hull another journey has under way is never assimilated (assimilateHull refuses it); a force recalled in mid-conduit exits and then returns to the nearest Collective world (not released where it exits)', () => {
+  need();
+  const e = env('BG-RV3');
+  const [t] = make(e, 'terran', 80, IDX.Vega, 1, { hold: false });
+  const r = C.startJourney(e.book, e.world, { kind: 'hunt-test-move', sponsor: 'terran', hulls: [t], destination: IDX.Earth, purpose: 'move' }, 1, []);
+  assert.ok(r.ok, r.reason);
+  assert.equal(C.assimilateHull(e.book, t, 'terran', 'borg', 1, IDX.Vega, null), null, 'a hull in transit was assimilated');
+  assert.ok(!borgOwns(e, t));
+  const e2 = env('BG-RV6');
+  probe(e2, IDX.Vega);
+  make(e2, 'terran', 80, IDX.Vega);
+  days(e2, 2, 3);
+  const o = objs(e2)[0];
+  assert.equal(o?.movement?.mode, 'transwarp');
+  o.cancelRequested = 'recalled mid-conduit';
+  days(e2, 4, 4);
+  runUntil(e2, 5, 60, () => Number(e2.cube.systemIndex) === IDX.Unimatrix && !e2.cube.transit);
+  log.rv6 = { at: e2.cube.systemIndex, opId: e2.cube.opId, status: e2.cube.status, result: o.result };
+  assert.equal(Number(e2.cube.systemIndex), IDX.Unimatrix, 'the recalled cube did not go home');
 });
 // ===================================================================================================
 // Movement (R25–R32, R35–R36), BORG-TRANSWARP
