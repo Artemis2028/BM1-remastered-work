@@ -7263,6 +7263,24 @@ function updatePlayerSurrender() {
   }
 }
 function playerSurrendered() { return Boolean(state.localDoctrine?.surrender); }
+// HIROGEN-HUNTING-DOCTRINE §10: the captain's hunt being fought in this scene, if any.
+function liveCaptainHuntHere() {
+  if (!state.gameStarted || state.warp.active) return null;
+  return (campaignBook().encounters || []).find((x) => x.type === 'hunt' && x.captain && x.status === 'tactical_active' && Number(x.system) === Number(state.currentPlanet)) || null;
+}
+// Striking to hunters: their fire stops (the same hold as any surrender), the hunt resolves "surrender_accepted"
+// on the next scene tick and is not reopened; no prisoners, no trophies — he is released when the hold ends.
+function respondToHunt(action) {
+  const enc = liveCaptainHuntHere();
+  if (!enc || action !== 'surrender') return false;
+  const ld = localDoctrine();
+  ld.surrender = { eid: null, huntEncounterId: enc.id, to: 'hirogen', label: 'Hirogen hunters', atMs: Math.round(ld.clockMs), releaseAtMs: ld.clockMs + PLAYER_SURRENDER_HOLD_MS };
+  localDoctrineRecord('surrender', { to: 'hirogen', hunt: enc.objective?.ref || null });
+  setLog('Hirogen hunters: surrender noted. They hold fire.');
+  const d = encounterDecision(enc);
+  if (d) resolveStrategicEncounter(enc, d);
+  return true;
+}
 
 // -- a pirate's demand on the captain --
 function localPredationTarget(npc) {
@@ -7405,6 +7423,13 @@ function localDoctrinePanel() {
     return { key: `pred:${p.id}:${seconds}:${canPay}:${hasCargo}`, html: `<div class="security-order-head"><span>Incoming demand</span><span>${escapeHtml(p.name)}</span></div>
       <div class="security-order-body"><div class="security-order-text">${escapeHtml(p.name)}: Transfer ${p.amount} latinum or surrender cargo.</div><div class="security-order-status">${seconds} s.</div>
       <div class="security-order-buttons"><button data-predation-response="pay" ${canPay ? '' : 'disabled'}>Pay</button><button data-predation-response="cargo" ${hasCargo ? '' : 'disabled'}>Surrender cargo</button><button data-predation-response="refuse" class="security-refuse">Refuse</button><button data-predation-response="run">Run</button></div></div>` };
+  }
+  // A hunt on the captain being fought here: he may strike (the hunters stop firing; the hunt is over).
+  const huntEnc = !ld.surrender ? liveCaptainHuntHere() : null;
+  if (huntEnc) {
+    return { key: `hunt:${huntEnc.id}`, html: `<div class="security-order-head"><span>Hirogen Hunt — Engaged</span><span>${escapeHtml(state.planets[huntEnc.system]?.name || '')}</span></div>
+      <div class="security-order-body"><div class="security-order-text">Hirogen hunters are attacking. Fight, break away, or strike your colours.</div>
+      <div class="security-order-buttons"><button data-hunt-response="surrender" class="security-refuse">Surrender</button></div></div>` };
   }
   if (ld.surrender) {
     return { key: `surr:${ld.surrender.atMs}`, html: `<div class="security-order-head"><span>Surrendered</span><span>${escapeHtml(ld.surrender.label || '')}</span></div><div class="security-order-body"><div class="security-order-text">Holding position. Awaiting release.</div></div>` };
@@ -9093,7 +9118,7 @@ function syncDebugVesselCondition() {
 
 function refreshDebugReadout() {
   const bulletin=debugMenuEl.querySelector('[data-diplomacy-bulletin]');if(bulletin)bulletin.innerHTML=renderDiplomacyBulletin();
-  const doctrinePanel=debugMenuEl.querySelector('[data-doctrine-debug]');if(doctrinePanel)doctrinePanel.innerHTML=renderDoctrineDebug();
+  const doctrinePanel=debugMenuEl.querySelector('[data-doctrine-debug]');if(doctrinePanel)doctrinePanel.innerHTML=renderDoctrineDebug();const huntPanel=debugMenuEl.querySelector('[data-hunt-debug]');if(huntPanel)huntPanel.innerHTML=renderHuntDebug();
   const journeyPanel=debugMenuEl.querySelector('[data-journey-debug]');if(journeyPanel)journeyPanel.innerHTML=renderJourneyDebug();
   const planningPanel=debugMenuEl.querySelector('[data-planning-debug]');if(planningPanel)planningPanel.innerHTML=renderPlanningDebug();
   const encounterPanel=debugMenuEl.querySelector('[data-encounter-debug]');if(encounterPanel)encounterPanel.innerHTML=renderEncounterDebug();
@@ -9165,6 +9190,7 @@ function openDebugMenu() {
       <p>Wars still come from the diplomacy controls above. Operations, captures, integration, recovery contracts and relay orders follow the model; nothing here spawns Dominion forces outside the wormhole route.</p></section>
     <section data-journey-section><h3>Strategic journeys (debug)</h3><div data-journey-debug>${renderJourneyDebug()}</div></section>
     <section data-doctrine-section><h3>Faction doctrine (debug)</h3><div data-doctrine-debug>${renderDoctrineDebug()}</div></section>
+    <section data-hunt-section><h3>Hirogen hunts</h3><div data-hunt-debug>${renderHuntDebug()}</div></section>
     <!-- after the doctrine section, so the older debug sections keep their place and height in the dialog -->
     <section data-planning-section><h3>ETA-aware planning (debug)</h3><div data-planning-debug>${renderPlanningDebug()}</div></section>
     <section data-encounter-section><h3>Strategic ↔ tactical encounters (debug)</h3><div data-encounter-debug>${renderEncounterDebug()}</div></section>
@@ -11189,6 +11215,20 @@ function applyDoctrineEffect(e, day) {
       break;
     }
     case 'surrenderReleased': break;
+    // HIROGEN-HUNTING-DOCTRINE §17–18: the captain hears of a hunt on him only from what his own sensors see (a
+    // hunter in the system with him, hunters arriving); anyone else's hunt reaches him only through a source.
+    case 'doctrineHunt': {
+      if (e.captain) {
+        if (e.event === 'shadowing') setLog(`${formatFaction(who)} vessel is shadowing your course.`);
+        else if (e.event === 'closing') setLog(`${formatFaction(who)} hunters are closing.`);
+        else if (e.event === 'closed' && e.aware) setLog(`${formatFaction(who)} hunters disengaged.`);
+        break;
+      }
+      if (e.event !== 'engaged') break;
+      reportDoctrineTrace({ id: `hunt:${e.id}:${e.encounterId || d}`, systemIndex: e.systemIndex, day: d, kind: `${formatFaction(who)} hunters engaged a vessel — ${nameOf(e.systemIndex)}`, factions: [who],
+        direct: `${formatFaction(who)} hunters ran down a vessel at ${nameOf(e.systemIndex)}.`, rumour: `Hunters are said to be stalking ships near ${nameOf(e.systemIndex)}.` });
+      break;
+    }
     case 'doctrineRescued':
       reportDoctrineTrace({ id: `doctrine:${e.id}:rescued`, systemIndex: e.systemIndex, day: d, kind: `Survivors recovered — ${nameOf(e.systemIndex)}`, factions: [who],
         direct: `A ${formatFaction(who)} relief ship took survivors aboard at ${nameOf(e.systemIndex)}.`, rumour: `Survivors are said to have been picked up near ${nameOf(e.systemIndex)}.` });
@@ -11493,6 +11533,41 @@ function renderPlanningDebug() {
   const eta = `<p class="meta" data-eta-stats>Rescue proposed ${st.etaRescueProposed || 0} · feasible ${st.etaRescueFeasible || 0} · out of reach ${st.etaRescueFailedByDistance || 0} — investigation proposed ${st.etaInvestigationProposed || 0} · feasible ${st.etaInvestigationFeasible || 0} · out of reach ${st.etaInvestigationFailedByDistance || 0} — patrol replacements held while one is in warp ${st.patrolReplacementHeldDays || 0} day(s)</p>`;
   const objTable = objRows ? `<h4>Doctrine objectives</h4><table class="doctrine-debug" data-objective-plan-table><thead><tr><th>Actor</th><th>Target</th><th>Created</th><th>ETA</th><th>On station</th><th>Deadline</th><th>Basis</th><th>Status</th></tr></thead><tbody>${objRows}</tbody></table>` : '<p class="meta">No doctrine objectives with a plan.</p>';
   return `<p class="meta">Day ${day}. Each leg is the chart's length at the strategic speed of the ships flying it (a force or convoy at its slowest ship; wormholes fixed); every ETA below is the route its journey flies, at that speed.</p>${forceTable}${plans || '<p class="meta">No war plans yet.</p>'}${opTable}${evTable}${eta}${objTable}`;
+}
+// HIROGEN-HUNTING-DOCTRINE §19: the "Hirogen hunts" debug section.
+function renderHuntDebug() {
+  if (!state.gameStarted || typeof DoctrineCampaign.huntDebug !== 'function') return '<p class="meta">No campaign.</p>';
+  const book = campaignBook();
+  if (!book.initialized) return '<p class="meta">No campaign.</p>';
+  const sum = DoctrineCampaign.huntDebug(book, buildCampaignWorld(true));
+  const nm = (i) => (i == null ? '—' : escapeHtml(state.planets[Number(i)]?.name || `system ${i}`));
+  const at = (x) => (typeof x === 'string' && x.startsWith('→') ? `→${nm(x.slice(1))}` : nm(x));
+  const rows = (list, cols) => list.length ? `<table class="doctrine-debug"><thead><tr>${cols.map(([h]) => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>${list.map((x) => `<tr>${cols.map(([, f]) => `<td>${f(x)}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '<p class="meta">None.</p>';
+  const shipName = (id) => escapeHtml(getShipStats(id)?.name || `class ${id}`);
+  const hunts = rows(sum.hunts, [
+    ['Hunt', (o) => `<code>${escapeHtml(String(o.id).split(':').slice(-2).join(':'))}</code>`],
+    ['Hunters (vid · class · where · hull)', (o) => o.hunters.map((h) => `<div><code>${escapeHtml(h.vid)}</code> ${shipName(h.shipId)} · ${at(h.at)} · ${h.hull}%${h.status === 'lost' ? ' · lost' : ''}</div>`).join('')],
+    ['Prey (vid · known facts)', (o) => `<code>${escapeHtml(o.prey.vid)}</code> ${o.prey.kind === 'captain' ? '<b>the captain</b>' : escapeHtml(formatFaction(campaignFactionKeyFor(o.prey.polity)))} · ${escapeHtml(o.prey.cls)} · ${o.prey.shipIds.map(shipName).join(', ')} · est. strength ${o.prey.estimate?.strength ?? '?'} · speed ${o.prey.estimate?.speed ?? '?'}`],
+    ['Score', (o) => `${o.why.score} (${escapeHtml(o.why.band)}, ratio ${o.why.ratio}) — ${escapeHtml(o.why.reason)}`],
+    ['Phase', (o) => `<b>${escapeHtml(o.phase)}</b>${o.status !== 'active' ? ` (${escapeHtml(o.status)})` : ''}`],
+    ['Last known', (o) => `${nm(o.lastKnown.systemIndex)} day ${o.lastKnown.day} (${escapeHtml(o.lastKnown.source)}, ${o.knowledgeAge} d old)${o.lastKnown.heading != null ? ` heading ${nm(o.lastKnown.heading)}` : ''}${o.lostSince != null ? ` · lost since day ${o.lostSince}` : ''}`],
+    ['Budget left', (o) => `pursuit ${o.budget.pursuitLeft} d · search ${o.budget.searchLeft} d · engagements ${o.budget.engagements}`],
+    ['ETA / intercept', (o) => `${o.eta ? `${escapeHtml(o.eta.kind)} → ${nm(o.eta.to)} day ${o.eta.arrivalDay ?? '?'}` : '—'}${o.intercept ? ` · ${o.intercept.feasible ? 'feasible' : 'not feasible'} (${escapeHtml(o.intercept.reason)}${o.intercept.margin != null ? `, margin ${o.intercept.margin} d` : ''})` : ''}`],
+    ['Authority', (o) => `hunter role · ${escapeHtml(o.authority.doctrine)} · no war`],
+    ['Result / cooldown', (o) => `${o.result ? `${escapeHtml(o.result.result)} — ${escapeHtml(o.result.reason)}` : '—'}${o.cooldownUntil != null ? ` · prey cooldown to day ${o.cooldownUntil}` : ''}`],
+  ]);
+  const sels = Object.entries(sum.selections).flatMap(([p, list]) => list.map((s) => ({ p, ...s })));
+  const selections = rows(sels, [
+    ['Power / day', (s) => `${escapeHtml(formatFaction(campaignFactionKeyFor(s.p)))} day ${s.day}`],
+    ['Hunters', (s) => s.hunters.length ? `${s.hunters.map((h) => `<code>${escapeHtml(h.vid)}</code>`).join(' ')} at ${nm(s.hunterSystem)} (strength ${s.hunterStrength})` : escapeHtml(s.hunterReason || 'none')],
+    ['Decision', (s) => `<b>${escapeHtml(s.decision || '—')}</b>`],
+    ['Candidates (verdict · why)', (s) => s.candidates.length ? s.candidates.map((c) => `<div><code>${escapeHtml(c.vid)}</code> ${c.kind === 'captain' ? 'the captain' : escapeHtml(formatFaction(campaignFactionKeyFor(c.polity)))} ×${c.count} ${escapeHtml(c.cls)} at ${nm(c.seen.system)} (${escapeHtml(c.seen.source)}, day ${c.seen.day}) · strength ${c.preyStrength}${c.ratio != null ? ` · ratio ${c.ratio} ${escapeHtml(c.band || '')}` : ''} · score ${c.score} · <b>${escapeHtml(c.verdict)}</b>: ${escapeHtml(c.reason || '')}${c.vid === s.chosen ? ' ◀ chosen' : ''}</div>`).join('') : 'no prey known'],
+  ]);
+  const hist = Object.entries(sum.history).flatMap(([p, l]) => l.map((h) => ({ p, ...h })));
+  const history = rows(hist, [['Hunt', (h) => `<code>${escapeHtml(String(h.huntId).split(':').pop())}</code>`], ['Prey', (h) => `<code>${escapeHtml(h.preyVid)}</code> ${escapeHtml(h.cls)}`], ['Result', (h) => escapeHtml(`${h.result} — ${h.reason}`)], ['Days', (h) => `${h.startDay}–${h.endDay} (${h.days} d, ${h.legs} legs, ${h.engagements} engagements)`], ['Cooldown to', (h) => sum.cooldowns[`${h.p}|${h.preyVid}`] ?? '—']]);
+  const st = sum.stats;
+  return `<p class="meta">A hunt is a bounded objective of the hunter role (doctrine <code>pursue_quarry</code>): no war, no claim, no occupation. Day ${sum.day}. Opened ${st.huntsOpened || 0} · completed ${st.huntsCompleted || 0} · escaped ${st.huntsEscaped || 0} · hunters lost ${st.huntsHunterLost || 0} · abandoned ${st.huntsAbandoned || 0} · duplicates prevented ${st.huntDuplicatesPrevented || 0} · cooldown skips ${st.huntCooldownSkips || 0} · deferred (no hunter) ${st.huntDeferredNoHunter || 0}.</p>
+    <h4>Hunts</h4>${hunts}<h4>Latest selections (why each target was or was not chosen)</h4>${selections}<h4>History</h4>${history}`;
 }
 function renderDoctrineDebug() {
   const s = doctrineStatus();
@@ -17730,6 +17805,12 @@ function updateSecurityOrderPanel() {
 securityOrderPanelEl?.addEventListener('click', (e) => {
   const courseButton = e.target.closest('[data-course-resume]');
   if (courseButton) { e.preventDefault(); resumeCaptainCourse(); securityOrderPanelEl.dataset.renderKey = ''; updateSecurityOrderPanel(); updateStats(); return; }
+  const huntButton = e.target.closest('[data-hunt-response]');
+  if (huntButton) {
+    e.preventDefault();
+    if (respondToHunt(huntButton.dataset.huntResponse)) { securityOrderPanelEl.dataset.renderKey = ''; updateSecurityOrderPanel(); updateStats(); }
+    return;
+  }
   const doctrineButton = e.target.closest('[data-predation-response],[data-enforcement-response]');
   if (doctrineButton) {
     e.preventDefault();
@@ -27164,7 +27245,13 @@ function buildCampaignWorld(force = false) {
     // moving), docked, his vid and his traffic class.
     get captain() {
       if (!state.gameStarted || state.gameOver) return null;
-      return { systemIndex: Number(state.currentPlanet), moving: Boolean(state.warp.active || isWormholeTransitActive()), docked: Boolean(state.docked), disabled: fleetBook().personalCondition === 'disabled', vid: ensurePersonalIdentity().vid, cls: captainTrafficClass() };
+      // HIROGEN-HUNTING-DOCTRINE: what a sensor that sees him can tell — his class, his hull, his escorts' classes,
+      // his course speed, a cloak, and in warp the next system on his course (his heading).
+      const w = state.warp;
+      const heading = w.active && Array.isArray(w.path) && w.legsDone != null && w.legsDone < w.path.length ? Number(w.path[w.legsDone]) : null;
+      return { systemIndex: Number(state.currentPlanet), moving: Boolean(state.warp.active || isWormholeTransitActive()), docked: Boolean(state.docked), disabled: fleetBook().personalCondition === 'disabled', vid: ensurePersonalIdentity().vid, cls: captainTrafficClass(),
+        shipId: Number(state.playership), hullFrac: clamp(finiteNumber(state.hull, 100), 0, 100) / 100, speed: captainCourseSpeed(), cloaked: isPlayerCloaked(),
+        escorts: getPlayerEscortFleetShips().filter((f) => !f.destroyed).map((f) => Number(f.shipId)), heading };
     },
     // A foreign yard a tow may bring his hulk to: one that would actually repair her for him (ARCHITECTURE-CLEANUP §3).
     playerYardServes: (i) => playerServiceAccess('repair', Number(i), { remote: true, station: null }).ok,
@@ -27873,7 +27960,7 @@ function applyCampaignEffects(effects, day = state.day) {
       case 'doctrineOnSite': case 'doctrineEvidenceRecovered': case 'doctrineRescued': case 'doctrineSighting': case 'doctrineVisible': case 'doctrineReleased':
       case 'doctrineContract': case 'doctrineDistressFound':
       case 'doctrineEnforcement': case 'doctrineEnforcementStrike': case 'doctrinePredation': case 'vesselSurrendered': case 'surrenderReleased':
-      case 'hullStranded':
+      case 'hullStranded': case 'doctrineHunt':
         applyDoctrineEffect(e, day);
         break;
       default: break;
@@ -28124,7 +28211,7 @@ function spawnEncounterParticipant(enc, p, index, count, anchor, towardPlayer) {
   const angle = (index / Math.max(1, count)) * Math.PI * 2 + seeded(seed + 5) * 0.4;
   const r = towardPlayer ? NPC_WEAPON_RANGE * (1.6 + seeded(seed + 7) * 0.5) : 900 + seeded(seed + 9) * 300;
   const from = { x: anchor.x + Math.cos(angle) * r, y: anchor.y + Math.sin(angle) * r };
-  const hostileToPlayer = enc.playerHostile && ['blockader', 'attacker', 'pirate', 'enforcer'].includes(p.side);
+  const hostileToPlayer = enc.playerHostile && ['blockader', 'attacker', 'pirate', 'enforcer', 'hunter'].includes(p.side);
   const npc = createNpcShip({ id: `enc-${String(enc.id).split(':').pop()}-${index}`, shipId, faction, attitude: hostileToPlayer ? 'hostile' : 'neutral', hostile: hostileToPlayer, seed, name,
     from, destination: { x: anchor.x, y: anchor.y }, destinationName: `engagement: ${enc.type}`, role: p.side === 'defender' ? 'patrol' : 'encounter' });
   ensureNpcCombatStats(npc);
@@ -28152,6 +28239,7 @@ function encounterStillValid(enc) {
   const book = campaignBook(), world = buildCampaignWorld(true);
   if (enc.type === 'blockade') { const b = (book.blockades || []).find((x) => x.id === enc.objective.ref); return b && b.status === 'active' && (enc.sides?.b === PLAYER_SIDE ? Campaign.blockadeApplies(book, world, b, PLAYER_SIDE) : Campaign.blockadeApplies(book, world, b, enc.sides?.b)) ? null : 'the blockade no longer bears on the runner'; }
   if (enc.type === 'raid') { const o = (book.doctrine?.objectives || []).find((x) => x.id === enc.objective.ref); if (!o || o.status !== 'active') return 'the raid is over'; return Campaign.warAuthorityHolds(book, world, o.authority?.stamp) ? null : 'the war ended before contact'; }
+  if (enc.type === 'hunt') { const o = (book.doctrine?.objectives || []).find((x) => x.id === enc.objective.ref); return o && o.status === 'active' ? null : 'the hunt is over'; }
   if (enc.type === 'predation' || enc.type === 'enforcement') { const o = (book.doctrine?.objectives || []).find((x) => x.id === enc.objective.ref); return o && o.status === 'active' ? null : 'the objective is closed'; }
   return null;
 }
@@ -28170,7 +28258,7 @@ function spawnStrategicEncounter(enc) {
   want.forEach((p, i) => { const npc = spawnEncounterParticipant(enc, p, i, want.length, anchor, enc.captain || enc.playerHostile); if (npc) ships.push(npc); });
   // The scene could not make the ships (a class it has no model for, a record gone): the strategic
   // resolver runs for this contact exactly once, and the fallback is recorded.
-  const hostileSides = new Set(['blockader', 'attacker', 'pirate', 'enforcer']);
+  const hostileSides = new Set(['blockader', 'attacker', 'pirate', 'enforcer', 'hunter']);
   const needed = enc.captain ? ships.some((n) => hostileSides.has(n.encounterSide)) : new Set(ships.map((n) => n.encounterSide)).size >= 2 || (enc.playerHostile && ships.length > 0);
   if (!ships.length || globalThis.__bm1FailEncounterScene || !needed) {
     const effects = [];
@@ -28187,7 +28275,8 @@ function spawnStrategicEncounter(enc) {
   recordLocalIntel();
   const place = state.planets[enc.system]?.name || 'this system';
   const heads = { blockade: enc.captain ? `Intercepted at ${place}: ${ships.length} blockading ship${ships.length === 1 ? '' : 's'} closing` : `A blockade intercepts ships crossing ${place}`,
-    raid: `Raider attacking ${place}`, predation: enc.captain ? `Pirates close in at ${place}` : `Pirates attacking a ship at ${place}`, enforcement: `Enforcement action at ${place}` };
+    raid: `Raider attacking ${place}`, predation: enc.captain ? `Pirates close in at ${place}` : `Pirates attacking a ship at ${place}`, enforcement: `Enforcement action at ${place}`,
+    hunt: enc.captain ? 'Hirogen Hunt — Engaged' : `Hirogen hunters closing on a ship at ${place}` };
   if (heads[enc.type]) setLog(`${heads[enc.type]}.`);
   return true;
 }
@@ -28246,6 +28335,20 @@ function encounterDecision(enc, { leaving = false } = {}) {
   }
   if (enc.type === 'enforcement') {
     if (sideOut(enc, 'target') || sideOut(enc, 'enforcer') || timeUp) return { outcome: 'fought' };
+    return null;
+  }
+  // HIROGEN-HUNTING-DOCTRINE §8–10: the captain as prey — he breaks away (escaped), beats them (the hunters'
+  // fates say destroyed or disabled), strikes (surrendered: their fire stops), is disabled, or outlasts them.
+  if (enc.type === 'hunt') {
+    if (enc.captain) {
+      if (leaving) return { outcome: 'escaped', note: 'the captain broke away' };
+      if (playerSurrendered() && localDoctrine().surrender?.huntEncounterId === enc.id) return { outcome: 'surrendered', note: 'the captain struck' };
+      if (sideOut(enc, 'hunter')) return { outcome: sideAllBeaten(enc, 'hunter') ? 'hunters_beaten' : 'disengaged', note: 'the hunters are out of the fight' };
+      if (fleetBook().personalCondition === 'disabled') return { outcome: 'prey_disabled', note: 'the captain\'s ship is disabled' };
+      if (timeUp) return { outcome: 'disengaged', note: 'the hunters broke off' };
+      return null;
+    }
+    if (sideOut(enc, 'prey') || sideOut(enc, 'hunter') || timeUp) return { outcome: 'fought' };
     return null;
   }
   return null;
@@ -28421,6 +28524,12 @@ function captainCrossingCheck(at, ctx) {
       const res = DoctrineCampaign.openCaptainPredation(book, world, g.id, { vid: me.vid, demand: cap >= 500 ? 240 : cap >= 100 ? 120 : 60, observed: cap >= 500 ? 'bulk' : cap >= 100 ? 'freighter' : 'light', cargo: ordinaryCargoPods().length > 0 }, at, day, effects);
       if (res) stop = { type: 'predation', encounterId: res.encounter.id, groupId: g.id };
     }
+  }
+  // HIROGEN-HUNTING-DOCTRINE §8: a hunter power whose sensors cover this system marks him here; hunters of a
+  // hunt on him standing here intercept him — one encounter, fought in the scene (the course stops here).
+  if (!stop && typeof DoctrineCampaign.huntAtCaptainCrossing === 'function') {
+    const enc = DoctrineCampaign.huntAtCaptainCrossing(book, world, at, day, world.captain || {}, effects);
+    if (enc) stop = { type: 'hunt', encounterId: enc.id };
   }
   if (effects.length) applyCampaignEffects(effects, day);
   campaignWorldCache = null;
