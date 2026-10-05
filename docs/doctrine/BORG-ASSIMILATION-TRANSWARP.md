@@ -273,7 +273,7 @@ In the scene the same hulls are spawned (same vids) with their hull shares. The 
 
 The shared `settleAbandonedHandoff` rule covers a scene the captain is no longer in. A transwarp exit into his system is just such a contact (R33).
 
-**Not this round.** The captain's own ship is not an assimilation target. The Borg turn on him only if he engages them (self-defence is lethal); the target is always an NPC hull or a world.
+**Not this round.** The captain's own ship is not an assimilation target. The Borg turn on him only if he engages them (self-defence is lethal); the target is always an NPC hull or a world. *(Superseded by `CAPTAIN-BORG-ASSIMILATION.md`: the captain's vessel can now be chosen by the same rules; his assimilation is a terminal failure state.)*
 
 ## 9. Baseline (9db1fc6): generic Borg
 
@@ -413,7 +413,7 @@ Station fire was not removed from the scene: it is the only third-party kill thi
 - Hirogen hunt exchange tuning / re-hunt memory
 
 **New this round:**
-- the captain's own ship as an assimilation target
+- the captain's own ship as an assimilation target — *done in `CAPTAIN-BORG-ASSIMILATION.md` (failure state only)*
 - carrier/conduit access for non-capable Borg craft
 - Borg repair or regeneration of assimilated hulks (no Borg yard exists)
 - defenders retaking an assimilated world (nobody is at war with the Borg, so nobody retakes)

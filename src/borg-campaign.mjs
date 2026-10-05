@@ -26,7 +26,7 @@ const vidOf = (h) => h?.identity?.vid || h?.vid || h?.id || null;
 export function borgBook(db) {
   const b = (db.borg ||= {});
   for (const k of ['contacts', 'worlds', 'cooldowns', 'selections', 'progress', 'evalDay', 'cover']) b[k] ||= {};
-  b.history ||= []; b.assimilatedHulls ||= []; b.assimilatedWorlds ||= []; b.incursions ||= [];
+  b.history ||= []; b.assimilatedHulls ||= []; b.assimilatedWorlds ||= []; b.incursions ||= []; b.captainAssimilations ||= [];
   b.transwarp ||= { uses: 0, cooldownBlocks: 0, refused: 0, log: [] };
   return b;
 }
@@ -69,14 +69,37 @@ function borgScale(world, db) {
 // not seen at that range). A hull that left a covered system within the track window is a departure sighting
 // with its heading. Ship contacts are per hull (the target of an assimilation is one vessel); world knowledge is
 // per covered system: its holder, population, yards, installations and defence as they stand — nothing unseen.
+function coverOf(book, world, power, day) {
+  const cover = new Map();
+  for (const h of book.polities[power]?.hulls || []) { if (h.status === 'lost') continue; const s = standingAt(book, h, day); if (s != null) cover.set(s, 'direct'); }
+  for (const s of world.systems) if (s.controller === power) for (const i of [Number(s.index), ...world.neighbours(s.index).map(Number)]) if (!cover.has(i)) cover.set(i, 'border');
+  return cover;
+}
+// CAPTAIN-BORG-ASSIMILATION §1: the captain's personal vessel, seen exactly as any vessel is — only where a Borg
+// sensor covers him, through the same contact fields and the same strength rule (his own hull; his escorts are his
+// fleet, not targets). A class with a cloak is not seen at border range (the vessel rule); an active cloak hides
+// him from every Borg sensor. Nothing else is read: no omniscient track, no bias. Returns the contact or null.
+function recordCaptainContact(book, world, db, power, cap, at, day, source) {
+  if (!cap || !cap.vid || cap.shipId == null || source == null) return null;
+  const st = world.shipStats(Number(cap.shipId)) || {};
+  if (cap.cloaked) return null;
+  if (source === 'border' && st.cloak) return null;
+  const contacts = (borgBook(db).contacts[power] ||= {});
+  const prev = contacts[cap.vid];
+  if (prev && prev.day > day) return prev;
+  const close = source === 'direct';
+  const frac = Math.max(0, Math.min(1, Number(cap.hullFrac ?? 1)));
+  contacts[cap.vid] = { key: cap.vid, vid: cap.vid, kind: 'captain', hullId: null, polity: 'player', shipId: Number(cap.shipId), price: Number(st.price) || 0, mass: Number(st.mass) || 1, category: st.category || null, cloak: Boolean(st.cloak),
+    strength: r2(observedStrength(book, world, cap.shipId, close ? frac : 1)), hullFrac: close ? r2(frac) : null, subdued: close ? Boolean(cap.disabled) : null, speed: Number(cap.speed) || C.hullSpeed(world, { shipId: cap.shipId }),
+    systemIndex: Number(at), day, source, heading: cap.heading ?? null, firstSeenDay: prev?.firstSeenDay ?? day, sightings: (prev?.sightings || 0) + 1 };
+  return contacts[cap.vid];
+}
 function observe(book, world, db, power, day) {
   const bb = borgBook(db);
   const cfg = cfgOf(db);
   const contacts = (bb.contacts[power] ||= {});
   const worlds = (bb.worlds[power] ||= {});
-  const cover = new Map();
-  for (const h of book.polities[power]?.hulls || []) { if (h.status === 'lost') continue; const s = standingAt(book, h, day); if (s != null) cover.set(s, 'direct'); }
-  for (const s of world.systems) if (s.controller === power) for (const i of [Number(s.index), ...world.neighbours(s.index).map(Number)]) if (!cover.has(i)) cover.set(i, 'border');
+  const cover = coverOf(book, world, power, day);
   bb.cover[power] = [...cover.keys()].sort((a, b) => a - b);
   for (const [pid, p] of Object.entries(book.polities)) {
     if (pid === power || pid === 'player') continue; // the captain's own fleet ships are not targets this round
@@ -102,8 +125,11 @@ function observe(book, world, db, power, day) {
         systemIndex: s, day: seen, source: seen === day ? src : 'departure', heading: h.transit ? Number(h.transit.to) : null, firstSeenDay: prev?.firstSeenDay ?? day, sightings: (prev?.sightings || 0) + 1 };
     }
   }
+  // The captain standing in a covered system today (in warp he stands nowhere: he is seen at his crossings instead).
+  const cap = world.captain;
+  if (cap && !cap.moving && cap.vid && db.config.borg?.captain !== false && cover.has(Number(cap.systemIndex))) recordCaptainContact(book, world, db, power, cap, Number(cap.systemIndex), day, cover.get(Number(cap.systemIndex)));
   // A hull now the Collective's own is no longer a contact (it is known as itself).
-  for (const [k, c] of Object.entries(contacts)) if ((book.polities[power]?.hulls || []).some((h) => h.id === c.hullId)) delete contacts[k];
+  for (const [k, c] of Object.entries(contacts)) if (c.hullId != null && (book.polities[power]?.hulls || []).some((h) => h.id === c.hullId)) delete contacts[k];
   const keep = Object.values(contacts).filter((c) => day - c.day <= cfg.staleDays * 3).sort((a, b) => b.day - a.day || String(a.key).localeCompare(String(b.key))).slice(0, 60);
   bb.contacts[power] = Object.fromEntries(keep.map((c) => [c.key, c]));
   for (const [i, src] of cover) {
@@ -167,14 +193,16 @@ export function evaluateBorgTargets(doctrine, book, world, power, day, db) {
     const mv = planMovement(book, world, db, power, av.hulls, av.systemIndex, dest, score, day);
     return { reachDays: mv.mode === 'transwarp' ? mv.transwarpDays : mv.mode === 'hold' ? mv.holdDays + mv.transwarpDays : mv.conventionalDays, movement: { mode: mv.mode, conventionalDays: mv.conventionalDays, transwarpDays: mv.transwarpDays, holdDays: mv.holdDays ?? null, reason: mv.reason } };
   };
-  for (const c of db.config.borg?.ships === false ? [] : contacts) {
+  // The captain's vessel is one more ship contact: the same value, the same score, the same rejections (§1, R4–R5).
+  for (const c of contacts.filter((x) => (x.kind === 'captain' ? db.config.borg?.captain !== false : db.config.borg?.ships !== false))) {
     const value = B.shipValue({ price: c.price, mass: c.mass, category: c.category, cloak: c.cloak, rare: shipCounts[c.shipId] === 1 }, cfg);
-    const duplicate = live.some((o) => o.targetKind === 'ship' && o.target.vid === c.vid);
+    // One objective per target; the captain is one target whatever vessel he flies.
+    const duplicate = live.some((o) => (c.kind === 'captain' ? o.targetKind === 'captain' : o.targetKind === 'ship' && o.target.vid === c.vid));
     const base = { kind: 'ship', value, targetStrength: c.strength, borgStrength: av.strength || 1, source: c.source, ageDays: day - c.day, cooldownUntil: bb.cooldowns[`${power}|${c.vid}`] ?? null, day, duplicate };
     const prelim = B.scoreTarget({ ...base, reachDays: 0 }, cfg);
     const { reachDays, movement } = reachOf(c.systemIndex, prelim.score);
     const s = B.scoreTarget({ ...base, reachDays }, cfg);
-    cands.push({ kind: 'ship', vid: c.vid, hullId: c.hullId, polity: c.polity, shipId: c.shipId, seen: { system: c.systemIndex, day: c.day, source: c.source }, targetStrength: c.strength, value, reachDays, movement, ...s });
+    cands.push({ kind: c.kind === 'captain' ? 'captain' : 'ship', vid: c.vid, hullId: c.hullId, polity: c.polity, shipId: c.shipId, seen: { system: c.systemIndex, day: c.day, source: c.source }, targetStrength: c.strength, value, reachDays, movement, ...s });
   }
   if (db.config.borg?.worlds !== false) {
     for (const w of Object.values(bb.worlds[power] || {})) {
@@ -226,13 +254,13 @@ function openObjective(book, world, db, power, ev, pick, role, day, effects, ctx
   const plan = planMovement(book, world, db, power, hulls, ev.forceSystem, pick.kind === 'world' ? pick.systemIndex : pick.seen.system, pick.score, day);
   if (plan.mode === 'transwarp' || plan.mode === 'hold') hulls = hulls.filter((h) => plan.jumpers.includes(h.id));
   const id = ctx.nid(book, db, 'assimilation');
-  const c = pick.kind === 'ship' ? borgBook(db).contacts[power][pick.vid] : null;
+  const c = pick.kind === 'ship' || pick.kind === 'captain' ? borgBook(db).contacts[power][pick.vid] : null;
   const w = pick.kind === 'world' ? borgBook(db).worlds[power][pick.systemIndex] : null;
   const targetSystem = pick.kind === 'world' ? pick.systemIndex : c.systemIndex;
   const o = { id, kind: KIND, template: 'assimilation', clock: 'strategic_jumps', actor: `command:${power}`, polity: power, profileId: power, role, response: 'assimilate', incidentId: null,
     targetKind: pick.kind,
-    target: pick.kind === 'ship'
-      ? { vid: c.vid, hullId: c.hullId, polity: c.polity, shipId: c.shipId, known: { price: c.price, mass: c.mass, category: c.category, cloak: c.cloak, strength: c.strength, hullFrac: c.hullFrac, seenAt: c.systemIndex, seenDay: c.day, source: c.source } }
+    target: pick.kind === 'ship' || pick.kind === 'captain'
+      ? { vid: c.vid, hullId: c.hullId, polity: c.polity, shipId: c.shipId, ...(pick.kind === 'captain' ? { captain: true } : {}), known: { price: c.price, mass: c.mass, category: c.category, cloak: c.cloak, strength: c.strength, hullFrac: c.hullFrac, seenAt: c.systemIndex, seenDay: c.day, source: c.source } }
       : { vid: pick.vid, systemIndex: w.systemIndex, polity: w.controller, known: { population: w.population, yards: w.yards, installations: w.installations, defense: w.defense, seenDay: w.day, source: w.source } },
     value: pick.value, why: { score: pick.score, ratio: pick.ratio, factors: pick.factors, reason: pick.reason, forceStrength: ev.forceStrength },
     force: hulls.map((h) => ({ hullId: h.id, vid: vidOf(h), shipId: Number(h.shipId) })), assigned: { hullId: hulls[0].id, vid: vidOf(hulls[0]) },
@@ -248,7 +276,7 @@ function openObjective(book, world, db, power, ev, pick, role, day, effects, ctx
   delete o.target_;
   for (const h of hulls) { h.status = 'assigned'; h.opId = id; }
   db.objectives.push(o); db.stats.objectives = (db.stats.objectives || 0) + 1;
-  bumpStat(db, 'borgObjectivesOpened'); bumpStat(db, pick.kind === 'world' ? 'borgWorldTargets' : 'borgShipTargets');
+  bumpStat(db, 'borgObjectivesOpened'); bumpStat(db, pick.kind === 'world' ? 'borgWorldTargets' : pick.kind === 'captain' ? 'borgCaptainTargets' : 'borgShipTargets');
   effects.push({ type: 'borgAssimilation', event: 'objective_opened', id, polity: power, targetKind: pick.kind, systemIndex: targetSystem, day });
   return o;
 }
@@ -324,6 +352,7 @@ function work(doctrine, book, world, db, o, day, effects) {
   const borgStrength = able.reduce((n, h) => n + C.hullStrength(book, world, h), 0);
   const lead = able[0] || null;
   const here = lead ? standingAt(book, lead, day) : null;
+  if (o.targetKind === 'captain') return workCaptain(book, world, db, o, { alive, able, borgStrength, lead, here }, day, effects, cfg);
   if (o.targetKind === 'ship') return workShip(book, world, db, o, { alive, able, borgStrength, lead, here }, day, effects, cfg);
   return workWorld(book, world, db, o, { alive, able, borgStrength, lead, here }, day, effects, cfg);
 }
@@ -382,6 +411,98 @@ function completeShip(book, world, db, o, th, at, day, effects, cfg) {
   bumpStat(db, 'borgShipsAssimilated');
   effects.push({ type: 'borgAssimilation', event: 'ship_assimilated', id: o.id, polity: o.polity, targetVid: before.vid, targetPolity: from, shipId: th.shipId, crew: crew.result, systemIndex: at, day });
   return closeObjective(book, world, db, o, 'target_assimilated', `assimilated (${crew.result.replace(/_/g, ' ')})`, day, effects);
+}
+// CAPTAIN-BORG-ASSIMILATION §2: the same pursuit as any vessel — the Collective's own hulls, the same movement
+// (conventional or transwarp by the accepted rules), the same knowledge budget. Contact is where the force and the
+// captain stand in one system on one day: one encounter, always his scene (he is where he is). Nothing about him is
+// decided off-scene: no strategic damage, no strategic assimilation.
+function workCaptain(book, world, db, o, f, day, effects, cfg) {
+  const bb = borgBook(db);
+  const contact = bb.contacts[o.polity]?.[o.target.vid] || null;
+  if (contact && contact.day > o.lastKnown.day) { o.lastKnown = { systemIndex: contact.systemIndex, day: contact.day, source: contact.source, heading: contact.heading }; o.lostSince = null; }
+  const fresh = contact && day - contact.day <= cfg.trackDays;
+  if (!fresh && o.lostSince == null) { o.lostSince = day; o.actions.push({ day, action: 'lost_contact', detail: `last seen at ${o.lastKnown.systemIndex} on day ${o.lastKnown.day}` }); effects.push({ type: 'borgAssimilation', event: 'contact_lost', id: o.id, polity: o.polity, captain: true, systemIndex: o.lastKnown.systemIndex, day }); }
+  const targetGone = o.lostSince != null && day - o.lostSince > cfg.searchDays ? 'contact lost beyond the search budget' : (o.lastKnown && day - o.lastKnown.day > cfg.staleDays ? 'knowledge too stale' : null);
+  const end = B.borgTermination({ day, startDay: o.startDay, budgetDays: o.budgetDays, borgAlive: f.alive.length > 0, borgAble: f.able.length > 0, targetDestroyed: false, targetGone,
+    inaccessible: o.blocked && day - o.blocked.since > cfg.searchDays ? `no way there: ${o.blocked.reason}` : null, cancelled: o.cancelRequested || null }, cfg);
+  if (end) return closeObjective(book, world, db, o, end.result, end.reason, day, effects);
+  const at = Number(o.lastKnown.systemIndex);
+  const cap = world.captain;
+  const captainHere = Boolean(cap && !cap.moving && cap.vid === o.target.vid && Number(cap.systemIndex) === at);
+  if (f.here === at && captainHere && fresh) {
+    if (o.tacticalDay !== day) return engageCaptain(book, world, db, o, at, day, effects);
+    return;
+  }
+  const dest = fresh ? (contact.heading ?? contact.systemIndex) : (o.lastKnown.heading ?? o.lastKnown.systemIndex);
+  const lt = f.lead?.transit;
+  setPhase(o, lt && Number(lt.to) === Number(dest) ? 'intercept' : 'approach', day);
+  moveForce(book, world, db, o, dest, day, effects);
+}
+// The captain's contact: one encounter, his own scene (§3, R8). The force's hulls are its participants; he is not a
+// model hull (the scene holds him). The assimilation itself is run by the scene (captainAssimilationTick).
+function engageCaptain(book, world, db, o, at, day, effects) {
+  o.engagements++; o.tacticalDay = day;
+  setPhase(o, 'disable', day);
+  const borg = forceHulls(book, o).filter((h) => C.hullCanTravel(h) && standingAt(book, h, day) === Number(at) && !h.encounterId);
+  if (!borg.length) return null;
+  const { enc } = SE.openEncounter(book, { key: `assim:${o.id}:${day}:e${o.engagements}`, system: Number(at), type: KIND, objective: { kind: KIND, ref: o.id }, authority: { kind: KIND, source: 'borg_doctrine' },
+    sides: { a: o.polity, b: 'player' }, captain: true, playerHostile: true, reason: 'the Borg intercept the captain to disable his ship',
+    contact: { objectiveId: o.id, targetKind: 'captain', captainVid: o.target.vid, engagement: o.engagements },
+    participants: borg.map((h) => ({ hullId: h.id, polity: o.polity, side: 'borg', record: h })) }, day, C.encounterHullLookup(book));
+  o.encounterId = enc.id;
+  o.progress = { value: 0, startDay: null, state: 'attempting', lastDay: null };
+  o.actions.push({ day, action: 'engage', detail: `contact with the captain at ${at} (engagement ${o.engagements})` });
+  o.handoff = { encounterId: enc.id, status: enc.status, captainScene: true };
+  effects.push({ type: 'borgAssimilation', event: 'engaged', id: o.id, polity: o.polity, targetKind: 'captain', systemIndex: Number(at), encounterId: enc.id, captainScene: true, day });
+  return enc;
+}
+// The captain's scene, frame by frame (§4): the progress record is the objective's own, so it is saved with the
+// campaign and survives a reload. `s` = { dtMs, subdued, assimilatorPresent, borgAlive }. Returns the step and the
+// stage reached (for the captain's few lines).
+export function captainAssimilationTick(book, objectiveId, s) {
+  const db = book.doctrine; const o = db?.objectives?.find((x) => x.id === objectiveId);
+  if (!o || o.status !== 'active' || o.targetKind !== 'captain') return null;
+  const cfg = cfgOf(db);
+  const before = Number(o.progress?.value) || 0;
+  const step = B.captainProgressStep({ progress: before, dtMs: s.dtMs, subdued: s.subdued, assimilatorPresent: s.assimilatorPresent, borgAlive: s.borgAlive }, cfg);
+  const day = db.lastDay ?? book.day ?? null;
+  if (step.state === 'assimilating' && before === 0) { setPhase(o, 'assimilate', day); o.progress.startDay = day; o.actions.push({ day, action: 'assimilate', detail: 'the captain is subdued: assimilation begins' }); bumpStat(db, 'borgCaptainAssimilationsBegun'); }
+  if (step.state === 'attempting' && before > 0) { setPhase(o, 'disable', day); o.actions.push({ day, action: 'interrupted', detail: step.reason }); bumpStat(db, 'borgCaptainAssimilationsReset'); }
+  o.progress = { ...o.progress, value: step.progress, state: step.state, reason: step.reason };
+  return { ...step, before, stage: B.captainStage(step.progress, cfg), stageBefore: B.captainStage(before, cfg) };
+}
+// The terminal result (§7): the run ends; the record says how. Nothing is transferred to anyone.
+function completeCaptain(book, world, db, o, enc, day, effects) {
+  const bb = borgBook(db);
+  o.progress = { ...o.progress, value: 1, state: 'completed' };
+  const force = enc.participants.filter((p) => p.side === 'borg').map((p) => p.vid);
+  bb.captainAssimilations.push({ objectiveId: o.id, encounterId: enc.id, captainVid: o.target.vid, shipId: o.target.shipId, systemIndex: Number(enc.system), day, force, result: 'captain_assimilated' });
+  if (bb.captainAssimilations.length > 10) bb.captainAssimilations = bb.captainAssimilations.slice(-10);
+  bumpStat(db, 'borgCaptainAssimilations');
+  effects.push({ type: 'borgAssimilation', event: 'captain_assimilated', id: o.id, polity: o.polity, captainVid: o.target.vid, shipId: o.target.shipId, systemIndex: Number(enc.system), encounterId: enc.id, force, day });
+  return closeObjective(book, world, db, o, 'target_assimilated', 'the captain was assimilated', day, effects);
+}
+// The captain crossing a system on his course (§1, §2): a Borg power whose sensors cover it marks him there (the
+// vessel rules above); a captain objective whose force stands there intercepts him — one encounter, his scene, the
+// course stops. Returns the encounter or null.
+export function borgAtCaptainCrossing(book, world, at, day, captain, effects = []) {
+  const db = book.doctrine;
+  if (!db || db.config?.enabled === false || !captain?.vid) return null;
+  const powers = powersOf(book, db);
+  if (!powers.length) return null;
+  for (const p of powers) {
+    if (db.config.borg?.captain === false) continue;
+    const cover = coverOf(book, world, p, day);
+    if (cover.has(Number(at))) recordCaptainContact(book, world, db, p, { ...captain, disabled: false }, Number(at), day, cover.get(Number(at)));
+  }
+  for (const o of db.objectives || []) {
+    if (o.kind !== KIND || o.status !== 'active' || o.targetKind !== 'captain' || o.target.vid !== captain.vid || o.encounterId || o.tacticalDay === day) continue;
+    const there = forceHulls(book, o).filter((h) => C.hullCanTravel(h) && standingAt(book, h, day) === Number(at));
+    if (!there.length) continue;
+    o.lastKnown = { systemIndex: Number(at), day, source: 'contact', heading: captain.heading ?? null }; o.lostSince = null;
+    return engageCaptain(book, world, db, o, Number(at), day, effects);
+  }
+  return null;
 }
 function workWorld(book, world, db, o, f, day, effects, cfg) {
   const bb = borgBook(db);
@@ -510,6 +631,19 @@ function applyEngagement(book, world, db, o, enc, result, day, effects) {
   o.lastEngagement = { day, outcome: result?.outcome || 'fought', target: tf.length === 1 ? tf[0] : tf, borg: bf, strategic: Boolean(result?.strategic), scene: !result?.strategic };
   o.handoff = o.handoff ? { ...o.handoff, status: 'resolved', outcome: result?.outcome || 'fought' } : null;
   if (bf.length && bf.every(out)) return closeObjective(book, world, db, o, bf.every((f) => f === 'destroyed') ? 'borg_destroyed' : 'borg_disabled', 'the Borg force is out of the fight', day, effects);
+  if (o.targetKind === 'captain') {
+    const oc = result?.outcome || 'fought';
+    if (oc === 'borg_beaten') return closeObjective(book, world, db, o, 'borg_disabled', 'the Borg force is out of the fight', day, effects);
+    if (oc === 'captain_assimilated') return completeCaptain(book, world, db, o, enc, day, effects);
+    if (oc === 'target_destroyed') return closeObjective(book, world, db, o, 'target_destroyed', 'the captain\'s ship was destroyed', day, effects);
+    if (oc === 'escaped') return closeObjective(book, world, db, o, 'target_escaped', result?.note || 'the captain escaped', day, effects);
+    if (oc === 'borg_withdrew') return closeObjective(book, world, db, o, 'abandoned', result?.note || 'the Borg withdrew', day, effects);
+    // Not subdued in the window (or no scene could be made: nothing is fought off-scene for him): it goes on.
+    o.progress = { value: 0, startDay: null, state: null, lastDay: null };
+    if (o.engagements >= cfgOf(db).maxEngagements) return closeObjective(book, world, db, o, 'abandoned', 'the captain could not be subdued', day, effects);
+    setPhase(o, 'approach', day);
+    return { continuation: 'the captain still resists' };
+  }
   if (o.targetKind === 'ship') {
     const f = tf[0] || 'survived';
     if (f === 'destroyed' || result?.outcome === 'target_destroyed') return closeObjective(book, world, db, o, 'target_destroyed', 'the target was destroyed before it could be assimilated', day, effects);
@@ -538,6 +672,8 @@ SE.registerEncounterFamily(KIND, {
     const db = book.doctrine; const o = db?.objectives?.find((x) => x.id === enc.objective.ref);
     if (!o || o.status !== 'active') return { continuation: 'the objective was already over' };
     o.encounterId = null; o.tacticalDay = day;
+    // The captain's contact with no scene: nothing is fought, damaged or assimilated off-scene for him (R9).
+    if (o.targetKind === 'captain') return applyEngagement(book, world, db, o, enc, { outcome: 'disengaged', strategic: true, note: 'no scene' }, day, effects);
     const report = strategicReport(book, world, db, o, enc, day);
     const hook = SE.fateHooks().applyFate;
     for (const p of enc.participants) { const r = report.participants[p.ref]; if (!r) continue; p.fate = r.fate; p.after = { hull: r.hull }; if (hook && !p.engineOwned) hook(book, world, p, r, enc, day, effects); }
@@ -560,6 +696,7 @@ function closeObjective(book, world, db, o, result, reason, day, effects) {
   if (o.progress && o.progress.state !== 'completed' && !success) o.progress.state = o.progress.value > 0 ? 'interrupted' : o.progress.state;
   setPhase(o, 'withdraw', day);
   bumpStat(db, success ? 'borgAssimilations' : result === 'target_destroyed' ? 'borgTargetsDestroyed' : result === 'target_escaped' ? 'borgTargetsEscaped' : result === 'borg_destroyed' || result === 'borg_disabled' ? 'borgForcesLost' : 'borgObjectivesAbandoned');
+  if (o.targetKind === 'captain') bumpStat(db, success ? 'borgCaptainClosedAssimilated' : result === 'target_escaped' ? 'borgCaptainEscapes' : result === 'borg_destroyed' || result === 'borg_disabled' ? 'borgCaptainBorgDefeats' : result === 'target_destroyed' ? 'borgCaptainDestroyed' : 'borgCaptainAbandoned');
   bumpStat(db, success ? 'objectivesCompleted' : 'objectivesAborted');
   const key = o.targetKind === 'world' ? `${o.polity}|world:${o.target.systemIndex}` : `${o.polity}|${o.target.vid}`;
   // A failure cools the target; an assimilated world cools too (it is the Collective's — and if it is ever retaken,
@@ -673,14 +810,32 @@ export function borgDebug(book, world) {
       handoff: o.handoff, lastEngagement: o.lastEngagement || null, result: o.result, lastKnown: o.lastKnown, actions: o.actions.slice(-6) };
   });
   const hulls = Object.entries(book.polities).flatMap(([pid, p]) => (p.hulls || []).filter((h) => h.assimilated).map((h) => ({ owner: pid, vid: vidOf(h), shipId: h.shipId, hull: Math.round(h.hull), maxHull: h.maxHull, status: h.status, at: h.systemIndex, assimilated: h.assimilated, origin: h.identity?.origin?.builder ?? null })));
-  return { day, scale: bb.scale, medianLegDays: bb.medianLegDays, objectives, assimilatedHulls: hulls, assimilatedWorlds: bb.assimilatedWorlds.slice(-10).reverse(), progress: Object.values(bb.progress), transwarp: { ...bb.transwarp, log: bb.transwarp.log.slice(-8).reverse() },
+  return { day, scale: bb.scale, captain: captainDebug(book, world, db), captainAssimilations: bb.captainAssimilations.slice(-5).reverse(), medianLegDays: bb.medianLegDays, objectives, assimilatedHulls: hulls, assimilatedWorlds: bb.assimilatedWorlds.slice(-10).reverse(), progress: Object.values(bb.progress), transwarp: { ...bb.transwarp, log: bb.transwarp.log.slice(-8).reverse() },
     selections: Object.fromEntries(Object.entries(bb.selections).map(([p, l]) => [p, l.slice(-3).reverse()])), history: bb.history.slice(-10).reverse(), incursions: bb.incursions.slice(-8).reverse(),
     rules: { transwarpDays: cfg.transwarpDays, transwarpCooldownDays: cfg.transwarpCooldownDays, transwarpMinScore: cfg.transwarpMinScore, transwarpMinSavingDays: cfg.transwarpMinSavingDays, transwarpMinCondition: cfg.transwarpMinCondition },
     stats: Object.fromEntries(Object.entries(db.stats || {}).filter(([k]) => /^borg/.test(k))) };
+}
+// CAPTAIN-BORG-ASSIMILATION §12: the captain-target row — his vessel's vid, what the Collective knows of it, its
+// value and score at the latest evaluation, the objective, phase, progress, force, handoff and any failure result.
+function captainDebug(book, world, db) {
+  const bb = borgBook(db);
+  const cap = world?.captain || null;
+  const power = powersOf(book, db)[0] || 'borg';
+  const contacts = Object.values(bb.contacts[power] || {}).filter((c) => c.kind === 'captain');
+  const known = (cap && contacts.find((c) => c.vid === cap.vid)) || contacts.sort((a, b) => b.day - a.day)[0] || null;
+  const sel = (bb.selections[power] || []).slice().reverse().find((x) => x.candidates.some((c) => c.kind === 'captain')) || null;
+  const cand = sel ? sel.candidates.find((c) => c.kind === 'captain') : null;
+  const o = (db.objectives || []).filter((x) => x.kind === KIND && x.targetKind === 'captain').slice(-1)[0] || null;
+  const fail = bb.captainAssimilations.slice(-1)[0] || null;
+  return { vid: cap?.vid ?? known?.vid ?? null, shipId: cap?.shipId ?? known?.shipId ?? null,
+    known: known && { system: known.systemIndex, day: known.day, source: known.source, price: known.price, category: known.category, cloak: known.cloak, strength: known.strength, hullFrac: known.hullFrac, subdued: known.subdued, heading: known.heading },
+    evaluation: cand && { day: sel.day, value: cand.value, score: cand.score, verdict: cand.verdict, reason: cand.reason, chosen: sel.chosen === cand.vid },
+    objective: o && { id: o.id, status: o.status, phase: o.phase, progress: o.progress, force: o.force.map((x) => x.vid), engagements: o.engagements, handoff: o.handoff, movement: o.movement, result: o.result },
+    failure: fail };
 }
 export function borgSummary(book) {
   const db = book.doctrine || {};
   const bb = borgBook(db);
   return { objectives: (db.objectives || []).filter((o) => o.kind === KIND), contacts: bb.contacts, worlds: bb.worlds, history: bb.history, cooldowns: bb.cooldowns, selections: bb.selections, progress: bb.progress,
-    assimilatedHulls: bb.assimilatedHulls, assimilatedWorlds: bb.assimilatedWorlds, transwarp: bb.transwarp, incursions: bb.incursions, stats: Object.fromEntries(Object.entries(db.stats || {}).filter(([k]) => /^borg/.test(k))) };
+    assimilatedHulls: bb.assimilatedHulls, assimilatedWorlds: bb.assimilatedWorlds, captainAssimilations: bb.captainAssimilations, transwarp: bb.transwarp, incursions: bb.incursions, stats: Object.fromEntries(Object.entries(db.stats || {}).filter(([k]) => /^borg/.test(k))) };
 }

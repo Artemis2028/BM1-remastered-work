@@ -4374,4 +4374,4 @@ export function debugSummary(book, observerFilter = null, doctrine = null, world
     stats: db.stats,
   };
 }
-export { borgSummary, borgDebug, evaluateBorgTargets } from './borg-campaign.mjs';
+export { borgSummary, borgDebug, evaluateBorgTargets, borgAtCaptainCrossing, captainAssimilationTick } from './borg-campaign.mjs';

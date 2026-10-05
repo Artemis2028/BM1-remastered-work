@@ -9,6 +9,7 @@ import * as Treaty from './treaty-terms.mjs';
 import * as Recovery from './strategic-recovery.mjs';
 import * as Doctrine from './doctrine-runtime.mjs';
 import * as DoctrineCampaign from './doctrine-campaign.mjs';
+import * as BorgRules from './borg-doctrine.mjs';
 const TRANSPORTER_RANGE = 2500;
 const WORLD_CARGO_DROPOFF_RANGE = 600;
 const JUMP_BACKGROUND_REPORT_LIMIT = 6;
@@ -480,6 +481,8 @@ const gameOverTitleEl = document.getElementById('gameover-title');
 const gameOverDescEl = document.getElementById('gameover-desc');
 const restartGameBtn = document.getElementById('btn-restart-game');
 const escapePodBtn = document.getElementById('btn-escape-pod');
+const gameOverReloadBtn = document.getElementById('btn-gameover-reload');
+const gameOverMenuBtn = document.getElementById('btn-gameover-menu');
 const weaponsBtn = document.getElementById('btn-weapons');
 
 const spriteAssets = {
@@ -9453,6 +9456,8 @@ function getRecoveryStatus() {
   const b = fleetBook();
   if (b.personalCondition !== 'disabled')
     return { available: false, reason: 'Ship is operational.' };
+  // CAPTAIN-BORG-ASSIMILATION §10: the player-only recovery cannot lift him out of an active Borg contact.
+  if (liveCaptainBorgEncounterHere()) return { available: false, borgContact: true, reason: 'Emergency recovery unavailable during active Borg contact.' };
   if (state.recoveryAt)
     return {
       available: false,
@@ -9506,10 +9511,12 @@ function updateRecoveryPanel() {
     );
   });
   const graceSeconds = Math.ceil(getPlayerDisableGraceRemaining()/1000);
-  const signature = JSON.stringify([status, graceSeconds, boarding?.phase, choices.map((f) => [f.id, f.name])]);
+  const borgEnc = liveCaptainBorgEncounterHere(), borgObj = borgEnc ? borgObjectiveOf(borgEnc) : null;
+  const assim = borgObj && borgObj.status === 'active' ? Math.floor((Number(borgObj.progress?.value) || 0) * 100) : null;
+  const signature = JSON.stringify([status, graceSeconds, boarding?.phase, choices.map((f) => [f.id, f.name]), assim]);
   if (signature === recoveryPanelSignature) return;
   recoveryPanelSignature = signature;
-  panel.innerHTML = `<h2>Ship disabled</h2>${graceSeconds ? `<p role="status">Emergency damage protection: ${graceSeconds}s. Emergency recovery or transfer command now.</p>` : ''}<p role="status">${escapeHtml(status.reason)}</p><div class="debug-actions"><button data-recovery="request" ${status.available ? '' : 'disabled'}>Emergency recovery</button><button data-recovery="fleet">Transfer command / Fleet</button>${boarding ? '<button data-recovery="boarding">Boarding status / cancel</button>' : ''}</div><p>${choices.length ? 'Open Fleet to choose an eligible nearby vessel for command transfer.' : 'No other local fleet vessel is available for command transfer.'}</p>`;
+  panel.innerHTML = `<h2>Ship disabled</h2>${assim != null ? `<p role="alert" data-captain-assimilation="${assim}">${assim > 0 ? `Assimilation ${assim}%` : 'Borg vessel is attempting to disable your ship.'}</p>` : ''}${graceSeconds ? `<p role="status">Emergency damage protection: ${graceSeconds}s. Emergency recovery or transfer command now.</p>` : ''}<p role="status">${escapeHtml(status.reason)}</p><div class="debug-actions"><button data-recovery="request" ${status.available ? '' : 'disabled'}>Emergency recovery</button><button data-recovery="fleet">Transfer command / Fleet</button>${boarding ? '<button data-recovery="boarding">Boarding status / cancel</button>' : ''}</div><p>${choices.length ? 'Open Fleet to choose an eligible nearby vessel for command transfer.' : 'No other local fleet vessel is available for command transfer.'}</p>`;
 }
 document.getElementById('disabled-recovery')?.addEventListener('click', (e) => {
   const action = e.target.closest('[data-recovery]')?.dataset.recovery;
@@ -10969,7 +10976,7 @@ function applyStrategicOpEffect(e, day) {
     }
     case 'journeyDeparted': case 'journeyCrossed': case 'journeyEnded': {
       // The Borg leaving the captain's own system: his sensors lose them.
-      if (e.type === 'journeyDeparted' && e.sponsor === 'borg' && e.mode !== 'transwarp' && !state.warp.active && Number(e.from) === Number(state.currentPlanet)) setLog('Borg contact lost.');
+      if (e.type === 'journeyDeparted' && e.sponsor === 'borg' && e.mode !== 'transwarp' && !state.warp.active && !state.gameOver && Number(e.from) === Number(state.currentPlanet)) setLog('Borg contact lost.');
       if (e.sponsor === PLAYER_SIDE) {
         const at = e.type === 'journeyDeparted' ? e.from : e.systemIndex;
         if (at != null) for (const hid of e.hulls || []) { const f = fleetEntryForHull(hid); if (f) f.systemIndex = Number(at); }
@@ -11566,6 +11573,7 @@ function applyBorgEffect(e, day) {
         direct: `A ${isRecognizedFactionKey(f) ? `${formatFaction(f)} ` : ''}vessel was assimilated by the Borg at ${nm(at)}.`, rumour: `A ship is said to have been lost to the Borg near ${nm(at)}.` });
       break;
     }
+    case 'captain_assimilated': enterCaptainAssimilated(e); break;
     case 'dmz_incursion':
       reportDoctrineTrace({ id: `borg:dmz:${e.termId}:${at}:${d}`, systemIndex: at, day: d, kind: `Borg incursion into the demilitarised zone — ${nm(at)}`, factions: ['borg', ...(e.parties || []).map(campaignFactionKeyFor)].filter(isRecognizedFactionKey),
         direct: `Borg vessels entered the demilitarised zone at ${nm(at)}.`, rumour: `Unidentified vessels are said to have crossed the demilitarised zone near ${nm(at)}.` });
@@ -11588,7 +11596,7 @@ function renderBorgDebug() {
   const objectives = rows(sum.objectives, [
     ['Objective', (o) => `<code>${escapeHtml(String(o.id).split(':').slice(-2).join(':'))}</code>`],
     ['Borg force (vid · class · where · hull · transwarp)', (o) => o.force.map((h) => `<div><code>${escapeHtml(h.vid)}</code> ${shipName(h.shipId)} · ${at(h.at)} · ${h.hull}%${h.transwarp ? ` · conduit${h.lastExit != null ? ` (exit day ${h.lastExit})` : ''}` : ''}</div>`).join('')],
-    ['Target · known facts', (o) => o.targetKind === 'world' ? `world ${nm(o.target.systemIndex)} (${fac(o.target.polity)}) · pop ${o.target.known.population ?? '?'} · yards ${o.target.known.yards ?? '?'} · installations ${o.target.known.installations ?? '?'} · defence ${o.target.known.defense ?? '?'}` : `<code>${escapeHtml(o.target.vid)}</code> ${fac(o.target.polity)} ${shipName(o.target.shipId)} · seen ${nm(o.target.known.seenAt)} day ${o.target.known.seenDay} (${escapeHtml(o.target.known.source)})${o.target.known.cloak ? ' · cloak' : ''}`],
+    ['Target · known facts', (o) => o.targetKind === 'captain' ? `<b>the captain</b> <code>${escapeHtml(o.target.vid)}</code> ${shipName(o.target.shipId)} · seen ${nm(o.target.known.seenAt)} day ${o.target.known.seenDay} (${escapeHtml(o.target.known.source)})` : o.targetKind === 'world' ? `world ${nm(o.target.systemIndex)} (${fac(o.target.polity)}) · pop ${o.target.known.population ?? '?'} · yards ${o.target.known.yards ?? '?'} · installations ${o.target.known.installations ?? '?'} · defence ${o.target.known.defense ?? '?'}` : `<code>${escapeHtml(o.target.vid)}</code> ${fac(o.target.polity)} ${shipName(o.target.shipId)} · seen ${nm(o.target.known.seenAt)} day ${o.target.known.seenDay} (${escapeHtml(o.target.known.source)})${o.target.known.cloak ? ' · cloak' : ''}`],
     ['Value / score', (o) => `${o.value?.value} → ${o.why.score} — ${escapeHtml(o.why.reason)}`],
     ['Phase', (o) => `<b>${escapeHtml(o.phase)}</b>${o.status !== 'active' ? ` (${escapeHtml(o.status)})` : ''}`],
     ['Progress', (o) => o.worldProgress ? `${pct(o.worldProgress.progress)} · defence suppressed ${pct(o.worldProgress.suppressed)} · resist ${o.worldProgress.resist ?? '—'} · ${escapeHtml(o.worldProgress.state)}${o.worldProgress.borgPresent ? ' · Borg present' : ' · Borg absent'}` : o.progress?.state ? `${pct(o.progress.value)} · ${escapeHtml(o.progress.state)}${o.progress.startDay != null ? ` since day ${o.progress.startDay}` : ''}` : '—'],
@@ -11606,10 +11614,22 @@ function renderBorgDebug() {
     ['Day', (s) => s.day], ['Force', (s) => s.force.length ? `${s.force.map((h) => `<code>${escapeHtml(h.vid)}</code>`).join(' ')} at ${nm(s.forceSystem)} (strength ${s.forceStrength})` : escapeHtml(s.forceReason || 'none')], ['Decision', (s) => `<b>${escapeHtml(s.decision || '—')}</b>`],
     ['Candidates (value · score · movement · verdict)', (s) => s.candidates.length ? s.candidates.map((c) => `<div>${c.kind === 'world' ? `world ${nm(c.systemIndex)}` : `<code>${escapeHtml(c.vid)}</code> ${fac(c.polity)} ${shipName(c.shipId)}`} at ${nm(c.seen.system)} (${escapeHtml(c.seen.source)}) · value ${c.value?.value} · score ${c.score} · ${escapeHtml(c.movement?.mode || '—')} ${c.reachDays ?? '—'} d · <b>${escapeHtml(c.verdict)}</b>: ${escapeHtml(c.reason || '')}${c.vid === s.chosen ? ' ◀ chosen' : ''}</div>`).join('') : 'no target known'],
   ]);
+  // CAPTAIN-BORG-ASSIMILATION §12: the captain-target row.
+  const cp = sum.captain || {};
+  const captainRow = rows([cp], [
+    ['Captain\'s vessel (vid)', (c) => c.vid ? `<code>${escapeHtml(c.vid)}</code> ${c.shipId != null ? shipName(c.shipId) : ''}` : '—'],
+    ['Known to the Collective', (c) => c.known ? `seen ${nm(c.known.system)} day ${c.known.day} (${escapeHtml(c.known.source)}) · strength ${c.known.strength}${c.known.hullFrac != null ? ` · hull ${pct(c.known.hullFrac)}` : ''}${c.known.cloak ? ' · cloak' : ''}${c.known.subdued ? ' · subdued' : ''}` : 'not seen'],
+    ['Value / score', (c) => c.evaluation ? `${c.evaluation.value?.value} → ${c.evaluation.score} · <b>${escapeHtml(c.evaluation.verdict)}</b>: ${escapeHtml(c.evaluation.reason || '')} (day ${c.evaluation.day})` : '—'],
+    ['Objective · phase', (c) => c.objective ? `<code>${escapeHtml(String(c.objective.id).split(':').slice(-2).join(':'))}</code> · <b>${escapeHtml(c.objective.phase)}</b> (${escapeHtml(c.objective.status)}) · engagements ${c.objective.engagements}` : '—'],
+    ['Progress', (c) => c.objective?.progress?.state ? `<span data-captain-progress="${Math.round((Number(c.objective.progress.value) || 0) * 100)}">${pct(c.objective.progress.value)}</span> · ${escapeHtml(c.objective.progress.state)}` : '—'],
+    ['Borg force', (c) => c.objective ? c.objective.force.map((v) => `<code>${escapeHtml(v)}</code>`).join(' ') : '—'],
+    ['Handoff', (c) => c.objective?.handoff ? `${c.objective.handoff.captainScene ? 'captain\'s scene' : 'strategic'} · ${escapeHtml(c.objective.handoff.status || '')}${c.objective.handoff.outcome ? ` · ${escapeHtml(c.objective.handoff.outcome)}` : ''}` : '—'],
+    ['Failure state', (c) => c.failure ? `<b data-captain-failure="${escapeHtml(c.failure.result)}">${escapeHtml(c.failure.result.replace(/_/g, ' ').toUpperCase())}</b> · day ${c.failure.day} at ${nm(c.failure.systemIndex)} · force ${c.failure.force.map((v) => `<code>${escapeHtml(v)}</code>`).join(' ')}` : (c.objective?.result ? `${escapeHtml(c.objective.result.result)} — ${escapeHtml(c.objective.result.reason)}` : '—')],
+  ]);
   const st = sum.stats;
   return `<p class="meta">The Collective acquires, disables and assimilates: no war, no capture, no diplomacy. Day ${sum.day}. Chart scale ${sum.scale ?? 1}. Transwarp: ${sum.rules.transwarpDays} d jump, cooldown ${sum.rules.transwarpCooldownDays} d per hull, objective score ≥ ${sum.rules.transwarpMinScore}, saving ≥ ${sum.rules.transwarpMinSavingDays} d, hull ≥ ${Math.round(sum.rules.transwarpMinCondition * 100)}%.
-    Objectives ${st.borgObjectivesOpened || 0} (ships ${st.borgShipTargets || 0}, worlds ${st.borgWorldTargets || 0}) · assimilated ships ${st.borgShipsAssimilated || 0}, worlds ${st.borgWorldsAssimilated || 0} · targets destroyed ${st.borgTargetsDestroyed || 0}, escaped ${st.borgTargetsEscaped || 0} · Borg forces lost ${st.borgForcesLost || 0} · transwarp jumps ${tw.uses || 0}, cooldown blocks ${tw.cooldownBlocks || 0}.</p>
-    <h4>Assimilation objectives</h4>${objectives}<h4>Assimilated vessels (persistent)</h4>${hulls}<h4>World assimilation progress</h4>${worlds}<h4>Transwarp journeys</h4>${twLog}<h4>Latest selections</h4>${selections}`;
+    Objectives ${st.borgObjectivesOpened || 0} (ships ${st.borgShipTargets || 0}, worlds ${st.borgWorldTargets || 0}, captain ${st.borgCaptainTargets || 0}) · assimilated ships ${st.borgShipsAssimilated || 0}, worlds ${st.borgWorldsAssimilated || 0} · targets destroyed ${st.borgTargetsDestroyed || 0}, escaped ${st.borgTargetsEscaped || 0} · Borg forces lost ${st.borgForcesLost || 0} · transwarp jumps ${tw.uses || 0}, cooldown blocks ${tw.cooldownBlocks || 0}.</p>
+    <h4>Captain as target</h4><div data-captain-target>${captainRow}</div><h4>Assimilation objectives</h4>${objectives}<h4>Assimilated vessels (persistent)</h4>${hulls}<h4>World assimilation progress</h4>${worlds}<h4>Transwarp journeys</h4>${twLog}<h4>Latest selections</h4>${selections}`;
 }
 // HIROGEN-HUNTING-DOCTRINE §19: the "Hirogen hunts" debug section.
 function renderHuntDebug() {
@@ -15599,6 +15619,8 @@ function updateMenu(menu = state.mymenu, panel = state.cargopanel) {
 }
 
 function saveGame(slot = state.currentSaveSlot || 1) {
+  // CAPTAIN-BORG-ASSIMILATION §7: an assimilated captain's run is over — nothing of it is saved over a slot.
+  if (state.gameOver && state.gameOverCause === 'assimilated') { setLog('Captain assimilated: this run cannot be saved.'); return false; }
   captureWorldEncounter();
   capturePrizeVisit(state.currentPlanet,true);
   snapshotPersonalVessel();
@@ -15877,6 +15899,8 @@ function loadGame(slot = state.currentSaveSlot || 1) {
   state.planetMarkets = s.planetMarkets ?? {};
   const legacyMissionCompleteScreen = Boolean(s.gameOver && s.victory && state.hull > 0);
   state.gameOver = legacyMissionCompleteScreen ? false : Boolean(s.gameOver);
+  state.gameOverCause = null; state.captainFailure = null;
+  captainBorgClock.clear();
   state.victory = false;
   state.warp.active = false;
   clearWormholeTransit();
@@ -17416,6 +17440,7 @@ function repairHull() {
 
 function checkWinLose() {
   if (state.hull <= 0) {
+    if (!state.gameOver) settleCaptainBorgOnLoss();
     state.gameOver = true;
     state.victory = false;
     setLog('Game Over: your ship was destroyed.');
@@ -17637,6 +17662,16 @@ closeMapBtn?.addEventListener('click', closeMap);
 weaponsBtn?.addEventListener('click', openWeaponsLocker);
 restartGameBtn?.addEventListener('click', restartGame);
 escapePodBtn?.addEventListener('click', restartInEscapePod);
+// CAPTAIN-BORG-ASSIMILATION §7: the player chooses — never a silent auto-load.
+gameOverReloadBtn?.addEventListener('click', () => { if (state.gameOverCause === 'assimilated') reloadAfterAssimilation(); });
+gameOverMenuBtn?.addEventListener('click', () => { if (state.gameOverCause === 'assimilated') { state.gameOver = false; returnToMainMenu(); } });
+function reloadAfterAssimilation() {
+  const slot = state.currentSaveSlot || 1;
+  if (!getSaveSlotRaw(slot)) { setLog(`No save found in slot ${slot}.`); return false; }
+  loadGame(slot);
+  syncGameOverMenu();
+  return true;
+}
 
 contractModalEl?.addEventListener('click', (e) => {
   const action = e.target.closest('[data-contract-action]');
@@ -25760,8 +25795,14 @@ function syncGameOverMenu() {
   const visible = state.gameStarted && state.gameOver;
   gameOverMenuEl.classList.toggle('hidden', !visible);
   if (!visible) return;
-  const title = 'Game Over';
-  const description = 'Your ship has been lost. Restart cleanly, or eject and try to rebuild from an escape pod.';
+  // CAPTAIN-BORG-ASSIMILATION §7: a terminal state of its own — reload the last save, or the main menu. No escape
+  // pod and no restart in place: the run does not go on.
+  const assimilated = state.gameOverCause === 'assimilated';
+  gameOverMenuEl.dataset.cause = assimilated ? 'assimilated' : 'destroyed';
+  for (const [el, show] of [[restartGameBtn, !assimilated], [escapePodBtn, !assimilated], [gameOverReloadBtn, assimilated], [gameOverMenuBtn, assimilated]]) if (el) el.hidden = !show;
+  if (gameOverReloadBtn) { const has = Boolean(getSaveSlotRaw(state.currentSaveSlot || 1)); gameOverReloadBtn.disabled = !has; gameOverReloadBtn.textContent = has ? `Reload last save (slot ${state.currentSaveSlot || 1})` : 'No save to reload'; }
+  const title = assimilated ? 'CAPTAIN ASSIMILATED' : 'Game Over';
+  const description = assimilated ? 'Your ship has been assimilated by the Borg.' : 'Your ship has been lost. Restart cleanly, or eject and try to rebuild from an escape pod.';
   gameOverTitleEl.textContent = title;
   gameOverDescEl.textContent = description;
 }
@@ -25791,6 +25832,7 @@ function resetRunState() {
   state.tradeLaneRestored = false;
   state.expneg = 0;
   state.gameOver = false;
+  state.gameOverCause = null; state.captainFailure = null;
   state.victory = false;
   state.mapOpen = false;
   state.planetMenuOpen = false;
@@ -25889,6 +25931,7 @@ function restartGame() {
 
 function restartInEscapePod() {
   if(fleetBook().boarding)return;
+  if (state.gameOverCause === 'assimilated') return; // CAPTAIN-BORG-ASSIMILATION §7: the run ends; no pod
   // The ship the captain ejects from leaves the books here. It is retired as destroyed only when the game
   // actually destroyed it (the game-over path, hull at zero); any other ejection abandons a ship that was
   // still afloat. Fleet ships are not touched by the pod: they stay active under the captain's command.
@@ -26462,10 +26505,13 @@ function canSeeDisabled(observer, target) {
 }
 function fleetFirePermitted(npc, target, targetType, now) {
   const rec = npc.fleetId && state.playerFleet.find((f) => f.id === npc.fleetId);
-  if (!rec) return true;
-  const group = fleetBook().formations.find((f) => f.members.includes(rec.id));
+  // CAPTAIN-BORG-ASSIMILATION §3: a Borg vessel after the captain uses the same disabling-fire rules, until it is
+  // hurt badly enough to fight for its life (then, like any vessel, it fires to kill).
+  const ownIntent = !rec && npc.fireIntent === 'disable' && targetType === 'player' && !(npc.maxCombatHull > 0 && npc.combatHull / npc.maxCombatHull < BorgRules.BORG_DEFAULTS.captainLethalBelow) ? 'disable' : null;
+  if (!rec && !ownIntent) return true;
+  const group = rec ? fleetBook().formations.find((f) => f.members.includes(rec.id)) : null;
   if (['hold', 'withdraw'].includes(group?.order)) return false;
-  if ((rec.intent || group?.intent || 'destroy') !== 'disable' || targetType === 'station') {
+  if ((ownIntent || rec.intent || group?.intent || 'destroy') !== 'disable' || targetType === 'station') {
     npc.controlledFire = false;
     npc.disableHold = false;
     return true;
@@ -28310,7 +28356,7 @@ function spawnEncounterParticipant(enc, p, index, count, anchor, towardPlayer) {
   const angle = (index / Math.max(1, count)) * Math.PI * 2 + seeded(seed + 5) * 0.4;
   const r = towardPlayer ? NPC_WEAPON_RANGE * (1.6 + seeded(seed + 7) * 0.5) : 900 + seeded(seed + 9) * 300;
   const from = { x: anchor.x + Math.cos(angle) * r, y: anchor.y + Math.sin(angle) * r };
-  const hostileToPlayer = enc.playerHostile && ['blockader', 'attacker', 'pirate', 'enforcer', 'hunter'].includes(p.side);
+  const hostileToPlayer = enc.playerHostile && (['blockader', 'attacker', 'pirate', 'enforcer', 'hunter'].includes(p.side) || (p.side === 'borg' && isCaptainBorgEncounter(enc)));
   const npc = createNpcShip({ id: `enc-${String(enc.id).split(':').pop()}-${index}`, shipId, faction, attitude: hostileToPlayer ? 'hostile' : 'neutral', hostile: hostileToPlayer, seed, name,
     from, destination: { x: anchor.x, y: anchor.y }, destinationName: `engagement: ${enc.type}`, role: p.side === 'defender' ? 'patrol' : 'encounter' });
   ensureNpcCombatStats(npc);
@@ -28322,6 +28368,10 @@ function spawnEncounterParticipant(enc, p, index, count, anchor, towardPlayer) {
   npc.vid = p.vid || (g ? g.vid : h.identity?.vid || h.id);
   npc.encounterId = enc.id; npc.encounterRef = p.ref; npc.encounterSide = p.side; npc.encounterVsPlayer = hostileToPlayer;
   npc.identityLocked = true;
+  // CAPTAIN-BORG-ASSIMILATION §3: the Borg want the captain's ship intact — disabling fire (the fleet "Attempt to
+  // disable" rules: hold on a vessel seen disabled, the lightest weapon on one reported critical) until they are
+  // hurt badly enough to fight for their lives.
+  if (p.side === 'borg' && isCaptainBorgEncounter(enc)) npc.fireIntent = 'disable';
   // The crew the record carries, where the scene models one (it never adds people who are not there).
   if (h && h.crew != null && npc.crew && typeof npc.crew === 'object' && Number.isFinite(npc.crew.complement)) npc.crew.aboard = Math.round(npc.crew.complement * clamp(Number(h.crew), 0, 1));
   if (before.cloak === false || (p.cloak === false)) npc.cloakDisabled = true;
@@ -28358,7 +28408,7 @@ function spawnStrategicEncounter(enc) {
   want.forEach((p, i) => { const npc = spawnEncounterParticipant(enc, p, i, want.length, anchor, enc.captain || enc.playerHostile); if (npc) ships.push(npc); });
   // The scene could not make the ships (a class it has no model for, a record gone): the strategic
   // resolver runs for this contact exactly once, and the fallback is recorded.
-  const hostileSides = new Set(['blockader', 'attacker', 'pirate', 'enforcer', 'hunter']);
+  const hostileSides = new Set(['blockader', 'attacker', 'pirate', 'enforcer', 'hunter', ...(isCaptainBorgEncounter(enc) ? ['borg'] : [])]);
   const needed = enc.captain ? ships.some((n) => hostileSides.has(n.encounterSide)) : new Set(ships.map((n) => n.encounterSide)).size >= 2 || (enc.playerHostile && ships.length > 0);
   if (!ships.length || globalThis.__bm1FailEncounterScene || !needed) {
     const effects = [];
@@ -28369,6 +28419,7 @@ function spawnStrategicEncounter(enc) {
     return false;
   }
   state.npcShips.push(...ships);
+  captainBorgClock.delete(enc.id);
   Encounter.activateEncounter(book, enc.id, state.day, ships.map((n) => n.vid));
   enc.activatedAtMs = gameNow();
   enc.spawnedAtClock = Math.round(localDoctrine().clockMs);
@@ -28377,8 +28428,9 @@ function spawnStrategicEncounter(enc) {
   const heads = { blockade: enc.captain ? `Intercepted at ${place}: ${ships.length} blockading ship${ships.length === 1 ? '' : 's'} closing` : `A blockade intercepts ships crossing ${place}`,
     raid: `Raider attacking ${place}`, predation: enc.captain ? `Pirates close in at ${place}` : `Pirates attacking a ship at ${place}`, enforcement: `Enforcement action at ${place}`,
     hunt: enc.captain ? 'Hirogen Hunt — Engaged' : `Hirogen hunters closing on a ship at ${place}`,
-    assimilation: enc.contact?.targetKind === 'world' ? `Borg vessels engaging the defenders of ${place}` : `Borg vessel attempting to disable a ship at ${place}` };
+    assimilation: enc.contact?.targetKind === 'world' ? `Borg vessels engaging the defenders of ${place}` : isCaptainBorgEncounter(enc) ? 'Borg vessel is attempting to disable your ship' : `Borg vessel attempting to disable a ship at ${place}` };
   if (heads[enc.type]) setLog(`${heads[enc.type]}.`);
+  if (isCaptainBorgEncounter(enc)) enc.captainWarned = true;
   return true;
 }
 // What the scene did, participant by participant, as the encounter's report: the same vid for the same
@@ -28445,6 +28497,7 @@ function encounterDecision(enc, { leaving = false } = {}) {
   // Borg beaten end it; otherwise the window decides on the state reached. One encounter; the result is written
   // back once.
   if (enc.type === 'assimilation') {
+    if (isCaptainBorgEncounter(enc)) return captainBorgDecision(enc, { leaving });
     if (sideOut(enc, 'borg')) return { outcome: 'borg_beaten', note: 'the Borg vessels are out of the fight' };
     if (enc.contact?.targetKind !== 'world') {
       const tp = encounterSideOf(enc, 'target')[0];
@@ -28469,6 +28522,70 @@ function encounterDecision(enc, { leaving = false } = {}) {
     return null;
   }
   return null;
+}
+// ---- CAPTAIN-BORG-ASSIMILATION: the captain as Borg prey (a failure state, never a faction transfer) ----
+function isCaptainBorgEncounter(enc) { return Boolean(enc && enc.type === 'assimilation' && enc.contact?.targetKind === 'captain'); }
+function liveCaptainBorgEncounterHere() { return state.gameStarted && !state.warp.active ? liveEncountersHere().find((e) => isCaptainBorgEncounter(e)) || null : null; }
+function borgObjectiveOf(enc) { return (campaignBook().doctrine?.objectives || []).find((o) => o.id === enc?.objective?.ref) || null; }
+// The contact's assimilating vessels still able in the scene (§4: presence is being in the fight, not proximity).
+function captainBorgAssimilators(enc) { return encounterNpcs(enc).filter((n) => n.encounterSide === 'borg' && !encounterNpcOut(n) && state.shipStatsById[Number(n.shipId)]?.assimilator === true); }
+// Scene time per contact (never saved: a reload restarts the scene from contact; the progress itself is saved).
+const captainBorgClock = new Map();
+const CAPTAIN_ASSIMILATION_LINES = BorgRules.CAPTAIN_STAGE_TEXT;
+// The decision for the captain's own Borg contact (§3–§7). Before he is subdued the normal engagement window
+// stands; once he is subdued the countdown governs (no window), and only these end it: the assimilators out of the
+// fight, his leaving (he cannot while disabled), his no longer being aboard that vessel, or completion.
+function captainBorgDecision(enc, { leaving = false } = {}) {
+  const o = borgObjectiveOf(enc);
+  if (!o || o.status !== 'active') return { outcome: 'fought', note: 'the objective is over' };
+  if (leaving) return { outcome: 'escaped', note: 'the captain broke away' };
+  if (ensurePersonalIdentity().vid !== enc.contact.captainVid) return { outcome: 'escaped', note: 'the captain is no longer aboard that vessel' };
+  if (!captainBorgAssimilators(enc).length) {
+    // Withdrawn (every Borg vessel left the scene) is not beaten: the contact ends either way, and the progress with it.
+    const borg = encounterSideOf(enc, 'borg').map((p) => encounterNpcFor(enc, p));
+    if (borg.length && borg.every((n) => n && !n.destroyed && encounterNpcFate(n) === 'escaped')) return { outcome: 'borg_withdrew', note: 'the Borg withdrew' };
+    return { outcome: 'borg_beaten', note: sideOut(enc, 'borg') ? 'the Borg vessels are out of the fight' : 'no assimilating vessel is left in the fight' };
+  }
+  if ((Number(o.progress?.value) || 0) >= 1) return { outcome: 'captain_assimilated', note: 'assimilation complete' };
+  if (fleetBook().personalCondition === 'disabled') return null;
+  const clk = captainBorgClock.get(enc.id);
+  const from = clk?.windowFromMs ?? finiteNumber(enc.activatedAtMs, gameNow());
+  if (gameNow() - from >= ENCOUNTER_WINDOW_MS) return { outcome: 'fought', note: 'the Borg could not disable the captain' };
+  return null;
+}
+// One frame of the captain's assimilation (§4–§5): advanced on the objective's own record while he is subdued and an
+// assimilator is in the fight; started over if he is no longer subdued; his few lines as each stage is reached.
+function tickCaptainBorgAssimilation(enc) {
+  const o = borgObjectiveOf(enc);
+  if (!o || o.status !== 'active' || enc.status !== 'tactical_active') return null;
+  const now = gameNow();
+  const clk = captainBorgClock.get(enc.id) || { lastMs: now, windowFromMs: null };
+  const dt = clamp(now - clk.lastMs, 0, 250);
+  clk.lastMs = now; captainBorgClock.set(enc.id, clk);
+  const subdued = fleetBook().personalCondition === 'disabled' && ensurePersonalIdentity().vid === enc.contact.captainVid;
+  const r = DoctrineCampaign.captainAssimilationTick(campaignBook(), o.id, { dtMs: dt, subdued, assimilatorPresent: captainBorgAssimilators(enc).length > 0, borgAlive: !sideOut(enc, 'borg') });
+  if (!r) return null;
+  if (r.state === 'attempting' && r.before > 0) { clk.windowFromMs = now; setLog('Assimilation interrupted.'); }
+  if (r.stage && r.stage !== r.stageBefore && CAPTAIN_ASSIMILATION_LINES[r.stage]) setLog(CAPTAIN_ASSIMILATION_LINES[r.stage]);
+  updateRecoveryPanel();
+  return r;
+}
+// His ship destroyed in the fight: the contact ends as a destruction (the ordinary game over follows).
+function settleCaptainBorgOnLoss() {
+  for (const enc of liveEncountersHere().filter(isCaptainBorgEncounter)) resolveStrategicEncounter(enc, { outcome: 'target_destroyed', note: 'the captain\'s ship was destroyed' });
+}
+// §7: the run ends. An explicit terminal state, entered once; the failure is on record; nothing continues.
+function enterCaptainAssimilated(e) {
+  if (state.gameOver && state.gameOverCause === 'assimilated') return false;
+  state.captainFailure = { result: 'captain_assimilated', captainVid: e.captainVid, shipId: e.shipId, systemIndex: e.systemIndex, day: e.day ?? state.day, objectiveId: e.id, encounterId: e.encounterId, force: (e.force || []).slice(), at: Date.now() };
+  state.gameOver = true;
+  state.victory = false;
+  state.gameOverCause = 'assimilated';
+  state.ship.velocity = 0; state.ship.turnVelocity = 0;
+  keys.clear(); heldWeaponInputs.clear();
+  setLog('CAPTAIN ASSIMILATED');
+  syncGameOverMenu();
+  return true;
 }
 function resolveStrategicEncounter(enc, decision, extra = {}) {
   const book = campaignBook();
@@ -28559,6 +28676,7 @@ function updateStrategicEncounters() {
     if (!encounterNpcs(enc).length) { enc.status = 'pending'; enc.history.push({ day: state.day, event: 'respawned', detail: 'scene reloaded without its ships: restarted from contact' }); spawnStrategicEncounter(enc); continue; }
     enc.activatedAtMs ??= gameNow();
     enc.sceneElapsedMs = Math.max(0, gameNow() - enc.activatedAtMs); // saved: the window survives a reload
+    if (isCaptainBorgEncounter(enc)) tickCaptainBorgAssimilation(enc);
     if (enc.type === 'assimilation' && !enc.captainWarned && encounterNpcs(enc).some((n) => n.encounterSide === 'borg' && !n.destroyed && (n.playerAggroUntil || 0) > gameNow())) { enc.captainWarned = true; setLog('Borg vessel is attempting to disable your ship.'); }
     const d = encounterDecision(enc);
     if (d) resolveStrategicEncounter(enc, d);
@@ -28648,6 +28766,12 @@ function captainCrossingCheck(at, ctx) {
   if (!stop && typeof DoctrineCampaign.huntAtCaptainCrossing === 'function') {
     const enc = DoctrineCampaign.huntAtCaptainCrossing(book, world, at, day, world.captain || {}, effects);
     if (enc) stop = { type: 'hunt', encounterId: enc.id };
+  }
+  // CAPTAIN-BORG-ASSIMILATION §1–§2: a Borg sensor covering this system marks him here (the vessel rules); the force
+  // of a Borg objective on him standing here intercepts him — one encounter, his scene (the course stops here).
+  if (!stop && typeof DoctrineCampaign.borgAtCaptainCrossing === 'function') {
+    const enc = DoctrineCampaign.borgAtCaptainCrossing(book, world, at, day, world.captain ? { ...world.captain, systemIndex: at } : {}, effects);
+    if (enc) stop = { type: 'assimilation', encounterId: enc.id };
   }
   if (effects.length) applyCampaignEffects(effects, day);
   campaignWorldCache = null;

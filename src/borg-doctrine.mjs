@@ -47,6 +47,10 @@ export const BORG_DEFAULTS = Object.freeze({
   transwarpMinSavingDays: 3,  // not worth opening an aperture to save less than this
   transwarpMinScore: 0.5,     // only a significant objective opens an aperture
   transwarpMinCondition: 0.6, // a hull below this share of its hull cannot hold a conduit
+  // ---- the captain as prey (CAPTAIN-BORG-ASSIMILATION: a failure state, never a faction transfer) ----
+  captainAssimilateSeconds: 60, // scene seconds a subdued captain takes, an assimilator present throughout
+  captainStages: Object.freeze([0.35, 0.7, 0.9]), // "Assimilation 35%", "70%", "imminent"
+  captainLethalBelow: 0.5,    // the Borg drop disabling fire (self-defence) once their vessel is under this share of its hull
 });
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -148,6 +152,34 @@ export function shipProgressStep(cfg = BORG_DEFAULTS) {
   const k = { ...BORG_DEFAULTS, ...cfg };
   return 1 / Math.max(1, k.shipAssimilateDays);
 }
+
+// The captain's assimilation, advanced in his scene (CAPTAIN-BORG-ASSIMILATION §4). It runs on scene time, not
+// on days: he cannot travel while disabled, so no day passes for him. `s` = { progress, dtMs, subdued (his ship is
+// disabled), assimilatorPresent (an assimilating Borg vessel in the scene, able), borgAlive }. Returns
+// { progress, state, reason }: it advances only while he is subdued and an assimilator is present; it holds (not
+// lost) while no assimilator is present, and stops where it is when no Borg vessel is left in the fight (the contact
+// then ends); it starts over once he is no longer subdued (mobility restored).
+export function captainProgressStep(s, cfg = BORG_DEFAULTS) {
+  const k = { ...BORG_DEFAULTS, ...cfg };
+  const progress = clamp(Number(s.progress) || 0, 0, 1);
+  if (!s.borgAlive) return { progress, state: 'stopped', reason: 'no Borg vessel in the fight' };
+  if (!s.subdued) return { progress: 0, state: 'attempting', reason: progress > 0 ? 'the captain is no longer subdued: it starts over' : 'the captain is not subdued' };
+  if (!s.assimilatorPresent) return { progress, state: 'held', reason: 'no assimilating vessel present' };
+  const step = Math.max(0, Number(s.dtMs) || 0) / (1000 * Math.max(1, k.captainAssimilateSeconds));
+  const next = clamp(progress + step, 0, 1);
+  return { progress: Math.round(next * 10000) / 10000, state: next >= 1 ? 'completed' : 'assimilating', reason: next >= 1 ? 'assimilation complete' : 'assimilating' };
+}
+// The concise stage the captain is told (§5): null before it begins, then begun → 35 → 70 → imminent → completed.
+export function captainStage(progress, cfg = BORG_DEFAULTS) {
+  const k = { ...BORG_DEFAULTS, ...cfg };
+  const p = Number(progress) || 0;
+  if (p >= 1) return 'completed';
+  if (p >= k.captainStages[2]) return 'imminent';
+  if (p >= k.captainStages[1]) return '70';
+  if (p >= k.captainStages[0]) return '35';
+  return p > 0 ? 'begun' : null;
+}
+export const CAPTAIN_STAGE_TEXT = Object.freeze({ begun: 'Assimilation in progress.', 35: 'Assimilation 35%', 70: 'Assimilation 70%', imminent: 'Assimilation imminent.' });
 
 // A world's assimilation progress for one day (§8). `w` = { progress, suppressed (0..1 defence suppressed),
 // borgStrength, resist (defence still standing), population, present }. Returns the new state and why.
