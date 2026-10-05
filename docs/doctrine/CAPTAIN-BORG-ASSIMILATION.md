@@ -277,7 +277,7 @@ Each completion came ≥ 60 s after the disable, so there was no instant finish.
 
 **Unchanged:**
 - carrier/conduit access for non-capable Borg craft
-- Borg repair/regeneration of assimilated hulks
+- Borg repair/regeneration of assimilated hulks — *done in `BORG-HULK-REGENERATION.md`*
 - defenders retaking assimilated worlds
 - assimilated-world population/industry consequences
 - Tactical Cube

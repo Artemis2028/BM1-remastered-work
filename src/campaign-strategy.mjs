@@ -1052,7 +1052,9 @@ export function advanceStranded(book, world, day, effects = []) {
       // Out of a yard's hands again: whatever kept her people alive there no longer does (a tow's crew support
       // ends at the yard; the clock resumes with what was left of it).
       const outOfYard = () => { if (s.crewSupportedBy) { s.crewUntil = day + (s.crewDaysLeft ?? 1); delete s.crewSupportedBy; delete s.crewDaysLeft; } };
-      if (s.recovery === 'awaiting_recovery' && recoveryYardAt(book, world, id, s.systemIndex) && !blockaded) { s.recovery = 'recovering'; s.recoverySince = day; s.recoveredBy = 'yard'; }
+      // A polity with its own recovery nodes is never taken in by an ordinary yard (BORG-HULK-REGENERATION).
+      if (RECOVERY_NODES[id]) {}
+      else if (s.recovery === 'awaiting_recovery' && recoveryYardAt(book, world, id, s.systemIndex) && !blockaded) { s.recovery = 'recovering'; s.recoverySince = day; s.recoveredBy = 'yard'; }
       else if (s.recovery === 'recovering' && (blockaded || !recoveryYardAt(book, world, id, s.systemIndex))) { s.recovery = 'awaiting_recovery'; s.recoverySince = null; s.recoveredBy = null; outOfYard(); }
       // In the yard, it stays there through a later blockade (the yard has it); if the yard itself is lost —
       // the world taken, the yard destroyed — the hulk is out in the open again, awaiting recovery.
@@ -3199,6 +3201,8 @@ export function transwarpRefusal(world, hulls, day, rules = {}) {
 // destination (blockades there run as for any arrival).
 function startTranswarpJourney(book, world, spec, hulls, from, cls, day, effects) {
   const st = book.stats.journeys;
+  // A tow never goes through a conduit: no carrier/conduit transport of a hull that cannot open one (BORG-HULK-REGENERATION §10).
+  if (spec.tow?.targets?.length) { st.transwarpRefused = (st.transwarpRefused || 0) + 1; return { ok: false, transwarp: true, reason: 'a tow cannot open a conduit' }; }
   const dest = Number(spec.destination);
   const tw = spec.transwarp || {};
   const refusal = transwarpRefusal(world, hulls, day, tw);
@@ -4501,6 +4505,15 @@ export function resolveBlockadeRun(book, world, b, runner, day, effects = [], op
 // shared engine's. The hulk is the same record and the same vid throughout; salvage changes its owner,
 // never its origin. Nothing here spawns a ship or moves one without a journey.
 function recoveryBook(book) { return (book.hullRecoveries ||= []); }
+// BORG-HULK-REGENERATION: a polity whose hulks are not taken to yards at all registers its own recovery nodes.
+// Its tows run on this same mission (journeys, crossings, tow penalty, drop-where-lost, claims); only where a
+// tow may deliver, what delivery means, how the tug flies out, and what follows delivery are the provider's.
+// A provider polity never uses an ordinary yard, and the generic AI tug planner leaves it alone (it plans its
+// own). Provider = { nodeOk(book, world, i), receive(book, world, rec, h, at, day, effects), inNode(h),
+// outbound(book, world, rec, group, tug, day) → extra journey spec | null, afterPhase(book, h, rec) }.
+const RECOVERY_NODES = {};
+export function registerRecoveryNodes(polityId, provider) { if (provider) RECOVERY_NODES[polityId] = provider; else delete RECOVERY_NODES[polityId]; }
+export function recoveryNodeProvider(polityId) { return RECOVERY_NODES[polityId] || null; }
 export function hullRecoveryById(book, id) { return recoveryBook(book).find((r) => r.id === id) || null; }
 export function openHullRecoveries(book) { return recoveryBook(book).filter((r) => REC.recoveryOpen(r)); }
 function recoveryStats(book) {
@@ -4530,6 +4543,8 @@ function hulkCrew(h, owner) { return h?.stranded?.crew ?? (owner === 'player' ? 
 function towYardOk(book, world, sponsor, i) {
   const sys = world.systems[Number(i)];
   if (!sys || applicableBlockadesAt(book, world, i, sponsor).length) return false;
+  const prov = RECOVERY_NODES[sponsor];
+  if (prov) return Boolean(prov.nodeOk(book, world, Number(i)));
   if (sys.controller === sponsor) return (stationEffects(world, Number(i), sponsor).repairCapacity || 0) > 0;
   // An enemy's yard takes nothing in, whatever terms are on the books (ARCHITECTURE-CLEANUP §3).
   if (sys.controller && world.relation(relSide(world, sponsor), relSide(world, sys.controller)) === 'war') return false;
@@ -4578,6 +4593,7 @@ function hulkUnfit(book, found) {
   if (!hullIsDisabled(h)) return 'not disabled';
   if (h.transit || hullInEncounter(h)) return 'not lying anywhere a tug can reach (in warp or in a fight)';
   if (owner !== 'player' && ['recovering', 'in_yard'].includes(h.stranded?.recovery)) return 'already in a yard';
+  if (RECOVERY_NODES[owner]?.inNode(h)) return 'already at a recovery node';
   if (h.opId) return 'still held by its job';
   return null;
 }
@@ -4698,12 +4714,20 @@ function startOutbound(book, world, rec, day, effects) {
   const tug = hullOf(book, rec.sponsor, rec.tug.hullId);
   if (!tug || tug.status === 'lost' || hullIsDisabled(tug)) return failRecovery(book, world, rec, day, effects, 'the recovery vessel was lost before it reached the hulk', 'failed');
   if (Number(tug.systemIndex) === Number(rec.targetSystem)) return onRecoveryScene(book, world, rec, day, effects);
-  const r = startJourney(book, world, { kind: 'recovery', ref: rec.id, sponsor: rec.sponsor, hulls: group.filter((h) => Number(h.systemIndex) === Number(tug.systemIndex)), destination: rec.targetSystem,
+  const flying = group.filter((h) => Number(h.systemIndex) === Number(tug.systemIndex));
+  // A provider may send its tug out another way (the Borg: a transwarp conduit to the casualty, when the tug
+  // itself is capable and the usual conduit rules allow); the tow home is always the ordinary journey below.
+  const extra = RECOVERY_NODES[rec.sponsor]?.outbound?.(book, world, rec, flying, tug, day) || null;
+  let r = extra ? startJourney(book, world, { kind: 'recovery', ref: rec.id, sponsor: rec.sponsor, hulls: extra.hulls || flying, destination: rec.targetSystem,
+    purpose: 'recovery', authority: { kind: 'recovery', ref: rec.id }, meta: { recoveryId: rec.id, leg: 'outbound' }, ...extra.spec }, day, effects) : null;
+  if (r && !r.ok) { rec.outboundRefused = { day: Number(day), reason: r.reason }; r = null; }
+  if (r && extra.hulls) for (const h of flying) if (!extra.hulls.includes(h)) { h.opId = null; if (rec.sponsor !== 'player') h.status = releaseStatus(h); rec.escorts = rec.escorts.filter((x) => x.hullId !== h.id); }
+  r ||= startJourney(book, world, { kind: 'recovery', ref: rec.id, sponsor: rec.sponsor, hulls: flying, destination: rec.targetSystem,
     purpose: 'recovery', avoid: rec.avoid.length ? new Set(rec.avoid) : null, authority: { kind: 'recovery', ref: rec.id }, meta: { recoveryId: rec.id, leg: 'outbound' } }, day, effects);
   if (!r.ok) { rec.waitingSince ??= Number(day); rec.waitReason = r.reason; return false; }
   rec.waitingSince = null;
   rec.journeyIds.push(r.journey.id);
-  rec.outbound = { journeyId: r.journey.id, route: [Number(tug.systemIndex), ...r.journey.path], legDays: r.journey.legDays.slice(), speed: r.journey.speed, departDay: Number(day), eta: r.journey.etaDay };
+  rec.outbound = { journeyId: r.journey.id, route: [Number(tug.systemIndex), ...r.journey.path], legDays: r.journey.legDays.slice(), speed: r.journey.speed, departDay: Number(day), eta: r.journey.etaDay, mode: r.journey.mode || 'conventional' };
   const st = recoveryStats(book); st.outboundDays += r.journey.legDays.reduce((n, d) => n + d, 0); st.outboundN++;
   noteRecovery(rec, day, 'en_route_to_hulk', `${rec.outbound.route.length - 1} leg(s), arrives day ${r.journey.etaDay}`);
   if (r.arrived) onRecoveryScene(book, world, rec, day, effects);
@@ -4723,7 +4747,7 @@ function onRecoveryScene(book, world, rec, day, effects) {
     if (Number(found.h.systemIndex) !== Number(rec.targetSystem)) return 'the hulk is no longer there';
     if (found.owner !== rec.owner && found.owner !== rec.sponsor) return 'the hulk was taken by someone else';
     if (!found.derelict && !hullIsDisabled(found.h)) return 'the hulk was already recovered';
-    if (!found.derelict && found.owner !== 'player' && ['recovering', 'in_yard'].includes(found.h.stranded?.recovery)) return 'the hulk was already recovered';
+    if (!found.derelict && found.owner !== 'player' && (['recovering', 'in_yard'].includes(found.h.stranded?.recovery) || RECOVERY_NODES[found.owner]?.inNode(found.h))) return 'the hulk was already recovered';
     const claim = REC.claimVerdict(claimFacts(book, world, rec.sponsor, found, rec.targetSystem, rec.id));
     if (!claim.ok) return `no claim: ${claim.reason}`;
     if (!tug || tug.status === 'lost' || classifyDamage(tug.hull, tug.maxHull) !== 'operational') return 'the recovery vessel cannot take her in tow';
@@ -4821,7 +4845,9 @@ function startTow(book, world, rec, day, effects) {
 // repair; nothing is repaired here. Her crew stay whatever they were — aboard, rescued or lost.
 function deliverHulk(book, world, rec, h, at, day, effects) {
   h.systemIndex = Number(at); delete h.transit; delete h.towedBy; delete h.recoveryClaim;
-  if (rec.sponsor !== 'player' && h.stranded) {
+  const prov = RECOVERY_NODES[rec.sponsor];
+  if (prov) prov.receive(book, world, rec, h, Number(at), Number(day), effects); // its own node takes her in: no yard
+  else if (rec.sponsor !== 'player' && h.stranded) {
     h.stranded.systemIndex = Number(at);
     h.stranded.recovery = 'recovering'; h.stranded.recoverySince = Number(day); h.stranded.recoveredBy = `tow:${rec.id}`;
     if (h.stranded.crewSupportedBy) h.stranded.crewSupportedBy = 'yard'; // her people are ashore at the yard now
@@ -5019,7 +5045,8 @@ export function advanceHullRecoveries(book, world, day, effects = []) {
     // In this yard's hands: the AI's yard intake has her; the captain's vessel still lies at the yard she was
     // delivered to.
     const inYard = rec.sponsor === 'player' ? Number(h?.systemIndex) === Number(rec.yard) && !h?.transit : ['recovering', 'in_yard'].includes(h?.stranded?.recovery);
-    const phase = REC.yardPhase({ lost: !h, disabled: Boolean(h) && hullIsDisabled(h), awaitingCrew: Boolean(h?.recrew), inYard, otherClaim: Boolean(claim && claim.id !== rec.id), hull: h?.hull, startHull: rec.after.startHull });
+    const prov = RECOVERY_NODES[rec.sponsor];
+    const phase = prov ? prov.afterPhase(book, h, rec) : REC.yardPhase({ lost: !h, disabled: Boolean(h) && hullIsDisabled(h), awaitingCrew: Boolean(h?.recrew), inYard, otherClaim: Boolean(claim && claim.id !== rec.id), hull: h?.hull, startHull: rec.after.startHull });
     if (phase !== rec.after.phase) {
       // Repaired out of the disabled band within one yard day: the repair still happened, that day.
       if (rec.after.phase === 'in_yard' && ['recrew_if_required', 'complete'].includes(phase)) rec.after.history.push({ day: Number(day), phase: 'repairing' });
@@ -5058,6 +5085,7 @@ function planAiRecoveries(book, world, day, effects) {
   const st = recoveryStats(book);
   for (const [pid, p] of Object.entries(book.polities)) {
     if (pid === 'player' || p.active === false) continue;
+    if (RECOVERY_NODES[pid]) continue; // it plans its own recoveries, to its own nodes (BORG-HULK-REGENERATION)
     const open = openHullRecoveries(book).filter((r) => r.sponsor === pid).length;
     if (open >= (c.aiRecoveryMaxPerPolity ?? 2)) continue;
     // Its hulks, then (a higher bar) salvage: abandoned derelicts and crewless hulks of a power it is at war with.

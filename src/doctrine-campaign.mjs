@@ -3720,7 +3720,8 @@ function observeForHunts(book, world, db, power, day) {
     if (pid === power || pid === 'player') continue; // the captain's own fleet ships are not prey this round (see the doc)
     for (const h of p.hulls || []) {
       // An assimilated wreck is no quarry (BORG-ASSIMILATION-TRANSWARP: the Hirogen had hunted one down).
-      if (h.status === 'lost' || h.status === 'surrendered' || (h.assimilated && hullIsDisabled(h))) continue;
+      // ... nor one the Collective is regenerating at a node (BORG-HULK-REGENERATION §13): prey again only once operational.
+      if (h.status === 'lost' || h.status === 'surrendered' || (h.assimilated && (hullIsDisabled(h) || h.borgRegen))) continue;
       let s = standingAt(book, h, day), seen = day;
       // Seen leaving: a hull that departed a covered system within the track window is a sighting there, on its
       // departure day, with the heading it left on (its first leg) — not a live track of where it is now.

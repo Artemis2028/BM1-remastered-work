@@ -51,6 +51,17 @@ export const BORG_DEFAULTS = Object.freeze({
   captainAssimilateSeconds: 60, // scene seconds a subdued captain takes, an assimilator present throughout
   captainStages: Object.freeze([0.35, 0.7, 0.9]), // "Assimilation 35%", "70%", "imminent"
   captainLethalBelow: 0.5,    // the Borg drop disabling fire (self-defence) once their vessel is under this share of its hull
+  // ---- hulk recovery and regeneration (BORG-HULK-REGENERATION) ----
+  recoveryDutyShare: 0.5,      // a recovery vessel spends at most this share of its days on recoveries (it rests after one)
+  recoveryMaxActive: 2,        // recovery missions under way at once (per power); every hulk has its own objective
+  recoveryMaxAttempts: 2,      // tow missions sent for one hulk before the Collective abandons it
+  recoveryPendingDays: 120,    // a hulk waiting this long for a vessel and a reachable node is abandoned
+  recoveryMaxTowDays: 40,      // a recovery (outbound + tow home) longer than this is not sent; a node whose tow alone is longer is out of reach
+  recoveryCooldownDays: 30,    // after a failed attempt, before the next is sent
+  recoveryTranswarp: true,     // the objective permits a conduit to the casualty (the tow home never)
+  nodeStabilizeDays: 30,       // an assimilated world becomes a regeneration node this long after completion
+  regenSharePerDay: 0.02,      // hull a node regenerates per day (share of the class's max hull)
+  regenTargetShare: 0.6,       // the operating threshold: back in service at this share (= readyThreshold)
 });
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -58,7 +69,8 @@ const r2 = (x) => Math.round(x * 100) / 100;
 
 // The chart the day budgets above are written for: a typical leg of this many days.
 export const BORG_REFERENCE_LEG_DAYS = 6;
-const SCALED_KEYS = ['staleDays', 'pursuitDays', 'searchDays', 'maxReachDays', 'worldBudgetDays', 'targetCooldownDays', 'worldCooldownDays', 'transwarpCooldownDays', 'worldAbandonDays'];
+const SCALED_KEYS = ['staleDays', 'pursuitDays', 'searchDays', 'maxReachDays', 'worldBudgetDays', 'targetCooldownDays', 'worldCooldownDays', 'transwarpCooldownDays', 'worldAbandonDays',
+  'recoveryPendingDays', 'recoveryMaxTowDays', 'recoveryCooldownDays', 'nodeStabilizeDays'];
 // The same budgets on a chart whose typical leg is `scale` times longer (≥ 1). Transwarp's own duration is not
 // scaled: it does not depend on the chart's distances.
 export function scaledBorgConfig(cfg, scale = 1) {
@@ -180,6 +192,33 @@ export function captainStage(progress, cfg = BORG_DEFAULTS) {
   return p > 0 ? 'begun' : null;
 }
 export const CAPTAIN_STAGE_TEXT = Object.freeze({ begun: 'Assimilation in progress.', 35: 'Assimilation 35%', 70: 'Assimilation 70%', imminent: 'Assimilation imminent.' });
+
+// ---- BORG-HULK-REGENERATION: nodes and regeneration ----
+// Whether a system is a Borg regeneration node today. `w` = { controller, origin, power, assimilatedDay (the day its
+// assimilation completed, or null), day, blockaded }. Only the Collective's own: its origin worlds always; an
+// assimilated world only once it has stabilized (nodeStabilizeDays after completion) — never a fresh one; nothing
+// else (an ordinary yard is never a node). Returns { ok, kind, reason, readyDay }.
+export function nodeEligibility(w, cfg = BORG_DEFAULTS) {
+  const k = { ...BORG_DEFAULTS, ...cfg };
+  if (w.controller !== w.power) return { ok: false, kind: null, reason: 'not held by the Collective' };
+  if (w.blockaded) return { ok: false, kind: null, reason: 'under blockade' };
+  if (w.origin === w.power) return { ok: true, kind: 'origin', reason: 'a Collective world' };
+  if (w.assimilatedDay == null) return { ok: false, kind: null, reason: 'no Borg infrastructure' };
+  const readyDay = Number(w.assimilatedDay) + Number(k.nodeStabilizeDays);
+  if (Number(w.day) < readyDay) return { ok: false, kind: 'assimilated', reason: `stabilizing until day ${readyDay}`, readyDay };
+  return { ok: true, kind: 'assimilated', reason: 'a stabilized assimilated world', readyDay };
+}
+// One day of regeneration at a node. `r` = { hull, maxHull, atNode (the node still valid) }. Returns the new hull,
+// the progress towards the operating threshold, and whether the threshold is reached.
+export function regenStep(r, cfg = BORG_DEFAULTS) {
+  const k = { ...BORG_DEFAULTS, ...cfg };
+  const max = Math.max(1, Number(r.maxHull) || 1);
+  const target = max * k.regenTargetShare;
+  const hull = Math.max(0, Number(r.hull) || 0);
+  if (!r.atNode) return { hull, target, reached: hull >= target, state: 'held' };
+  const next = Math.min(max, hull + max * k.regenSharePerDay);
+  return { hull: Math.round(next * 10) / 10, target, reached: next >= target, state: next >= target ? 'threshold' : 'regenerating' };
+}
 
 // A world's assimilation progress for one day (§8). `w` = { progress, suppressed (0..1 defence suppressed),
 // borgStrength, resist (defence still standing), population, present }. Returns the new state and why.

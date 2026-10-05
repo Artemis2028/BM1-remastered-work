@@ -18,6 +18,7 @@ import * as SE from './strategic-encounter.mjs';
 import * as TT from './treaty-terms.mjs';
 import * as B from './borg-doctrine.mjs';
 import { disableThreshold } from './ship-fleet.mjs';
+import * as Identity from './vessel-identity.mjs';
 
 const KIND = 'assimilation';
 const r2 = (x) => Math.round(x * 100) / 100;
@@ -26,7 +27,7 @@ const vidOf = (h) => h?.identity?.vid || h?.vid || h?.id || null;
 export function borgBook(db) {
   const b = (db.borg ||= {});
   for (const k of ['contacts', 'worlds', 'cooldowns', 'selections', 'progress', 'evalDay', 'cover']) b[k] ||= {};
-  b.history ||= []; b.assimilatedHulls ||= []; b.assimilatedWorlds ||= []; b.incursions ||= []; b.captainAssimilations ||= [];
+  b.history ||= []; b.assimilatedHulls ||= []; b.assimilatedWorlds ||= []; b.incursions ||= []; b.captainAssimilations ||= []; b.recoveries ||= [];
   b.transwarp ||= { uses: 0, cooldownBlocks: 0, refused: 0, log: [] };
   return b;
 }
@@ -771,12 +772,279 @@ export function advanceBorg(doctrine, book, world, db, day, effects, ctx) {
   for (const o of db.objectives) if (o.kind === KIND && o.status === 'active') work(doctrine, book, world, db, o, day, effects);
   for (const p of powers) decayProgress(book, world, db, p, day);
   for (const p of powers) select(doctrine, book, world, db, p, day, effects, ctx);
+  // BORG-HULK-REGENERATION: after selection, so a free cube goes after a target before it goes after a hulk.
+  for (const p of powers) { advanceRegeneration(book, world, db, p, day, effects); advanceHulkRecoveries(book, world, db, p, day, effects); }
   for (const o of db.objectives) if (o.kind === KIND && o.status !== 'active' && o.phase === 'withdraw' && !forceHulls(book, o).some((h) => h.opId === o.id && h.status !== 'lost')) setPhase(o, 'resolved', day);
 }
+// ---------- hulk recovery and regeneration (BORG-HULK-REGENERATION) ----------
+// An assimilated hulk lies where it was taken until the Collective itself brings it in. No yard: a recovery-capable
+// Borg vessel (class data `borgRecovery`) flies out on the shared tow mission (campaign-strategy.mjs: real journeys,
+// crossings, blockades, the tow penalty, the hulk let go where a tug is lost), tows it — conventionally, always — to
+// a Borg node (an origin world, or an assimilated world once stabilized), and the node regenerates it over campaign
+// days to the operating threshold. The same hull record throughout: same vid, class, origin, assimilation, damage.
+// Persistent objective, one per hulk:
+//   recovery_pending → recovery_en_route → under_tow → at_borg_node → regenerating → operational
+// ending hulk_operational | awaiting_drones | recovery_vessel_destroyed | hulk_destroyed | cancelled |
+// no_reachable_node | abandoned.
+const REC_END = Object.freeze(['hulk_operational', 'awaiting_drones', 'recovery_vessel_destroyed', 'hulk_destroyed', 'cancelled', 'no_reachable_node', 'abandoned']);
+export const BORG_RECOVERY_PHASES = Object.freeze(['disabled_assimilated', 'recovery_pending', 'recovery_en_route', 'under_tow', 'at_borg_node', 'regenerating', 'operational', 'awaiting_drones', 'closed']);
+function recoveries(db) { return borgBook(db).recoveries; }
+function openRecoveryFor(db, hullId) { return recoveries(db).find((r) => !r.result && String(r.hullId) === String(hullId)) || null; }
+function isRecoveryVessel(world, h) { return (world.shipStats(h.shipId) || {}).borgRecovery === true; }
+function recNote(r, day, phase, note = '') {
+  if (phase && r.phase !== phase) { r.phase = phase; r.history.push({ day: Number(day), phase, note }); if (r.history.length > 24) r.history = r.history.slice(-24); }
+  else if (note && r.history[r.history.length - 1]?.note !== note) { r.history.push({ day: Number(day), phase: r.phase, note }); if (r.history.length > 24) r.history = r.history.slice(-24); }
+}
+// The node test for a system today (B.nodeEligibility), from the campaign's own records: who holds it, its origin,
+// the day its assimilation completed (the newest such record).
+function nodeAt(book, world, power, i, day = book.day) {
+  const sys = world.systems[Number(i)];
+  if (!sys) return { ok: false, reason: 'no such system' };
+  const db = book.doctrine;
+  const cfg = db?.config ? cfgOf(db) : B.BORG_DEFAULTS;
+  const rec = db ? borgBook(db).assimilatedWorlds.filter((w) => Number(w.systemIndex) === Number(i)).slice(-1)[0] : null;
+  return B.nodeEligibility({ controller: sys.controller, origin: sys.origin, power, assimilatedDay: rec ? rec.day : null, day, blockaded: C.applicableBlockadesAt(book, world, Number(i), power).length > 0 }, cfg);
+}
+// The Collective's recovery-node provider for the shared tow mission.
+const NODE_PROVIDER = {
+  nodeOk(book, world, i) { return nodeAt(book, world, 'borg', i, book.day).ok; },
+  // Delivered: the node takes her in — no yard, no market, no repair queue. She regenerates from tomorrow.
+  receive(book, world, rec, h, at, day, effects) {
+    if (h.stranded) { h.stranded.systemIndex = at; h.stranded.recovery = 'at_borg_node'; h.stranded.recoverySince = day; h.stranded.recoveredBy = rec.inPlace ? `node:${at}` : `tow:${rec.id}`; if (h.stranded.crewSupportedBy) h.stranded.crewSupportedBy = 'node'; }
+    h.borgRegen = { node: at, since: day, state: 'at_borg_node', startHull: Number(h.hull), recoveryId: rec.id, days: 0 };
+    effects.push({ type: 'borgAssimilation', event: 'hulk_at_node', polity: rec.sponsor, hullId: h.id, vid: h.identity?.vid || h.id, systemIndex: at, day });
+  },
+  inNode(h) { return Boolean(h?.borgRegen); },
+  // Out to the casualty: by conduit when the tug itself is transwarp-capable and the usual conduit rules allow it
+  // (cooldown, condition, a worthwhile saving); otherwise the ordinary journey. Recorded on the mission.
+  outbound(book, world, rec, group, tug, day) {
+    const db = book.doctrine;
+    if (!db?.config) return null;
+    const cfg = cfgOf(db);
+    const conventionalDays = C.plannedJourneyDays(world, Number(tug.systemIndex), Number(rec.targetSystem), rec.sponsor, C.hullsSpeed(world, group));
+    const capable = C.transwarpCapable(world, tug);
+    const refusal = capable ? C.transwarpRefusal(world, [tug], day, { cooldownDays: cfg.transwarpCooldownDays, minCondition: cfg.transwarpMinCondition }) : 'no transwarp capability';
+    const wait = tug.transwarpLastExitDay == null ? 0 : Number(tug.transwarpLastExitDay) + cfg.transwarpCooldownDays - Number(day);
+    const m = cfg.recoveryTranswarp === false ? { mode: 'conventional', transwarpDays: null, conventionalDays, reason: 'the objective does not permit a conduit' }
+      : B.chooseMovement({ capable, offCooldown: !/cooldown/.test(refusal || ''), conditionOk: !/damaged/.test(refusal || ''), score: 1, conventionalDays, cooldownRemaining: wait }, cfg);
+    const mode = m.mode === 'transwarp' ? 'transwarp' : 'conventional';
+    rec.borgMovement = { mode, conventionalDays, transwarpDays: capable ? cfg.transwarpDays : null, reason: m.mode === 'hold' ? `conventional (no waiting for a conduit on a recovery): ${m.reason}` : m.reason, refusal, tug: vidOf(tug), day: Number(day) };
+    if (mode !== 'transwarp') return null;
+    const bb = borgBook(db);
+    bb.transwarp.uses++; bumpStat(db, 'borgTranswarpUses'); bumpStat(db, 'borgRecoveryTranswarps');
+    bb.transwarp.log.push({ day: Number(day), objectiveId: rec.id, recovery: true, from: Number(tug.systemIndex), to: Number(rec.targetSystem), conventionalDays, transwarpDays: cfg.transwarpDays, etaDay: Number(day) + cfg.transwarpDays, hulls: [vidOf(tug)] });
+    if (bb.transwarp.log.length > 30) bb.transwarp.log = bb.transwarp.log.slice(-30);
+    return { hulls: [tug], spec: { mode: 'transwarp', transwarp: { days: cfg.transwarpDays, cooldownDays: cfg.transwarpCooldownDays, minCondition: cfg.transwarpMinCondition, conventionalDays } } };
+  },
+  // The shared record's after-delivery phases, read off the Borg lifecycle (never a yard's).
+  afterPhase(book, h, rec) {
+    if (!h) return 'lost_after_delivery';
+    if (h.borgRegen?.state === 'awaiting_drones') return 'recrew_if_required';
+    if (h.borgRegen) return h.borgRegen.state === 'regenerating' ? 'repairing' : 'in_yard';
+    if (!C.hullIsDisabled(h) && h.status !== 'lost') return 'complete';
+    return 'left_yard';
+  },
+};
+C.registerRecoveryNodes('borg', NODE_PROVIDER);
+// The Collective lets a hulk go (attempts or time spent, no node it can reach): written off as any owner writes one
+// off — off its books, the wreck where it lies, salvageable under the ordinary rules, its identity and its
+// assimilation on record.
+function abandonHulk(book, power, h, day, reason, effects) {
+  if (!h || h.status === 'lost') return false;
+  const p = book.polities[power];
+  h.status = 'lost'; h.fate = 'written_off'; h.opId = null;
+  delete h.borgRegen; delete h.recoveryClaim;
+  h.derelict = { since: Number(day), systemIndex: Number(h.systemIndex), abandonedBy: power, until: Number(day) + (book.config.derelictLifeDays ?? 365), reason };
+  if (h.identity) Identity.recordProvenance(h.identity, { day, event: 'abandoned', from: power, to: null, systemIndex: h.systemIndex });
+  if (p) p.lostHulls = (p.lostHulls || 0) + 1;
+  book.stats.hullsLost = (book.stats.hullsLost || 0) + 1; book.stats.hullsWrittenOff = (book.stats.hullsWrittenOff || 0) + 1;
+  effects.push({ type: 'strandedWrittenOff', polityId: power, hullId: h.id, vid: h.identity?.vid || h.id, systemIndex: Number(h.systemIndex), day, borg: true });
+  return true;
+}
+// Regeneration: every Borg hull a node has taken in gains its share each day while it lies at a valid node; at the
+// operating threshold it is back in service — or, with no crew to run it, waits for drones (none are made this round).
+function advanceRegeneration(book, world, db, power, day, effects) {
+  const cfg = cfgOf(db);
+  for (const h of book.polities[power]?.hulls || []) {
+    const g = h.borgRegen;
+    if (!g || h.status === 'lost' || g.state === 'awaiting_drones' || g.lastDay === day) continue;
+    const atNode = !h.transit && !h.encounterId && Number(h.systemIndex) === Number(g.node) && nodeAt(book, world, power, g.node, day).ok;
+    if (g.state === 'at_borg_node' && Number(day) <= Number(g.since)) continue; // taken in today: from tomorrow
+    const step = B.regenStep({ hull: h.hull, maxHull: h.maxHull, atNode }, cfg);
+    g.lastDay = day;
+    if (!atNode) { g.held = (g.held || 0) + 1; continue; }
+    if (g.state === 'at_borg_node') { g.state = 'regenerating'; g.startDay = day; g.startHull = Number(h.hull); effects.push({ type: 'borgAssimilation', event: 'hulk_regenerating', polity: power, hullId: h.id, vid: vidOf(h), systemIndex: Number(g.node), day }); }
+    h.hull = step.hull; g.days = (g.days || 0) + 1;
+    if (h.status === 'ready' || h.status === 'assigned') h.status = 'repairing';
+    if (!step.reached) continue;
+    const min = book.config.minOperatingCrew ?? 0.5;
+    if (h.recrew || Number(h.crew ?? 0) < min) { g.state = 'awaiting_drones'; g.endDay = day; bumpStat(db, 'borgHulksAwaitingDrones'); continue; }
+    // Back in service under the Collective: the same hull, structurally sound enough to sail and fight.
+    g.state = 'operational'; g.endDay = day;
+    delete h.stranded; delete h.recrew;
+    h.status = 'ready';
+    h.regenerated = { day: Number(day), node: Number(g.node), days: g.days, from: g.startHull };
+    delete h.borgRegen;
+    bumpStat(db, 'borgHulksReturned');
+    effects.push({ type: 'borgAssimilation', event: 'hulk_operational', polity: power, hullId: h.id, vid: vidOf(h), systemIndex: Number(g.node), day, regenDays: g.days });
+  }
+}
+// The free vessels able to recover a hulk now: recovery-capable class data, whole enough, on no other job.
+function freeRecoveryVessels(book, world, db, power, day) {
+  const cfg = cfgOf(db);
+  return (book.polities[power]?.hulls || []).filter((h) => h.status === 'ready' && !h.opId && !h.transit && !h.encounterId && C.hullCanTravel(h) && isRecoveryVessel(world, h) && h.hull >= h.maxHull * cfg.readyThreshold
+    && !(h.borgRecoveryRestUntil != null && Number(day) < Number(h.borgRecoveryRestUntil)))
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
+// The recovery vessel's duty bound: after a recovery it takes no other for as long again (× (1 − share) / share), so
+// at most `recoveryDutyShare` of its days go to recoveries. Assimilation is not affected: it is free for that.
+function restRecoveryVessel(book, db, r, day) {
+  if (r.tugRested || !r.tug || r.dispatchDay == null) return;
+  r.tugRested = true;
+  const cfg = cfgOf(db);
+  const tug = (book.polities[r.power]?.hulls || []).find((x) => String(x.id) === String(r.tug.hullId));
+  if (!tug || tug.status === 'lost') return;
+  const share = Math.min(1, Math.max(0.05, Number(cfg.recoveryDutyShare) || 0.5));
+  const spent = Math.max(0, Number(day) - Number(r.dispatchDay));
+  tug.borgRecoveryRestUntil = Number(day) + Math.ceil(spent * (1 - share) / share);
+}
+function endRecovery(book, db, r, result, reason, day, effects) {
+  if (r.result) return;
+  r.result = { result, reason, day: Number(day) };
+  recNote(r, day, result === 'hulk_operational' ? 'operational' : result === 'awaiting_drones' ? 'awaiting_drones' : 'closed', `${result}: ${reason}`);
+  bumpStat(db, { hulk_operational: 'borgRecoveriesCompleted', awaiting_drones: 'borgRecoveriesAwaitingDrones', recovery_vessel_destroyed: 'borgRecoveryVesselLosses', hulk_destroyed: 'borgRecoveryHulksDestroyed',
+    cancelled: 'borgRecoveriesCancelled', no_reachable_node: 'borgRecoveriesNoNode', abandoned: 'borgRecoveriesAbandoned' }[result] || 'borgRecoveriesOther');
+  effects.push({ type: 'borgAssimilation', event: 'recovery_closed', id: r.id, polity: r.power, hullId: r.hullId, vid: r.vid, result, systemIndex: r.at ?? null, day });
+}
+function advanceHulkRecoveries(book, world, db, power, day, effects) {
+  const cfg = cfgOf(db);
+  const bb = borgBook(db);
+  if (db.config.borg?.recovery === false) return;
+  const hulls = book.polities[power]?.hulls || [];
+  // Open: every assimilated hulk lying disabled with its crew (drones) aboard, one objective each, its own pending
+  // budget running from today (the missions under way are what is limited). A crewless one is
+  // left as it is (no drone source this round: the ordinary write-off of a crewless hulk applies).
+  for (const h of hulls) {
+    if (!h.assimilated || h.status === 'lost' || !C.hullIsDisabled(h) || h.transit || h.encounterId || h.borgRegen || h.towedBy || openRecoveryFor(db, h.id)) continue;
+    if (h.stranded?.crew !== 'assimilated') continue;
+    if (Number(h.borgRecoveryAttempts || 0) >= cfg.recoveryMaxAttempts) continue;
+    if (h.borgRecoveryCooldown != null && Number(day) < Number(h.borgRecoveryCooldown)) continue;
+    const r = { id: `${book.seed}:borg-recovery:${(bb.recoveryCounter = (bb.recoveryCounter || 0) + 1)}`, power, hullId: h.id, vid: vidOf(h), shipId: Number(h.shipId), origin: h.identity?.origin?.builder ?? h.assimilated.from,
+      from: h.assimilated.from, assimilatedDay: h.assimilated.day, createdDay: Number(day), pendingSince: Number(day), at: Number(h.systemIndex), phase: 'disabled_assimilated', attempts: Number(h.borgRecoveryAttempts || 0),
+      missionId: null, missions: [], tug: null, movement: null, node: null, route: null, tow: null, regen: null, waitReason: null, noNodeSince: null, result: null, history: [{ day: Number(day), phase: 'disabled_assimilated', note: `stranded at ${h.systemIndex}` }] };
+    recNote(r, day, 'recovery_pending', 'awaiting a recovery vessel and a node');
+    recoveries(db).push(r);
+    bumpStat(db, 'borgRecoveriesOpened');
+  }
+  for (const r of recoveries(db)) {
+    if (r.result || r.power !== power) continue;
+    const h = hulls.find((x) => String(x.id) === String(r.hullId)) || null;
+    if (!h || h.status === 'lost') { endRecovery(book, db, r, 'hulk_destroyed', h ? `the hulk is ${h.fate || 'lost'}` : 'the hulk is no longer the Collective\'s', day, effects); continue; }
+    r.at = Number(h.systemIndex);
+    // Taken in by a node: the regeneration (advanceRegeneration) decides the rest.
+    if (h.borgRegen) {
+      restRecoveryVessel(book, db, r, day);
+      const g = h.borgRegen;
+      r.node = Number(g.node); r.regen = { state: g.state, since: g.since, startDay: g.startDay ?? null, startHull: g.startHull, hull: Math.round(h.hull), target: Math.round(h.maxHull * cfg.regenTargetShare), progress: r2(Math.min(1, (h.hull - g.startHull) / Math.max(1, h.maxHull * cfg.regenTargetShare - g.startHull))), days: g.days || 0 };
+      recNote(r, day, g.state === 'at_borg_node' ? 'at_borg_node' : 'regenerating');
+      if (g.state === 'awaiting_drones') endRecovery(book, db, r, 'awaiting_drones', 'regenerated, but no crew to run her (no drone source this round)', day, effects);
+      continue;
+    }
+    if (h.regenerated && !C.hullIsDisabled(h)) {
+      r.regen = { ...(r.regen || {}), state: 'operational', hull: Math.round(h.hull), progress: 1, days: h.regenerated.days, endDay: h.regenerated.day };
+      endRecovery(book, db, r, 'hulk_operational', `back in service at ${h.regenerated.node} after ${h.regenerated.days} days of regeneration`, day, effects);
+      continue;
+    }
+    const m = r.missionId ? C.hullRecoveryById(book, r.missionId) : null;
+    if (m) {
+      r.tug = m.tug ? { hullId: m.tug.hullId, vid: m.tug.vid } : null; r.node = m.yard; r.movement = m.borgMovement || r.movement;
+      r.route = { outbound: m.outbound ? { route: m.outbound.route, mode: m.outbound.mode, eta: m.outbound.eta } : null, inbound: m.inbound ? { route: m.inbound.route, towSpeed: m.inbound.towSpeed, eta: m.inbound.eta } : null };
+      r.tow = { state: m.state, attached: m.attachment?.day ?? null, waiting: m.waitReason || null };
+      if (['requested', 'assigned', 'en_route_to_hulk'].includes(m.state)) { recNote(r, day, 'recovery_en_route'); continue; }
+      if (['on_scene', 'attached', 'towing'].includes(m.state)) { recNote(r, day, 'under_tow'); continue; }
+      if (m.state === 'delivered_to_yard') continue; // the node has her (borgRegen) — handled above next day
+      // The mission ended without delivering her: where she lies now is where she is.
+      restRecoveryVessel(book, db, r, day);
+      r.missionId = null;
+      const tug = m.tug ? (book.polities[power]?.hulls || []).find((x) => x.id === m.tug.hullId) : null;
+      const tugLost = !tug || tug.status === 'lost' || m.losses.some((l) => String(l.hullId) === String(m.tug?.hullId) && ['destroyed', 'disabled', 'lost', 'surrendered'].includes(l.reason));
+      h.borgRecoveryAttempts = Number(h.borgRecoveryAttempts || 0) + 1; r.attempts = h.borgRecoveryAttempts;
+      h.borgRecoveryCooldown = Number(day) + cfg.recoveryCooldownDays;
+      if (tugLost) { endRecovery(book, db, r, 'recovery_vessel_destroyed', `${m.tug?.vid || 'the recovery vessel'} was lost (${m.reason}); the hulk lies at ${h.systemIndex}`, day, effects); continue; }
+      if (r.attempts >= cfg.recoveryMaxAttempts) { abandonHulk(book, power, h, day, `recovery failed ${r.attempts} times`, effects); endRecovery(book, db, r, 'abandoned', `recovery failed ${r.attempts} times (${m.reason}): the hulk is abandoned where it lies`, day, effects); continue; }
+      recNote(r, day, 'recovery_pending', `attempt ${r.attempts} ended: ${m.reason}`);
+      r.pendingSince = Number(day);
+      continue;
+    }
+    // Pending: bounded.
+    if (Number(day) - Number(r.pendingSince) > cfg.recoveryPendingDays) { abandonHulk(book, power, h, day, 'no recovery within the pending budget', effects); endRecovery(book, db, r, 'abandoned', `no recovery for ${cfg.recoveryPendingDays} days (${r.waitReason || 'waiting'})`, day, effects); continue; }
+    if (h.borgRecoveryCooldown != null && Number(day) < Number(h.borgRecoveryCooldown)) { r.waitReason = `cooldown until day ${h.borgRecoveryCooldown}`; continue; }
+    if (h.transit || h.encounterId || h.towedBy || h.opId) { r.waitReason = 'the hulk is not lying free'; continue; }
+    // Lying at a valid node already: the node takes it in where it lies — no vessel, no tow.
+    if (nodeAt(book, world, power, h.systemIndex, day).ok) {
+      NODE_PROVIDER.receive(book, world, { id: r.id, sponsor: power, inPlace: true }, h, Number(h.systemIndex), day, effects);
+      r.node = Number(h.systemIndex); r.movement = { mode: 'none', reason: 'it lies at a Borg node' }; r.waitReason = null;
+      bumpStat(db, 'borgRecoveriesInPlace');
+      recNote(r, day, 'at_borg_node', `taken in where it lies (node ${h.systemIndex})`);
+      continue;
+    }
+    // The shared AI tow switch (campaign config aiRecovery) governs the Collective's tows too.
+    if (book.config.aiRecovery === false) { r.waitReason = 'AI tows are switched off (aiRecovery)'; recNote(r, day, 'recovery_pending', r.waitReason); continue; }
+    const underway = recoveries(db).filter((x) => !x.result && x.power === power && x.missionId).length;
+    if (underway >= cfg.recoveryMaxActive) { r.waitReason = `${underway} recoveries already under way`; recNote(r, day, 'recovery_pending', r.waitReason); continue; }
+    const tugs = freeRecoveryVessels(book, world, db, power, day);
+    if (!tugs.length) {
+      const resting = (book.polities[power]?.hulls || []).filter((x) => x.status !== 'lost' && isRecoveryVessel(world, x) && x.borgRecoveryRestUntil != null && Number(day) < Number(x.borgRecoveryRestUntil) && !x.opId && !x.transit);
+      if (resting.length) { r.waitReason = `the recovery vessel rests until day ${Math.min(...resting.map((x) => Number(x.borgRecoveryRestUntil)))} (recovery duty bound)`; recNote(r, day, 'recovery_pending', 'the recovery vessel rests (duty bound)'); continue; }
+    }
+    if (!tugs.length) { r.waitReason = 'no Borg recovery vessel free'; recNote(r, day, 'recovery_pending', r.waitReason); continue; }
+    // The nearest able vessel with a plan that reaches the hulk and a node.
+    let best = null, lastWhy = null;
+    for (const t of tugs) {
+      const plan = C.planHullRecovery(book, world, { sponsor: power, targetHullId: h.id, tugHullId: t.id }, day);
+      if (!plan.ok) { lastWhy = plan.reason; continue; }
+      const twOut = C.transwarpCapable(world, t) && cfg.recoveryTranswarp !== false ? Math.min(plan.outboundDays, cfg.transwarpDays) : plan.outboundDays;
+      const eta = twOut + plan.towDays;
+      if (!best || eta < best.eta) best = { t, plan, eta };
+    }
+    if (!best) {
+      r.waitReason = lastWhy || 'no plan';
+      if (/no yard|no route/.test(r.waitReason)) { r.noNodeSince ??= Number(day); if (Number(day) - r.noNodeSince > cfg.searchDays) { abandonHulk(book, power, h, day, 'no reachable Borg node', effects); endRecovery(book, db, r, 'no_reachable_node', `no Borg node a tow can reach for ${cfg.searchDays} days`, day, effects); } }
+      recNote(r, day, 'recovery_pending', r.waitReason);
+      continue;
+    }
+    // A node whose tow home alone is beyond the bounded tow is no node this hulk can reach (the same search budget);
+    // a tug merely far away is a wait.
+    if (best.plan.towDays > cfg.recoveryMaxTowDays) {
+      r.waitReason = `no node within a ${cfg.recoveryMaxTowDays}-day tow (nearest ${best.plan.towDays} days)`;
+      r.noNodeSince ??= Number(day);
+      if (Number(day) - r.noNodeSince > cfg.searchDays) { abandonHulk(book, power, h, day, 'no reachable Borg node', effects); endRecovery(book, db, r, 'no_reachable_node', `no Borg node within a ${cfg.recoveryMaxTowDays}-day tow for ${cfg.searchDays} days`, day, effects); continue; }
+      recNote(r, day, 'recovery_pending', r.waitReason); continue;
+    }
+    r.noNodeSince = null;
+    if (best.eta > cfg.recoveryMaxTowDays) { r.waitReason = `too far (${best.eta} days out and back)`; recNote(r, day, 'recovery_pending', r.waitReason); continue; }
+    const res = C.requestHullRecovery(book, world, { sponsor: power, targetHullId: h.id, tugHullId: best.t.id, yard: best.plan.yard, requestedBy: 'borg' }, day, effects);
+    if (!res.ok) { r.waitReason = res.reason; continue; }
+    r.missionId = res.record.id; r.missions.push(res.record.id); r.dispatchDay = Number(day); r.tugRested = false; r.tug = { hullId: best.t.id, vid: vidOf(best.t) }; r.node = res.record.yard; r.movement = res.record.borgMovement || { mode: 'conventional', reason: 'ordinary journey' };
+    r.waitReason = null;
+    bumpStat(db, 'borgRecoveryMissions');
+    recNote(r, day, res.record.state === 'towing' || res.record.state === 'attached' ? 'under_tow' : res.record.state === 'delivered_to_yard' ? 'at_borg_node' : 'recovery_en_route', `${r.tug.vid} sent (${r.movement.mode}); node ${r.node}`);
+  }
+  // Closed records are history: the newest kept.
+  const closed = recoveries(db).filter((r) => r.result);
+  if (closed.length > 30) { const drop = new Set(closed.slice(0, closed.length - 30)); bb.recoveries = recoveries(db).filter((r) => !drop.has(r)); }
+}
+
 // The doctrine switched off: every live objective gets its own closure record (result cancelled, history,
 // cooldown); hulls standing are let go; one in warp is let go where its journey ends (the kind's own check).
 export function releaseBorg(book, db, day, reason) {
   const bb = borgBook(db);
+  for (const r of bb.recoveries || []) {
+    if (r.result) continue;
+    const m = r.missionId ? C.hullRecoveryById(book, r.missionId) : null;
+    if (m) C.cancelHullRecovery(book, null, m.id, day, [], `Borg recovery cancelled: ${reason}`);
+    r.result = { result: 'cancelled', reason, day: Number(day) }; r.phase = 'closed';
+  }
   for (const o of db.objectives || []) {
     if (o.status !== 'active' || o.kind !== KIND) continue;
     o.result = { result: 'cancelled', reason, day }; o.phase = 'resolved'; (o.phaseHistory ||= []).push({ day, phase: 'resolved' });
@@ -810,10 +1078,38 @@ export function borgDebug(book, world) {
       handoff: o.handoff, lastEngagement: o.lastEngagement || null, result: o.result, lastKnown: o.lastKnown, actions: o.actions.slice(-6) };
   });
   const hulls = Object.entries(book.polities).flatMap(([pid, p]) => (p.hulls || []).filter((h) => h.assimilated).map((h) => ({ owner: pid, vid: vidOf(h), shipId: h.shipId, hull: Math.round(h.hull), maxHull: h.maxHull, status: h.status, at: h.systemIndex, assimilated: h.assimilated, origin: h.identity?.origin?.builder ?? null })));
-  return { day, scale: bb.scale, captain: captainDebug(book, world, db), captainAssimilations: bb.captainAssimilations.slice(-5).reverse(), medianLegDays: bb.medianLegDays, objectives, assimilatedHulls: hulls, assimilatedWorlds: bb.assimilatedWorlds.slice(-10).reverse(), progress: Object.values(bb.progress), transwarp: { ...bb.transwarp, log: bb.transwarp.log.slice(-8).reverse() },
+  return { day, scale: bb.scale, captain: captainDebug(book, world, db), captainAssimilations: bb.captainAssimilations.slice(-5).reverse(), hulkRecovery: hulkRecoveryDebug(book, world, db), medianLegDays: bb.medianLegDays, objectives, assimilatedHulls: hulls, assimilatedWorlds: bb.assimilatedWorlds.slice(-10).reverse(), progress: Object.values(bb.progress), transwarp: { ...bb.transwarp, log: bb.transwarp.log.slice(-8).reverse() },
     selections: Object.fromEntries(Object.entries(bb.selections).map(([p, l]) => [p, l.slice(-3).reverse()])), history: bb.history.slice(-10).reverse(), incursions: bb.incursions.slice(-8).reverse(),
     rules: { transwarpDays: cfg.transwarpDays, transwarpCooldownDays: cfg.transwarpCooldownDays, transwarpMinScore: cfg.transwarpMinScore, transwarpMinSavingDays: cfg.transwarpMinSavingDays, transwarpMinCondition: cfg.transwarpMinCondition },
     stats: Object.fromEntries(Object.entries(db.stats || {}).filter(([k]) => /^borg/.test(k))) };
+}
+// BORG-HULK-REGENERATION §15: every assimilated hulk the Collective holds (or held under a recovery) — vid, class, hull,
+// where, recovery status, vessel, movement, tow, node, regeneration, ETA, result — and the nodes as they stand.
+function hulkRecoveryDebug(book, world, db) {
+  const bb = borgBook(db);
+  const cfg = db.config ? cfgOf(db) : B.BORG_DEFAULTS;
+  const power = powersOf(book, db)[0] || 'borg';
+  const day = db.lastDay ?? book.day ?? 0;
+  const recs = (bb.recoveries || []);
+  const rows = [];
+  const seen = new Set();
+  const row = (h, r) => {
+    const m = r?.missionId ? C.hullRecoveryById(book, r.missionId) : null;
+    const lead = m?.tug ? (book.polities[power]?.hulls || []).find((x) => x.id === m.tug.hullId) : null;
+    // The ETA is the mission's own journey's (out, or the tow home) — never a later journey of the same vessel.
+    const trAny = lead?.transit && m && !r?.result ? C.journeyById(book, lead.transit.journeyId) : null;
+    const tr = trAny && String(trAny.ref) === String(m.id) ? trAny : null;
+    return { hullId: h?.id ?? r?.hullId, vid: h ? vidOf(h) : r?.vid, shipId: h?.shipId ?? r?.shipId, hull: h ? Math.round((h.hull / Math.max(1, h.maxHull)) * 100) : null, status: h?.status ?? 'gone',
+      at: h ? (h.transit ? `→${h.transit.to}` : h.systemIndex) : r?.at, disabled: h ? C.hullIsDisabled(h) : null, origin: h?.identity?.origin?.builder ?? r?.origin ?? null, assimilatedFrom: h?.assimilated?.from ?? r?.from ?? null,
+      recovery: r ? { id: r.id, phase: r.phase, attempts: r.attempts, waitReason: r.waitReason, result: r.result } : { phase: h?.borgRegen ? h.borgRegen.state : h?.regenerated ? 'operational' : (C.hullIsDisabled(h) ? 'disabled_assimilated' : 'operational') },
+      vessel: r?.tug?.vid ?? m?.tug?.vid ?? null, movement: r?.movement ?? m?.borgMovement ?? null, tow: m ? { state: m.state, towSpeed: m.inbound?.towSpeed ?? null, route: m.inbound?.route ?? m.outbound?.route ?? null } : null,
+      node: r?.node ?? h?.borgRegen?.node ?? h?.regenerated?.node ?? null, regen: h?.borgRegen ? { state: h.borgRegen.state, days: h.borgRegen.days || 0, progress: r2(Math.min(1, (h.hull - h.borgRegen.startHull) / Math.max(1, h.maxHull * cfg.regenTargetShare - h.borgRegen.startHull))) } : r?.regen ?? null,
+      eta: tr ? tr.etaDay : null };
+  };
+  for (const r of recs.slice().reverse()) { if (seen.has(String(r.hullId))) continue; seen.add(String(r.hullId)); const h = Object.values(book.polities).flatMap((p) => p.hulls).find((x) => String(x.id) === String(r.hullId)) || (book.derelicts || []).find((x) => String(x.id) === String(r.hullId)) || null; rows.push(row(h, r)); }
+  for (const h of book.polities[power]?.hulls || []) if (h.assimilated && !seen.has(String(h.id))) { seen.add(String(h.id)); rows.push(row(h, null)); }
+  const nodes = world ? world.systems.filter((s) => s.controller === power).map((s) => ({ systemIndex: Number(s.index), ...nodeAt(book, world, power, s.index, day) })) : [];
+  return { rows: rows.slice(0, 16), nodes, rules: { regenSharePerDay: cfg.regenSharePerDay, regenTargetShare: cfg.regenTargetShare, nodeStabilizeDays: cfg.nodeStabilizeDays, recoveryMaxTowDays: cfg.recoveryMaxTowDays, recoveryPendingDays: cfg.recoveryPendingDays, recoveryMaxAttempts: cfg.recoveryMaxAttempts, recoveryMaxActive: cfg.recoveryMaxActive, recoveryDutyShare: cfg.recoveryDutyShare } };
 }
 // CAPTAIN-BORG-ASSIMILATION §12: the captain-target row — his vessel's vid, what the Collective knows of it, its
 // value and score at the latest evaluation, the objective, phase, progress, force, handoff and any failure result.
@@ -837,5 +1133,5 @@ export function borgSummary(book) {
   const db = book.doctrine || {};
   const bb = borgBook(db);
   return { objectives: (db.objectives || []).filter((o) => o.kind === KIND), contacts: bb.contacts, worlds: bb.worlds, history: bb.history, cooldowns: bb.cooldowns, selections: bb.selections, progress: bb.progress,
-    assimilatedHulls: bb.assimilatedHulls, assimilatedWorlds: bb.assimilatedWorlds, captainAssimilations: bb.captainAssimilations, transwarp: bb.transwarp, incursions: bb.incursions, stats: Object.fromEntries(Object.entries(db.stats || {}).filter(([k]) => /^borg/.test(k))) };
+    assimilatedHulls: bb.assimilatedHulls, assimilatedWorlds: bb.assimilatedWorlds, captainAssimilations: bb.captainAssimilations, recoveries: bb.recoveries, transwarp: bb.transwarp, incursions: bb.incursions, stats: Object.fromEntries(Object.entries(db.stats || {}).filter(([k]) => /^borg/.test(k))) };
 }

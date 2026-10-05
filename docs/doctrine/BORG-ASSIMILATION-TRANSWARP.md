@@ -229,7 +229,7 @@ The hull's `crew` becomes what was assimilated. No drone economy is modelled.
 **Assimilated hulls in Borg service (§18).** They are Borg hulls under a bounded rule:
 - They have their own class's speed, no transwarp and the same weapons.
 - They join a force only once operational and crewed.
-- They repair only through the ordinary rules, at a Borg yard. None exists in the default chart, so a hulk assimilated disabled stays where it lies. That is deliberate (carry-forward).
+- They repair only through the ordinary rules, at a Borg yard. None exists in the default chart, so a hulk assimilated disabled stays where it lies. That is deliberate (carry-forward). *Superseded by `BORG-HULK-REGENERATION.md`: a Borg recovery vessel tows it to a Borg node, which regenerates it.*
 
 **Hunting interaction (found this round).** The Hirogen had hunted down an assimilated wreck. An assimilated hulk is now no quarry for them. The filter is scoped to assimilated, disabled hulls only, so the Hirogen's handling of other disabled prey is unchanged. Hunt R19 now uses a mobile cripple (hull above the disable line) for its destroyed-prey case.
 
@@ -415,6 +415,6 @@ Station fire was not removed from the scene: it is the only third-party kill thi
 **New this round:**
 - the captain's own ship as an assimilation target — *done in `CAPTAIN-BORG-ASSIMILATION.md` (failure state only)*
 - carrier/conduit access for non-capable Borg craft
-- Borg repair or regeneration of assimilated hulks (no Borg yard exists)
+- Borg repair or regeneration of assimilated hulks (no Borg yard exists) — *done in `BORG-HULK-REGENERATION.md`*
 - defenders retaking an assimilated world (nobody is at war with the Borg, so nobody retakes)
 - assimilated-world population and industry consequences beyond "no market"

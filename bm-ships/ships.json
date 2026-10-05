@@ -20022,14 +20022,16 @@
         "rationale": "Hold far above the default for this hull class and role, with nothing in the authored text saying what the volume is for; reduced to the derived default. Authored freight exceptions (Isaac, Delpin liner, Tarellian, Ferengi refit, Dominion freighter) are untouched.",
         "previousCargoCapacity": 6000
       },
-      "recoveryCapacity": 6,
-      "recoveryCapacityBasis": "category:battleship",
+      "recoveryCapacity": 10,
+      "recoveryCapacityBasis": "authored",
+      "recoveryCapacityNote": "BORG-HULK-REGENERATION: the Assimilation Cube's tractor array takes any hull in tow (the Collective's recovery vessel).",
       "strategicSpeedRating": 9,
       "strategicSpeed": 1.32,
       "strategicSpeedConfidence": "high",
       "strategicSpeedBasis": "rater:table",
       "strategicSpeedNote": "Conventional strategic speed is high, but Borg transwarp should be modeled separately rather than as rating 10+.",
       "assimilator": true,
+      "borgRecovery": true,
       "transwarp": {
         "capable": true,
         "access": "own_conduit",
