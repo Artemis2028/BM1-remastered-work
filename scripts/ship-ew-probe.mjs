@@ -10,7 +10,9 @@ import {
 import {
   chromium
 } from 'playwright';
-const root = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
+// BM1_TEST_ROOT selects the tree this gate serves, so it can be pointed at the built dist; without
+// it the repository root is served, which is what this gate used to do unconditionally.
+const root = path.resolve(process.env.BM1_TEST_ROOT || fileURLToPath(new URL('../', import.meta.url)));
 const shim =
   `
 // Authored foreign access variants are test fixtures; all classification/order code stays real.
@@ -122,8 +124,18 @@ try {
     test('capture retains module but clears former operating orders',dark.ew.module===oldModule&&dark.ew.jammerOrder==='off');
     dark.ew.module=3;B.beginAmbientTrafficArrival(dark,performance.now());test('ambient replacement drops old equipment and operating state',dark.ew.module===null&&!dark.ew.operating);
     s.stations=stations;s.npcShips=[];s.docked=false;B.ensureActorEW().module=1;
+    // EW used to be printed twice — a collapsed section inside OPS and again in its own panel — so the
+    // captain had two sets of the same controls and neither was where the EW button pointed. It now
+    // lives only in its own panel, already expanded, which is what these three check.
     s.topLeftPanelOpen=true;s.topLeftTab='power';B.renderTopLeftPanel();
-    document.querySelector('[data-ew-order="jammer:on"][data-ew-ship="player"]')?.click();
+    test('OPS no longer carries a second copy of the EW controls',
+      !document.querySelector('#top-left-panel [data-ew-order]'),
+      document.querySelector('#top-left-panel [data-ew-order]')?.outerHTML);
+    s.topLeftTab='ew';B.renderTopLeftPanel();
+    const jam=document.querySelector('[data-ew-order="jammer:on"][data-ew-ship="player"]');
+    test('the EW panel opens expanded, with its orders reachable without opening anything',
+      Boolean(jam) && !jam.closest('details:not([open])') && jam.offsetHeight>0);
+    jam?.click();
     test('actual DOM jammer order works',s.ew.jammerOrder==='on');
     document.querySelector('[data-ew-order="eccm:boost"][data-ew-ship="player"]')?.click();test('actual DOM ECCM order works',s.ew.eccmOrder==='boost');
     const platforms=Object.values(s.shipStatsById).filter(t=>/defen[sc]e.*platform/i.test(t.name||''));

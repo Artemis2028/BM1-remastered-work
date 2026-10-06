@@ -85,7 +85,7 @@ const server = http.createServer((req, res) => {
     assert.ok(rows[2].hit.shieldDamage<rows[1].hit.shieldDamage/2);console.log('COMBAT_POOLS',JSON.stringify(rows));
   });
   await check('new freight quotes scale with route and cargo; old accepted prices remain intact',async()=>{
-    const r=await ev(()=>{const t=testBM1;t.startWithFaction('terran');const offers=Array.from({length:120},()=>t.createCargoRunOffer());return {min:Math.min(...offers.map(t.getContractTotal)),max:Math.max(...offers.map(t.getContractTotal)),mean:offers.reduce((n,o)=>n+t.getContractTotal(o),0)/offers.length,old:t.getContractTotal(t.normalizeContract({goods:'Ore',targetIndex:1,tons:2,payPerTon:15})),valid:offers.every(o=>o.tons<=t.state.cargoCap&&o.payPerTon>=150)};});
+    const r=await ev(()=>{const t=testBM1;t.startWithFaction('terran');const offers=Array.from({length:120},()=>t.createCargoRunOffer());return {min:Math.min(...offers.map(t.getContractTotal)),max:Math.max(...offers.map(t.getContractTotal)),mean:offers.reduce((n,o)=>n+t.getContractTotal(o),0)/offers.length,old:t.getContractTotal(t.normalizeContract({goods:'Ore',targetIndex:1,tons:2,payPerTon:15})),valid:offers.every(o=>o.tons<=t.state.cargoCap&&t.getContractTotal(o)>=300&&t.getContractTotal(o)>=(Number(o.fee)||0))};});
     assert.ok(r.valid);assert.ok(r.min>=300);assert.equal(r.old,30);console.log('FREIGHT_QUOTES',JSON.stringify(r));
   });
   await check('remote station purchases honor real stock, charge once, and never grant physical docking',async()=>{
@@ -134,7 +134,7 @@ const server = http.createServer((req, res) => {
   });
   await check('news deduplicates repeated reads without hiding same-day war and peace',async()=>{
     const r=await ev(()=>{const t=testBM1;t.startWithFaction('terran');t.changeDiplomacy('terran','ferengi','peace');t.collectGalaxyReports();const peaceful=t.galaxyNewsBook().items.filter(r=>r.id.startsWith('diplomacy:')).at(-1);t.changeDiplomacy('terran','ferengi','war');t.collectGalaxyReports();t.changeDiplomacy('terran','ferengi','peace');t.collectGalaxyReports();const rows=t.galaxyNewsBook().items.filter(r=>r.id.startsWith('diplomacy:'));const count=rows.length;t.collectGalaxyReports();return {peaceful:peaceful.kind,last:rows.at(-1).kind,count,after:t.galaxyNewsBook().items.filter(r=>r.id.startsWith('diplomacy:')).length};});
-    assert.equal(r.peaceful,'Diplomatic update');assert.equal(r.last,'Peace agreement');assert.equal(r.count,3);assert.equal(r.after,r.count);
+    assert.equal(r.peaceful,'Diplomatic update');/* bilateral-peace round: a war's end is reported by the war-transition path (Peace settlement / Dictated peace), not the raw history publisher */assert.match(r.last,/^(Peace agreement|Peace settlement|Dictated peace)$/);assert.equal(r.count,3);assert.equal(r.after,r.count);
   });
   await check('mid-jump briefing pauses, saves and resumes without charging campaign days twice',async()=>{
     const r=await ev(()=>{const t=testBM1,s=t.state;t.startWithFaction('terran');t.changeDiplomacy('vulcan','klingon','war');const to=t.getSystemIndexByName('Ferenginar');t.beginWarpTravel(to,t.getPlottedRoute(s.currentPlanet,to));s.warp.travelDays=3;s.warp.startedAt=t.gameNow()-s.warp.duration*0.6;const before=s.day;t.tick(1);return {before,after:s.day,open:document.getElementById('galaxy-reports').open,clock:t.gameNow(),report:document.getElementById('galaxy-reports').textContent};});

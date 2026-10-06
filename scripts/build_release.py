@@ -24,6 +24,8 @@ INCLUDE_NAMES = {
     "bm-ships",
 }
 
+DOCTRINE_RUNTIME_FILES = ["docs/doctrine/bm1-faction-doctrine.v0.2.1.json", "docs/doctrine/bm1-faction-doctrine.schema.json"]
+
 EXCLUDED_NAMES = {
     ".DS_Store",
     "dist",
@@ -189,6 +191,11 @@ def main() -> None:
         if entry.name not in INCLUDE_NAMES:
             continue
         copy_filtered(entry, DIST / entry.name)
+
+    # The faction doctrine package is runtime data read in place from docs/doctrine/ (one copy, no fork).
+    for rel in DOCTRINE_RUNTIME_FILES:
+        (DIST / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / rel, DIST / rel)
 
     marker = "\n".join(
         [

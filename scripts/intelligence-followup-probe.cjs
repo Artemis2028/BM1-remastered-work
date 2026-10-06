@@ -101,7 +101,19 @@ const server = http.createServer((req, res) => {
     await page.screenshot({path:path.join(process.env.BM1_TEST_OUTPUT||'/tmp','transporter-range.png')});
   });
   await check('full holds do not produce unloadable freight offers',async()=>{
-    const r=await ev(()=>{const t=testBM1,s=t.state;t.startWithFaction('terran');s.cargo=s.cargoCap;const offer=t.createCargoRunOffer();s.cargo=s.cargoCap-1;const small=t.createCargoRunOffer();return {offer,tons:small.tons};});assert.equal(r.offer,null);assert.equal(r.tons,1);
+    // A shipment now has its own tonnage, taken from what the world can move, so a hold with one ton
+    // free is offered nothing at all rather than a one-ton contract invented to fit it.
+    const r=await ev(()=>{const t=testBM1,s=t.state;t.startWithFaction('terran');
+      const cap=s.cargoCap;s.cargo=cap;const full=t.createCargoRunOffer();
+      s.cargo=cap-1;const sliver=t.createCargoRunOffer();
+      s.cargo=0;const roomy=t.createCargoRunOffer();
+      const open=typeof t.worldOpenJobs==='function'?t.worldOpenJobs(s.currentPlanet):[];
+      return {full,sliver,roomy:roomy?{tons:roomy.tons,id:roomy.id}:null,cap,
+        smallest:open.length?Math.min(...open.map(j=>j.tons)):null,open:open.length};});
+    assert.equal(r.full,null,'a full hold was offered freight');
+    assert.equal(r.sliver,null,`a hold with one ton free was offered a shipment; the smallest on the board is ${r.smallest}`);
+    assert.ok(r.roomy,`an empty ${r.cap}-ton hold was offered nothing from a board of ${r.open} shipments`);
+    assert.ok(r.roomy.tons<=r.cap,`a ${r.cap}-ton hold was offered ${r.roomy.tons} tons`);
   });
   await check('each real reconstruction loss reports once and duplicate destruction calls do not report again',async()=>{
     const r=await ev(()=>{const t=testBM1,s=t.state;t.startWithFaction('terran');const original=s.stations.find(st=>t.getStationOwner(st)==='terran');t.destroyStation(original);t.destroyStation(original);const once=t.galaxyNewsBook().items.filter(r=>r.kind==='Installation lost').length;
@@ -122,7 +134,7 @@ const server = http.createServer((req, res) => {
     for(const r of rows){assert.ok(r.crossed&&r.timer);assert.equal(r.condition,'operational');assert.ok(Math.abs(r.hull-r.expected)<1e-9,JSON.stringify(r));}console.log('DEBUG_REPAIR_REGRESSION',JSON.stringify(rows));
   });
   await check('mistaken identities include distant and peaceful factions before routes exist',async()=>{
-    const r=await ev(()=>{const t=testBM1,s=t.state;t.startWithFaction('terran');s.travelRoutes=[];const before=JSON.stringify(t.diplomacyBook());const candidates=t.intelIdentityCandidates();const emptyRoutes=s.travelRoutes.length===0;const reports=Array.from({length:800},(_,i)=>t.makeIntelReport(s.currentPlanet,{day:s.day,kind:'quiet'},`global-pool-${i}`,s.day));const allegations=reports.map(r=>r.text.match(/Ships identified as (.*?);/)?.[1]).filter(Boolean);const missing=t.makeIntelReport(s.currentPlanet,undefined,'missing',s.day);t.rebuildTravelRoutes();const after=t.intelIdentityCandidates();return {candidates,after,emptyRoutes,allegations:[...new Set(allegations)],missing,diplomacyUnchanged:before===JSON.stringify(t.diplomacyBook())};});
+    const r=await ev(()=>{const t=testBM1,s=t.state;t.startWithFaction('terran');s.travelRoutes=[];const before=JSON.stringify(t.diplomacyBook());const candidates=t.intelIdentityCandidates();const emptyRoutes=s.travelRoutes.length===0;const reports=Array.from({length:800},(_,i)=>t.makeIntelReport(s.currentPlanet,{day:s.day,kind:'quiet'},`global-pool-${i}`,s.day));const allegations=reports.map(r=>r.text.match(/Ships identified as ([^.]+)\./)?.[1]).filter(Boolean);const missing=t.makeIntelReport(s.currentPlanet,undefined,'missing',s.day);t.rebuildTravelRoutes();const after=t.intelIdentityCandidates();return {candidates,after,emptyRoutes,allegations:[...new Set(allegations)],missing,diplomacyUnchanged:before===JSON.stringify(t.diplomacyBook())};});
     assert.ok(r.emptyRoutes);assert.deepEqual(r.after,r.candidates);for(const f of ['borg','ferengi','terran','romulan'])assert.ok(r.candidates.includes(f));assert.ok(r.allegations.length>5,JSON.stringify(r));assert.equal(r.missing,null);assert.ok(r.diplomacyUnchanged);console.log('GLOBAL_IDENTITY_POOL',JSON.stringify({candidates:r.candidates,accused:r.allegations}));
   });
   await check('local attack archive records real counts consistently across forty encounters',async()=>{

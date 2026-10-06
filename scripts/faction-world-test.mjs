@@ -41,20 +41,38 @@ test('daily, multiday and JSON-reloaded progression are identical and cannot rer
   W.advanceDiplomacy(a, 1200, pairs, base);
   assert.deepEqual(copy, a);
 });
-test('natural simulation includes crises, escalation, mediation and war exhaustion', () => {
+// Changed in the bilateral-peace round (BILATERAL-WAR-PEACE-RULES §3): the calendar raises crises and
+// can start wars, but no longer ends one. Wars end through the campaign's strategic evaluation.
+test('natural simulation includes crises, escalation and mediation; the calendar never ends a war', () => {
   const reasons = new Set(),
     states = new Set();
   for (let seed = 0; seed < 30; seed++) {
     const b = W.createDiplomacy(seed);
     W.advanceDiplomacy(b, 1000, pairs, base);
+    let prior = new Map();
     for (const e of b.history) {
       reasons.add(e.reason);
       states.add(e.status);
+      const key = W.pairKey(e.a, e.b);
+      assert.ok(!(prior.get(key) === 'war' && e.status !== 'war'), `a calendar roll ended the ${key} war: ${e.reason}`);
+      prior.set(key, e.status);
     }
   }
   assert.ok(states.has('war') && states.has('peace') && states.has('crisis'));
   assert.ok(reasons.has('Mediation resolves the crisis'));
-  assert.ok(reasons.has('War exhaustion and negotiated peace'));
+  assert.ok(!reasons.has('War exhaustion and negotiated peace'));
+});
+test('entering war opens a numbered war instance; a ceasefire keeps it; a fresh war is a new instance', () => {
+  const b = W.createDiplomacy('inst');
+  const w1 = W.setDiplomacy(b, 'romulan', 'cardassian', 'war', 5);
+  assert.equal(w1.warStarted, 5);
+  const c = W.setDiplomacy(b, 'cardassian', 'romulan', 'ceasefire', 40);
+  assert.equal(c.warId, w1.warId);
+  assert.equal(W.spikeCrisis(b, 'romulan', 'cardassian', 100, 41).status, 'ceasefire', 'the incident roll broke a ceasefire');
+  W.setDiplomacy(b, 'romulan', 'cardassian', 'peace', 70);
+  const w2 = W.setDiplomacy(b, 'romulan', 'cardassian', 'war', 200);
+  assert.notEqual(w2.warId, w1.warId);
+  assert.equal(w2.warStarted, 200);
 });
 test('Romulan trade abroad is rare while wartime deployments outweigh merchants', () => {
   assert.ok(

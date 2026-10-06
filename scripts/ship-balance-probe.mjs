@@ -7,7 +7,9 @@ import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 import {chromium} from 'playwright';
 import {createShipCatalog} from '../bm-ships/catalog.mjs';
-const root=fileURLToPath(new URL('../',import.meta.url));
+// BM1_TEST_ROOT selects the tree this gate serves, so it can be pointed at the built dist; without
+// it the repository root is served, which is what this gate used to do unconditionally.
+const root=path.resolve(process.env.BM1_TEST_ROOT||fileURLToPath(new URL('../',import.meta.url)));
 const read=p=>JSON.parse(fs.readFileSync(path.join(root,p),'utf8'));
 const manifest=read('bm-ships/ships.json'), ships=manifest.ships.filter(s=>s.rosterState==='active');
 const catalog=createShipCatalog(manifest,read('bm-ships/bm2-id-map.json'),read('bm-ships/size-config.json'));

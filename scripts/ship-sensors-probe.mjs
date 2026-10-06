@@ -640,11 +640,21 @@ try {
     B.render();
     test('OPS contains sensor allocation and explicit transponder UI', B.renderPowerPanel().includes(
       'data-power-tank="sensors"') && B.renderPowerPanel().includes('Transponder:'));
-    const details = document.querySelector('.sensor-contact-list');
-    details.open = true;
+    // Contact reports used to be a collapsed <details> inside a long Sensors panel, which is why the
+    // captain reported never seeing them. They are now a labelled, always-open, scrollable list, so
+    // the check is that the list is on screen and readable after a live re-render, not that a
+    // disclosure the captain opened stayed open.
     B.renderTopLeftPanel();
-    test('live OPS refresh preserves expanded contact reports', document.querySelector('.sensor-contact-list')
-      .open);
+    const list = document.querySelector('.sensor-contact-list');
+    const head = document.querySelector('.panel-subhead');
+    const style = list && getComputedStyle(list);
+    const collapsed = Boolean(list?.closest('details:not([open])'));
+    test('live OPS refresh leaves contact reports expanded, labelled and scrollable',
+      Boolean(list) && !collapsed && list.offsetHeight > 0
+      && /contact reports/i.test(document.querySelector('#top-left-panel')?.textContent || '')
+      && Boolean(head)
+      && ['auto', 'scroll'].includes(style.overflowY)
+      && parseFloat(style.maxHeight) > 0);
     return {
       checks
     };

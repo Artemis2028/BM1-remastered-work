@@ -303,7 +303,9 @@ const server = http.createServer((req, res) => {
       assert.equal(r.debt, r.cost);
       assert.equal(r.pending, true);
       assert.ok(r.hull < 100);
-      await page.waitForTimeout(5500);
+      // Bounded polling instead of a fixed sleep against the 5,000 ms deadline: the recovery lands
+      // whenever a frame runs after the deadline, so wait for the condition itself (up to 12 s).
+      await page.waitForFunction(() => testBM1.fleetBook().personalCondition === 'operational', null, { timeout: 12000, polling: 100 });
       assert.equal(await evaluate(() => testBM1.fleetBook().personalCondition), 'operational');
     },
   );

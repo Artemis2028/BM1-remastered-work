@@ -21,6 +21,8 @@ const includeNames = new Set([
   'bm-ships'
 ]);
 
+const DOCTRINE_RUNTIME_FILES = ['docs/doctrine/bm1-faction-doctrine.v0.2.1.json', 'docs/doctrine/bm1-faction-doctrine.schema.json'];
+
 const excludedNames = new Set([
   '.DS_Store',
   'dist',
@@ -200,6 +202,12 @@ async function main() {
   for (const entry of entries) {
     if (!includeNames.has(entry)) continue;
     await copyFiltered(path.join(rootDir, entry), path.join(distDir, entry));
+  }
+  // The faction doctrine package is runtime data read in place from docs/doctrine/ (one copy, no fork):
+  // the release carries its data and schema at the same path.
+  for (const file of DOCTRINE_RUNTIME_FILES) {
+    await fs.mkdir(path.join(distDir, path.dirname(file)), { recursive: true });
+    await fs.copyFile(path.join(rootDir, file), path.join(distDir, file));
   }
 
   const marker = [

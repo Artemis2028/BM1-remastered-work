@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BM1 Strategic Speed Rater</title>
+<style>
+  :root{
+    --bg:#0f111b; --panel:#171a27; --panel2:#1e2232; --text:#f4f5fb;
+    --muted:#aeb7cc; --accent:#ff9a64; --line:#343b52; --good:#9be28f;
+    --warn:#ffd479; --low:#ff9d9d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+  header{position:sticky;top:0;z-index:20;background:rgba(15,17,27,.97);border-bottom:1px solid var(--line);padding:16px 20px}
+  h1{margin:0 0 4px;font-size:24px}
+  .subtitle{color:var(--muted)}
+  main{padding:18px 20px 80px}
+  .toolbar,.legend,.summary{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+  input,select,button,textarea{font:inherit}
+  input[type=text],select,input[type=number]{background:#0e1018;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px}
+  button,.fileLabel{background:var(--accent);color:#171015;border:0;border-radius:9px;padding:8px 11px;font-weight:700;cursor:pointer}
+  button.secondary,.fileLabel.secondary{background:#2a3044;color:var(--text);border:1px solid var(--line)}
+  button.danger{background:#6c2f39;color:#fff}
+  .fileLabel input{display:none}
+  .legend{display:block;color:var(--muted)}
+  .legend strong{color:var(--text)}
+  .scale{display:grid;grid-template-columns:repeat(10,minmax(72px,1fr));gap:6px;margin-top:8px}
+  .scale div{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:6px;text-align:center}
+  table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line)}
+  th,td{border-bottom:1px solid var(--line);padding:8px 7px;vertical-align:top}
+  th{position:sticky;top:91px;background:#202538;z-index:10;text-align:left;color:#dbe3fa}
+  tr:hover{background:#1b2030}
+  .name{font-weight:800}
+  .muted{color:var(--muted)}
+  .pill{display:inline-block;padding:2px 7px;border-radius:999px;background:#2a3044;margin:1px 2px 1px 0;font-size:12px}
+  .high{color:var(--good)} .med{color:var(--warn)} .low{color:var(--low)}
+  .recScore{font-size:18px;font-weight:900}
+  .ratingBox{min-width:220px}
+  input[type=range]{width:155px;vertical-align:middle}
+  .ratingNum{width:58px;margin-left:5px}
+  textarea{width:100%;min-height:48px;background:#0e1018;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px}
+  .hidden{display:none!important}
+  .status{margin-left:auto;color:var(--muted)}
+  details{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px}
+  summary{cursor:pointer;font-weight:800}
+  code{background:#0e1018;padding:1px 4px;border-radius:4px}
+  a{color:#9dccff}
+  @media(max-width:1100px){
+    .scale{grid-template-columns:repeat(5,1fr)}
+    th:nth-child(4),td:nth-child(4){display:none}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>BM1 Strategic Speed Rater</h1>
+  <div class="subtitle">Rate sustained strategic cruise capability on a 1–10 scale. This is intentionally <b>not</b> tactical impulse speed and not a literal warp-factor conversion.</div>
+</header>
+<main>
+  <div class="toolbar">
+    <input id="search" type="text" placeholder="Search ship / role…" size="28">
+    <select id="faction"><option value="">All factions</option></select>
+    <select id="shipClass"><option value="">All classes</option></select>
+    <select id="confidence">
+      <option value="">All confidence</option>
+      <option value="high">High-confidence lore</option>
+      <option value="medium">Medium</option>
+      <option value="low">Low / inferred</option>
+    </select>
+    <select id="sort">
+      <option value="name">Sort: name</option>
+      <option value="rec-desc">Recommended high → low</option>
+      <option value="user-desc">My rating high → low</option>
+      <option value="faction">Faction</option>
+    </select>
+    <label><input id="diffOnly" type="checkbox"> only changed from recommendation</label>
+    <button id="applyRecs">Use all recommendations</button>
+    <button id="exportJson" class="secondary">Export JSON</button>
+    <button id="exportCsv" class="secondary">Export CSV</button>
+    <button id="copyJson" class="secondary">Copy ratings</button>
+    <label class="fileLabel secondary">Import ships.json<input id="importRoster" type="file" accept=".json,application/json"></label>
+    <button id="reset" class="danger">Reset ratings</button>
+    <span class="status" id="status">Loading roster…</span>
+  </div>
+
+  <div class="legend">
+    <strong>Recommended interpretation:</strong> rate the ship's <em>sustained strategic cruise</em>—the pace it can actually maintain between systems without treating emergency maximum warp as normal travel.
+    Canon is inconsistent, so these recommendations use on-screen/official speed statements where available, then role/era inference for BM/custom hulls. Exotic propulsion such as Borg transwarp or Crossfield spore drive should be a separate movement mechanic rather than a giant 1–10 score.
+    <div class="scale" id="scale"></div>
+  </div>
+
+  <details>
+    <summary>Research basis & how I scored recommendations</summary>
+    <p><b>High-confidence anchors:</b> Intrepid has a canon maximum cruising speed of warp 9.975; Prometheus is described around warp 9.9/9.99 and as Starfleet's fastest in its era; Galaxy can reach ~9.6 sustained for hours / 9.8 at extreme risk; Defiant reaches about 9.5 but its drive is explicitly overpowered for the hull; Nova tops out at warp 8; Danube runabouts top out at warp 5; D'deridex is observed around warp 9, can hit 9.6 at propulsion cost, and is limited to warp 6 if it wants to remain cloaked; Vor'cha is listed at warp 9.5+; Constitution III is observed at warp 9.99; Inquiry is explicitly called Starfleet's fastest ship in 2399.</p>
+    <p><b>Why this is not a warp-factor table:</b> Star Trek's warp scale is nonlinear and dialogue is inconsistent. “Maximum,” “cruising,” and “sustainable” are also not interchangeable. For BM1 the useful gameplay quantity is sustained point-to-point strategic performance.</p>
+    <p><b>Community interpretation:</b> fan/Daystrom discussions commonly distinguish sprint speed from sustained cruise. This is especially important for Intrepid/Prometheus/Sovereign comparisons, and for ships like Defiant whose engines are unusually powerful but stress the hull. Borg transwarp is likewise better represented as a special routing/travel capability than a simple faster conventional warp number.</p>
+    <p><b>Low-confidence BM/custom hulls:</b> recommendations are deliberately provisional, based on stated role, era cues, class, and the roster's own description. Use your rating to override them.</p>
+    <p><b>Source set used for the recommendations:</b> Memory Alpha class / maximum-warp pages for Sovereign, Intrepid, Prometheus, Galaxy, Defiant, Nova, Danube, D'deridex, Vor'cha, Negh'Var, Constitution III, Inquiry, Galor/Keldon, Jem'Hadar craft, D'Kora/Ferengi Marauder and related classes; plus r/startrek and r/DaystromInstitute discussions on sustained vs maximum warp, Sovereign/Intrepid/Prometheus roles, D'deridex limitations, and Borg transwarp.</p>
+  </details>
+
+  <div class="summary" id="summary"></div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>ID / Ship</th>
+        <th>Faction / class</th>
+        <th>Role</th>
+        <th>Roster stats</th>
+        <th>Recommendation</th>
+        <th>My rating</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+
+<script>
+const ROSTER_URL = "https://raw.githubusercontent.com/Artemis2028/BM1-remastered-work/main/bm-ships/ships.json";
+const STORAGE_KEY = "bm1-strategic-speed-ratings-v1";
+const NOTE_KEY = "bm1-strategic-speed-notes-v1";
+
+const multiplierByRating = {
+  1:0.70, 1.5:0.74, 2:0.78, 2.5:0.82, 3:0.85, 3.5:0.89, 4:0.92, 4.5:0.96,
+  5:1.00, 5.5:1.04, 6:1.08, 6.5:1.12, 7:1.16, 7.5:1.20, 8:1.24, 8.5:1.28,
+  9:1.32, 9.5:1.36, 10:1.40
+};
+const mult = r => multiplierByRating[Number(r)] || 1;
+
+const OV = {
+  "Steamrunner Class":[7.5,"medium","Late-24c Starfleet combat hull; no firm canon warp figure found."],
+  "Excelsior Class":[6.5,"medium","Older Starfleet cruiser; high-warp capable but a generation behind Galaxy-era drive efficiency."],
+  "Nebula Class":[8.0,"high","Canon examples reach warp 9.3–9.6."],
+  "Ambassador Civilian Refit":[7.0,"medium","Ambassador-era frame; civilian refit lowers sustained strategic priority."],
+  "Akira Class":[8.0,"medium","Late-24c combat design; speed not firmly established on-screen."],
+  "Akira Strike Cruiser":[8.5,"medium","Combat-optimized Akira variant."],
+  "Galaxy Class":[8.5,"high","Warp 9.6 for hours; 9.8 theoretically at extreme risk; cruise lower."],
+  "Galaxy Command Variant":[8.5,"medium","Galaxy-derived command variant; same broad propulsion generation."],
+  "Sovereign Class":[9.5,"high","Sources vary (~9.7 to ~9.995); newer battlecruiser intended for high sustained strategic performance."],
+  "Sovereign Command Cruiser":[9.5,"high","Sovereign-derived command hull."],
+  "Defiant Escort":[8.5,"high","Warp ~9.5 achievable, but engines are explicitly overpowered/stress-limited for the hull."],
+  "Intrepid Explorer":[10.0,"high","Canon maximum cruising speed warp 9.975."],
+  "Prometheus Tactical Cruiser":[10.0,"high","Warp 9.9+ / 9.99 references; described as fastest Starfleet vessel of its era."],
+  "Nova Surveyor":[6.0,"high","Canon Nova maximum warp 8; short-term science design."],
+  "Danube Utility Runabout":[3.0,"high","Canon Danube maximum warp 5."],
+  "Type 7 Shuttle":[2.5,"medium","Shuttlecraft-era strategic performance; comparable shuttle types are low-warp."],
+  "Type 11 Shuttle":[4.5,"medium","Later/advanced shuttle, still not a long-range starship."],
+  "Peregrin Fighter":[5.0,"medium","Warp-capable tactical craft; strategic endurance lower than cruisers."],
+  "Saber Planetary Defender":[7.5,"medium","Late-24c escort; compact fast-response role."],
+  "Norway Class":[7.5,"medium","Late-24c Starfleet combat/support hull."],
+  "Luna Class":[6.5,"high","Memory Alpha lists warp 8 for the canon class."],
+  "California Class":[7.0,"medium","Late-24c support ship; capable but not a speed-specialist."],
+  "Parliament Class":[7.5,"medium","Modern engineering/support cruiser."],
+  "Constitution III Class":[10.0,"high","Warp 9.99 observed."],
+  "Inquiry Class":[10.0,"high","Explicitly called Starfleet's fastest ship in 2399."],
+  "Duderstadt Class":[9.0,"medium","Modern reconnaissance design; speed role strongly implied, no firm canon number used."],
+  "Excelsior II Class":[8.5,"medium","Modern fleet-cruiser successor to Excelsior."],
+  "Gagarin Class":[8.5,"medium","Modern fleet assault cruiser."],
+  "Reliant Class":[8.0,"medium","Modern utility cruiser."],
+  "Sagan Class":[9.0,"medium","Modern capital explorer."],
+  "Sutherland Class":[8.0,"medium","Modernized sensor-support cruiser."],
+  "Crossfield Class":[7.5,"medium","Conventional warp only here; spore drive should be a separate special movement system."],
+  "NX Class":[2.0,"high","NX-01 era warp-five technology; very slow by late-24c standards."],
+  "Terran Constitution":[5.0,"medium","Old Constitution lineage/refit; TOS-era warp numbers are not directly comparable to 24c scale."],
+  "Miranda Long-Range Frigate":[6.0,"medium","Old but extensively refitted Starfleet workhorse."],
+  "Centaur Reserve Cruiser":[6.0,"medium","Miranda/Excelsior-era reserve frame."],
+  "Ambassador Imperial Cruiser":[7.5,"medium","Ambassador-era strategic cruiser."],
+  "Cheyenne Class":[7.5,"medium","24c multi-mission cruiser; no firm canon max used."],
+
+  "D'deridex Warbird":[7.5,"high","Observed around warp 9; warp 9.6 damages propulsion; staying cloaked limits it to warp 6."],
+  "Classic Warbird":[6.5,"medium","Older Romulan capital design."],
+  "Norexan Warbird":[9.0,"medium","Later Romulan fast strike design; newer than D'deridex."],
+  "Reman Warbird":[8.5,"medium","Advanced late-24c strike capital; Scimitar-like role cues."],
+  "Romulan Scout":[7.5,"medium","Scout/courier role favors high strategic speed."],
+  "Romulan Courier":[8.0,"medium","Courier role favors sustained speed."],
+  "Romulan Freighter":[5.0,"medium","Heavy logistics role."],
+  "Romulan Miltek":[6.0,"low","Military transport; inferred."],
+  "Romulan Warbird":[7.5,"medium","Generic later warbird; inferred between D'deridex and Norexan."],
+  "Romulan Warhawk":[7.0,"low","BM supercapital; large hull offsets Romulan propulsion quality."],
+
+  "Vor'cha Attack Cruiser":[8.5,"high","Memory Alpha lists warp 9.5+."],
+  "Negh'Var Command Ship":[7.5,"high","Mirror Negh'Var observed up to warp 9; huge command battleship."],
+  "Neg'Var Warship":[7.5,"high","Negh'Var-line heavy battleship."],
+  "K'Vort Patrol Ship":[7.0,"medium","Bird-of-Prey patrol role; fast response but not top-tier strategic cruise."],
+  "B'rel Scout":[6.5,"medium","Small Bird-of-Prey scout; good response speed, limited sustained endurance."],
+  "Klingon Bird of Prey":[7.0,"medium","Light Bird-of-Prey; tactical agility does not automatically equal top strategic cruise."],
+  "K't'inga Cargo Cruiser":[5.5,"medium","Older Klingon hull in cargo conversion."],
+  "Klingon Cargo Ship":[5.0,"low","Armed logistics ship."],
+  "K'tra Class":[7.5,"low","BM Klingon attack cruiser; role inference."],
+  "Klingon Qonos":[6.0,"low","BM supercapital; large command hull."],
+
+  "Jem'Hadar Attack Ship":[7.0,"high","Canon observed warp 7+; some technical sources give higher, but sustained capability is uncertain."],
+  "Jem'Hadar Battlecruiser":[8.0,"medium","Technical references list about warp 9.6; heavy Dominion cruiser."],
+  "Dominion Cruiser":[8.0,"medium","Dominion combat cruiser; inferred from battlecruiser family."],
+  "Dominion Scout":[7.5,"medium","Scout role."],
+  "Dominion Battleship":[7.0,"medium","Very heavy hull; canon observed figure is not a demonstrated maximum."],
+  "Dominion Freighter":[5.0,"low","Logistics role."],
+
+  "Galor Cruiser":[6.5,"high","Canon approximately warp 8."],
+  "Keldon War Cruiser":[7.5,"medium","Observed/technical references include enhanced warp performance; advanced Galor derivative."],
+  "Cardassian Hideki Shuttle":[6.5,"medium","Fast patrol craft relative to Cardassian fleet."],
+  "Cardassian Transport Ship":[5.0,"low","Convoy transport."],
+  "Cardassian Behemoth":[5.5,"low","BM supercapital; very large hull."],
+
+  "Ferengi Marauder Refit":[7.5,"high","D'Kora class is canonically warp 9+."],
+  "Ferengi Cargo Shuttle":[3.0,"low","Small cargo shuttle."],
+  "Ferengi Vagabond":[7.0,"low","BM defense cruiser; inferred."],
+
+  "Vulcan Warpship":[4.0,"medium","Early Vulcan/Suurok-era ships are around warp 6.5–7; much slower than late-24c Starfleet."],
+  "Vulcan shuttle":[3.0,"low","Small Vulcan shuttle."],
+  "Vulcan Light Cruiser":[7.5,"low","BM fast cruiser; role inference."],
+  "T'Pral Class":[7.0,"low","BM Vulcan exploration cruiser; inferred."],
+  "Vulcan C'Thia Defense Cruiser":[7.0,"low","BM Vulcan defense cruiser; inferred."],
+  "Vulcan Expeditionary Explorer":[7.0,"low","BM expeditionary capital; endurance emphasized over sprint."],
+
+  "Kumari Class":[3.5,"medium","22nd-century Andorian battlecruiser; early warp generation."],
+  "Andorian Patrol Cruiser":[7.0,"low","BM later patrol cruiser; inferred."],
+  "Andorian Cargo Shuttle":[3.0,"low","Cargo shuttle."],
+
+  "Suliban Cell Ship":[4.5,"medium","Warp-capable 22nd-century craft with future-aided technology."],
+  "Suliban Pod":[4.0,"low","Small Cabal craft; future-aided but limited hull."],
+  "Suliban Cruiser":[5.0,"low","BM Suliban raiding cruiser; early-era baseline with advanced tech."],
+
+  "Hirogen Hunter":[8.5,"medium","Hunter role and Voyager-era long-range operations imply strong strategic mobility."],
+  "Hirogen Warship":[8.0,"medium","Large Voyager-era warship; inferred."],
+  "Hirogen Shuttle":[6.5,"low","Hunting shuttle."],
+
+  "Breen Warship":[8.0,"medium","Late Dominion-War peer combatant; no precise canon sustainable speed used."],
+  "Breen Light Cruiser":[8.0,"low","BM fast shield cruiser."],
+  "Breen Shuttle":[4.5,"low","Small craft."],
+
+  "Son'a Warship":[8.5,"medium","Highly advanced late-24c power; strategic speed inferred."],
+  "Son'a Battleship":[8.0,"medium","Large advanced Son'a hull."],
+  "Son'a Shuttle":[5.0,"low","Advanced small craft."],
+
+  "Borg Assimilation Cube":[9.0,"high","Conventional strategic speed is high, but Borg transwarp should be modeled separately rather than as rating 10+."],
+  "Tactical Cube":[9.0,"medium","Same principle: conventional travel high; transwarp is a special system."],
+
+  "Bajoran Solar Sailor":[1.0,"high","Solar-sail craft is not a normal warp cruiser; exceptional tachyon-assisted FTL should remain special."],
+  "Nausican Raider":[6.5,"medium","Raider role; fast enough to intercept commerce, not a known top-warp benchmark."],
+  "Hirogen Hunter":[8.5,"medium","Voyager-era hunter expected to cover large distances efficiently."],
+  "Tarellian Quantum Cruiser":[8.0,"low","BM 'quantum-drive' role suggests above-average strategic propulsion; not canon-grounded."],
+  "Tarellian Freighter":[7.0,"low","Quantum-drive freighter; lower than the cruiser but above conventional bulk freighters."],
+  "Promelli Skiff":[5.5,"low","Ancient/legacy Promellian tech; inferred."],
+  "Promelli Manitee":[5.0,"low","Heavy ancient cruiser; inferred."],
+  "Gorn Cruiser":[6.0,"low","Reserved BM Gorn hull; inferred."],
+  "Gorn Patrol Ship":[7.0,"low","Patrol role; inferred."],
+  "Gorn Interceptor":[8.0,"low","Interceptor role; inferred."],
+  "Tholian Shuttle":[4.5,"low","Small craft; inferred."],
+  "Tholian Cargo Ship":[5.0,"low","Cargo role."],
+  "Tholian Isaac Freighter":[4.0,"low","Bulk freighter; intentionally slow strategic hauler."],
+  "Tholian Battleship":[6.0,"low","Large warship; inferred."],
+  "Tholian Conquest":[5.5,"low","Supercapital; inferred."],
+  "Alien Bioship":[9.0,"low","Exotic combat bioship; intentionally high but uncertain."],
+  "Sentient Lifeform":[8.0,"low","Exotic/organic transport; uncertain."],
+  "Tamarian Warship":[7.0,"low","24c independent cruiser; inferred."],
+  "Concord-class Grand Cruiser":[6.0,"low","Independent supercapital; large hull."],
+  "Excalibur Class":[6.5,"low","BM Project X supercapital; strategic speed kept below specialist cruisers."],
+  "Galaxy Dreadnaught":[6.5,"low","Huge dreadnought; prioritizes combat over cruise."],
+  "Speeder":[9.0,"low","BM fast courier; role intentionally speed-specialized."],
+  "Kaplan F17 Freighter":[8.0,"low","Explicit fast frontier freighter."],
+  "Falcon Class":[8.5,"low","Strike escort; inferred high speed."],
+  "Thawn Class":[8.0,"low","Frontier escort; inferred."],
+  "Trieste Class":[8.0,"low","Reconnaissance cruiser; inferred."],
+  "Aeroshuttle":[7.0,"low","Armed auxiliary scout."],
+  "Sovereign Yacht":[7.0,"low","Premium command yacht; fast auxiliary."],
+  "Galaxy Yacht":[5.5,"low","Command yacht."],
+  "Orion Science Ship":[7.0,"low","Long-range science vessel."],
+  "Orion Starbridge":[6.0,"low","Commerce cruiser."],
+  "Helios Class":[7.5,"low","Civilian explorer."],
+  "Delpin Long-Range Cruiser":[8.0,"low","Long-range role."],
+  "Delpin Warship":[7.5,"low","Compact warship."],
+  "Delpin Luxury Liner":[6.0,"low","Liner prioritizes comfort/range over speed."],
+};
+
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+function fallbackRec(s){
+  const base = {shuttle:4, escort:6.5, lightCruiser:6, cruiser:6.5, capital:6.5, battleship:5.5}[s.shipClass] ?? 5.5;
+  let v = base;
+  const t = `${s.name||""} ${s.role||""}`.toLowerCase();
+  if(/scout|courier|recon|interceptor|speeder|fast/.test(t)) v += 1.2;
+  if(/patrol|strike|attack/.test(t)) v += .5;
+  if(/explorer|survey/.test(t)) v += .25;
+  if(/freighter|cargo|hauler|liner/.test(t)) v -= 1.2;
+  if(/tug|service/.test(t)) v -= 1.7;
+  if(/supercapital|dreadnaught|dreadnought|behemoth/.test(t)) v -= .8;
+  if(/shuttle/.test(t) && s.shipClass==="shuttle") v -= .25;
+  // Existing game topSpeed is only a weak tie-breaker; never let it dominate.
+  if(Number(s.topSpeed)>=70) v += .5;
+  else if(Number(s.topSpeed)<=32) v -= .5;
+  return Math.round(clamp(v,1,10)*2)/2;
+}
+function recommendation(s){
+  if(OV[s.name]) return {score:OV[s.name][0], confidence:OV[s.name][1], basis:OV[s.name][2]};
+  return {score:fallbackRec(s), confidence:"low", basis:"Provisional BM role/class inference; no specific canon warp figure used."};
+}
+
+let ships=[], ratings={}, notes={};
+try{ ratings=JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}"); }catch{}
+try{ notes=JSON.parse(localStorage.getItem(NOTE_KEY)||"{}"); }catch{}
+
+function save(){
+  localStorage.setItem(STORAGE_KEY,JSON.stringify(ratings));
+  localStorage.setItem(NOTE_KEY,JSON.stringify(notes));
+}
+function ratingFor(s){ return ratings[s.id] ?? recommendation(s).score; }
+
+function buildFilters(){
+  const fs=[...new Set(ships.map(s=>s.faction).filter(Boolean))].sort();
+  const cs=[...new Set(ships.map(s=>s.shipClass).filter(Boolean))].sort();
+  document.getElementById("faction").innerHTML='<option value="">All factions</option>'+fs.map(x=>`<option>${x}</option>`).join("");
+  document.getElementById("shipClass").innerHTML='<option value="">All classes</option>'+cs.map(x=>`<option>${x}</option>`).join("");
+}
+function esc(x){ return String(x??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
+
+function render(){
+  const q=document.getElementById("search").value.toLowerCase().trim();
+  const f=document.getElementById("faction").value;
+  const c=document.getElementById("shipClass").value;
+  const conf=document.getElementById("confidence").value;
+  const diff=document.getElementById("diffOnly").checked;
+  const sort=document.getElementById("sort").value;
+  let list=ships.filter(s=>{
+    const r=recommendation(s), mine=ratingFor(s);
+    if(q && !(`${s.name} ${s.role||""} ${s.faction||""} ${s.shipClass||""}`).toLowerCase().includes(q)) return false;
+    if(f && s.faction!==f) return false;
+    if(c && s.shipClass!==c) return false;
+    if(conf && r.confidence!==conf) return false;
+    if(diff && Number(mine)===Number(r.score)) return false;
+    return true;
+  });
+  list.sort((a,b)=>{
+    if(sort==="rec-desc") return recommendation(b).score-recommendation(a).score || a.name.localeCompare(b.name);
+    if(sort==="user-desc") return ratingFor(b)-ratingFor(a) || a.name.localeCompare(b.name);
+    if(sort==="faction") return (a.faction||"").localeCompare(b.faction||"") || a.name.localeCompare(b.name);
+    return a.name.localeCompare(b.name);
+  });
+
+  document.getElementById("rows").innerHTML=list.map(s=>{
+    const r=recommendation(s), mine=ratingFor(s), cls=r.confidence==="high"?"high":r.confidence==="medium"?"med":"low";
+    return `<tr data-id="${s.id}">
+      <td><span class="muted">#${s.id}</span><br><span class="name">${esc(s.name)}</span></td>
+      <td><span class="pill">${esc(s.faction)}</span><span class="pill">${esc(s.shipClass)}</span></td>
+      <td>${esc(s.role||"—")}</td>
+      <td><span class="muted">warp range ${esc(s.warpRange??"—")}<br>tactical topSpeed ${esc(s.topSpeed??"—")}</span></td>
+      <td><span class="recScore">${r.score.toFixed(1)}/10</span> <span class="${cls}">${r.confidence}</span><br>
+          <span class="muted">≈ ${mult(r.score).toFixed(2)}× strategic pace</span><br>
+          <span class="muted">${esc(r.basis)}</span></td>
+      <td class="ratingBox">
+        <input class="slider" type="range" min="1" max="10" step=".5" value="${mine}" data-id="${s.id}">
+        <input class="ratingNum" type="number" min="1" max="10" step=".5" value="${mine}" data-id="${s.id}">
+        <div><b>${Number(mine).toFixed(1)}/10</b> · ${mult(mine).toFixed(2)}×</div>
+      </td>
+      <td><textarea data-note="${s.id}" placeholder="Your reason / lore note…">${esc(notes[s.id]||"")}</textarea></td>
+    </tr>`;
+  }).join("");
+
+  document.querySelectorAll(".slider,.ratingNum").forEach(el=>el.addEventListener("input",e=>{
+    const id=e.target.dataset.id, v=clamp(Math.round(Number(e.target.value)*2)/2,1,10);
+    ratings[id]=v; save();
+    const tr=e.target.closest("tr");
+    tr.querySelector(".slider").value=v; tr.querySelector(".ratingNum").value=v;
+    tr.querySelector(".ratingBox div").innerHTML=`<b>${v.toFixed(1)}/10</b> · ${mult(v).toFixed(2)}×`;
+    updateSummary();
+  }));
+  document.querySelectorAll("textarea[data-note]").forEach(el=>el.addEventListener("input",e=>{
+    notes[e.target.dataset.note]=e.target.value; save();
+  }));
+  updateSummary(list.length);
+}
+function updateSummary(shown){
+  const vals=ships.map(ratingFor);
+  const avg=vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:0;
+  const changed=ships.filter(s=>Number(ratingFor(s))!==Number(recommendation(s).score)).length;
+  document.getElementById("summary").innerHTML=
+    `<b>${shown??ships.length}</b> shown · <b>${ships.length}</b> active roster ships · average my rating <b>${avg.toFixed(2)}</b>/10 · <b>${changed}</b> changed from recommendations`;
+}
+function exportRows(){
+  return ships.map(s=>{
+    const r=recommendation(s), mine=ratingFor(s);
+    return {id:s.id,name:s.name,faction:s.faction,shipClass:s.shipClass,role:s.role||"",recommendedRating:r.score,recommendedMultiplier:mult(r.score),confidence:r.confidence,myRating:mine,myMultiplier:mult(mine),notes:notes[s.id]||""};
+  });
+}
+function download(name,text,type="application/json"){
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([text],{type})); a.download=name; a.click(); URL.revokeObjectURL(a.href);
+}
+function ingest(data){
+  ships=(data.ships||data).filter(s=>s && s.rosterState!=="retired");
+  buildFilters(); render();
+  document.getElementById("status").textContent=`Loaded ${ships.length} ships`;
+}
+async function load(){
+  try{
+    const res=await fetch(ROSTER_URL,{cache:"no-store"});
+    if(!res.ok) throw new Error(`${res.status}`);
+    ingest(await res.json());
+  }catch(err){
+    document.getElementById("status").textContent="GitHub roster could not load — use Import ships.json";
+  }
+}
+document.getElementById("search").addEventListener("input",render);
+["faction","shipClass","confidence","sort","diffOnly"].forEach(id=>document.getElementById(id).addEventListener("change",render));
+document.getElementById("applyRecs").addEventListener("click",()=>{ ships.forEach(s=>ratings[s.id]=recommendation(s).score); save(); render(); });
+document.getElementById("reset").addEventListener("click",()=>{ if(confirm("Clear all your ratings and notes?")){ ratings={};notes={};save();render(); }});
+document.getElementById("exportJson").addEventListener("click",()=>download("bm1-strategic-speed-ratings.json",JSON.stringify(exportRows(),null,2)));
+document.getElementById("exportCsv").addEventListener("click",()=>{
+  const rows=exportRows(), cols=Object.keys(rows[0]||{});
+  const csv=[cols.join(","),...rows.map(r=>cols.map(c=>`"${String(r[c]??"").replace(/"/g,'""')}"`).join(","))].join("\n");
+  download("bm1-strategic-speed-ratings.csv",csv,"text/csv");
+});
+document.getElementById("copyJson").addEventListener("click",async()=>{
+  await navigator.clipboard.writeText(JSON.stringify(exportRows(),null,2));
+  document.getElementById("status").textContent="Ratings copied";
+});
+document.getElementById("importRoster").addEventListener("change",async e=>{
+  const f=e.target.files[0]; if(!f)return;
+  try{ ingest(JSON.parse(await f.text())); }catch{ alert("Could not parse that JSON."); }
+});
+document.getElementById("scale").innerHTML=Array.from({length:10},(_,i)=>{
+  const n=i+1; return `<div><b>${n}</b><br>${mult(n).toFixed(2)}×</div>`;
+}).join("");
+load();
+</script>
+</body>
+</html>
